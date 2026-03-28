@@ -1,0 +1,8 @@
+{
+  "id": "pivkeyu-template",
+  "name": "Pivkeyu Template Plugin",
+  "version": "0.1.0",
+  "description": "示例插件模板，可复制后开发修仙、赌场或股市类玩法。",
+  "entry": "plugin",
+  "enabled": false
+}

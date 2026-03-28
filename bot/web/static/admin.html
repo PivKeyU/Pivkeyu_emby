@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PIVKEYU 控制台</title>
+  <link rel="stylesheet" href="/static/admin.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">PIVKEYU Console</p>
+        <h1>后台管理面板</h1>
+        <p class="hero-copy">用一个页面搜索用户、编辑 bot 已录入的数据、查看插件装载情况。</p>
+      </div>
+      <form id="token-form" class="token-card">
+        <label for="admin-token">管理 Token</label>
+        <input id="admin-token" name="admin-token" type="password" placeholder="输入 admin_token">
+        <button type="submit">保存并连接</button>
+        <p id="token-status" class="muted">Token 会保存在当前浏览器。</p>
+      </form>
+    </section>
+
+    <section class="summary-grid" id="summary-grid">
+      <article class="summary-card">
+        <span>已录入用户</span>
+        <strong id="summary-total">-</strong>
+      </article>
+      <article class="summary-card">
+        <span>已绑定账号</span>
+        <strong id="summary-active">-</strong>
+      </article>
+      <article class="summary-card">
+        <span>封禁用户</span>
+        <strong id="summary-banned">-</strong>
+      </article>
+      <article class="summary-card">
+        <span>片刻碎片总量</span>
+        <strong id="summary-currency">-</strong>
+      </article>
+    </section>
+
+    <section class="workspace">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>用户检索</h2>
+          <form id="search-form" class="search-row">
+            <input id="search-input" type="search" placeholder="按 TG / Emby 名 / Emby ID 搜索">
+            <button type="submit">查询</button>
+          </form>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>TG</th>
+                <th>名称</th>
+                <th>等级</th>
+                <th>片刻碎片</th>
+                <th>Emby</th>
+              </tr>
+            </thead>
+            <tbody id="user-table-body"></tbody>
+          </table>
+        </div>
+        <div class="pager">
+          <button id="prev-page" type="button">上一页</button>
+          <span id="page-label">第 1 页</span>
+          <button id="next-page" type="button">下一页</button>
+        </div>
+      </div>
+
+      <div class="panel editor-panel">
+        <div class="panel-head">
+          <h2>用户编辑</h2>
+          <p id="editor-status" class="muted">先从左侧选择一个用户。</p>
+        </div>
+        <form id="editor-form" class="editor-grid">
+          <label>TG
+            <input id="field-tg" type="number" readonly>
+          </label>
+          <label>等级
+            <select id="field-lv">
+              <option value="a">a</option>
+              <option value="b">b</option>
+              <option value="c">c</option>
+              <option value="d">d</option>
+            </select>
+          </label>
+          <label>Emby 名称
+            <input id="field-name" type="text">
+          </label>
+          <label>Emby ID
+            <input id="field-embyid" type="text">
+          </label>
+          <label>片刻碎片
+            <input id="field-iv" type="number">
+          </label>
+          <label>注册额度
+            <input id="field-us" type="number">
+          </label>
+          <label>登录密码
+            <input id="field-pwd" type="text">
+          </label>
+          <label>安全码
+            <input id="field-pwd2" type="text">
+          </label>
+          <label>创建时间
+            <input id="field-cr" type="datetime-local">
+          </label>
+          <label>到期时间
+            <input id="field-ex" type="datetime-local">
+          </label>
+          <label>最近变更
+            <input id="field-ch" type="datetime-local">
+          </label>
+          <button id="save-user" type="submit" class="primary">保存修改</button>
+        </form>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>插件状态</h2>
+          <p class="muted">后续修仙、赌场、股市玩法直接按插件接入。</p>
+        </div>
+        <div id="plugin-list" class="plugin-list"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/admin.js"></script>
+</body>
+</html>
