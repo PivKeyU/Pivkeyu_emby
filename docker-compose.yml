@@ -1,4 +1,4 @@
-name: pivkeyuebmy
+name: pivkeyu_emby
 
 services:
   mysql:
@@ -22,13 +22,13 @@ services:
       retries: 20
       start_period: 30s
 
-  pivkeyuebmy:
+  pivkeyu_emby:
     build:
       context: .
       dockerfile: Dockerfile
-    image: pivkeyuebmy:local
+    image: pivkeyu_emby:local
     pull_policy: never
-    container_name: pivkeyuebmy
+    container_name: pivkeyu_emby
     restart: always
     network_mode: host
     depends_on:
@@ -52,7 +52,7 @@ services:
     restart: always
     network_mode: host
     depends_on:
-      - pivkeyuebmy
+      - pivkeyu_emby
     environment:
       PIVKEYU_PUBLIC_DOMAIN: ${PIVKEYU_PUBLIC_DOMAIN:-localhost}
       PIVKEYU_UPSTREAM: ${PIVKEYU_UPSTREAM:-127.0.0.1:8838}

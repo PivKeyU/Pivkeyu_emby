@@ -1,6 +1,6 @@
-# PivKeyU_Emby
+# pivkeyu_emby
 
-PivKeyU_Emby 是一个基于 Telegram、Emby、FastAPI 和 MySQL 的管理机器人，提供用户面板、管理面板、Mini App、Webhook、排行榜、定时任务和插件系统。
+pivkeyu_emby 是一个基于 Telegram、Emby、FastAPI 和 MySQL 的管理机器人，提供用户面板、管理面板、Mini App、Webhook、排行榜、定时任务和插件系统。
 
 ## 功能概览
 
@@ -187,8 +187,8 @@ data/runtime_plugins/<plugin_name>/
 2. 如果后台提示需要重建容器，执行：
 
 ```bash
-docker compose build pivkeyuebmy
-docker compose up -d pivkeyuebmy
+docker compose build pivkeyu_emby
+docker compose up -d pivkeyu_emby
 ```
 
 3. 容器启动后会自动安装依赖、执行迁移并重新加载插件

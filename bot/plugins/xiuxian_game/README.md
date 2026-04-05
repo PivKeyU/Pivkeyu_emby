@@ -400,7 +400,7 @@ shop_broadcast_cost
 
 相关封装在：
 
-- [emby_currency.py](/C:/Users/Administrator/Desktop/Sakura_embyboss-master/bot/func_helper/emby_currency.py)
+- [emby_currency.py](../../func_helper/emby_currency.py)
 
 后续股市、赌场等插件可以直接复用这里的封装。
 

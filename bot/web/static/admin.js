@@ -1112,7 +1112,7 @@ refs.pluginImportForm?.addEventListener("submit", async (event) => {
 
     if (pendingRebuild) {
       tone = "warning";
-      message = `插件 ${plugin.id || file.name} 已导入，但需要重建 Docker 容器后才能完全启用。建议执行：docker compose build pivkeyuebmy && docker compose up -d pivkeyuebmy`;
+      message = `插件 ${plugin.id || file.name} 已导入，但需要重建 Docker 容器后才能完全启用。建议执行：docker compose build pivkeyu_emby && docker compose up -d pivkeyu_emby`;
     } else if (hasError) {
       tone = "warning";
       message = `插件 ${plugin.id || file.name} 已导入，但加载时报错：${plugin.error}`;

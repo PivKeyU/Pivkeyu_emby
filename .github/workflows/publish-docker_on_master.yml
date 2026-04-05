@@ -3,7 +3,7 @@ name: Publish Latest Docker image
 on:
   workflow_dispatch:
   push:
-    branches: ['master']
+    branches: ['main']
 
 jobs:
   push_to_registries:
@@ -37,4 +37,4 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ secrets.DOCKER_USERNAME }}/sakura_embyboss:latest
+            ${{ secrets.DOCKER_USERNAME }}/pivkeyu_emby:latest

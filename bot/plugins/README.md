@@ -1,4 +1,4 @@
-# PivKeyU_Emby Plugin Guide
+# pivkeyu_emby Plugin Guide
 
 插件目录结构：
 
@@ -89,8 +89,8 @@ Docker 环境下的推荐更新流程：
 2. 如果后台提示需要重建容器，执行：
 
 ```bash
-docker compose build pivkeyuebmy
-docker compose up -d pivkeyuebmy
+docker compose build pivkeyu_emby
+docker compose up -d pivkeyu_emby
 ```
 
 3. 容器启动后，系统会自动执行插件依赖安装、数据库迁移与插件加载

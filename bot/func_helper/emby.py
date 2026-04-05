@@ -110,8 +110,8 @@ class Embyservice(metaclass=Singleton):
             'accept': 'application/json',
             'content-type': 'application/json',
             'X-Emby-Token': self.api_key,
-            'X-Emby-Client': 'PivKeyU_Emby BOT',
-            'X-Emby-Device-Name': 'PivKeyU_Emby BOT',
+            'X-Emby-Client': 'pivkeyu_emby BOT',
+            'X-Emby-Device-Name': 'pivkeyu_emby BOT',
             'X-Emby-Client-Version': '1.0.0',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Edg/114.0.1823.82'
         }

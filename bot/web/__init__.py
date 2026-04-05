@@ -25,7 +25,7 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 class Web:
     def __init__(self):
-        self.app: FastAPI = FastAPI(title="PivKeyU_Emby Web API")
+        self.app: FastAPI = FastAPI(title="pivkeyu_emby Web API")
         self.web_api = None
         self.start_api = None
 

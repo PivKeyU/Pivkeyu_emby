@@ -245,7 +245,7 @@ async def update_bot(force: bool = False, msg: Message = None, manual: bool = Fa
             LOGGER.info(message)
 
     else:
-        text = '❌ 【AutoUpdate】失败，请检查 git_repo 是否正确，形如 `owner/PivKeyU_Emby`'
+        text = '❌ 【AutoUpdate】失败，请检查 git_repo 是否正确，形如 `owner/pivkeyu_emby`'
         await bot.send_message(chat_id=group[0], text=text) if not msg else await msg.edit(text)
         LOGGER.info(text)
 

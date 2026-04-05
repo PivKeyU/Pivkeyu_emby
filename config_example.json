@@ -5,7 +5,7 @@
 
   "_comment_bot_identity": "Telegram 基础信息：以下字段必须替换成你自己的值。",
   "bot_name": "your_bot_username_without_at",
-  "_comment_bot_name": "BotFather 创建的机器人用户名，不带 @。例如 PivKeyU_Emby_bot。",
+  "_comment_bot_name": "BotFather 创建的机器人用户名，不带 @。例如 pivkeyu_emby_bot。",
   "bot_token": "1234567890:replace_with_your_bot_token",
   "_comment_bot_token": "BotFather 提供的 bot token，必须完整替换。",
   "owner_api": 12345678,
@@ -31,7 +31,7 @@
   "money": "片刻碎片",
   "_comment_money": "机器人内积分/货币名称。",
   "ranks": {
-    "logo": "PivKeyU_Emby",
+    "logo": "pivkeyu_emby",
     "backdrop": false
   },
   "_comment_ranks": "排行榜品牌文案与是否使用带背景榜单图。",
@@ -174,7 +174,7 @@
   "_comment_update": "自动更新。发布给别人用时建议默认关闭，避免误拉取其他仓库。",
   "auto_update": {
     "status": false,
-    "git_repo": "owner/PivKeyU_Emby",
+    "git_repo": "owner/pivkeyu_emby",
     "commit_sha": null,
     "up_description": null
   },
