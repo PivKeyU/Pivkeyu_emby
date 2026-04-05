@@ -37,7 +37,7 @@ async def ban_playlist(eid: str):
 
     if await emby.emby_change_policy(emby_id=eid, disable=True):
         info = {"user_id": user.tg, "emby_name": user.name, "embyid": eid, "is_baned": True,
-                "details": "已拦截疑似敏感操作播放列表，用户已被斩杀（封禁）。请向权限管理员描述信息。"}
+                "details": "已拦截疑似敏感操作播放列表，用户已被斩杀（封禁）。请向权限主人描述信息。"}
         text = (f"【新建播放列表拦截】\n\n"
                 f"[你](tg://user?id={user.tg}) 已被检测到新封禁用户\n"
                 f"Emby：{user.name}  |  ID：`{user.tg}`\n"

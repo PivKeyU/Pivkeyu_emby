@@ -20,7 +20,7 @@ async def _redeem_partition_code(code: str, tg_id: int):
     libs = partition_libs.get(record.partition, []) if partition_libs else []
     if not libs:
         LOGGER.warning("分区码对应分区未配置库: %s", record.partition)
-        return False, "⚠️ 分区未配置库，请联系管理员。"
+        return False, "⚠️ 分区未配置库，请联系主人。"
 
     emby_row = sql_get_emby(tg=tg_id)
     if not emby_row or not emby_row.embyid:

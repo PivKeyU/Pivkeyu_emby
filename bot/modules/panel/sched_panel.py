@@ -1,5 +1,6 @@
 import asyncio
 import os
+from sys import argv, executable
 
 import requests
 from pyrogram import filters
@@ -106,7 +107,7 @@ async def check_ex_admin(_, msg):
         await msg.reply("🔔 请输入 `/check_ex true` 确认运行")
 
 
-# bot数据库手动备份
+# 本女仆数据库手动备份
 @bot.on_message(filters.command('backup_db', prefixes) & filters.user(owner))
 async def manual_backup_db(_, msg):
     await asyncio.gather(deleteMessage(msg), auto_backup_db())
@@ -161,9 +162,11 @@ async def restart_bot(_, msg):
     schedall.restart_msg_id = send.id
     save_config()
     try:
-        # some code here
         LOGGER.info("重启")
-        os.execl('/bin/systemctl', 'systemctl', 'restart', 'embyboss')  # 用当前进程执行systemctl命令，重启embyboss服务
+        service_name = os.getenv("PIVKEYU_RESTART_SERVICE", "").strip()
+        if service_name and os.path.exists('/bin/systemctl'):
+            os.execl('/bin/systemctl', 'systemctl', 'restart', service_name)
+        os.execl(executable, executable, *argv)
     except FileNotFoundError:
         exit(1)
 
@@ -205,9 +208,6 @@ async def execute(command, pass_error=True):
     return result
 
 
-from sys import executable, argv
-
-
 @scheduler.SCHEDULER.scheduled_job('cron', hour='12', minute='30', id='update_bot')
 async def update_bot(force: bool = False, msg: Message = None, manual: bool = False):
     """
@@ -227,7 +227,7 @@ async def update_bot(force: bool = False, msg: Message = None, manual: bool = Fa
             await execute("git pull --all")
             # await execute(f"{executable} -m pip install --upgrade -r requirements.txt")
             await execute(f"{executable} -m pip install  -r requirements.txt")
-            text = '【AutoUpdate_Bot】运行成功，已更新bot代码。重启bot中...'
+            text = '【AutoUpdate】运行成功，已更新本女仆代码。正在重启本女仆...'
             if not msg:
                 reply = await bot.send_message(chat_id=group[0], text=text)
                 schedall.restart_chat_id = group[0]
@@ -240,12 +240,12 @@ async def update_bot(force: bool = False, msg: Message = None, manual: bool = Fa
             save_config()
             os.execl(executable, executable, *argv)
         else:
-            message = "【AutoUpdate_Bot】运行成功，未检测到更新，结束"
+            message = "✅ 【AutoUpdate】运行成功，未检测到更新，结束"
             await bot.send_message(chat_id=group[0], text=message) if not msg else await msg.edit(message)
             LOGGER.info(message)
 
     else:
-        text = '【AutoUpdate_Bot】失败，请检查 git_repo 是否正确，形如 `berry8838/Sakura_embyboss`'
+        text = '❌ 【AutoUpdate】失败，请检查 git_repo 是否正确，形如 `owner/PivKeyU_Emby`'
         await bot.send_message(chat_id=group[0], text=text) if not msg else await msg.edit(text)
         LOGGER.info(text)
 
@@ -253,7 +253,7 @@ async def update_bot(force: bool = False, msg: Message = None, manual: bool = Fa
 @bot.on_message(filters.command('update_bot', prefixes) & admins_on_filter)
 async def get_update_bot(_, msg: Message):
     delete_task = msg.delete()
-    send_task = bot.send_message(chat_id=msg.chat.id, text='正在更新bot代码，请稍等。。。')
+    send_task = bot.send_message(chat_id=msg.chat.id, text='⏳ 正在更新本女仆代码，请稍等。。。')
     results = await asyncio.gather(delete_task, send_task)
     # results[1] 是发送消息的结果，从中提取 chat_id 和 message_id
     if len(results) == 2 and isinstance(results[1], Message):

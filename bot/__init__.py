@@ -1,6 +1,7 @@
 #! /usr/bin/python3
 # -*- coding: utf-8 -*-
 import contextlib
+from pathlib import Path
 
 from .func_helper.logger_config import logu, Now
 from .func_helper.runtime import configure_runtime_limits
@@ -69,6 +70,32 @@ red_envelope = config.red_envelope
 moviepilot = config.moviepilot
 auto_update = config.auto_update
 api = config.api
+plugin_nav = config.plugin_nav
+
+
+def _validate_telegram_credentials():
+    issues = []
+
+    if not isinstance(bot_token, str) or ":" not in bot_token or bot_token.startswith("5701:AA"):
+        issues.append("bot_token")
+
+    if not isinstance(owner_api, int) or owner_api <= 0 or owner_api == 73711:
+        issues.append("owner_api")
+
+    if not isinstance(owner_hash, str) or len(owner_hash.strip()) < 16:
+        issues.append("owner_hash")
+
+    if issues:
+        raise RuntimeError(
+            "Telegram 凭据未配置完整: "
+            + ", ".join(issues)
+            + "。Pyrogram 启动本女仆需要 bot_token、owner_api(api_id)、owner_hash(api_hash)。"
+            + "请在 data/config.json 中填写 BotFather 提供的 bot_token，"
+            + "以及 https://my.telegram.org 获取的 api_id/api_hash。"
+        )
+
+
+_validate_telegram_credentials()
 save_config()
 configure_runtime_limits()
 
@@ -98,7 +125,7 @@ admin_p = user_p + [
     BotCommand("white_channel", "添加皮套人白名单 [管理]"),
     BotCommand("unban_channel", "解封皮套人 [管理]"),
     BotCommand("syncgroupm", "消灭不在群的人 [管理]"),
-    BotCommand("syncunbound", "消灭未绑定bot的emby账户 [管理]"),
+    BotCommand("syncunbound", "消灭未绑定本女仆的emby账户 [管理]"),
     BotCommand("scan_embyname", "扫描同名的用户记录 [管理]"),
     BotCommand("low_activity", "手动运行活跃检测 [管理]"),
     BotCommand("check_ex", "手动到期检测 [管理]"),
@@ -121,20 +148,20 @@ admin_p = user_p + [
     BotCommand("callall", "群发消息给每个人 [管理]"),
     BotCommand("only_rm_emby", "删除指定的Emby账号 [管理]"),
     BotCommand("only_rm_record", "删除指定的tgid数据库记录 [管理]"),
-    BotCommand("restart", "重启bot [管理]"),
-    BotCommand("update_bot", "更新bot [管理]"),
+    BotCommand("restart", "重启本女仆 [管理]"),
+    BotCommand("update_bot", "更新本女仆 [管理]"),
 ]
 
 owner_p = admin_p + [
-    BotCommand("proadmin", "添加bot管理 [owner]"),
-    BotCommand("revadmin", "移除bot管理 [owner]"),
+    BotCommand("proadmin", "添加本女仆管理 [owner]"),
+    BotCommand("revadmin", "移除本女仆管理 [owner]"),
     BotCommand("bindall_id", "一键更新用户们Embyid [owner]"),
     BotCommand("backup_db", "手动备份数据库[owner]"),
     BotCommand("unbanall", "解除所有用户的禁用状态 [owner]"),
     BotCommand("banall", "禁用所有用户 [owner]"),
     BotCommand("paolu", "跑路!!!删除所有用户 [owner]"),
     BotCommand('restore_from_db', '恢复Emby账户[owner]'),
-    BotCommand("config", "开启bot高级控制面板 [owner]"),
+    BotCommand("config", "开启本女仆高级控制面板 [owner]"),
     BotCommand("embylibs_unblockall", "一键开启所有用户的媒体库 [owner]"),
     BotCommand("embylibs_blockall", "一键关闭所有用户的媒体库 [owner]")
 ]
@@ -148,14 +175,15 @@ with contextlib.suppress(ImportError):
     uvloop.install()
 from pyrogram import enums
 from pyromod import Client
-from .func_helper.persona import install_persona_hooks
 
 proxy = {} if not config.proxy.scheme else config.proxy.dict()
+session_dir = Path("data/session")
+session_dir.mkdir(parents=True, exist_ok=True)
 
 bot = Client(bot_name, api_id=owner_api, api_hash=owner_hash, bot_token=bot_token, proxy=proxy,
+             workdir=str(session_dir),
              workers=128,
              max_concurrent_transmissions=256, parse_mode=enums.ParseMode.MARKDOWN)
 
-install_persona_hooks(bot)
 
 LOGGER.info("Clinet 客户端准备")

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 审计命令模块 - 提供 IP、设备名和客户端名审计功能
-包含 auditip、auditdevice 和 auditclient 三个管理员专用命令
+包含 auditip、auditdevice 和 auditclient 三个主人专用命令
 """
 
 import re
@@ -131,7 +131,7 @@ async def audit_ip_command(_, message: Message):
             except FloodWait as f:
                 LOGGER.warning(str(f))
                 await asyncio.sleep(f.value * 1.2)
-        LOGGER.info(f"管理员 {message.from_user.id} 执行了 IP 审计: {ip_address}")
+        LOGGER.info(f"主人 {message.from_user.id} 执行了 IP 审计: {ip_address}")
 
     except Exception as e:
         error_text = f"❌ **IP 审计异常**\n\n**错误信息:** {str(e)}"
@@ -266,7 +266,7 @@ async def audit_device_name_command(_, message: Message):
             except FloodWait as f:
                 LOGGER.warning(str(f))
                 await asyncio.sleep(f.value * 1.2)
-        LOGGER.info(f"管理员 {message.from_user.id} 执行了设备名审计: {device_keyword}")
+        LOGGER.info(f"主人 {message.from_user.id} 执行了设备名审计: {device_keyword}")
 
     except Exception as e:
         error_text = f"❌ **设备名审计异常**\n\n**错误信息:** {str(e)}"
@@ -402,7 +402,7 @@ async def audit_client_name_command(_, message: Message):
             except FloodWait as f:
                 LOGGER.warning(str(f))
                 await asyncio.sleep(f.value * 1.2)
-        LOGGER.info(f"管理员 {message.from_user.id} 执行了客户端名审计: {client_keyword}")
+        LOGGER.info(f"主人 {message.from_user.id} 执行了客户端名审计: {client_keyword}")
 
     except Exception as e:
         error_text = f"❌ **客户端名审计异常**\n\n**错误信息:** {str(e)}"

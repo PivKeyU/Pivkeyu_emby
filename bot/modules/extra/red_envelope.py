@@ -103,11 +103,11 @@ async def send_red_envelope(_, msg):
         target_from_user = msg.reply_to_message.from_user
         target_sender_chat = msg.reply_to_message.sender_chat
 
-        # 不允许对机器人或频道发送专属红包
+        # 不允许对本女仆这类服务账号或频道发送专属红包
         if (target_from_user and target_from_user.is_bot) or target_sender_chat:
             return await asyncio.gather(
                 msg.delete(),
-                sendMessage(msg, "🚫 专属红包不能发给机器人或频道!", timer=60),
+                sendMessage(msg, "🚫 专属红包不能发给本女仆这类服务账号或频道！", timer=60),
             )
 
         try:
@@ -236,7 +236,7 @@ async def grab_red_envelope(_, call):
     # 验证用户资格
     e = sql_get_emby(tg=call.from_user.id)
     if not e:
-        return await callAnswer(call, "你还未私聊bot! 数据库没有你.", True)
+        return await callAnswer(call, "你还未私聊本女仆！数据库里没有你。", True)
 
     # 检查是否已领取
     if call.from_user.id in envelope.receivers:
@@ -338,7 +338,7 @@ async def verify_red_envelope_sender(msg, money, is_private=False):
             if is_private:
                 error_msg += "\nⅲ 不许发自己"
             else:
-                error_msg += "\nⅲ 未私聊过bot"
+                error_msg += "\nⅲ 未私聊过本女仆"
 
             await asyncio.gather(
                 msg.delete(),
@@ -422,7 +422,7 @@ async def s_rank(_, msg):
                 await sendMessage(
                     msg,
                     f"[{msg.from_user.first_name}]({msg.from_user.id}) "
-                    f"未私聊过bot或不足支付手续费{_open.srank_cost}{sakura_b}，禁言一分钟。",
+                    f"未私聊过本女仆或不足支付手续费{_open.srank_cost}{sakura_b}，禁言一分钟。",
                     timer=60,
                 )
             except Exception as e:

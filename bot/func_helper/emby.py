@@ -17,7 +17,7 @@ from bot.func_helper.utils import pwd_create, convert_runtime, cache, Singleton
 def create_policy(admin=False, disable=False, limit: int = 2, block: list = None):
     """
     创建用户策略
-    :param admin: bool 是否开启管理员
+    :param admin: bool 是否开启主人
     :param disable: bool 是否禁用
     :param limit: int 同时播放流的默认值，修改2 -> 3 any都可以
     :param block: list 默认将 播放列表 屏蔽
@@ -110,8 +110,8 @@ class Embyservice(metaclass=Singleton):
             'accept': 'application/json',
             'content-type': 'application/json',
             'X-Emby-Token': self.api_key,
-            'X-Emby-Client': 'PIVKEYU BOT',
-            'X-Emby-Device-Name': 'PIVKEYU BOT',
+            'X-Emby-Client': 'PivKeyU_Emby BOT',
+            'X-Emby-Device-Name': 'PivKeyU_Emby BOT',
             'X-Emby-Client-Version': '1.0.0',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Edg/114.0.1823.82'
         }
@@ -647,7 +647,7 @@ class Embyservice(metaclass=Singleton):
         """
         修改用户策略
         :param user_id: 用户ID
-        :param admin: 是否为管理员
+        :param admin: 是否为主人
         :param disable: 是否禁用
         :return: 是否成功
         """

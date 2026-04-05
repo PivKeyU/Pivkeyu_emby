@@ -7,7 +7,7 @@ Syncs 功能
 
 3. bindall_id 遍历emby users，从数据库中匹配，更新其embyid字段
 
-4. 小功能 - 给admin的账号开管理员后台，但是会被续期覆盖
+4. 小功能 - 给admin的账号开主人后台，但是会被续期覆盖
 
 5. unbanall 解除所有用户的禁用状态：从 Emby 库中查询出所有用户，解禁完成后根据用户名和数据库中的用户对比，如果之前lv值为 c 的，将其更改为 b（需要确认：/unbanall true）
 
@@ -94,10 +94,10 @@ async def sync_emby_group(_, msg):
 @bot.on_message(filters.command('syncunbound', prefixes) & admins_on_filter)
 async def sync_emby_unbound(_, msg):
     await deleteMessage(msg)
-    send = await sendPhoto(msg, photo=bot_photo, caption="⚡扫描未绑定Bot任务\n  **正在开启中...消灭扫描bot的emby账户**",
+    send = await sendPhoto(msg, photo=bot_photo, caption="⚡扫描未绑定本女仆任务\n  **正在开启中...扫描未绑定本女仆的 emby 账户**",
                            send=True)
     sign_name = f'{msg.sender_chat.title}' if msg.sender_chat else f'{msg.from_user.first_name}'
-    LOGGER.info(f"{sign_name} 执行了扫描未绑定Bot任务")
+    LOGGER.info(f"{sign_name} 执行了扫描未绑定本女仆任务")
     confirm_delete = False
     try:
         confirm_delete = msg.command[1]
@@ -109,13 +109,13 @@ async def sync_emby_unbound(_, msg):
     start = time.perf_counter()
     success, alluser = await emby.users()
     if not success or alluser is None:
-        return await send.edit("⚡扫描未绑定Bot任务结束\n\n结束！搞毛，emby库中一个人都没有。")
+        return await send.edit("⚡扫描未绑定本女仆任务结束\n\n结束！搞毛，emby库中一个人都没有。")
 
     if success:
         for v in alluser:
             b += 1
             try:
-                # 消灭不是管理员的账号
+                # 消灭不是主人的账号
                 if v['Policy'] and not bool(v['Policy']['IsAdministrator']):
                     embyid = v['Id']
                     # 查询无异常，并且无sql记录
@@ -126,9 +126,9 @@ async def sync_emby_unbound(_, msg):
                             a += 1
                             if confirm_delete:
                                 await emby.emby_del(emby_id=embyid)
-                                text += f"🎯 #{v['Name']} 未绑定bot，删除\n"
+                                text += f"🎯 #{v['Name']} 未绑定本女仆，删除\n"
                             else:
-                                text += f"🎯 #{v['Name']} 未绑定bot\n"
+                                text += f"🎯 #{v['Name']} 未绑定本女仆\n"
             except Exception as e:
                 LOGGER.warning(e)
         # 防止触发 MESSAGE_TOO_LONG 异常
@@ -140,12 +140,12 @@ async def sync_emby_unbound(_, msg):
     times = end - start
     if a != 0:
         if confirm_delete:
-            await sendMessage(msg, text=f"⚡扫描未绑定Bot任务 done\n  共检索出 {b} 个账户， {a}个未绑定，耗时：{times:.3f}s，已删除")
+            await sendMessage(msg, text=f"⚡扫描未绑定本女仆任务完成\n  共检索出 {b} 个账户，{a} 个未绑定，耗时：{times:.3f}s，已删除")
         else:
-            await sendMessage(msg, text=f"⚡扫描未绑定Bot任务 done\n  共检索出 {b} 个账户， {a}个未绑定，耗时：{times:.3f}s，如需删除请输入 `/syncunbound true`")
+            await sendMessage(msg, text=f"⚡扫描未绑定本女仆任务完成\n  共检索出 {b} 个账户，{a} 个未绑定，耗时：{times:.3f}s，如需删除请输入 `/syncunbound true`")
     else:
-        await sendMessage(msg, text=f"**扫描未绑定Bot任务 结束！搞毛，没有人被干掉。**")
-    LOGGER.info(f"{sign_name} 扫描未绑定Bot任务结束，共检索出 {b} 个账户， {a}个未绑定，耗时：{times:.3f}s")
+        await sendMessage(msg, text="**扫描未绑定本女仆任务结束！搞毛，没有人被干掉。**")
+    LOGGER.info(f"{sign_name} 扫描未绑定本女仆任务结束，共检索出 {b} 个账户，{a} 个未绑定，耗时：{times:.3f}s")
 
 
 @bot.on_message(filters.command('bindall_id', prefixes) & filters.user(owner))
@@ -413,7 +413,7 @@ async def unban_all_users(_, msg):
         for emby_user in allusers:
             
             try:
-                # 跳过管理员账户
+                # 跳过主人账户
                 if emby_user.get('Policy') and bool(emby_user['Policy'].get('IsAdministrator', False)):
                     continue
                 
@@ -505,7 +505,7 @@ async def ban_all_users(_, msg):
         for emby_user in allusers:
             
             try:
-                # 跳过管理员账户
+                # 跳过主人账户
                 if emby_user.get('Policy') and bool(emby_user['Policy'].get('IsAdministrator', False)):
                     continue
                 
@@ -596,7 +596,7 @@ async def delete_all_users(_, msg):
         for emby_user in allusers:
             
             try:
-                # 跳过管理员账户
+                # 跳过主人账户
                 if emby_user.get('Policy') and bool(emby_user['Policy'].get('IsAdministrator', False)):
                     continue
                 

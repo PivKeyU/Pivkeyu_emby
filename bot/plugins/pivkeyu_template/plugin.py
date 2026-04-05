@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 from fastapi import APIRouter
+from pyrogram import filters
+
+from bot import prefixes
 
 
 def register_bot(bot) -> None:
-    # 在这里注册新的 bot 指令或事件处理器。
-    # 建议直接在此文件内使用 @bot.on_message / @bot.on_callback_query。
-    return None
+    # Minimal bot-side probe for plugin activation checks.
+    @bot.on_message(filters.command("plugin_ping", prefixes))
+    async def plugin_ping(_, msg):
+        await msg.reply_text("pivkeyu-template plugin is active")
 
 
 def register_web(app) -> None:
-    # 在这里注册 FastAPI 路由。
+    # Minimal web-side probe for plugin activation checks.
     router = APIRouter(prefix="/plugins/template", tags=["Template Plugin"])
 
     @router.get("/ping")

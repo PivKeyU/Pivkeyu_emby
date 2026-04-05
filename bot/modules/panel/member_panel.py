@@ -11,7 +11,7 @@ import math
 import random
 from datetime import timedelta, datetime
 from bot.schemas import ExDate, Yulv
-from bot import bot, LOGGER, _open, emby_line, sakura_b, ranks, group, config, bot_name, schedall
+from bot import bot, LOGGER, _open, emby_line, sakura_b, ranks, group, config, schedall
 from pyrogram import filters
 from bot.func_helper.emby import emby
 from bot.func_helper.filters import user_in_group_on_filter
@@ -226,7 +226,7 @@ async def change_tg(_, call):
 
     elif m.text == '/cancel':
         await m.delete()
-        await editMessage(call, '__您已经取消输入__ **会话已结束！**', back_members_ikb)
+        await editMessage(call, '__您已经取消输入__ **会话已结束！** ✅', back_members_ikb)
     else:
         try:
             await m.delete()
@@ -240,7 +240,7 @@ async def change_tg(_, call):
             # 在emby2中，验证安全码 或者密码
             e2 = sql_get_emby2(name=emby_name)
             if e2 is None:
-                return await editMessage(call, f'❓ 未查询到bot数据中名为 {emby_name} 的账户，请使用 **绑定TG** 功能。',
+                return await editMessage(call, f'❓ 未查询到本女仆数据中名为 {emby_name} 的账户，请使用 **绑定TG** 功能。',
                                          buttons=re_bindtg_ikb)
             if emby_pwd != e2.pwd2:
                 success, embyid = await emby.authority_account(tg_id=call.from_user.id, username=emby_name, password=emby_pwd)
@@ -294,11 +294,11 @@ async def change_tg(_, call):
             await  asyncio.gather(editMessage(call,
                                               f'✔️ 会话结束，验证成功\n\n'
                                               f'🔰 用户名：**{emby_name}** 输入码：**{emby_pwd}**......\n\n'
-                                              f'🎯 已向授权群发送申请，请联系并等待管理员确认......'),
+                                              f'🎯 已向授权群发送申请，请联系并等待主人确认......'),
                                   sendMessage(call,
                                               f'⭕#TG改绑\n'
                                               f'**用户 [{call.from_user.id}](tg://user?id={call.from_user.id}) 正在试图改绑Emby: [{e.name}](tg://user?id={e.tg})，原TG: `{e.tg}`，已通过安全/密码核验\n\n'
-                                              f'请管理员审核决定：**',
+                                              f'请主人审核决定：**',
                                               buttons=send_changetg_ikb(call.from_user.id, e.tg),
                                               send=True))
             LOGGER.info(
@@ -314,7 +314,7 @@ async def bind_tg(_, call):
     send = await editMessage(call,
                              '🔰 **【已有emby绑定至tg】**\n'
                              '须知：\n'
-                             '- **请确保您需绑定的账户不在bot中**\n'
+                             '- **请确保您需绑定的账户不在本女仆中**\n'
                              '- **请确保您不是恶意绑定他人的账户**\n'
                              '- **请确保输入正确的emby用户名，密码**\n\n'
                              '您有120s回复 `[emby用户名] [密码]`\n例如 `苏苏 5210` ，若密码为空则填写“None”，退出点 /cancel')
@@ -327,7 +327,7 @@ async def bind_tg(_, call):
 
     elif m.text == '/cancel':
         await m.delete()
-        await editMessage(call, '__您已经取消输入__ **会话已结束！**', back_members_ikb)
+        await editMessage(call, '__您已经取消输入__ **会话已结束！** ✅', back_members_ikb)
     else:
         try:
             await m.delete()
@@ -465,7 +465,7 @@ async def reset(_, call):
                         await editMessage(call, '🕶️ 操作完成！已为您重置密码为 空。', buttons=back_members_ikb)
                         LOGGER.info(f"【重置密码】：{call.from_user.id} 成功重置了空密码！")
                     else:
-                        await editMessage(call, '🫥 重置密码操作失败！请联系管理员。')
+                        await editMessage(call, '🫥 重置密码操作失败！请联系主人。')
                         LOGGER.error(f"【重置密码】：{call.from_user.id} 重置密码失败 ！")
 
                 else:
@@ -476,7 +476,7 @@ async def reset(_, call):
                                           buttons=back_members_ikb)
                         LOGGER.info(f"【重置密码】：{call.from_user.id} 成功重置了密码为 {mima.text} ！")
                     else:
-                        await editMessage(call, '🫥 操作失败！请联系管理员。', buttons=back_members_ikb)
+                        await editMessage(call, '🫥 操作失败！请联系主人。', buttons=back_members_ikb)
                         LOGGER.error(f"【重置密码】：{call.from_user.id} 重置密码失败 ！")
 
 
@@ -491,7 +491,7 @@ async def embyblocks(_, call):
     elif data.lv == "c":
         return await callAnswer(call, '💢 账户到期，封禁中无法使用！', True)
     elif len(config.emby_block) == 0:
-        send = await editMessage(call, '⭕ 管理员未设置。。。 快催催\no(*////▽////*)q', buttons=back_members_ikb)
+        send = await editMessage(call, '⭕ 主人未设置。。。 快催催\no(*////▽////*)q', buttons=back_members_ikb)
         if send is False:
             return
     else:
@@ -660,7 +660,7 @@ async def do_store_whitelist(_, call):
         await send.forward(group[0])
         LOGGER.info(f'【兑换白名单】- {call.from_user.id} 已花费 9999{sakura_b}，晋升白名单')
     else:
-        await callAnswer(call, '❌ 管理员未开启此兑换', True)
+        await callAnswer(call, '❌ 主人未开启此兑换', True)
 
 
 @bot.on_callback_query(filters.regex('store-invite'))
@@ -713,13 +713,13 @@ async def do_store_invite(_, call):
             links = await cr_link_one(call.from_user.id, days, count, days, method)
             if links is None:
                 return await editMessage(call, '⚠️ 数据库插入失败，请检查数据库')
-            links = f"🎯 {bot_name}已为您生成了 **{days}天** 注册码 {count} 个\n\n" + links
+            links = f"🎯 本女仆已为您生成 **{days}天** 注册码 {count} 个\n\n" + links
             chunks = [links[i:i + 4096] for i in range(0, len(links), 4096)]
             for chunk in chunks:
                 await sendMessage(content, chunk)
-            LOGGER.info(f"【注册码兑换】：{bot_name}已为 {content.from_user.id} 兑换了 {count} 个 {days} 天注册码")
+            LOGGER.info(f"【注册码兑换】：本女仆已为 {content.from_user.id} 兑换了 {count} 个 {days} 天注册码")
     else:
-        await callAnswer(call, '❌ 管理员未开启此兑换', True)
+        await callAnswer(call, '❌ 主人未开启此兑换', True)
 
 
 @bot.on_callback_query(filters.regex('store-query'))
@@ -779,7 +779,7 @@ async def my_devices(_, call):
         return await callAnswer(call, '您还没有Emby账户', True)
     success, result = await emby.get_emby_userip(emby_id=get_emby.embyid)
     if not success or len(result) == 0:
-        return await callAnswer(call, '您好像没播放信息吖')
+        return await callAnswer(call, '📭 您好像没播放信息吖')
     else:
         await callAnswer(call, '🔍 正在获取您的设备信息')
         device_count = 0

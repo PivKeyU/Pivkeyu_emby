@@ -1,21 +1,144 @@
 {
-  "bot_name": "xxxbot",
-  "bot_token": "5701:AAEvAHzsg30",
-  "owner_api": 73711,
-  "owner_hash": "",
+  "_comment_00": "本文件是示例配置。JSON 不支持 // 注释，所以使用 _comment_* 说明键；程序会忽略这些说明键。",
+  "_comment_01": "Docker 部署时实际读取 ./data/config.json。首次启动如果没有配置文件，会由本文件自动生成。",
+  "_comment_02": "以下所有带有占位值的字段都需要按你的环境替换，否则机器人无法正常启动或部分功能不可用。",
+
+  "_comment_bot_identity": "Telegram 基础信息：以下字段必须替换成你自己的值。",
+  "bot_name": "your_bot_username_without_at",
+  "_comment_bot_name": "BotFather 创建的机器人用户名，不带 @。例如 PivKeyU_Emby_bot。",
+  "bot_token": "1234567890:replace_with_your_bot_token",
+  "_comment_bot_token": "BotFather 提供的 bot token，必须完整替换。",
+  "owner_api": 12345678,
+  "_comment_owner_api": "在 https://my.telegram.org 获取的 api_id，必须替换成真实数字，不要加引号。",
+  "owner_hash": "replace_with_your_api_hash",
+  "_comment_owner_hash": "在 https://my.telegram.org 获取的 api_hash，必须替换。",
   "owner": 123456789,
+  "_comment_owner": "机器人主人 Telegram 用户 ID。拥有最高管理权限。",
   "group": [
     -1001234567890
   ],
-  "main_group": "Aaaaa_su",
-  "chanel": "su_yxfy",
-  "bot_photo": "https://telegra.ph/file/3b6cd2a89b652e72e0d3b.png",
+  "_comment_group": "允许使用机器人功能的 Telegram 群组 ID 列表。必须填真实群 ID，格式通常为 -100xxxxxxxxxx。",
+  "main_group": "your_main_group_username",
+  "_comment_main_group": "主群公开用户名，不带 @。用于面板跳转按钮，例如 t.me/your_main_group_username。",
+  "chanel": "your_channel_username",
+  "_comment_chanel": "频道公开用户名，不带 @。注意键名必须保持 chanel，不要改成 channel。",
+  "bot_photo": "https://example.com/your-bot-cover.png",
+  "_comment_bot_photo": "机器人私聊面板展示图。可填可公网访问的图片 URL。",
   "admins": [],
+  "_comment_admins": "附加管理员 Telegram 用户 ID 列表。可留空。",
+
+  "_comment_branding": "品牌与展示信息。",
   "money": "片刻碎片",
-  "emby_api": "xxxxx",
-  "emby_url": "http://255.255.255.255:8096",
-  "emby_line": "susuyyds.com",
+  "_comment_money": "机器人内积分/货币名称。",
+  "ranks": {
+    "logo": "PivKeyU_Emby",
+    "backdrop": false
+  },
+  "_comment_ranks": "排行榜品牌文案与是否使用带背景榜单图。",
+
+  "_comment_emby": "Emby 对接信息：以下字段通常必须替换。",
+  "emby_api": "replace_with_your_emby_api_key",
+  "_comment_emby_api": "Emby 管理员 API Key。",
+  "emby_url": "http://127.0.0.1:8096",
+  "_comment_emby_url": "Emby 服务器地址，必须包含协议和端口。",
+  "emby_line": "https://emby.example.com",
+  "_comment_emby_line": "展示给普通用户的 Emby 访问入口。",
   "emby_whitelist_line": null,
+  "_comment_emby_whitelist_line": "白名单专属线路；没有单独线路时保留 null。",
+  "emby_block": [
+    "nsfw"
+  ],
+  "_comment_emby_block": "需要对用户隐藏/显示的媒体库名称列表。",
+  "extra_emby_libs": [
+    "电视"
+  ],
+  "_comment_extra_emby_libs": "额外媒体库名称列表，用于额外媒体库开关命令。",
+  "partition_libs": {},
+  "_comment_partition_libs": "分区礼包与媒体库映射。例如 {\"成人区\": [\"Movies-18+\"]}。",
+
+  "_comment_database": "数据库配置。使用当前 docker-compose.yml 时，默认值可直接使用。",
+  "db_host": "127.0.0.1",
+  "db_user": "pivkeyu",
+  "db_pwd": "pivkeyu",
+  "db_name": "pivkeyu",
+  "db_port": 3306,
+  "db_is_docker": true,
+  "db_docker_name": "mysql",
+  "db_backup_dir": "./db_backup",
+  "db_backup_maxcount": 7,
+  "_comment_database_2": "如果你改了 docker-compose 中的 MySQL 用户/密码/库名，这里也必须同步修改。",
+
+  "_comment_open": "开放注册、签到、兑换和邀请开关。",
+  "open": {
+    "stat": false,
+    "open_us": 30,
+    "all_user": 1000,
+    "timing": 0,
+    "tem": 0,
+    "checkin": true,
+    "checkin_lv": "d",
+    "exchange": true,
+    "whitelist": true,
+    "invite": false,
+    "invite_lv": "b",
+    "leave_ban": true,
+    "uplays": true,
+    "checkin_reward": [
+      1,
+      10
+    ],
+    "exchange_cost": 100,
+    "whitelist_cost": 9999,
+    "invite_cost": 1000,
+    "srank_cost": 5
+  },
+  "_comment_open_2": "checkin_lv / invite_lv 可选 a, b, d；分别代表白名单、普通用户、所有人。",
+
+  "_comment_scheduler": "定时任务开关。message_id/chat_id 这类运行时字段一般不要手改。",
+  "schedall": {
+    "dayrank": true,
+    "weekrank": true,
+    "dayplayrank": false,
+    "weekplayrank": false,
+    "check_ex": true,
+    "low_activity": false,
+    "partition_check": true,
+    "day_ranks_message_id": 0,
+    "week_ranks_message_id": 0,
+    "restart_chat_id": 0,
+    "restart_msg_id": 0,
+    "backup_db": false
+  },
+
+  "_comment_probe": "探针/监控面板配置。按你使用的探针类型填写；不用就留空。",
+  "tz_ad": "",
+  "_comment_tz_ad": "探针面板地址。",
+  "tz_api": "",
+  "_comment_tz_api": "Nezha V0 Token 或 Komari API Key。",
+  "tz_id": [],
+  "_comment_tz_id": "Nezha 节点 ID 列表或 Komari 节点 UUID 列表。",
+  "tz_version": "v0",
+  "_comment_tz_version": "可选 v0、v1、komari。",
+  "tz_username": "",
+  "_comment_tz_username": "仅 tz_version=v1 时填写登录用户名。",
+  "tz_password": "",
+  "_comment_tz_password": "仅 tz_version=v1 时填写登录密码。",
+
+  "_comment_security": "风控、频道过滤和网络代理设置。",
+  "w_anti_channel_ids": [],
+  "_comment_w_anti_channel_ids": "皮套人白名单 sender_chat ID 列表。",
+  "proxy": {
+    "scheme": "",
+    "hostname": "",
+    "port": null,
+    "username": "",
+    "password": ""
+  },
+  "_comment_proxy": "如需代理，scheme 可填 socks5/http；不需要就全部留空。",
+  "kk_gift_days": 30,
+  "fuxx_pitao": true,
+  "activity_check_days": 21,
+  "freeze_days": 5,
   "blocked_clients": [
     ".*curl.*",
     ".*wget.*",
@@ -31,96 +154,55 @@
     ".*ffmpeg.*",
     ".*vlc.*"
   ],
+  "_comment_blocked_clients": "Webhook 客户端过滤的 User-Agent 正则列表。",
   "client_filter_terminate_session": true,
   "client_filter_block_user": false,
-  "partition_libs": {},
-  "db_host": "localhost",
-  "db_user": "",
-  "db_pwd": "",
-  "db_name": "",
-  "emby_block": [
-    "nsfw"
-  ],
-  "extra_emby_libs": [
-    "电视"
-  ],
-  "open": {
-    "stat": false,
-    "all_user": 1000,
-    "timing": 0,
-    "tem": 0,
-    "allow_code": true,
-    "checkin": true,
-    "exchange": true,
-    "whitelist": true,
-    "invite": false,
-    "leave_ban": true,
-    "uplays": true,
-    "exchange_cost": 100,
-    "whitelist_cost": 9999,
-    "invite_cost": 1000,
-    "srank_cost": 5
-  },
-  "tz_ad": "",
-  "tz_api": "",
-  "tz_id": [],
-  "tz_version": "v0",
-  "tz_username": "",
-  "tz_password": "",
-  "tz_note": "tz_version 可选值: v0 (Nezha V0 Token认证), v1 (Nezha V1 用户名密码认证), komari (Komari API Key认证)",
-  "ranks": {
-    "logo": "PIVKEYU",
-    "backdrop": false
-  },
-  "schedall": {
-    "dayrank": true,
-    "weekrank": true,
-    "dayplayrank": false,
-    "weekplayrank": false,
-    "check_ex": true,
-    "partition_check": true,
-    "low_activity": false,
-    "backup_db": false
-  },
-  "db_is_docker": true,
-  "db_docker_name": "mysql",
-  "db_backup_dir": "./db_backup",
-  "db_backup_maxcount": 7,
-  "w_anti_chanel_ids": [],
-  "proxy": {
-    "scheme": "",
-    "hostname": "",
-    "port": null,
-    "username": "",
-    "password": ""
-  },
+
+  "_comment_moviepilot": "MoviePilot 点播集成。启用前至少需要填写 url 和认证信息。",
   "moviepilot": {
     "status": false,
-    "host": null,
-    "username": null,
-    "password": null,
-    "access_token": null,
-    "price": 1
+    "url": "",
+    "username": "",
+    "password": "",
+    "access_token": "",
+    "price": 1,
+    "download_log_chatid": null,
+    "lv": "b"
   },
+  "_comment_moviepilot_2": "lv 可选 a/b；分别表示仅白名单或普通用户可用。",
+
+  "_comment_update": "自动更新。发布给别人用时建议默认关闭，避免误拉取其他仓库。",
   "auto_update": {
-    "status": true,
-    "git_repo": "berry8838/Sakura_embyboss",
-    "commit_sha": null
+    "status": false,
+    "git_repo": "owner/PivKeyU_Emby",
+    "commit_sha": null,
+    "up_description": null
   },
+  "_comment_update_2": "如果要启用自动更新，请把 git_repo 改成你自己的 GitHub 仓库 owner/repo。",
+
+  "_comment_red_envelope": "红包玩法开关。",
   "red_envelope": {
     "status": true,
     "allow_private": true
   },
+
+  "_comment_api": "Web 管理后台与 Mini App 配置。启用前建议先准备好反代域名和管理员令牌。",
   "api": {
-    "status": true,
+    "status": false,
     "http_url": "0.0.0.0",
     "http_port": 8838,
     "public_url": "https://bot.example.com",
     "miniapp_title": "片刻面板",
-    "admin_token": "change-me",
+    "admin_token": "replace_with_a_long_random_admin_token",
     "webapp_auth_max_age": 86400,
     "allow_origins": [
       "*"
     ]
-  }
+  },
+  "_comment_api_2": "public_url 必须改成外网可访问的 HTTPS 地址；admin_token 必须改成你自己的随机字符串。",
+
+  "plugin_nav": {},
+  "_comment_plugin_nav": "插件首页底栏显示开关。例如 {\"xiuxian-game\": true}。",
+  "plugin_enabled": {},
+  "_comment_plugin_enabled": "插件启用开关覆盖项。例如 {\"xiuxian-game\": false}；禁用后重启可完全生效。"
 }

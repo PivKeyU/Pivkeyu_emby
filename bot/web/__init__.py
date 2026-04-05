@@ -25,7 +25,7 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 class Web:
     def __init__(self):
-        self.app: FastAPI = FastAPI(title="PIVKEYU Web API")
+        self.app: FastAPI = FastAPI(title="PivKeyU_Emby Web API")
         self.web_api = None
         self.start_api = None
 
@@ -78,7 +78,12 @@ class Web:
 
         self.init_api()
         self.web_api = uvicorn.Server(
-            config=uvicorn.Config(self.app, host=config_api.http_url, port=config_api.http_port)
+            config=uvicorn.Config(
+                self.app,
+                host=config_api.http_url,
+                port=config_api.http_port,
+                access_log=False,
+            )
         )
         server_config = self.web_api.config
         if not server_config.loaded:

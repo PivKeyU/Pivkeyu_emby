@@ -1,0 +1,2096 @@
+from __future__ import annotations
+
+import asyncio
+import random
+import re
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+from urllib.parse import urlsplit
+from uuid import uuid4
+
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+from pyrogram import filters
+from pyrogram.enums import ChatMemberStatus
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+from bot import LOGGER, api as api_config, bot, config, group, owner, prefixes
+from bot.func_helper.msg_utils import callAnswer
+from bot.plugins import list_plugins
+from bot.plugins.xiuxian_game.service import (
+    admin_patch_player,
+    admin_seed_demo_assets,
+    activate_technique_for_user,
+    activate_talisman_for_user,
+    breakthrough_for_user,
+    build_leaderboard,
+    build_plugin_url,
+    broadcast_shop_copy,
+    compute_duel_odds,
+    convert_emby_coin_to_stone,
+    convert_stone_to_emby_coin,
+    create_foundation_pill_for_user_if_missing,
+    create_official_shop_listing,
+    create_personal_shop_listing,
+    create_artifact,
+    create_pill,
+    create_talisman,
+    duel_keyboard,
+    equip_artifact_for_user,
+    finish_retreat_for_user,
+    format_leaderboard_text,
+    format_root,
+    generate_duel_preview_text,
+    generate_shop_name,
+    init_path_for_user,
+    leaderboard_keyboard,
+    list_artifacts,
+    list_shop_items,
+    list_pills,
+    list_public_shop_items,
+    list_talismans,
+    maybe_gain_cultivation_from_chat,
+    immortal_touch_infuse_cultivation,
+    patch_shop_listing,
+    purchase_shop_item,
+    resolve_duel,
+    search_xiuxian_players,
+    serialize_full_profile,
+    start_retreat_for_user,
+    update_xiuxian_settings,
+    practice_for_user,
+    consume_pill_for_user,
+    grant_item_to_user,
+    xiuxian_confirm_keyboard,
+    xiuxian_profile_keyboard,
+)
+from bot.plugins.xiuxian_game.world_service import (
+    build_recipe_catalog,
+    build_world_bundle,
+    claim_exploration_for_user,
+    claim_sect_salary_for_user,
+    claim_task_for_user,
+    claim_red_envelope_for_user,
+    create_bounty_task,
+    create_duel_bet_pool_for_duel,
+    create_recipe_with_ingredients,
+    create_red_envelope_for_user,
+    create_scene_with_drops,
+    create_sect_with_roles,
+    craft_recipe_for_user,
+    format_duel_bet_board,
+    gift_spirit_stone,
+    join_sect_for_user,
+    leave_sect_for_user,
+    list_sect_roles,
+    list_tasks_for_user,
+    place_duel_bet,
+    resolve_quiz_answer,
+    rob_player,
+    mark_task_group_message,
+    settle_duel_bet_pool,
+    set_user_sect_role,
+    start_exploration_for_user,
+)
+from bot.sql_helper.sql_xiuxian import (
+    cancel_personal_shop_item,
+    create_journal,
+    create_material,
+    delete_artifact,
+    delete_material,
+    delete_pill,
+    delete_recipe,
+    delete_scene,
+    delete_sect,
+    delete_technique,
+    delete_talisman,
+    delete_task,
+    create_technique,
+    get_xiuxian_settings,
+    grant_image_upload_permission,
+    has_image_upload_permission,
+    list_materials,
+    list_image_upload_permissions,
+    list_recent_journals,
+    list_recipes,
+    list_recipe_ingredients,
+    list_scene_drops,
+    list_scenes,
+    list_sects,
+    list_tasks,
+    list_techniques,
+    revoke_image_upload_permission,
+    serialize_profile,
+)
+from bot.web.api.miniapp import is_admin_user_id, verify_init_data
+
+
+PLUGIN_ROOT = Path(__file__).resolve().parent
+STATIC_DIR = PLUGIN_ROOT / "static"
+DATA_DIR = PLUGIN_ROOT.parent.parent.parent / "data"
+UPLOAD_DIR = DATA_DIR / "xiuxian_uploads"
+MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+ALLOWED_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+ALLOWED_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+IMMORTAL_TOUCH_PATTERN = re.compile(r"^仙人抚我顶[\s，,]*结发授长生[\s。！!？?~～]*$")
+
+
+class InitDataPayload(BaseModel):
+    init_data: str
+
+
+class BreakthroughPayload(InitDataPayload):
+    use_pill: bool = False
+
+
+class ConsumePillPayload(InitDataPayload):
+    pill_id: int
+
+
+class EquipArtifactPayload(InitDataPayload):
+    artifact_id: int
+
+
+class ActivateTalismanPayload(InitDataPayload):
+    talisman_id: int
+
+
+class ActivateTechniquePayload(InitDataPayload):
+    technique_id: int
+
+
+class ExchangePayload(InitDataPayload):
+    direction: str
+    amount: int
+
+
+class LeaderboardPayload(InitDataPayload):
+    kind: str = "stone"
+    page: int = 1
+
+
+class PersonalShopPayload(InitDataPayload):
+    shop_name: str
+    item_kind: str
+    item_ref_id: int
+    quantity: int
+    price_stone: int
+    broadcast: bool = False
+
+
+class PurchasePayload(InitDataPayload):
+    item_id: int
+    quantity: int = 1
+
+
+class RetreatPayload(InitDataPayload):
+    hours: int = 1
+
+
+class SectJoinPayload(InitDataPayload):
+    sect_id: int
+
+
+class GiftPayload(InitDataPayload):
+    target_tg: int
+    amount: int
+
+
+class TaskClaimPayload(InitDataPayload):
+    task_id: int
+
+
+class CraftPayload(InitDataPayload):
+    recipe_id: int
+
+
+class ExploreStartPayload(InitDataPayload):
+    scene_id: int
+    minutes: int = 60
+
+
+class ExploreClaimPayload(InitDataPayload):
+    exploration_id: int
+
+
+class ShopCancelPayload(InitDataPayload):
+    item_id: int
+
+
+class RedEnvelopePayload(InitDataPayload):
+    cover_text: str = "福运临门"
+    mode: str = "normal"
+    amount_total: int
+    count_total: int
+    target_tg: int | None = None
+
+
+class UserTaskPayload(InitDataPayload):
+    title: str
+    description: str = ""
+    task_scope: str = "personal"
+    task_type: str = "custom"
+    question_text: str = ""
+    answer_text: str = ""
+    image_url: str = ""
+    required_item_kind: str | None = None
+    required_item_ref_id: int | None = None
+    required_item_quantity: int = 0
+    reward_stone: int = 0
+    reward_item_kind: str | None = None
+    reward_item_ref_id: int | None = None
+    reward_item_quantity: int = 0
+    max_claimants: int = 1
+    active_in_group: bool = False
+    group_chat_id: int | None = None
+
+
+class AdminBootstrapPayload(BaseModel):
+    token: str | None = None
+    init_data: str | None = None
+
+
+class RootQualityRulePayload(BaseModel):
+    cultivation_rate: float
+    breakthrough_bonus: int
+    combat_factor: float
+
+
+class DropWeightRulePayload(BaseModel):
+    material_divine_sense_divisor: int
+    high_quality_threshold: int
+    high_quality_fortune_divisor: int
+    high_quality_root_level_start: int
+
+
+class ItemQualityValueRulePayload(BaseModel):
+    artifact_multiplier: float
+    pill_multiplier: float
+    talisman_multiplier: float
+
+
+class AdminSettingPayload(BaseModel):
+    coin_exchange_rate: int | None = None
+    exchange_fee_percent: int | None = None
+    min_coin_exchange: int | None = None
+    duel_bet_minutes: int | None = None
+    shop_broadcast_cost: int | None = None
+    official_shop_name: str | None = None
+    artifact_equip_limit: int | None = None
+    allow_non_admin_image_upload: bool | None = None
+    chat_cultivation_chance: int | None = None
+    chat_cultivation_min_gain: int | None = None
+    chat_cultivation_max_gain: int | None = None
+    robbery_daily_limit: int | None = None
+    robbery_max_steal: int | None = None
+    red_packet_merit_min_stone: int | None = None
+    red_packet_merit_min_count: int | None = None
+    red_packet_merit_reward: int | None = None
+    high_quality_broadcast_level: int | None = None
+    root_quality_value_rules: dict[str, RootQualityRulePayload] | None = None
+    exploration_drop_weight_rules: DropWeightRulePayload | None = None
+    item_quality_value_rules: dict[str, ItemQualityValueRulePayload] | None = None
+    immortal_touch_infusion_layers: int | None = None
+
+
+class ArtifactPayload(BaseModel):
+    name: str
+    rarity: str = "凡品"
+    artifact_type: str = "battle"
+    image_url: str = ""
+    description: str = ""
+    attack_bonus: int = 0
+    defense_bonus: int = 0
+    bone_bonus: int = 0
+    comprehension_bonus: int = 0
+    divine_sense_bonus: int = 0
+    fortune_bonus: int = 0
+    qi_blood_bonus: int = 0
+    true_yuan_bonus: int = 0
+    body_movement_bonus: int = 0
+    duel_rate_bonus: int = 0
+    cultivation_bonus: int = 0
+    min_realm_stage: str | None = None
+    min_realm_layer: int = 1
+    enabled: bool = True
+
+
+class PillPayload(BaseModel):
+    name: str
+    rarity: str = "凡品"
+    pill_type: str
+    image_url: str = ""
+    description: str = ""
+    effect_value: int = 0
+    poison_delta: int = 0
+    attack_bonus: int = 0
+    defense_bonus: int = 0
+    bone_bonus: int = 0
+    comprehension_bonus: int = 0
+    divine_sense_bonus: int = 0
+    fortune_bonus: int = 0
+    qi_blood_bonus: int = 0
+    true_yuan_bonus: int = 0
+    body_movement_bonus: int = 0
+    min_realm_stage: str | None = None
+    min_realm_layer: int = 1
+    enabled: bool = True
+
+
+class TalismanPayload(BaseModel):
+    name: str
+    rarity: str = "凡品"
+    image_url: str = ""
+    description: str = ""
+    attack_bonus: int = 0
+    defense_bonus: int = 0
+    bone_bonus: int = 0
+    comprehension_bonus: int = 0
+    divine_sense_bonus: int = 0
+    fortune_bonus: int = 0
+    qi_blood_bonus: int = 0
+    true_yuan_bonus: int = 0
+    body_movement_bonus: int = 0
+    duel_rate_bonus: int = 0
+    min_realm_stage: str | None = None
+    min_realm_layer: int = 1
+    enabled: bool = True
+
+
+class TechniquePayload(BaseModel):
+    name: str
+    rarity: str = "凡品"
+    technique_type: str = "balanced"
+    image_url: str = ""
+    description: str = ""
+    attack_bonus: int = 0
+    defense_bonus: int = 0
+    bone_bonus: int = 0
+    comprehension_bonus: int = 0
+    divine_sense_bonus: int = 0
+    fortune_bonus: int = 0
+    qi_blood_bonus: int = 0
+    true_yuan_bonus: int = 0
+    body_movement_bonus: int = 0
+    duel_rate_bonus: int = 0
+    cultivation_bonus: int = 0
+    breakthrough_bonus: int = 0
+    min_realm_stage: str | None = None
+    min_realm_layer: int = 1
+    enabled: bool = True
+
+
+class GrantPayload(BaseModel):
+    tg: int
+    item_kind: str
+    item_ref_id: int
+    quantity: int = 1
+
+
+class OfficialShopPayload(BaseModel):
+    item_kind: str
+    item_ref_id: int
+    quantity: int
+    price_stone: int
+    shop_name: str | None = None
+
+
+class OfficialShopPatchPayload(BaseModel):
+    enabled: bool | None = None
+    quantity: int | None = None
+    price_stone: int | None = None
+
+
+class SectRolePayload(BaseModel):
+    role_key: str
+    role_name: str
+    attack_bonus: int = 0
+    defense_bonus: int = 0
+    duel_rate_bonus: int = 0
+    cultivation_bonus: int = 0
+    monthly_salary: int = 0
+    can_publish_tasks: bool = False
+    sort_order: int = 1
+
+
+class SectPayload(BaseModel):
+    name: str
+    description: str = ""
+    image_url: str = ""
+    min_realm_stage: str | None = None
+    min_realm_layer: int = 1
+    min_stone: int = 0
+    roles: list[SectRolePayload] = Field(default_factory=list)
+
+
+class SectRoleAssignPayload(BaseModel):
+    tg: int
+    sect_id: int
+    role_key: str
+
+
+class MaterialPayload(BaseModel):
+    name: str
+    quality_level: int = 1
+    image_url: str = ""
+    description: str = ""
+    enabled: bool = True
+
+
+class RecipeIngredientPayload(BaseModel):
+    material_id: int
+    quantity: int = 1
+
+
+class RecipePayload(BaseModel):
+    name: str
+    recipe_kind: str
+    result_kind: str
+    result_ref_id: int
+    result_quantity: int = 1
+    base_success_rate: int = 60
+    broadcast_on_success: bool = False
+    ingredients: list[RecipeIngredientPayload] = Field(default_factory=list)
+
+
+class SceneDropPayload(BaseModel):
+    reward_kind: str = "material"
+    reward_ref_id: int | None = None
+    quantity_min: int = 1
+    quantity_max: int = 1
+    weight: int = 1
+    stone_reward: int = 0
+    event_text: str = ""
+
+
+class ScenePayload(BaseModel):
+    name: str
+    description: str = ""
+    image_url: str = ""
+    max_minutes: int = 60
+    event_pool: list[str] = Field(default_factory=list)
+    drops: list[SceneDropPayload] = Field(default_factory=list)
+
+
+class UploadPermissionPayload(BaseModel):
+    tg: int
+
+
+class AdminTaskPayload(BaseModel):
+    title: str
+    description: str = ""
+    task_scope: str = "official"
+    task_type: str = "custom"
+    question_text: str = ""
+    answer_text: str = ""
+    image_url: str = ""
+    required_item_kind: str | None = None
+    required_item_ref_id: int | None = None
+    required_item_quantity: int = 0
+    reward_stone: int = 0
+    reward_item_kind: str | None = None
+    reward_item_ref_id: int | None = None
+    reward_item_quantity: int = 0
+    max_claimants: int = 1
+    sect_id: int | None = None
+    active_in_group: bool = False
+    group_chat_id: int | None = None
+
+
+class PlayerPatchPayload(BaseModel):
+    spiritual_stone: int | None = None
+    cultivation: int | None = None
+    realm_stage: str | None = None
+    realm_layer: int | None = None
+    bone: int | None = None
+    comprehension: int | None = None
+    divine_sense: int | None = None
+    fortune: int | None = None
+    qi_blood: int | None = None
+    true_yuan: int | None = None
+    body_movement: int | None = None
+    attack_power: int | None = None
+    defense_power: int | None = None
+    insight_bonus: int | None = None
+    dan_poison: int | None = None
+    sect_contribution: int | None = None
+    display_name: str | None = None
+    username: str | None = None
+
+
+class ArtifactPayload(BaseModel):
+    name: str
+    rarity: str = "凡品"
+    artifact_type: str = "battle"
+    image_url: str = ""
+    description: str = ""
+    attack_bonus: int = 0
+    defense_bonus: int = 0
+    bone_bonus: int = 0
+    comprehension_bonus: int = 0
+    divine_sense_bonus: int = 0
+    fortune_bonus: int = 0
+    qi_blood_bonus: int = 0
+    true_yuan_bonus: int = 0
+    body_movement_bonus: int = 0
+    duel_rate_bonus: int = 0
+    cultivation_bonus: int = 0
+    min_realm_stage: str | None = None
+    min_realm_layer: int = 1
+    enabled: bool = True
+
+
+class PillPayload(BaseModel):
+    name: str
+    rarity: str = "凡品"
+    pill_type: str
+    image_url: str = ""
+    description: str = ""
+    effect_value: int = 0
+    poison_delta: int = 0
+    attack_bonus: int = 0
+    defense_bonus: int = 0
+    bone_bonus: int = 0
+    comprehension_bonus: int = 0
+    divine_sense_bonus: int = 0
+    fortune_bonus: int = 0
+    qi_blood_bonus: int = 0
+    true_yuan_bonus: int = 0
+    body_movement_bonus: int = 0
+    min_realm_stage: str | None = None
+    min_realm_layer: int = 1
+    enabled: bool = True
+
+
+class TalismanPayload(BaseModel):
+    name: str
+    rarity: str = "凡品"
+    image_url: str = ""
+    description: str = ""
+    attack_bonus: int = 0
+    defense_bonus: int = 0
+    bone_bonus: int = 0
+    comprehension_bonus: int = 0
+    divine_sense_bonus: int = 0
+    fortune_bonus: int = 0
+    qi_blood_bonus: int = 0
+    true_yuan_bonus: int = 0
+    body_movement_bonus: int = 0
+    duel_rate_bonus: int = 0
+    min_realm_stage: str | None = None
+    min_realm_layer: int = 1
+    enabled: bool = True
+
+
+
+
+def _telegram_identity_payload(user: Any) -> dict[str, str]:
+    first_name = str(getattr(user, "first_name", "") or "").strip()
+    last_name = str(getattr(user, "last_name", "") or "").strip()
+    username = str(getattr(user, "username", "") or "").strip().lstrip("@")
+    display_name = " ".join(part for part in [first_name, last_name] if part).strip()
+    payload: dict[str, str] = {}
+    if display_name:
+        payload["display_name"] = display_name
+    if username:
+        payload["username"] = username
+    return payload
+
+
+async def _refresh_profile_identity_from_telegram(tg: int) -> dict[str, str] | None:
+    try:
+        telegram_user = await bot.get_users(int(tg))
+    except Exception as exc:
+        LOGGER.warning(f"xiuxian admin failed to refresh telegram profile {tg}: {exc}")
+        return None
+
+    payload = _telegram_identity_payload(telegram_user)
+    if not payload:
+        return None
+
+    from bot.sql_helper.sql_xiuxian import upsert_profile
+
+    upsert_profile(int(tg), **payload)
+    return payload
+
+
+def _merge_profile_identity(profile: dict[str, Any], identity: dict[str, str] | None) -> dict[str, Any]:
+    if not identity:
+        return profile
+
+    merged = dict(profile)
+    if identity.get("display_name"):
+        merged["display_name"] = identity["display_name"]
+    if identity.get("username"):
+        merged["username"] = identity["username"]
+
+    if merged.get("display_name"):
+        merged["display_label"] = merged["display_name"]
+    elif merged.get("username"):
+        merged["display_label"] = f"@{merged['username']}"
+    elif merged.get("tg"):
+        merged["display_label"] = f"TG {merged['tg']}"
+    return merged
+
+
+def _verify_user_from_init_data(init_data: str) -> dict[str, Any]:
+    verified = verify_init_data(init_data)
+    user = verified["user"]
+    display_name = " ".join(part for part in [user.get("first_name"), user.get("last_name")] if part).strip()
+    upsert_fields = {}
+    if display_name:
+        upsert_fields["display_name"] = display_name
+    if user.get("username"):
+        upsert_fields["username"] = str(user["username"]).lstrip("@")
+    if upsert_fields:
+        from bot.sql_helper.sql_xiuxian import upsert_profile
+
+        upsert_profile(int(user["id"]), **upsert_fields)
+    return user
+
+
+def _verify_admin_credential(token: str | None, init_data: str | None) -> dict[str, Any]:
+    expected_token = api_config.admin_token or ""
+    if token and token == expected_token:
+        return {"id": owner, "auth": "token"}
+
+    if init_data:
+        telegram_user = _verify_user_from_init_data(init_data)
+        if is_admin_user_id(telegram_user["id"]):
+            telegram_user["auth"] = "telegram"
+            return telegram_user
+        raise HTTPException(status_code=403, detail="当前 Telegram 账号没有后台权限")
+
+    raise HTTPException(status_code=401, detail="缺少后台登录凭证")
+
+
+def _can_user_upload_images(user_id: int) -> tuple[bool, str]:
+    if is_admin_user_id(user_id):
+        return True, ""
+
+    settings = get_xiuxian_settings()
+    if bool(settings.get("allow_non_admin_image_upload", False)):
+        return True, ""
+
+    if has_image_upload_permission(user_id):
+        return True, ""
+
+    return False, "当前未开放普通用户上传图片，请联系主人开启总开关或单独授权。"
+
+
+def _sanitize_upload_folder(folder: str | None) -> str:
+    raw = (folder or "misc").strip().replace("\\", "/")
+    parts = []
+    for part in raw.split("/"):
+        cleaned = "".join(ch for ch in part.lower() if ch.isalnum() or ch in {"-", "_"})
+        if cleaned:
+            parts.append(cleaned)
+    return "/".join(parts[:3]) or "misc"
+
+
+def _public_url_root(base_url: str | None = None) -> str:
+    if api_config.public_url:
+        return str(api_config.public_url).rstrip("/")
+    return str(base_url or "").rstrip("/")
+
+
+def _resolve_group_image_source(image_url: str | None) -> str | Path | None:
+    if not image_url:
+        return None
+    image_url = str(image_url).strip()
+    if not image_url:
+        return None
+    upload_path = image_url
+    if image_url.startswith("http://") or image_url.startswith("https://"):
+        parsed = urlsplit(image_url)
+        upload_path = parsed.path or image_url
+        if not upload_path.startswith("/plugins/xiuxian/uploads/"):
+            return image_url
+    if upload_path.startswith("/plugins/xiuxian/uploads/"):
+        relative_path = upload_path.removeprefix("/plugins/xiuxian/uploads/").strip("/")
+        local_path = UPLOAD_DIR.joinpath(*[part for part in relative_path.split("/") if part])
+        if local_path.exists():
+            return str(local_path)
+        public_root = _public_url_root()
+        if public_root:
+            return f"{public_root}{upload_path}"
+    return image_url
+
+
+async def _save_uploaded_image(file: UploadFile, folder: str, base_url: str | None = None) -> dict[str, Any]:
+    suffix = Path(file.filename or "").suffix.lower()
+    content_type = (file.content_type or "").lower()
+    if suffix not in ALLOWED_IMAGE_SUFFIXES and content_type not in ALLOWED_IMAGE_CONTENT_TYPES:
+        raise HTTPException(status_code=400, detail="仅支持 jpg、png、webp、gif 图片格式")
+
+    if suffix not in ALLOWED_IMAGE_SUFFIXES:
+        mapping = {
+            "image/jpeg": ".jpg",
+            "image/png": ".png",
+            "image/webp": ".webp",
+            "image/gif": ".gif",
+        }
+        suffix = mapping.get(content_type, ".jpg")
+
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(status_code=400, detail="上传的图片不能为空")
+    if len(payload) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=400, detail="图片大小不能超过 8MB")
+
+    subdir = _sanitize_upload_folder(folder)
+    target_dir = UPLOAD_DIR / subdir
+    target_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"{uuid4().hex}{suffix}"
+    target = target_dir / filename
+    target.write_bytes(payload)
+    relative = Path(subdir) / filename
+    relative_url = f"/plugins/xiuxian/uploads/{relative.as_posix()}"
+    public_url = _public_url_root(base_url)
+    return {
+        "name": filename,
+        "size": len(payload),
+        "url": f"{public_url}{relative_url}" if public_url else relative_url,
+        "relative_url": relative_url,
+    }
+
+
+def _format_profile_text(payload: dict[str, Any]) -> str:
+    profile = payload["profile"]
+    root_text = format_root(profile)
+    effective_stats = payload.get("effective_stats") or {}
+    equipped_artifacts = payload.get("equipped_artifacts") or []
+    equip_limit = int(payload.get("settings", {}).get("artifact_equip_limit", 1) or 1)
+    artifact_name = "、".join(item["name"] for item in equipped_artifacts) if equipped_artifacts else "暂无已装备法宝"
+    talisman_name = payload["active_talisman"]["name"] if payload.get("active_talisman") else "暂无待生效符箓"
+    technique_name = payload["current_technique"]["name"] if payload.get("current_technique") else "暂无参悟功法"
+    progress = payload.get("progress", {})
+    threshold = progress.get("threshold", 0)
+    remaining_text = progress.get("remaining", 0)
+    combat_power = int(payload.get("combat_power") or 0)
+    return (
+        f"**修仙总览**\n"
+        f"灵根：{root_text}\n"
+        f"灵根品质：{profile.get('root_quality') or '灵根未定'}\n"
+        f"境界：{profile['realm_stage']}{profile['realm_layer']}层\n"
+        f"修为：{profile['cultivation']} / {threshold}\n"
+        f"距离下一层：{remaining_text}\n"
+        f"灵石：{profile['spiritual_stone']}\n"
+        f"丹毒：{profile['dan_poison']}/100\n"
+        f"根骨 / 悟性 / 神识 / 机缘：{effective_stats.get('bone', profile.get('bone', 0))} / {effective_stats.get('comprehension', profile.get('comprehension', 0))} / {effective_stats.get('divine_sense', profile.get('divine_sense', 0))} / {effective_stats.get('fortune', profile.get('fortune', 0))}\n"
+        f"气血 / 真元 / 身法：{effective_stats.get('qi_blood', profile.get('qi_blood', 0))} / {effective_stats.get('true_yuan', profile.get('true_yuan', 0))} / {effective_stats.get('body_movement', profile.get('body_movement', 0))}\n"
+        f"攻击 / 防御 / 战力：{effective_stats.get('attack_power', profile.get('attack_power', 0))} / {effective_stats.get('defense_power', profile.get('defense_power', 0))} / {combat_power}\n"
+        f"法宝：{artifact_name} ({len(equipped_artifacts)}/{equip_limit})\n"
+        f"符箓：{talisman_name}\n"
+        f"功法：{technique_name}"
+    )
+
+def _build_bottom_nav() -> list[dict[str, str]]:
+    items = [
+        {
+            "id": "home",
+            "label": "主页",
+            "path": "/miniapp",
+            "icon": "⌂",
+        }
+    ]
+
+    for plugin in list_plugins():
+        if not plugin.get("enabled"):
+            continue
+        plugin_visible = bool(config.plugin_nav.get(plugin["id"], plugin.get("bottom_nav_default", False)))
+        if not plugin.get("miniapp_path") or not plugin_visible:
+            continue
+
+        items.append(
+            {
+                "id": plugin["id"],
+                "label": plugin.get("miniapp_label") or plugin["name"],
+                "path": plugin["miniapp_path"],
+                "icon": plugin.get("miniapp_icon") or "◇",
+            }
+        )
+
+    return items
+
+
+def _main_group_chat_id() -> int | None:
+    if not group:
+        return None
+    return int(group[0])
+
+
+def _admin_panel_url() -> str:
+    return build_plugin_url("/plugins/xiuxian/admin") or "/plugins/xiuxian/admin"
+
+
+async def _is_group_admin(client, chat_id: int, user_id: int) -> bool:
+    try:
+        member = await client.get_chat_member(chat_id, user_id)
+    except Exception as exc:
+        LOGGER.warning(f"xiuxian group admin check failed chat={chat_id} user={user_id}: {exc}")
+        return False
+    return member.status in {ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR}
+
+
+async def _can_manage_upload_permissions(client, msg) -> bool:
+    if msg.from_user is None:
+        return False
+    if is_admin_user_id(msg.from_user.id):
+        return True
+    chat = getattr(msg, "chat", None)
+    if chat is None:
+        return False
+    try:
+        chat_id = int(chat.id)
+    except (TypeError, ValueError):
+        return False
+    return chat_id < 0 and await _is_group_admin(client, chat_id, msg.from_user.id)
+
+
+def _remember_journal(tg: int, action_type: str, title: str, detail: str | None = None) -> None:
+    try:
+        create_journal(tg, action_type, title, detail)
+    except Exception as exc:
+        LOGGER.warning(f"xiuxian journal write failed: {exc}")
+
+
+def _full_bundle(tg: int) -> dict[str, Any]:
+    bundle = serialize_full_profile(tg)
+    world_bundle = build_world_bundle(tg)
+    bundle.update({key: value for key, value in world_bundle.items() if key != "settings"})
+    can_upload_images, upload_reason = _can_user_upload_images(tg)
+    bundle.setdefault("capabilities", {})
+    bundle["capabilities"]["can_upload_images"] = can_upload_images
+    bundle["capabilities"]["upload_image_reason"] = upload_reason
+    bundle.setdefault("settings", {})
+    bundle["settings"].update(world_bundle.get("settings", {}))
+    bundle["settings"]["allow_non_admin_image_upload"] = bool(
+        get_xiuxian_settings().get("allow_non_admin_image_upload", False)
+    )
+    bundle["capabilities"]["is_admin"] = bool(is_admin_user_id(tg))
+    bundle["capabilities"]["admin_panel_url"] = _admin_panel_url() if is_admin_user_id(tg) else None
+    return bundle
+
+
+def _duel_bet_keyboard(pool_id: int) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton("押挑战者 10", callback_data=f"xiuxian:bet:{pool_id}:challenger:10"),
+            InlineKeyboardButton("押应战者 10", callback_data=f"xiuxian:bet:{pool_id}:defender:10"),
+        ],
+        [
+            InlineKeyboardButton("押挑战者 50", callback_data=f"xiuxian:bet:{pool_id}:challenger:50"),
+            InlineKeyboardButton("押应战者 50", callback_data=f"xiuxian:bet:{pool_id}:defender:50"),
+        ],
+        [
+            InlineKeyboardButton("押挑战者 100", callback_data=f"xiuxian:bet:{pool_id}:challenger:100"),
+            InlineKeyboardButton("押应战者 100", callback_data=f"xiuxian:bet:{pool_id}:defender:100"),
+        ],
+    ]
+    return InlineKeyboardMarkup(rows)
+
+
+def _red_envelope_keyboard(envelope_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("领取红包", callback_data=f"xiuxian:red:{envelope_id}")]]
+    )
+
+
+def _quiz_task_text(task: dict[str, Any]) -> str:
+    reward_parts = []
+    if int(task.get("reward_stone") or 0):
+        reward_parts.append(f"{task['reward_stone']} 灵石")
+    if task.get("reward_item_kind") and task.get("reward_item_quantity"):
+        reward_parts.append(f"{task['reward_item_quantity']} 个 {task.get('reward_item_kind_label') or task['reward_item_kind']}")
+    reward_text = "、".join(reward_parts) or "暂未设置奖励"
+    return (
+        f"任务类型：{task.get('task_scope_label') or '官方任务'} | 标题：{task['title']}\n"
+        f"{task.get('description') or '请完成任务后领取奖励。'}\n\n"
+        f"题目：{task.get('question_text') or '请直接在群里回复正确答案。'}\n"
+        f"奖励：{reward_text}\n"
+        "首位答对的道友即可完成任务并领取奖励。"
+    )
+
+
+def _task_required_text(task: dict[str, Any]) -> str:
+    if not task.get("required_item_kind") or not int(task.get("required_item_quantity") or 0):
+        return ""
+    item = task.get("required_item") or {}
+    item_name = item.get("name") or task.get("required_item_kind_label") or task.get("required_item_kind") or "物品"
+    return f"提交需求：{int(task.get('required_item_quantity') or 0)} 个 {item_name}"
+
+
+def _task_group_text(task: dict[str, Any]) -> str:
+    if task.get("task_type") == "quiz":
+        return _quiz_task_text(task)
+
+    reward_parts = []
+    if int(task.get("reward_stone") or 0):
+        reward_parts.append(f"{task['reward_stone']} 灵石")
+    if task.get("reward_item_kind") and task.get("reward_item_quantity"):
+        reward_parts.append(f"{task['reward_item_quantity']} 个 {task.get('reward_item_kind_label') or task['reward_item_kind']}")
+    reward_text = "、".join(reward_parts) or "暂未设置奖励"
+    required_text = _task_required_text(task)
+    required_line = f"{required_text}\n" if required_text else ""
+    return (
+        f"任务类型：{task.get('task_scope_label') or '任务'} | 标题：{task['title']}\n"
+        f"{task.get('description') or '请前往修仙面板领取或完成任务。'}\n\n"
+        f"{required_line}"
+        f"奖励：{reward_text}\n"
+        "道友们可前往修仙面板查看详情。"
+    )
+
+
+def _split_photo_caption(text: str, limit: int = 1024) -> tuple[str, str]:
+    content = str(text or "").strip()
+    if len(content) <= limit:
+        return content, ""
+    candidate = content[:limit]
+    cut = -1
+    for marker in ("\n\n", "\n", "。", "，", " "):
+        pos = candidate.rfind(marker)
+        if pos >= int(limit * 0.6):
+            cut = pos + len(marker)
+            break
+    if cut <= 0:
+        cut = limit
+    head = content[:cut].rstrip()
+    tail = content[cut:].lstrip()
+    return head, tail
+
+
+async def _push_quiz_task(task: dict[str, Any]) -> dict[str, Any] | None:
+    chat_id = int(task.get("group_chat_id") or _main_group_chat_id() or 0)
+    if not chat_id:
+        return None
+    text = _task_group_text(task)
+    image_source = _resolve_group_image_source(task.get("image_url"))
+    if image_source:
+        caption, overflow = _split_photo_caption(text)
+        try:
+            sent = await bot.send_photo(chat_id, image_source, caption=caption or None)
+        except Exception as exc:
+            LOGGER.warning(f"xiuxian task photo push fallback task={task.get('id')} chat={chat_id}: {exc}")
+            sent = await bot.send_photo(chat_id, image_source)
+            overflow = text
+        if overflow:
+            await bot.send_message(chat_id, overflow, reply_to_message_id=sent.id)
+    else:
+        sent = await bot.send_message(chat_id, text)
+    return mark_task_group_message(task["id"], chat_id, sent.id)
+
+
+async def _push_task_to_group(task: dict[str, Any]) -> dict[str, Any] | None:
+    return await _push_quiz_task(task)
+
+
+async def _safe_push_task_to_group(task: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+    try:
+        pushed_task = await _push_task_to_group(task)
+        return pushed_task or task, None
+    except Exception as exc:
+        LOGGER.warning(f"xiuxian task push failed task={task.get('id')} chat={task.get('group_chat_id')}: {exc}")
+        return task, "任务已创建，但群内推送失败。Telegram 当前可能波动，请稍后重试。"
+
+
+async def _push_red_envelope_notice(envelope: dict[str, Any]) -> None:
+    chat_id = int(envelope.get("group_chat_id") or _main_group_chat_id() or 0)
+    if not chat_id:
+        return
+    text = (
+        f"红包封面：{envelope.get('cover_text') or '福运临门'}\n"
+        f"红包模式：{envelope.get('mode_label') or envelope.get('mode')}\n"
+        f"总额：{envelope.get('amount_total')} 灵石 / {envelope.get('count_total')} 个红包\n"
+    )
+    sent = await bot.send_message(chat_id, text, reply_markup=_red_envelope_keyboard(envelope["id"]))
+    LOGGER.info(f"xiuxian red envelope sent to group {chat_id}, message={sent.id}")
+
+
+async def _maybe_broadcast_craft(actor_tg: int, result: dict[str, Any]) -> None:
+    if not result.get("should_broadcast"):
+        return
+    chat_id = _main_group_chat_id()
+    if not chat_id:
+        return
+    item_name = ((result.get("result_item") or {}).get("name")) or "未知物品"
+    await bot.send_message(
+        chat_id,
+        f"天地异象骤起，{actor_tg} 号道友成功炼成高品质物品【{item_name}】！",
+    )
+
+
+def _admin_world_snapshot() -> dict[str, Any]:
+    sects = list_sects()
+    for sect in sects:
+        sect["roles"] = list_sect_roles(sect["id"])
+    recipes = build_recipe_catalog()
+    scenes = list_scenes()
+    for scene in scenes:
+        scene["drops"] = list_scene_drops(scene["id"])
+    return {
+        "sects": sects,
+        "materials": list_materials(),
+        "recipes": recipes,
+        "scenes": scenes,
+        "tasks": list_tasks(),
+        "techniques": list_techniques(),
+        "upload_permissions": list_image_upload_permissions(),
+    }
+
+
+def register_bot(bot_instance) -> None:
+    async def refresh_duel_bet_countdown(pool_id: int, message, bets_close_at: str | None) -> None:
+        if not bets_close_at:
+            return
+        try:
+            close_at = datetime.fromisoformat(str(bets_close_at))
+        except ValueError:
+            return
+        while True:
+            remaining = max(int((close_at - datetime.utcnow()).total_seconds()), 0)
+            if remaining <= 0:
+                break
+            # Avoid hammering Telegram edits; refresh once at a random point within the next 10 seconds.
+            await asyncio.sleep(random.randint(1, min(10, remaining)))
+            remaining = max(int((close_at - datetime.utcnow()).total_seconds()), 0)
+            if remaining <= 0:
+                break
+            try:
+                await message.edit_text(
+                    f"下注倒计时还剩 {remaining} 秒\n\n{format_duel_bet_board(pool_id)}",
+                    reply_markup=_duel_bet_keyboard(pool_id),
+                )
+            except Exception:
+                pass
+
+    async def finalize_duel_after_betting(
+        pool_id: int,
+        challenger_tg: int,
+        defender_tg: int,
+        stake: int,
+        message,
+        bets_close_at: str | None,
+    ) -> None:
+        if bets_close_at:
+            try:
+                close_at = datetime.fromisoformat(str(bets_close_at))
+                await asyncio.sleep(max((close_at - datetime.utcnow()).total_seconds(), 0))
+            except ValueError:
+                await asyncio.sleep(120)
+        else:
+            await asyncio.sleep(120)
+        try:
+            result = resolve_duel(challenger_tg, defender_tg, stake)
+            settle_duel_bet_pool(pool_id, result["winner_tg"])
+            winner_name = await bot_instance.get_users(result["winner_tg"])
+            loser_name = await bot_instance.get_users(result["loser_tg"])
+            payouts = format_duel_bet_board(pool_id)
+            extra = f"\n总赌池：{result['pot']} 灵石" if result["stake"] else ""
+            await message.edit_text(
+                f"斗法已结算\n"
+                f"胜者：{winner_name.first_name}\n"
+                f"败者：{loser_name.first_name}\n"
+                f"{result['summary']}{extra}\n\n"
+                f"{payouts}",
+            )
+        except Exception as exc:
+            LOGGER.warning(f"xiuxian duel finalize failed: {exc}")
+
+    @bot_instance.on_callback_query(filters.regex(r"^xiuxian:entry$"))
+    async def xiuxian_entry(_, call):
+        await callAnswer(call, "正在展开仙途卷轴……")
+        await call.message.edit_text(
+            "是否愿意踏入仙途？确认后会抽取灵根，并为你建立专属修仙档案。",
+            reply_markup=xiuxian_confirm_keyboard(),
+        )
+
+    @bot_instance.on_callback_query(filters.regex(r"^xiuxian:return$"))
+    async def xiuxian_return(_, call):
+        profile = serialize_full_profile(call.from_user.id)
+        await callAnswer(call, "已回到修仙主页。")
+        await call.message.edit_text(_format_profile_text(profile), reply_markup=xiuxian_profile_keyboard())
+
+    @bot_instance.on_callback_query(filters.regex(r"^xiuxian:confirm$"))
+    async def xiuxian_confirm(_, call):
+        profile = init_path_for_user(call.from_user.id)
+        create_foundation_pill_for_user_if_missing(call.from_user.id)
+        await callAnswer(call, "仙途已启，命格已定。")
+        await call.message.edit_text(_format_profile_text(profile), reply_markup=xiuxian_profile_keyboard())
+
+    @bot_instance.on_callback_query(filters.regex(r"^xiuxian:train$"))
+    async def xiuxian_train(_, call):
+        try:
+            result = practice_for_user(call.from_user.id)
+            upgraded = ""
+            if result["upgraded_layers"]:
+                upgraded = "\n层数提升：" + "、".join(f"{layer}层" for layer in result["upgraded_layers"])
+            text = (
+                f"吐纳修炼完成。\n"
+                f"本次获得：修为 +{result['gain']}、灵石 +{result['stone_gain']}"
+                f"{upgraded}\n\n"
+                f"{_format_profile_text(result['profile'])}"
+            )
+            await callAnswer(call, "吐纳已完成。")
+            await call.message.edit_text(text, reply_markup=xiuxian_profile_keyboard())
+        except Exception as exc:
+            await callAnswer(call, str(exc), True)
+
+    @bot_instance.on_callback_query(filters.regex(r"^xiuxian:break$"))
+    async def xiuxian_break(_, call):
+        try:
+            result = breakthrough_for_user(call.from_user.id, use_pill=False)
+            text = (
+                f"突破掷点：{result['roll']} / 当前成功率 {result['success_rate']}%\n"
+                f"{'突破成功，气机贯通。' if result['success'] else '突破失败，灵力回落。'}\n\n"
+                f"{_format_profile_text(result['profile'])}"
+            )
+            await callAnswer(call, "突破结果已出。")
+            await call.message.edit_text(text, reply_markup=xiuxian_profile_keyboard())
+        except Exception as exc:
+            await callAnswer(call, str(exc), True)
+
+    @bot_instance.on_callback_query(filters.regex(r"^xiuxian:noop$"))
+    async def xiuxian_noop(_, call):
+        await callAnswer(call, "这个按钮暂时还没有开放。")
+
+    @bot_instance.on_callback_query(filters.regex(r"^xiuxian:rank:(stone|realm|artifact):(\d+)$"))
+    async def xiuxian_rank_callback(_, call):
+        kind, page = call.matches[0].group(1), int(call.matches[0].group(2))
+        result = build_leaderboard(kind, page)
+        await call.message.edit_text(
+            format_leaderboard_text(result),
+            reply_markup=leaderboard_keyboard(result["kind"], result["page"], result["total_pages"]),
+        )
+        await callAnswer(call, "排行榜已刷新。")
+
+    @bot_instance.on_message(filters.command(["xiuxian"], prefixes) & filters.private)
+    async def xiuxian_command(_, msg):
+        profile = serialize_full_profile(msg.from_user.id)
+        if not profile["profile"]["consented"]:
+            await msg.reply_text("你还没有踏入仙途，先点下面的按钮立下道心吧。", reply_markup=xiuxian_confirm_keyboard())
+            return
+
+        await msg.reply_text(_format_profile_text(profile), reply_markup=xiuxian_profile_keyboard())
+
+    @bot_instance.on_message(filters.command(["help"], prefixes))
+    async def xiuxian_help_command(_, msg):
+        help_text = (
+            "可用命令如下：\n"
+            "/start - 打开主面板与功能入口\n"
+            "/help - 查看命令帮助\n"
+            "/xiuxian - 打开修仙总览\n"
+            "/xiuxian_rank [stone|realm|artifact] [页码] - 查看修仙排行榜\n"
+            "/duel [赌注] - 回复某位道友发起斗法\n"
+            "/rob - 回复某位道友发起抢劫\n"
+            "/gift <TGID> <灵石数量> - 赠送灵石给其他玩家\n"
+            "/allow_upload - 主人回复用户后授予上传权限\n"
+            "/remove_upload - 主人回复用户后移除上传权限\n"
+            "回复群友并发送“仙人抚我顶 结发授长生” - 群主人灌注修为\n"
+            "其余修仙操作、任务、探索、红包、宗门与店铺功能请直接从 Mini App 进入。"
+        )
+        await msg.reply_text(help_text)
+
+    @bot_instance.on_message(filters.command(["xiuxian_rank"], prefixes) & filters.chat(group))
+    async def xiuxian_rank_command(_, msg):
+        kind_alias = {
+            "stone": "stone",
+            "stones": "stone",
+            "stone_rank": "stone",
+            "realm": "realm",
+            "realms": "realm",
+            "realm_rank": "realm",
+            "artifact": "artifact",
+            "artifacts": "artifact",
+            "artifact_rank": "artifact",
+        }
+        kind = "stone"
+        page = 1
+        if len(msg.command) > 1:
+            kind = kind_alias.get(str(msg.command[1]).lower(), kind_alias.get(str(msg.command[1]), "stone"))
+        if len(msg.command) > 2:
+            try:
+                page = max(int(msg.command[2]), 1)
+            except ValueError:
+                page = 1
+        result = build_leaderboard(kind, page)
+        await msg.reply_text(
+            format_leaderboard_text(result),
+            reply_markup=leaderboard_keyboard(result["kind"], result["page"], result["total_pages"]),
+        )
+
+    @bot_instance.on_message(filters.command(["duel"], prefixes) & filters.reply & filters.chat(group))
+    async def xiuxian_duel_command(_, msg):
+        if msg.reply_to_message is None or msg.reply_to_message.from_user is None:
+            return await msg.reply_text("请先回复一位目标道友，再发起斗法邀请。")
+        if msg.reply_to_message.from_user.id == msg.from_user.id:
+            return await msg.reply_text("你不能自己和自己斗法。")
+
+        settings = get_xiuxian_settings()
+        bet_minutes = int(settings.get("duel_bet_minutes", 2) or 2)
+        stake = 0
+        if len(msg.command) > 1:
+            try:
+                stake = max(int(msg.command[1]), 0)
+                if len(msg.command) > 2:
+                    bet_minutes = max(min(int(msg.command[2]), 15), 1)
+            except ValueError:
+                return await msg.reply_text("赌注必须填写整数。")
+
+        try:
+            duel = compute_duel_odds(msg.from_user.id, msg.reply_to_message.from_user.id)
+            preview = generate_duel_preview_text(duel, stake) + f"\n\n下注开放 {bet_minutes} 分钟"
+            await msg.reply_text(
+                preview,
+                reply_markup=duel_keyboard(msg.from_user.id, msg.reply_to_message.from_user.id, stake, bet_minutes),
+            )
+        except Exception as exc:
+            await msg.reply_text(str(exc))
+
+    @bot_instance.on_callback_query(filters.regex(r"^xiuxian:duel:(accept|reject):(\d+):(\d+):(\d+):(\d+)$"))
+    async def xiuxian_duel_callback(_, call):
+        action = call.matches[0].group(1)
+        challenger_tg = int(call.matches[0].group(2))
+        defender_tg = int(call.matches[0].group(3))
+        stake = int(call.matches[0].group(4))
+        bet_minutes = int(call.matches[0].group(5))
+
+        if call.from_user.id != defender_tg:
+            return await callAnswer(call, "只有被邀请的应战者才能处理这场斗法。", True)
+
+        if action == "reject":
+            await call.message.edit_text("这场斗法邀请已被拒绝。")
+            return await callAnswer(call, "斗法已取消。")
+
+        try:
+            pool = create_duel_bet_pool_for_duel(
+                challenger_tg=challenger_tg,
+                defender_tg=defender_tg,
+                stake=stake,
+                bet_minutes=bet_minutes,
+                group_chat_id=call.message.chat.id,
+                duel_message_id=call.message.id,
+            )
+            sent = await call.message.edit_text(
+                f"斗法邀请已接受，押注通道开放 {pool.get('bet_minutes', bet_minutes)} 分钟。\n\n" + format_duel_bet_board(pool["id"]),
+                reply_markup=_duel_bet_keyboard(pool["id"]),
+            )
+            try:
+                from bot.plugins.xiuxian_game.world_service import update_duel_bet_pool_message
+
+                update_duel_bet_pool_message(pool["id"], getattr(sent, "id", call.message.id))
+            except Exception as exc:
+                LOGGER.warning(f"xiuxian duel bet message update failed: {exc}")
+            await callAnswer(call, "斗法已开始，押注倒计时启动。")
+            asyncio.create_task(refresh_duel_bet_countdown(pool["id"], sent, pool.get("bets_close_at")))
+            asyncio.create_task(finalize_duel_after_betting(pool["id"], challenger_tg, defender_tg, stake, sent, pool.get("bets_close_at")))
+        except Exception as exc:
+            await callAnswer(call, str(exc), True)
+
+    @bot_instance.on_callback_query(filters.regex(r"^xiuxian:bet:(\d+):(challenger|defender):(\d+)$"))
+    async def xiuxian_duel_bet_callback(_, call):
+        pool_id = int(call.matches[0].group(1))
+        side = call.matches[0].group(2)
+        amount = int(call.matches[0].group(3))
+        try:
+            place_duel_bet(pool_id, call.from_user.id, side, amount)
+            await call.message.edit_text(
+                f"下注成功，当前赌池情况如下：\n{format_duel_bet_board(pool_id)}",
+                reply_markup=_duel_bet_keyboard(pool_id),
+            )
+            await callAnswer(call, f"已下注 {amount} 灵石。")
+        except Exception as exc:
+            await callAnswer(call, str(exc), True)
+
+    @bot_instance.on_message(filters.text & filters.group)
+    async def xiuxian_group_quiz_answer(_, msg):
+        if msg.from_user is None or getattr(msg.from_user, "is_bot", False):
+            return
+        if not getattr(msg, "text", None):
+            return
+        if IMMORTAL_TOUCH_PATTERN.fullmatch(msg.text.strip()):
+            return
+        try:
+            result = resolve_quiz_answer(msg.chat.id, msg.from_user.id, msg.text)
+        except Exception as exc:
+            LOGGER.warning(f"xiuxian quiz resolve failed: {exc}")
+            return
+        if not result:
+            return
+
+        task = result["task"]
+        reward = result["reward"] or {}
+        reward_lines = []
+        if int(reward.get("reward_stone") or 0):
+            reward_lines.append(f"{reward['reward_stone']} 灵石")
+        if reward.get("reward_item"):
+            reward_lines.append(
+                f"{reward['reward_item'].get('quantity', 1)} 个{(reward['reward_item'].get('artifact') or reward['reward_item'].get('pill') or reward['reward_item'].get('talisman') or reward['reward_item'].get('material') or {}).get('name', '物品')}"
+            )
+        reward_text = "、".join(reward_lines) if reward_lines else "任务奖励"
+        await msg.reply_text(f"答题成功，{msg.from_user.first_name} 已完成《{task['title']}》，奖励：{reward_text}。", quote=True)
+        try:
+            if task.get("group_message_id"):
+                summary = _task_group_text(task) + f"\n\n已完成：{msg.from_user.first_name}"
+                if task.get("image_url"):
+                    caption, _ = _split_photo_caption(summary)
+                    await bot_instance.edit_message_caption(msg.chat.id, int(task["group_message_id"]), caption or "任务已完成")
+                else:
+                    await bot_instance.edit_message_text(msg.chat.id, int(task["group_message_id"]), summary)
+        except Exception as exc:
+            LOGGER.warning(f"xiuxian quiz task message refresh failed: {exc}")
+
+    @bot_instance.on_callback_query(filters.regex(r"^xiuxian:red:(\d+)$"))
+    async def xiuxian_red_envelope_callback(_, call):
+        envelope_id = int(call.matches[0].group(1))
+        try:
+            result = claim_red_envelope_for_user(envelope_id, call.from_user.id)
+            envelope = result["envelope"]
+            claim_lines = []
+            for row in result.get("claims", [])[-5:]:
+                claimant_name = row.get("name") or f"TG {row['tg']}"
+                claim_lines.append(f"{claimant_name}：{row['amount']} 灵石")
+            claim_text = "\n".join(claim_lines) if claim_lines else "暂时还没有领取记录"
+            await call.message.edit_text(
+                f"红包封面：{envelope.get('cover_text') or '福运临门'}\n"
+                f"剩余：{envelope.get('remaining_amount')} 灵石 / {envelope.get('remaining_count')} 个红包\n"
+                f"最近领取记录：\n{claim_text}",
+                # red envelope status
+                reply_markup=_red_envelope_keyboard(envelope_id) if envelope.get("status") == "active" else None,
+            )
+            await callAnswer(call, f"成功领取 {result['amount']} 灵石。")
+        except Exception as exc:
+            await callAnswer(call, str(exc), True)
+
+    @bot_instance.on_message(filters.command(["xiuxian_seed"], prefixes) & filters.private)
+    async def xiuxian_seed_user(_, msg):
+        if not is_admin_user_id(msg.from_user.id):
+            return await msg.reply_text("只有主人才能使用这个演示资源指令。")
+        if len(msg.command) < 2 or not msg.command[1].isdigit():
+            return await msg.reply_text("用法：/xiuxian_seed <tg_id>")
+        payload = admin_seed_demo_assets(int(msg.command[1]))
+        await msg.reply_text(f"演示资源已经发放完成。\n{_format_profile_text(payload)}")
+
+    @bot_instance.on_message(filters.command(["allow_upload"], prefixes) & filters.reply)
+    async def xiuxian_allow_upload(client, msg):
+        if not await _can_manage_upload_permissions(client, msg):
+            return await msg.reply_text("只有后台主人或本群主人才能授予上传权限。")
+        target_user = getattr(getattr(msg, "reply_to_message", None), "from_user", None)
+        if target_user is None or getattr(target_user, "is_bot", False):
+            return await msg.reply_text("请先回复一位真实用户，再授予上传权限。")
+        if is_admin_user_id(target_user.id):
+            return await msg.reply_text("主人默认就拥有上传权限。")
+        grant_image_upload_permission(target_user.id)
+        await msg.reply_text(f"已为 {target_user.first_name}（{target_user.id}）开启图片上传权限。")
+
+    @bot_instance.on_message(filters.command(["remove_upload", "delete_upload"], prefixes) & filters.reply)
+    async def xiuxian_remove_upload(client, msg):
+        if not await _can_manage_upload_permissions(client, msg):
+            return await msg.reply_text("只有后台主人或本群主人才能移除上传权限。")
+        target_user = getattr(getattr(msg, "reply_to_message", None), "from_user", None)
+        if target_user is None or getattr(target_user, "is_bot", False):
+            return await msg.reply_text("请先回复一位真实用户，再移除上传权限。")
+        removed = revoke_image_upload_permission(target_user.id)
+        if removed:
+            await msg.reply_text(f"已移除 {target_user.first_name}（{target_user.id}）的图片上传权限。")
+        else:
+            await msg.reply_text("这个用户当前没有额外的上传权限记录。")
+
+        return
+        # legacy unreachable
+        # legacy unreachable
+        # legacy unreachable
+
+    @bot_instance.on_message(filters.text & filters.reply & filters.chat(group))
+    async def xiuxian_immortal_touch_reply(client, msg):
+        if msg.from_user is None or not getattr(msg, "text", None):
+            return
+        if not IMMORTAL_TOUCH_PATTERN.fullmatch(msg.text.strip()):
+            return
+        if not is_admin_user_id(msg.from_user.id) and not await _is_group_admin(client, msg.chat.id, msg.from_user.id):
+            return await msg.reply_text("只有本群主人才能施展仙人抚顶。", quote=True)
+
+        target_user = getattr(getattr(msg, "reply_to_message", None), "from_user", None)
+        if target_user is None or getattr(target_user, "is_bot", False):
+            return await msg.reply_text("请先回复一位真实用户，再施展仙人抚顶。", quote=True)
+
+        try:
+            result = immortal_touch_infuse_cultivation(msg.from_user.id, target_user.id)
+        except Exception as exc:
+            return await msg.reply_text(str(exc), quote=True)
+
+        profile = result.get("profile") or {}
+        actor_name = msg.from_user.first_name or f"TG {msg.from_user.id}"
+        target_name = target_user.first_name or f"TG {target_user.id}"
+        stage = profile.get("realm_stage") or "炼气"
+        layer = int(profile.get("realm_layer") or 1)
+        lines = [
+            "【长生喜报】",
+            f"🎉 恭喜 {target_name} 被 {actor_name} 赋予长生，仙途再添一缕祥光。",
+            f"✨ {actor_name} 以“仙人抚我顶，结发授长生”为 {target_name} 灌注了 {result['gain']} 点修为。",
+        ]
+        if result.get("upgraded_layers"):
+            lines.append(f"🌟 {target_name} 连破 {len(result['upgraded_layers'])} 层，当前已至 {stage}{layer}层。")
+        else:
+            lines.append(f"🌿 {target_name} 当前境界为 {stage}{layer}层，距离下一层还差 {result['remaining']} 修为。")
+        if result.get("breakthrough_ready"):
+            lines.append("🏵️ 九层圆满，道基已稳，可尝试突破。")
+        await client.send_message(msg.chat.id, "\n".join(lines))
+
+    @bot_instance.on_message(filters.command(["rob"], prefixes) & filters.reply & filters.chat(group))
+    async def xiuxian_rob_command(_, msg):
+        if msg.reply_to_message is None or msg.reply_to_message.from_user is None:
+            return await msg.reply_text("请先回复目标道友，再尝试发起抢劫。")
+        try:
+            result = rob_player(msg.from_user.id, msg.reply_to_message.from_user.id)
+            if result["success"]:
+                text = f"抢劫成功，你夺得了 {result['amount']} 灵石。"
+            else:
+                text = f"抢劫失败，你反而损失了 {-result['amount']} 灵石。"
+            await msg.reply_text(text, quote=True)
+        except Exception as exc:
+            await msg.reply_text(str(exc), quote=True)
+
+    @bot_instance.on_message(filters.command(["gift"], prefixes))
+    async def xiuxian_gift_command(_, msg):
+        if len(msg.command) < 3:
+            return await msg.reply_text("用法：/gift <TGID> <灵石数量>")
+        try:
+            target_tg = int(msg.command[1])
+            amount = int(msg.command[2])
+        except ValueError:
+            return await msg.reply_text("赠送命令格式不正确，请填写整数 TGID 和灵石数量。")
+        try:
+            result = gift_spirit_stone(msg.from_user.id, target_tg, amount)
+            await msg.reply_text(
+                f"赠送成功，已向 {result['receiver'].get('display_label') or f'TG {target_tg}'} 送出 {amount} 灵石。"
+            )
+        except Exception as exc:
+            await msg.reply_text(str(exc))
+
+
+def register_web(app) -> None:
+    user_router = APIRouter(prefix="/plugins/xiuxian", tags=["xiuxian-user"])
+    admin_router = APIRouter(prefix="/plugins/xiuxian/admin-api", tags=["xiuxian-admin"])
+
+    if STATIC_DIR.exists():
+        app.mount("/plugins/xiuxian/static", StaticFiles(directory=STATIC_DIR), name="xiuxian-static")
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    app.mount("/plugins/xiuxian/uploads", StaticFiles(directory=UPLOAD_DIR), name="xiuxian-uploads")
+
+    if not getattr(app.state, "xiuxian_value_error_handler", False):
+        @app.exception_handler(ValueError)
+        async def xiuxian_value_error_handler(_, exc: ValueError):
+            return JSONResponse(status_code=400, content={"code": 400, "message": str(exc), "detail": str(exc)})
+
+        app.state.xiuxian_value_error_handler = True
+
+    if not getattr(app.state, "xiuxian_exception_handler", False):
+        @app.exception_handler(Exception)
+        async def xiuxian_exception_handler(_, exc: Exception):
+            LOGGER.exception(f"xiuxian api unhandled error: {exc}")
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "code": 500,
+                    "message": "内部服务暂时出了点岔子，请稍后再试。",
+                    "detail": str(exc) or "Internal Server Error",
+                },
+            )
+
+        app.state.xiuxian_exception_handler = True
+
+    @user_router.get("/app")
+    async def xiuxian_app_page():
+        return FileResponse(STATIC_DIR / "app.html")
+
+    @user_router.get("/admin")
+    async def xiuxian_admin_page():
+        return FileResponse(STATIC_DIR / "admin.html")
+
+    @user_router.post("/api/bootstrap")
+    async def xiuxian_bootstrap(payload: InitDataPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        profile = _full_bundle(telegram_user["id"])
+        return {
+            "code": 200,
+            "data": {
+                "telegram_user": telegram_user,
+                "profile_bundle": profile,
+                "app_url": build_plugin_url("/plugins/xiuxian/app"),
+                "admin_panel_url": _admin_panel_url() if is_admin_user_id(telegram_user["id"]) else None,
+                "home_url": build_plugin_url("/miniapp"),
+                "bottom_nav": _build_bottom_nav(),
+            },
+        }
+
+    @user_router.post("/api/upload-image")
+    async def xiuxian_upload_image_api(
+        request: Request,
+        init_data: str = Form(...),
+        folder: str = Form("tasks"),
+        file: UploadFile = File(...),
+    ):
+        telegram_user = _verify_user_from_init_data(init_data)
+        allowed, reason = _can_user_upload_images(telegram_user["id"])
+        if not allowed:
+            raise HTTPException(status_code=403, detail=reason)
+        result = await _save_uploaded_image(file, f"user/{telegram_user['id']}/{folder}", str(request.base_url))
+        return {"code": 200, "data": result}
+
+    @user_router.post("/api/enter")
+    async def xiuxian_enter(payload: InitDataPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        init_path_for_user(telegram_user["id"])
+        create_foundation_pill_for_user_if_missing(telegram_user["id"])
+        return {"code": 200, "data": _full_bundle(telegram_user["id"])}
+
+    @user_router.post("/api/train")
+    async def xiuxian_train_api(payload: InitDataPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = practice_for_user(telegram_user["id"])
+        return {"code": 200, "data": result}
+
+    @user_router.post("/api/breakthrough")
+    async def xiuxian_breakthrough_api(payload: BreakthroughPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = breakthrough_for_user(telegram_user["id"], use_pill=payload.use_pill)
+        return {"code": 200, "data": result}
+
+    @user_router.post("/api/pill/use")
+    async def xiuxian_use_pill_api(payload: ConsumePillPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = consume_pill_for_user(telegram_user["id"], payload.pill_id)
+        return {"code": 200, "data": result}
+
+    @user_router.post("/api/artifact/equip")
+    async def xiuxian_equip_api(payload: EquipArtifactPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = equip_artifact_for_user(telegram_user["id"], payload.artifact_id)
+        return {"code": 200, "data": result}
+
+    @user_router.post("/api/talisman/activate")
+    async def xiuxian_activate_talisman_api(payload: ActivateTalismanPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = activate_talisman_for_user(telegram_user["id"], payload.talisman_id)
+        return {"code": 200, "data": result}
+
+    @user_router.post("/api/technique/activate")
+    async def xiuxian_activate_technique_api(payload: ActivateTechniquePayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = activate_technique_for_user(telegram_user["id"], payload.technique_id)
+        return {"code": 200, "data": result}
+
+    @user_router.post("/api/retreat/start")
+    async def xiuxian_retreat_start_api(payload: RetreatPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = start_retreat_for_user(telegram_user["id"], payload.hours)
+        return {"code": 200, "data": result}
+
+    @user_router.post("/api/retreat/finish")
+    async def xiuxian_retreat_finish_api(payload: InitDataPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = finish_retreat_for_user(telegram_user["id"])
+        return {"code": 200, "data": result}
+
+    @user_router.post("/api/exchange")
+    async def xiuxian_exchange_api(payload: ExchangePayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        if payload.direction == "coin_to_stone":
+            result = convert_emby_coin_to_stone(telegram_user["id"], payload.amount)
+        elif payload.direction == "stone_to_coin":
+            result = convert_stone_to_emby_coin(telegram_user["id"], payload.amount)
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported exchange direction")
+        return {"code": 200, "data": result}
+
+    @user_router.post("/api/sect/join")
+    async def xiuxian_join_sect_api(payload: SectJoinPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = join_sect_for_user(telegram_user["id"], payload.sect_id)
+        return {"code": 200, "data": {"sect": result, "bundle": _full_bundle(telegram_user["id"])}}
+
+    @user_router.post("/api/sect/leave")
+    async def xiuxian_leave_sect_api(payload: InitDataPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = leave_sect_for_user(telegram_user["id"])
+        return {"code": 200, "data": {"sect": result, "bundle": _full_bundle(telegram_user["id"])}}
+
+    @user_router.post("/api/sect/salary")
+    async def xiuxian_claim_salary_api(payload: InitDataPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = claim_sect_salary_for_user(telegram_user["id"])
+        return {"code": 200, "data": {"salary": result["salary"], "bundle": _full_bundle(telegram_user["id"])}}
+
+    @user_router.post("/api/task/create")
+    async def xiuxian_create_task_api(payload: UserTaskPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        task = create_bounty_task(
+            actor_tg=telegram_user["id"],
+            title=payload.title,
+            description=payload.description,
+            task_scope=payload.task_scope,
+            task_type=payload.task_type,
+            question_text=payload.question_text,
+            answer_text=payload.answer_text,
+            image_url=payload.image_url,
+            required_item_kind=payload.required_item_kind,
+            required_item_ref_id=payload.required_item_ref_id,
+            required_item_quantity=payload.required_item_quantity,
+            reward_stone=payload.reward_stone,
+            reward_item_kind=payload.reward_item_kind,
+            reward_item_ref_id=payload.reward_item_ref_id,
+            reward_item_quantity=payload.reward_item_quantity,
+            max_claimants=payload.max_claimants,
+            active_in_group=payload.active_in_group,
+            group_chat_id=payload.group_chat_id or _main_group_chat_id(),
+        )
+        push_warning = None
+        if task.get("active_in_group"):
+            task, push_warning = await _safe_push_task_to_group(task)
+        _remember_journal(telegram_user["id"], "task", "发布任务", f"发布了任务【{task['title']}】")
+        return {"code": 200, "data": {"task": task, "push_warning": push_warning, "bundle": _full_bundle(telegram_user["id"])}}
+
+    @user_router.post("/api/task/claim")
+    async def xiuxian_claim_task_api(payload: TaskClaimPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = claim_task_for_user(telegram_user["id"], payload.task_id)
+        return {"code": 200, "data": {"result": result, "bundle": _full_bundle(telegram_user["id"])}}
+
+    @user_router.post("/api/recipe/craft")
+    async def xiuxian_craft_recipe_api(payload: CraftPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = craft_recipe_for_user(telegram_user["id"], payload.recipe_id)
+        await _maybe_broadcast_craft(telegram_user["id"], result)
+        return {"code": 200, "data": {"result": result, "bundle": _full_bundle(telegram_user["id"])}}
+
+    @user_router.post("/api/explore/start")
+    async def xiuxian_explore_start_api(payload: ExploreStartPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = start_exploration_for_user(telegram_user["id"], payload.scene_id, payload.minutes)
+        return {"code": 200, "data": {"exploration": result, "bundle": _full_bundle(telegram_user["id"])}}
+
+    @user_router.post("/api/explore/claim")
+    async def xiuxian_explore_claim_api(payload: ExploreClaimPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = claim_exploration_for_user(telegram_user["id"], payload.exploration_id)
+        return {"code": 200, "data": {"result": result, "bundle": _full_bundle(telegram_user["id"])}}
+
+    @user_router.post("/api/red-envelope/create")
+    async def xiuxian_create_red_envelope_api(payload: RedEnvelopePayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = create_red_envelope_for_user(
+            tg=telegram_user["id"],
+            cover_text=payload.cover_text,
+            mode=payload.mode,
+            amount_total=payload.amount_total,
+            count_total=payload.count_total,
+            target_tg=payload.target_tg,
+            group_chat_id=_main_group_chat_id(),
+        )
+        await _push_red_envelope_notice(result["envelope"])
+        return {"code": 200, "data": {"result": result, "bundle": _full_bundle(telegram_user["id"])}}
+
+    @user_router.post("/api/shop/personal")
+    async def xiuxian_personal_shop_api(payload: PersonalShopPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = create_personal_shop_listing(
+            tg=telegram_user["id"],
+            shop_name=payload.shop_name or generate_shop_name(telegram_user.get("first_name", "道友")),
+            item_kind=payload.item_kind,
+            item_ref_id=payload.item_ref_id,
+            quantity=payload.quantity,
+            price_stone=payload.price_stone,
+            broadcast=payload.broadcast,
+        )
+
+        if payload.broadcast:
+            try:
+                await bot.send_message(
+                    group[0],
+                    broadcast_shop_copy(
+                        telegram_user.get("first_name", "道友"),
+                        result["listing"]["shop_name"],
+                        result["listing"]["item_name"],
+                        result["listing"]["price_stone"],
+                    ),
+                )
+            except Exception as exc:
+                LOGGER.warning(f"修仙坊市全群播报发送失败: {exc}")
+
+        _remember_journal(telegram_user["id"], "shop", "上架商品", f"上架了【{result['listing']['item_name']}】")
+        return {"code": 200, "data": result}
+
+    @user_router.post("/api/shop/cancel")
+    async def xiuxian_cancel_listing_api(payload: ShopCancelPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = cancel_personal_shop_item(telegram_user["id"], payload.item_id)
+        _remember_journal(telegram_user["id"], "shop", "取消上架", f"取消了商品 #{payload.item_id} 的上架")
+        return {"code": 200, "data": {"result": result, "bundle": _full_bundle(telegram_user["id"])}}
+
+    @user_router.post("/api/shop/purchase")
+    async def xiuxian_purchase_api(payload: PurchasePayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = purchase_shop_item(telegram_user["id"], payload.item_id, payload.quantity)
+        _remember_journal(telegram_user["id"], "shop", "购买商品", f"购买了【{result['item']['item_name']}】")
+        seller_tg = result.get("seller_tg")
+        if seller_tg and int(seller_tg) != int(telegram_user["id"]):
+            try:
+                await bot.send_message(
+                    int(seller_tg),
+                    f"你的商品【{result['item']['item_name']}】已被 {result.get('buyer_name') or '道友'} 购买，到账 {result['total_cost']} 灵石。",
+                )
+            except Exception as exc:
+                LOGGER.warning(f"xiuxian seller notify failed: {exc}")
+        return {"code": 200, "data": result}
+
+    @user_router.post("/api/gift")
+    async def xiuxian_gift_api(payload: GiftPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = gift_spirit_stone(telegram_user["id"], payload.target_tg, payload.amount)
+        return {"code": 200, "data": {"result": result, "bundle": _full_bundle(telegram_user["id"])}}
+
+    @user_router.post("/api/journal")
+    async def xiuxian_journal_api(payload: InitDataPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        return {"code": 200, "data": list_recent_journals(telegram_user["id"])}
+
+    @user_router.post("/api/leaderboard")
+    async def xiuxian_leaderboard_api(payload: LeaderboardPayload):
+        _verify_user_from_init_data(payload.init_data)
+        result = build_leaderboard(payload.kind, payload.page)
+        return {"code": 200, "data": result}
+
+    @user_router.get("/api/shop")
+    async def xiuxian_public_shop_api():
+        return {"code": 200, "data": list_public_shop_items()}
+
+    @admin_router.post("/bootstrap")
+    async def xiuxian_admin_bootstrap(payload: AdminBootstrapPayload):
+        admin_user = _verify_admin_credential(payload.token, payload.init_data)
+        world = _admin_world_snapshot()
+        return {
+            "code": 200,
+            "data": {
+                "admin_user": admin_user,
+                "settings": update_xiuxian_settings({}),
+                "artifacts": list_artifacts(),
+                "pills": list_pills(),
+                "talismans": list_talismans(),
+                "techniques": list_techniques(),
+                "official_shop": list_shop_items(official_only=True, include_disabled=True),
+                **world,
+            },
+        }
+
+    @admin_router.post("/settings")
+    async def xiuxian_settings_api(payload: AdminSettingPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        patch = {key: value for key, value in payload.model_dump().items() if value is not None}
+        return {"code": 200, "data": update_xiuxian_settings(patch)}
+
+    @admin_router.post("/upload-image")
+    async def xiuxian_admin_upload_image_api(
+        request: Request,
+        folder: str = Form("admin"),
+        file: UploadFile = File(...),
+    ):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        result = await _save_uploaded_image(file, f"admin/{folder}", str(request.base_url))
+        return {"code": 200, "data": result}
+
+    @admin_router.post("/upload-permission/grant")
+    async def xiuxian_admin_grant_upload_permission_api(payload: UploadPermissionPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        if is_admin_user_id(payload.tg):
+            return {"code": 200, "data": {"tg": payload.tg, "granted": True, "builtin": True}}
+        grant_image_upload_permission(payload.tg)
+        return {"code": 200, "data": {"tg": payload.tg, "granted": True, "builtin": False}}
+
+    @admin_router.post("/upload-permission/revoke")
+    async def xiuxian_admin_revoke_upload_permission_api(payload: UploadPermissionPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        removed = revoke_image_upload_permission(payload.tg)
+        return {"code": 200, "data": {"tg": payload.tg, "removed": removed}}
+
+    @admin_router.post("/artifact")
+    async def xiuxian_artifact_api(payload: ArtifactPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        artifact = create_artifact(**payload.model_dump())
+        return {"code": 200, "data": artifact}
+
+    @admin_router.post("/pill")
+    async def xiuxian_pill_api(payload: PillPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        pill = create_pill(**payload.model_dump())
+        return {"code": 200, "data": pill}
+
+    @admin_router.post("/talisman")
+    async def xiuxian_talisman_api(payload: TalismanPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        talisman = create_talisman(**payload.model_dump())
+        return {"code": 200, "data": talisman}
+
+    @admin_router.post("/technique")
+    async def xiuxian_technique_api(payload: TechniquePayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        technique = create_technique(**payload.model_dump())
+        return {"code": 200, "data": technique}
+
+    @admin_router.post("/sect")
+    async def xiuxian_sect_api(payload: SectPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        sect = create_sect_with_roles(
+            name=payload.name,
+            description=payload.description,
+            image_url=payload.image_url,
+            min_realm_stage=payload.min_realm_stage,
+            min_realm_layer=payload.min_realm_layer,
+            min_stone=payload.min_stone,
+            roles=[item.model_dump() for item in payload.roles],
+        )
+        return {"code": 200, "data": sect}
+
+    @admin_router.post("/sect/role")
+    async def xiuxian_sect_role_assign_api(payload: SectRoleAssignPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        return {"code": 200, "data": set_user_sect_role(payload.tg, payload.sect_id, payload.role_key)}
+
+    @admin_router.post("/material")
+    async def xiuxian_material_api(payload: MaterialPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        return {"code": 200, "data": create_material(**payload.model_dump())}
+
+    @admin_router.post("/recipe")
+    async def xiuxian_recipe_api(payload: RecipePayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        recipe = create_recipe_with_ingredients(
+            name=payload.name,
+            recipe_kind=payload.recipe_kind,
+            result_kind=payload.result_kind,
+            result_ref_id=payload.result_ref_id,
+            result_quantity=payload.result_quantity,
+            base_success_rate=payload.base_success_rate,
+            broadcast_on_success=payload.broadcast_on_success,
+            ingredients=[item.model_dump() for item in payload.ingredients],
+        )
+        return {"code": 200, "data": recipe}
+
+    @admin_router.post("/scene")
+    async def xiuxian_scene_api(payload: ScenePayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        scene = create_scene_with_drops(
+            name=payload.name,
+            description=payload.description,
+            image_url=payload.image_url,
+            max_minutes=payload.max_minutes,
+            event_pool=payload.event_pool,
+            drops=[item.model_dump() for item in payload.drops],
+        )
+        return {"code": 200, "data": scene}
+
+    @admin_router.post("/task")
+    async def xiuxian_admin_task_api(payload: AdminTaskPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        task = create_bounty_task(
+            actor_tg=None,
+            title=payload.title,
+            description=payload.description,
+            task_scope=payload.task_scope,
+            task_type=payload.task_type,
+            question_text=payload.question_text,
+            answer_text=payload.answer_text,
+            image_url=payload.image_url,
+            required_item_kind=payload.required_item_kind,
+            required_item_ref_id=payload.required_item_ref_id,
+            required_item_quantity=payload.required_item_quantity,
+            reward_stone=payload.reward_stone,
+            reward_item_kind=payload.reward_item_kind,
+            reward_item_ref_id=payload.reward_item_ref_id,
+            reward_item_quantity=payload.reward_item_quantity,
+            max_claimants=payload.max_claimants,
+            sect_id=payload.sect_id,
+            active_in_group=payload.active_in_group,
+            group_chat_id=payload.group_chat_id or _main_group_chat_id(),
+        )
+        if task.get("active_in_group"):
+            task, push_warning = await _safe_push_task_to_group(task)
+            if push_warning:
+                task["push_warning"] = push_warning
+        return {"code": 200, "data": task}
+
+    @admin_router.post("/grant")
+    async def xiuxian_grant_api(payload: GrantPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        result = grant_item_to_user(payload.tg, payload.item_kind, payload.item_ref_id, payload.quantity)
+        return {"code": 200, "data": result}
+
+    @admin_router.post("/shop/official")
+    async def xiuxian_official_shop_api(payload: OfficialShopPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        result = create_official_shop_listing(
+            item_kind=payload.item_kind,
+            item_ref_id=payload.item_ref_id,
+            quantity=payload.quantity,
+            price_stone=payload.price_stone,
+            shop_name=payload.shop_name,
+        )
+        return {"code": 200, "data": result}
+
+    @admin_router.patch("/shop/{item_id}")
+    async def xiuxian_patch_shop_api(item_id: int, payload: OfficialShopPatchPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        patch = {key: value for key, value in payload.model_dump().items() if value is not None}
+        result = patch_shop_listing(item_id, **patch)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Shop item not found")
+        return {"code": 200, "data": result}
+
+    @admin_router.delete("/artifact/{artifact_id}")
+    async def xiuxian_delete_artifact_api(artifact_id: int, request: Request):
+        _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
+        if not delete_artifact(artifact_id):
+            raise HTTPException(status_code=404, detail="Artifact not found")
+        return {"code": 200, "data": {"deleted": True, "id": artifact_id}}
+
+    @admin_router.delete("/pill/{pill_id}")
+    async def xiuxian_delete_pill_api(pill_id: int, request: Request):
+        _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
+        if not delete_pill(pill_id):
+            raise HTTPException(status_code=404, detail="Pill not found")
+        return {"code": 200, "data": {"deleted": True, "id": pill_id}}
+
+    @admin_router.delete("/talisman/{talisman_id}")
+    async def xiuxian_delete_talisman_api(talisman_id: int, request: Request):
+        _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
+        if not delete_talisman(talisman_id):
+            raise HTTPException(status_code=404, detail="Talisman not found")
+        return {"code": 200, "data": {"deleted": True, "id": talisman_id}}
+
+    @admin_router.delete("/technique/{technique_id}")
+    async def xiuxian_delete_technique_api(technique_id: int, request: Request):
+        _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
+        if not delete_technique(technique_id):
+            raise HTTPException(status_code=404, detail="Technique not found")
+        return {"code": 200, "data": {"deleted": True, "id": technique_id}}
+
+    @admin_router.delete("/sect/{sect_id}")
+    async def xiuxian_delete_sect_api(sect_id: int, request: Request):
+        _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
+        if not delete_sect(sect_id):
+            raise HTTPException(status_code=404, detail="Sect not found")
+        return {"code": 200, "data": {"deleted": True, "id": sect_id}}
+
+    @admin_router.delete("/material/{material_id}")
+    async def xiuxian_delete_material_api(material_id: int, request: Request):
+        _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
+        if not delete_material(material_id):
+            raise HTTPException(status_code=404, detail="Material not found")
+        return {"code": 200, "data": {"deleted": True, "id": material_id}}
+
+    @admin_router.delete("/recipe/{recipe_id}")
+    async def xiuxian_delete_recipe_api(recipe_id: int, request: Request):
+        _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
+        if not delete_recipe(recipe_id):
+            raise HTTPException(status_code=404, detail="Recipe not found")
+        return {"code": 200, "data": {"deleted": True, "id": recipe_id}}
+
+    @admin_router.delete("/scene/{scene_id}")
+    async def xiuxian_delete_scene_api(scene_id: int, request: Request):
+        _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
+        if not delete_scene(scene_id):
+            raise HTTPException(status_code=404, detail="Scene not found")
+        return {"code": 200, "data": {"deleted": True, "id": scene_id}}
+
+    @admin_router.delete("/task/{task_id}")
+    async def xiuxian_delete_task_api(task_id: int, request: Request):
+        _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
+        if not delete_task(task_id):
+            raise HTTPException(status_code=404, detail="Task not found")
+        return {"code": 200, "data": {"deleted": True, "id": task_id}}
+
+    @admin_router.get("/players")
+    async def xiuxian_admin_players_api(request: Request, q: str = "", page: int = 1, page_size: int = 20):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        result = search_xiuxian_players(query=q or None, page=page, page_size=page_size)
+        items = result.get("items") or []
+        identities = await asyncio.gather(
+            *(_refresh_profile_identity_from_telegram(int(item["tg"])) for item in items),
+            return_exceptions=True,
+        )
+        result["items"] = [
+            _merge_profile_identity(
+                item,
+                None if isinstance(identity, Exception) else identity,
+            )
+            for item, identity in zip(items, identities)
+        ]
+        return {"code": 200, "data": result}
+
+    @admin_router.get("/players/{tg}")
+    async def xiuxian_admin_player_detail_api(tg: int, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        from bot.sql_helper.sql_xiuxian import get_profile
+        profile = get_profile(tg, create=False)
+        if profile is None or not profile.consented:
+            raise HTTPException(status_code=404, detail="Player not found")
+        identity = await _refresh_profile_identity_from_telegram(tg)
+        bundle = serialize_full_profile(tg)
+        bundle["profile"] = _merge_profile_identity(bundle.get("profile") or {}, identity)
+        return {"code": 200, "data": bundle}
+
+    @admin_router.patch("/players/{tg}")
+    async def xiuxian_admin_player_patch_api(tg: int, payload: PlayerPatchPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        patch = {key: value for key, value in payload.model_dump().items() if value is not None}
+        result = admin_patch_player(tg, **patch)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Player not found")
+        create_journal(tg, "admin", "主人修改", f"主人修改了属性: {', '.join(patch.keys())}")
+        return {"code": 200, "data": result}
+
+    app.include_router(user_router)
+    app.include_router(admin_router)

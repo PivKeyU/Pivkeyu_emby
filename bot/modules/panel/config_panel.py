@@ -1,6 +1,6 @@
 """
 可调节设置
-此处为控制面板2，主要是为了在bot中能够设置一些变量
+此处为控制面板2，主要是为了在本女仆中能够设置一些变量
 部分目前有 导出日志，更改探针，更改emby线路，设置购买按钮
 
 """
@@ -538,7 +538,7 @@ async def set_block(_, call):
 #         user_buy.stat = False
 #         save_config()
 #         await callAnswer(call, '**👮🏻‍♂️ 已经为您关闭购买按钮啦！**')
-#         LOGGER.info(f"【admin】：管理员 {call.from_user.first_name} - 关闭了购买按钮")
+#         LOGGER.info(f"【admin】：主人 {call.from_user.first_name} - 关闭了购买按钮")
 #         return await config_p_re(_, call)
 #
 #     user_buy.stat = True
@@ -546,7 +546,7 @@ async def set_block(_, call):
 #                             '- 更换按钮请输入格式形如： \n\n`[按钮文字描述] - http://xxx`\n'
 #                             '- 退出状态请按 /cancel，需要markdown效果的话请在配置文件更改')
 #     save_config()
-#     LOGGER.info(f"【admin】：管理员 {call.from_user.first_name} - 开启了购买按钮")
+#     LOGGER.info(f"【admin】：主人 {call.from_user.first_name} - 开启了购买按钮")
 #
 #     txt = await callListen(call, 120, buttons=back_set_ikb('set_buy'))
 #     if txt is False:
@@ -581,18 +581,18 @@ async def set_auto_update(_, call):
         # 简化逻辑，只设置一次
         auto_update.status = not auto_update.status
         if auto_update.status:
-            message = '👮🏻‍♂️您已开启 auto_update自动更新bot代码\n\n运行时间：12:30UTC+0800'
-            LOGGER.info(f"【admin】：管理员 {call.from_user.first_name} 已启用 auto_update自动更新bot代码")
+            message = '👮🏻‍♂️您已开启 auto_update 自动更新本女仆代码\n\n运行时间：12:30UTC+0800'
+            LOGGER.info(f"【admin】：主人 {call.from_user.first_name} 已启用 auto_update 自动更新本女仆代码")
         else:
-            message = '👮🏻‍♂️ 您已关闭 auto_update自动更新bot代码，如您需要更换仓库，请于配置文件中git_repo填写'
-            LOGGER.info(f"【admin】：管理员 {call.from_user.first_name} 已关闭 auto_update自动更新bot代码")
+            message = '👮🏻‍♂️ 您已关闭 auto_update 自动更新本女仆代码，如您需要更换仓库，请于配置文件中 git_repo 填写'
+            LOGGER.info(f"【admin】：主人 {call.from_user.first_name} 已关闭 auto_update 自动更新本女仆代码")
 
         await callAnswer(call, message, True)
         await config_p_re(_, call)
         save_config()
     except Exception as e:
         # 异常处理，记录错误信息
-        LOGGER.error(f"【admin】：管理员 {call.from_user.first_name} 尝试更改 auto_update状态时出错: {e}")
+        LOGGER.error(f"【admin】：主人 {call.from_user.first_name} 尝试更改 auto_update状态时出错: {e}")
 
 
 @bot.on_callback_query(filters.regex('^set_mp$') & admins_on_filter)
@@ -696,11 +696,11 @@ async def open_leave_ban(_, call):
     _open.leave_ban = not _open.leave_ban
     # 根据当前状态发送消息
     if _open.leave_ban:
-        message = '**👮🏻‍♂️ 您已开启 退群封禁，用户退群bot将会被封印，禁止入群**'
-        log_message = "【admin】：管理员 {} 已调整 退群封禁设置为 True".format(call.from_user.first_name)
+        message = '**👮🏻‍♂️ 您已开启退群封禁，用户退群后将会被本女仆封印，禁止入群**'
+        log_message = "【admin】：主人 {} 已调整 退群封禁设置为 True".format(call.from_user.first_name)
     else:
-        message = '**👮🏻‍♂️ 您已关闭 退群封禁，用户退群bot将不会被封印了**'
-        log_message = "【admin】：管理员 {} 已调整 退群封禁设置为 False".format(call.from_user.first_name)
+        message = '**👮🏻‍♂️ 您已关闭退群封禁，用户退群后将不会再被本女仆封印**'
+        log_message = "【admin】：主人 {} 已调整 退群封禁设置为 False".format(call.from_user.first_name)
 
     await callAnswer(call, message, True)
     await config_p_re(_, call)
@@ -713,10 +713,10 @@ async def set_user_playrank(_, call):
     _open.uplays = not _open.uplays
     if not _open.uplays:
         message = '👮🏻‍♂️ 您已关闭 观影榜结算，自动召唤观影榜将不被计算积分'
-        log_message = f"【admin】：管理员 {call.from_user.first_name} 已关闭 观影榜结算"
+        log_message = f"【admin】：主人 {call.from_user.first_name} 已关闭 观影榜结算"
     else:
         message = '👮🏻‍♂️ 您已开启 观影榜结算，自动召唤观影榜将会被计算积分'
-        log_message = f"【admin】：管理员 {call.from_user.first_name} 已启用 观影榜结算"
+        log_message = f"【admin】：主人 {call.from_user.first_name} 已启用 观影榜结算"
 
     await callAnswer(call, message, True)
     await config_p_re(_, call)
@@ -759,10 +759,10 @@ async def set_fuxx_pitao(_, call):
     config.fuxx_pitao = not config.fuxx_pitao
     if not config.fuxx_pitao:
         message = '👮🏻‍♂️ 您已关闭 皮套过滤功能，现在皮套人的消息不会被处理'
-        log_message = f"【admin】：管理员 {call.from_user.first_name} 已调整 皮套过滤功能 False"
+        log_message = f"【admin】：主人 {call.from_user.first_name} 已调整 皮套过滤功能 False"
     else:
         message = '👮🏻‍♂️ 您已开启 皮套过滤功能，现在皮套人的消息将会被狙杀'
-        log_message = f"【admin】：管理员 {call.from_user.first_name} 已调整 皮套过滤功能 True"
+        log_message = f"【admin】：主人 {call.from_user.first_name} 已调整 皮套过滤功能 True"
 
     await callAnswer(call, message, True)
     await config_p_re(_, call)
@@ -773,10 +773,10 @@ async def set_red_envelope_status(_, call):
     config.red_envelope.status = not config.red_envelope.status
     if config.red_envelope.status:
         message = '👮🏻‍♂️ 您已开启 红包功能，现在用户可以发送红包了'
-        log_message = f"【admin】：管理员 {call.from_user.first_name} 已调整 红包功能 True"
+        log_message = f"【admin】：主人 {call.from_user.first_name} 已调整 红包功能 True"
     else:
         message = '👮🏻‍♂️ 您已关闭 红包功能，现在用户不能发送红包了'
-        log_message = f"【admin】：管理员 {call.from_user.first_name} 已调整 红包功能 False"
+        log_message = f"【admin】：主人 {call.from_user.first_name} 已调整 红包功能 False"
     await callAnswer(call, message, True)
     await config_p_re(_, call)
     save_config()
@@ -787,10 +787,10 @@ async def set_red_envelope_allow_private(_, call):
     config.red_envelope.allow_private = not config.red_envelope.allow_private
     if config.red_envelope.allow_private:
         message = '👮🏻‍♂️ 您已开启 专属红包，现在用户可以发送专属红包了'
-        log_message = f"【admin】：管理员 {call.from_user.first_name} 已调整 专属红包功能 True"
+        log_message = f"【admin】：主人 {call.from_user.first_name} 已调整 专属红包功能 True"
     else:
         message = '👮🏻‍♂️ 您已关闭 专属红包，现在用户不能发送专属红包了'
-        log_message = f"【admin】：管理员 {call.from_user.first_name} 已调整 专属红包功能 False"
+        log_message = f"【admin】：主人 {call.from_user.first_name} 已调整 专属红包功能 False"
     await callAnswer(call, message, True)
     await config_p_re(_, call)
     save_config()

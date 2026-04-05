@@ -3,16 +3,42 @@
 """
 import os
 import importlib
+import time
 from pathlib import Path
 
 from bot import db_host, db_user, db_pwd, db_name, db_port
 from bot import LOGGER
 from sqlalchemy import create_engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker, scoped_session
 
 # 创建engine对象
+def _validate_db_config():
+    missing = []
+    for key, value in {
+        "db_host": db_host,
+        "db_user": db_user,
+        "db_name": db_name,
+    }.items():
+        if value is None or not str(value).strip():
+            missing.append(key)
+
+    if missing:
+        raise RuntimeError(
+            "数据库配置缺失: "
+            + ", ".join(missing)
+            + "。请在 config.json 中设置 db_host/db_user/db_pwd/db_name，例如 "
+            + "db_host=127.0.0.1, db_user=pivkeyu, db_pwd=pivkeyu, db_name=pivkeyu"
+        )
+
+
+_validate_db_config()
+
 DATABASE_URL = f"mysql+pymysql://{db_user}:{db_pwd}@{db_host}:{db_port}/{db_name}?charset=utf8mb4"
+DB_STARTUP_MAX_RETRIES = max(1, int(os.getenv("PIVKEYU_DB_STARTUP_MAX_RETRIES", "20")))
+DB_STARTUP_RETRY_DELAY = max(0.5, float(os.getenv("PIVKEYU_DB_STARTUP_RETRY_DELAY", "3")))
+DB_CONNECT_TIMEOUT = max(1, int(os.getenv("PIVKEYU_DB_CONNECT_TIMEOUT", "5")))
 
 engine = create_engine(
     DATABASE_URL,
@@ -25,7 +51,10 @@ engine = create_engine(
     pool_pre_ping=True,
     pool_use_lifo=True,
     pool_reset_on_return="rollback",
-    connect_args={"init_command": "SET NAMES utf8mb4"},
+    connect_args={
+        "init_command": "SET NAMES utf8mb4",
+        "connect_timeout": DB_CONNECT_TIMEOUT,
+    },
 )
 
 # 创建Base对象
@@ -35,13 +64,36 @@ Base.metadata.bind = engine
 _MIGRATION_GUARD_ENV = "PIVKEYU_RUNNING_MIGRATIONS"
 
 
+def _run_with_db_retry(action, description: str):
+    last_error = None
+
+    for attempt in range(1, DB_STARTUP_MAX_RETRIES + 1):
+        try:
+            return action()
+        except OperationalError as exc:
+            last_error = exc
+            if attempt >= DB_STARTUP_MAX_RETRIES:
+                break
+            LOGGER.warning(
+                f"{description}失败，数据库暂未就绪，"
+                f"将在 {DB_STARTUP_RETRY_DELAY:g} 秒后重试 "
+                f"({attempt}/{DB_STARTUP_MAX_RETRIES})：{exc}"
+            )
+            time.sleep(DB_STARTUP_RETRY_DELAY)
+
+    raise last_error
+
+
 def _legacy_create_all_tables():
     """
     在未安装 Alembic 或配置缺失时兜底建表，保证服务可启动。
     """
-    from bot.sql_helper import sql_code, sql_emby, sql_emby2, sql_favorites, sql_partition, sql_request_record  # noqa: F401
+    from bot.sql_helper import sql_code, sql_emby, sql_emby2, sql_favorites, sql_partition, sql_plugin, sql_request_record, sql_xiuxian  # noqa: F401
 
-    Base.metadata.create_all(bind=engine, checkfirst=True)
+    _run_with_db_retry(
+        lambda: Base.metadata.create_all(bind=engine, checkfirst=True),
+        "数据库建表",
+    )
 
 
 def run_migrations():
@@ -70,7 +122,10 @@ def run_migrations():
         Config = getattr(alembic_config, "Config")
         config = Config(str(alembic_ini))
         config.set_main_option("sqlalchemy.url", DATABASE_URL)
-        alembic_command.upgrade(config, "head")
+        _run_with_db_retry(
+            lambda: alembic_command.upgrade(config, "head"),
+            "数据库自动迁移",
+        )
         LOGGER.info("数据库迁移完成，当前已升级到最新版本")
     except Exception as e:
         LOGGER.error(f"数据库自动迁移失败: {e}")

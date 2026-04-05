@@ -60,7 +60,7 @@ class Uplaysinfo:
                     member_info = members_dict.get(play_record[0], None)
 
                     if not member_info or not member_info["tg"]:
-                        emby_name = play_record[0] + ' (未绑定Bot)'
+                        emby_name = play_record[0] + ' (未绑定本女仆)'
                         tg = 'None'
                     else:
                         emby_name = member_info["name"]

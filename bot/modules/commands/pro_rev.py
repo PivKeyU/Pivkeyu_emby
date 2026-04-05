@@ -1,6 +1,6 @@
 """
 对用户的等级调整
-使得其能够成为管理员
+使得其能够成为主人
 或者白名单，免除到期机制.
 """
 import random
@@ -39,7 +39,7 @@ async def pro_admin(_, msg):
     await asyncio.gather(deleteMessage(msg), BotCommands.pro_commands(_, uid),
                          sendMessage(msg,
                                      f'**{random.choice(Yulv.load_yulv().wh_msg)}**\n\n'
-                                     f'👮🏻 新更新管理员 #[{first.first_name}](tg://user?id={uid}) | `{uid}`\n**当前admins**\n{admins}',
+                                     f'👮🏻 新更新主人 #[{first.first_name}](tg://user?id={uid}) | `{uid}`\n**当前admins**\n{admins}',
                                      timer=60))
 
     LOGGER.info(f"【admin】：{msg.from_user.id} 新更新 管理 {first.first_name}-{uid}")
@@ -136,7 +136,7 @@ async def del_admin(_, msg):
         save_config()
     await asyncio.gather(deleteMessage(msg), BotCommands.rev_commands(_, uid),
                          sendMessage(msg,
-                                     f'👮🏻 已减少管理员 #[{first.first_name}](tg://user?id={uid}) | `{uid}`\n**当前admins**\n{admins}'))
+                                     f'👮🏻 已减少主人 #[{first.first_name}](tg://user?id={uid}) | `{uid}`\n**当前admins**\n{admins}'))
     LOGGER.info(f"【admin】：{msg.from_user.id} 新减少 管理 {first.first_name}-{uid}")
 
 

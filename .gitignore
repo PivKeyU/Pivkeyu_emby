@@ -9,7 +9,10 @@ gen
 !/keaiji.session
 !/keaiji_bot.session
 !/keaiji_bot.session-journal
-__pycache__
-log
+__pycache__/
+*.py[cod]
+.DS_Store
+.venv/
+log/
 *.sql
 bot-env

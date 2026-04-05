@@ -81,7 +81,7 @@ async def log_blocked_request(
 
         LOGGER.warning(log_message)
 
-        # 如果配置了管理员群组，发送通知
+        # 如果配置了主人群组，发送通知
         if hasattr(config, "group") and config.group:
             try:
                 await bot.send_message(chat_id=config.group[0], text=log_message)

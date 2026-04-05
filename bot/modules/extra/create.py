@@ -48,9 +48,9 @@ async def login_account(_, msg):
 
             if msg.from_user.id != owner:
                 await bot.send_message(owner,
-                                       f"®️ 管理员 {msg.from_user.first_name} - `{msg.from_user.id}` 已经创建了一个非tg绑定用户 #{name} 有效期**{days}**天")
+                                       f"®️ 主人 {msg.from_user.first_name} - `{msg.from_user.id}` 已经创建了一个非tg绑定用户 #{name} 有效期**{days}**天")
             LOGGER.info(
-                f"【创建非tg账户】：管理员 {msg.from_user.first_name}[{msg.from_user.id}] - 建立了账户 {name}，有效期{days}天 ")
+                f"【创建非tg账户】：主人 {msg.from_user.first_name}[{msg.from_user.id}] - 建立了账户 {name}，有效期{days}天 ")
 
 
 # 删除指定用户名账号命令
@@ -77,17 +77,17 @@ async def urm_user(_, msg):
                         ex=None) if not stats else sql_delete_emby2(e.embyid)
         try:
             await reply.edit(
-                f'🎯 done，管理员 [{msg.from_user.first_name}](tg://user?id={msg.from_user.id})\n'
+                f'🎯 done，主人 [{msg.from_user.first_name}](tg://user?id={msg.from_user.id})\n'
                 f'您对Emby账户 {e.name} 的删除操作已完成。')
         except:
             pass
         LOGGER.info(
-            f"【admin】：管理员 {msg.from_user.first_name} 成功执行删除 emby 账户 {e.name}")
+            f"【admin】：主人 {msg.from_user.first_name} 成功执行删除 emby 账户 {e.name}")
     else:
         await reply.edit(f"❌ [{msg.from_user.first_name}](tg://user?id={msg.from_user.id})\n"
                          f"f'您对Emby账户 {e.name} 的删除操作失败。'")
         LOGGER.error(
-            f"【admin】：管理员 {msg.from_user.first_name} 执行删除失败 emby 账户 {e.name}")
+            f"【admin】：主人 {msg.from_user.first_name} 执行删除失败 emby 账户 {e.name}")
 
 
 @bot.on_message(filters.command('uinfo', prefixes) & admins_on_filter)
@@ -163,7 +163,7 @@ async def uinfo_disable_cb(_, call):
             sql_update_emby(Emby.embyid == embyid, lv='c')
         await call.message.edit_reply_markup(reply_markup=uinfo_ikb(embyid, 'c'))
         await callAnswer(call, f"✅ 账户 {e.name} 已禁用", show_alert=True)
-        LOGGER.info(f"【uinfo】管理员通过 uinfo 禁用了账户 {e.name}[{embyid}]")
+        LOGGER.info(f"【uinfo】主人通过 uinfo 禁用了账户 {e.name}[{embyid}]")
     else:
         await callAnswer(call, "❌ 禁用账户失败，请检查 Emby 状态", show_alert=True)
 
@@ -187,7 +187,7 @@ async def uinfo_enable_cb(_, call):
             sql_update_emby(Emby.embyid == embyid, lv='b')
         await call.message.edit_reply_markup(reply_markup=uinfo_ikb(embyid, 'b'))
         await callAnswer(call, f"✅ 账户 {e.name} 已启用", show_alert=True)
-        LOGGER.info(f"【uinfo】管理员通过 uinfo 启用了账户 {e.name}[{embyid}]")
+        LOGGER.info(f"【uinfo】主人通过 uinfo 启用了账户 {e.name}[{embyid}]")
     else:
         await callAnswer(call, "❌ 启用账户失败，请检查 Emby 状态", show_alert=True)
 
@@ -222,17 +222,17 @@ async def uinfo_delete_confirm_cb(_, call):
             sql_update_emby(Emby.embyid == embyid, lv='d', name=None, embyid=None, cr=None, ex=None)
         try:
             await call.message.edit_caption(
-                caption=f"🗑️ 账户 **{name}** 已被管理员删除。",
+                caption=f"🗑️ 账户 **{name}** 已被主人删除。",
                 reply_markup=close_it_ikb
             )
         except Exception:
             await call.message.edit_reply_markup(reply_markup=close_it_ikb)
         await callAnswer(call, f"✅ 账户 {name} 已删除", show_alert=True)
-        LOGGER.info(f"【uinfo】管理员通过 uinfo 删除了账户 {name}[{embyid}]")
+        LOGGER.info(f"【uinfo】主人通过 uinfo 删除了账户 {name}[{embyid}]")
     else:
         await call.message.edit_reply_markup(reply_markup=uinfo_ikb(embyid, e.lv))
         await callAnswer(call, "❌ 删除账户失败，请检查 Emby 状态", show_alert=True)
-        LOGGER.error(f"【uinfo】管理员通过 uinfo 删除账户失败 {name}[{embyid}]")
+        LOGGER.error(f"【uinfo】主人通过 uinfo 删除账户失败 {name}[{embyid}]")
 
 
 @bot.on_callback_query(filters.regex(r'^uinfo_delete_cancel-') & admins_on_filter)

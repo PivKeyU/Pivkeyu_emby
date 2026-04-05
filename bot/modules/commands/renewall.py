@@ -48,12 +48,12 @@ async def renew_all(_, msg):
         LOGGER.info(
             f"【派送任务】 - {msg.from_user.first_name}({msg.from_user.id}) 派出 {a} 天 * {b} 更改用时{times:.3f} s")
         for l in ls:
-            await bot.send_message(l[0], f"🎯 管理员 {msg.from_user.first_name} 调节了您的账户 到期时间：{a}天"
+            await bot.send_message(l[0], f"🎯 主人 {msg.from_user.first_name} 调节了您的账户 到期时间：{a}天"
                                          f'\n📅 实时到期：{l[1].strftime("%Y-%m-%d %H:%M:%S")}')
         LOGGER.info(
             f"【派送任务】 - {msg.from_user.first_name}({msg.from_user.id}) 派出 {a} 天 * {b}，消息私发完成")
     else:
-        await msg.reply("数据库操作出错，请检查重试")
+        await msg.reply("❌ 数据库操作出错，请检查重试")
 
 
 # coinsall 全部人加片刻碎片
@@ -103,12 +103,12 @@ async def coins_all(_, msg):
         if send_msg:
             for l in ls:
                 try:
-                    await bot.send_message(l[0], f"🎯 管理员 {sign_name} 调节了您的账户{sakura_b} {coin}"
+                    await bot.send_message(l[0], f"🎯 主人 {sign_name} 调节了您的账户{sakura_b} {coin}"
                                              f'\n📅 实时数量：{l[1]}')
                 except FloodWait as f:
                     LOGGER.warning(str(f))
                     await asyncio.sleep(f.value * 1.2)
-                    await bot.send_message(l[0], f"🎯 管理员 {sign_name} 调节了您的账户{sakura_b} {coin}"
+                    await bot.send_message(l[0], f"🎯 主人 {sign_name} 调节了您的账户{sakura_b} {coin}"
                                              f'\n📅 实时数量：{l[1]}')
                 except Exception as e:
                     LOGGER.error(f"派送{sakura_b}任务失败：{l[0]} {e}")
@@ -116,7 +116,7 @@ async def coins_all(_, msg):
             LOGGER.info(
                 f"【派送{sakura_b}任务】 - {sign_name}({msg.from_user.id}) 派出 {coin} {sakura_b} * {b}，消息私发完成")
     else:
-        await msg.reply("数据库操作出错，请检查重试")
+        await msg.reply("❌ 数据库操作出错，请检查重试")
 
 # coinsclear 清除用户片刻碎片
 @bot.on_message(filters.command('coinsclear', prefixes) & admins_on_filter)
@@ -188,16 +188,16 @@ async def call_all(_, msg):
         return
 
     call = await ask_return(msg,
-                         text='回复 `1` - 仅公告账户的人\n回复 `2` - 公告全体成员\n取消请 /cancel',
+                         text='📢 回复 `1` - 仅公告账户的人\n回复 `2` - 公告全体成员\n取消请 /cancel',
                          timer=600)
 
     if not call or call.text == '/cancel':
-        return await msg.reply('好的,您已取消操作.')
+        return await msg.reply('好的，您已取消操作。✅')
     elif call.text == '2':
         chat_members = get_all_emby(Emby.tg is not None)
     elif call.text == '1':
         chat_members = get_all_emby(Emby.embyid is not None)
-    reply = await msg.reply('开始执行发送......')
+    reply = await msg.reply('⏳ 开始执行发送......')
     a = 0
     start = time.perf_counter()
     for member in chat_members:
@@ -212,5 +212,5 @@ async def call_all(_, msg):
             LOGGER.warning(str(e))
     end = time.perf_counter()
     times = end - start
-    await reply.edit(f'消息发送完毕\n\n共计：{a} 次，用时 {times:.3f} s')
+    await reply.edit(f'✅ 消息发送完毕\n\n共计：{a} 次，用时 {times:.3f} s')
     LOGGER.info(f'【群发消息】：{msg.from_user.first_name} 消息发送完毕 - 共计：{a} 次，用时 {times:.3f} s')

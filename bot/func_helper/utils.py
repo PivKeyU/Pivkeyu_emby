@@ -77,6 +77,7 @@ def tem_deluser():
 
 from random import choice
 import string
+import re
 
 
 async def pwd_create(length=8, chars=string.ascii_letters + string.digits):
@@ -157,6 +158,113 @@ async def rn_link_one(tg: int, times, count, days: int, method: str):
     if sql_add_code(code_list, tg, days) is False:
         return None
     return links
+
+
+_CODE_SUFFIX_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,20}$")
+
+
+def _normalize_fixed_suffix(raw_suffix: str) -> str:
+    suffix = (raw_suffix or "").strip()
+    if not suffix:
+        raise ValueError("固定后缀不能为空")
+    if not _CODE_SUFFIX_PATTERN.fullmatch(suffix):
+        raise ValueError("固定后缀只能包含字母、数字、下划线和短横线，长度 1-20")
+    return suffix
+
+
+async def _build_code_suffix(index: int, count: int, suffix_mode: str, suffix_text: str | None) -> str:
+    mode = (suffix_mode or "random").lower()
+    if mode == "random":
+        return await pwd_create(10)
+    if mode != "fixed":
+        raise ValueError("后缀模式只能是 random 或 fixed")
+
+    suffix = _normalize_fixed_suffix(suffix_text)
+    if count > 1:
+        suffix = f"{suffix}-{index}"
+    return suffix
+
+
+async def _build_codes(
+    tg: int,
+    times,
+    count: int,
+    days: int,
+    method: str,
+    code_kind: str,
+    usage_limit: int = 1,
+    suffix_mode: str = "random",
+    suffix_text: str | None = None,
+):
+    links = ""
+    code_list = []
+    normalized_usage_limit = max(int(usage_limit or 1), 1)
+    normalized_method = (method or "").lower()
+
+    if normalized_method not in {"code", "link"}:
+        raise ValueError("生成模式只能是 code 或 link")
+
+    for index in range(1, int(count) + 1):
+        suffix = await _build_code_suffix(index, int(count), suffix_mode, suffix_text)
+        uid = f"{ranks.logo}-{times}-{code_kind}_{suffix}"
+        if len(uid) > 50:
+            raise ValueError("注册码过长，请缩短固定后缀")
+
+        code_list.append({"code": uid, "use_limit": normalized_usage_limit})
+        if normalized_method == "code":
+            links += f"`{uid}`\n"
+        else:
+            links += f"t.me/{bot_name}?start={uid}\n"
+
+    if sql_add_code(code_list, tg, days, use_limit=normalized_usage_limit) is False:
+        return None
+    return links
+
+
+async def cr_link_one(
+    tg: int,
+    times,
+    count,
+    days: int,
+    method: str,
+    usage_limit: int = 1,
+    suffix_mode: str = "random",
+    suffix_text: str | None = None,
+):
+    return await _build_codes(
+        tg=tg,
+        times=times,
+        count=count,
+        days=days,
+        method=method,
+        code_kind="Register",
+        usage_limit=usage_limit,
+        suffix_mode=suffix_mode,
+        suffix_text=suffix_text,
+    )
+
+
+async def rn_link_one(
+    tg: int,
+    times,
+    count,
+    days: int,
+    method: str,
+    usage_limit: int = 1,
+    suffix_mode: str = "random",
+    suffix_text: str | None = None,
+):
+    return await _build_codes(
+        tg=tg,
+        times=times,
+        count=count,
+        days=days,
+        method=method,
+        code_kind="Renew",
+        usage_limit=usage_limit,
+        suffix_mode=suffix_mode,
+        suffix_text=suffix_text,
+    )
 
 
 async def cr_link_two(tg: int, for_tg, days: int):

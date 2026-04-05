@@ -3,132 +3,367 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PIVKEYU 控制台</title>
+  <title>后台管理台</title>
   <link rel="stylesheet" href="/static/admin.css">
 </head>
 <body>
-  <main class="shell">
-    <section class="hero">
-      <div>
-        <p class="eyebrow">PIVKEYU Console</p>
-        <h1>后台管理面板</h1>
-        <p class="hero-copy">用一个页面搜索用户、编辑 bot 已录入的数据、查看插件装载情况。</p>
+  <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+
+  <div id="modal-layer" class="modal-layer hidden" aria-hidden="true">
+    <div class="modal-scrim" data-modal-close></div>
+    <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-top">
+        <p id="modal-label" class="modal-label">系统提示</p>
+        <button id="modal-close" type="button" class="modal-close" aria-label="关闭">×</button>
       </div>
-      <form id="token-form" class="token-card">
-        <label for="admin-token">管理 Token</label>
-        <input id="admin-token" name="admin-token" type="password" placeholder="输入 admin_token">
-        <button type="submit">保存并连接</button>
-        <p id="token-status" class="muted">Token 会保存在当前浏览器。</p>
-      </form>
+      <h2 id="modal-title" class="modal-title">消息</h2>
+      <p id="modal-message" class="modal-message">-</p>
+      <div class="modal-actions">
+        <button id="modal-confirm" type="button" class="modal-confirm">知道了</button>
+      </div>
+    </section>
+  </div>
+
+  <main class="admin-shell">
+    <section class="card hero-card">
+      <div class="hero-main">
+        <p class="eyebrow">后台管理台</p>
+        <h1>后台管理台</h1>
+        <p id="admin-status" class="muted">正在校验主人身份并加载后台数据。</p>
+        <div class="hero-pills">
+          <span id="auth-mode-pill" class="badge badge--pending">待认证</span>
+          <span id="selected-user-pill" class="tag">未选中用户</span>
+        </div>
+      </div>
+
+      <div class="hero-side">
+        <section class="info-card">
+          <p class="eyebrow">登录状态</p>
+          <h2 id="auth-title">主人登录</h2>
+          <p id="auth-status" class="muted">正在检查当前登录方式...</p>
+        </section>
+
+        <details id="token-panel" class="token-panel">
+          <summary>浏览器直接访问时，手动输入后台令牌</summary>
+          <form id="token-form" class="mini-form">
+            <label>
+              后台令牌
+              <input id="admin-token" name="admin-token" type="password" placeholder="输入后台令牌">
+            </label>
+            <button type="submit">保存并验证</button>
+          </form>
+        </details>
+
+        <section class="info-card">
+          <p class="eyebrow">状态说明</p>
+          <h2>用户状态</h2>
+          <div id="level-legend" class="stack-list"></div>
+        </section>
+      </div>
     </section>
 
-    <section class="summary-grid" id="summary-grid">
-      <article class="summary-card">
-        <span>已录入用户</span>
-        <strong id="summary-total">-</strong>
-      </article>
-      <article class="summary-card">
-        <span>已绑定账号</span>
-        <strong id="summary-active">-</strong>
-      </article>
-      <article class="summary-card">
-        <span>封禁用户</span>
-        <strong id="summary-banned">-</strong>
-      </article>
-      <article class="summary-card">
-        <span>片刻碎片总量</span>
-        <strong id="summary-currency">-</strong>
-      </article>
+    <section class="card control-deck">
+      <div class="control-head">
+        <div>
+          <p class="eyebrow">快捷导航</p>
+          <h2>常用操作</h2>
+          <p class="muted">支持一键展开、快速跳转到概览、用户检索、用户编辑和插件配置。</p>
+        </div>
+        <div class="control-actions">
+          <button type="button" class="secondary" data-open-all>全部展开</button>
+          <button type="button" class="secondary" data-close-all>全部收起</button>
+        </div>
+      </div>
+      <div class="control-pills">
+        <button type="button" class="nav-pill is-active" data-section-target="summary-section">概览</button>
+        <button type="button" class="nav-pill" data-section-target="codes-section">注册码</button>
+        <button type="button" class="nav-pill" data-section-target="users-section">用户检索</button>
+        <button type="button" class="nav-pill" data-section-target="editor-section">用户编辑</button>
+        <button type="button" class="nav-pill" data-section-target="plugins-section">插件状态</button>
+      </div>
     </section>
 
-    <section class="workspace">
-      <div class="panel">
-        <div class="panel-head">
-          <h2>用户检索</h2>
-          <form id="search-form" class="search-row">
-            <input id="search-input" type="search" placeholder="按 TG / Emby 名 / Emby ID 搜索">
-            <button type="submit">查询</button>
+    <details id="summary-section" class="card fold-card" open>
+      <summary class="fold-summary">
+        <div>
+          <p class="eyebrow">运营概览</p>
+          <h2>核心指标</h2>
+        </div>
+        <span class="summary-tip">当前用户规模、已绑定账号、封禁数量与账户余额总量</span>
+      </summary>
+      <div class="fold-body">
+        <div class="summary-grid">
+          <article class="metric-card">
+            <span>已录入用户</span>
+            <strong id="summary-total">-</strong>
+          </article>
+          <article class="metric-card">
+            <span>已绑定账号</span>
+            <strong id="summary-active">-</strong>
+          </article>
+          <article class="metric-card">
+            <span>已封禁用户</span>
+            <strong id="summary-banned">-</strong>
+          </article>
+          <article class="metric-card">
+            <span>余额总量</span>
+            <strong id="summary-currency">-</strong>
+          </article>
+        </div>
+      </div>
+    </details>
+
+    <details id="codes-section" class="card fold-card" open>
+      <summary class="fold-summary">
+        <div>
+          <p class="eyebrow">注册码管理</p>
+          <h2>注册码与续期码</h2>
+        </div>
+        <span class="summary-tip">支持批量创建、批量删除、查看邀请人和使用者详情，并按已使用或未使用切换</span>
+      </summary>
+      <div class="fold-body">
+        <div class="summary-grid">
+          <article class="metric-card">
+            <span>全部码</span>
+            <strong id="codes-total">-</strong>
+          </article>
+          <article class="metric-card">
+            <span>未使用</span>
+            <strong id="codes-unused">-</strong>
+          </article>
+          <article class="metric-card">
+            <span>已使用</span>
+            <strong id="codes-used">-</strong>
+          </article>
+          <article class="metric-card">
+            <span>已用尽</span>
+            <strong id="codes-exhausted">-</strong>
+          </article>
+        </div>
+
+        <section class="plugin-import-card">
+          <div>
+            <p class="eyebrow">批量创建</p>
+            <h3>新建注册码 / 续期码</h3>
+          </div>
+          <p class="plugin-meta">生成规则与本女仆管理面板一致：支持 <code>code/link</code>、<code>F/T</code>、使用次数和固定后缀。</p>
+          <form id="code-create-form" class="grid-form">
+            <label>
+              天数
+              <input id="code-create-days" type="number" min="1" value="30" required>
+            </label>
+            <label>
+              数量
+              <input id="code-create-count" type="number" min="1" max="500" value="1" required>
+            </label>
+            <label>
+              模式
+              <select id="code-create-method">
+                <option value="code">code</option>
+                <option value="link">link</option>
+              </select>
+            </label>
+            <label>
+              类型
+              <select id="code-create-type">
+                <option value="F">F · 注册码</option>
+                <option value="T">T · 续期码</option>
+              </select>
+            </label>
+            <label>
+              使用次数
+              <input id="code-create-usage-limit" type="number" min="1" max="100" value="1" required>
+            </label>
+            <label>
+              后缀模式
+              <select id="code-create-suffix-mode">
+                <option value="random">random</option>
+                <option value="fixed">fixed</option>
+              </select>
+            </label>
+            <label>
+              固定后缀
+              <input id="code-create-suffix-text" type="text" maxlength="20" placeholder="仅 fixed 时填写">
+            </label>
+
+            <div class="form-actions">
+              <button id="code-create-submit" type="submit">批量生成</button>
+            </div>
+          </form>
+
+          <div id="code-create-result" class="code-result hidden">
+            <div class="code-result-head">
+              <strong id="code-create-result-title">生成结果</strong>
+              <button id="code-create-copy" type="button" class="secondary">复制结果</button>
+            </div>
+            <p id="code-create-result-meta" class="plugin-meta">-</p>
+            <textarea id="code-create-output" readonly rows="8" placeholder="生成完成后，这里会显示注册码或 deep link。"></textarea>
+          </div>
+        </section>
+
+        <section class="card-lite">
+          <div class="code-toolbar">
+            <div class="code-filter-tabs">
+              <button type="button" class="nav-pill is-active" data-code-status="all">全部</button>
+              <button type="button" class="nav-pill" data-code-status="unused">未使用</button>
+              <button type="button" class="nav-pill" data-code-status="used">已使用</button>
+            </div>
+            <div class="control-actions">
+              <button id="codes-select-page" type="button" class="secondary">全选本页</button>
+              <button id="codes-clear-selection" type="button" class="secondary">清空选择</button>
+              <button id="codes-delete-selected" type="button">删除已选</button>
+            </div>
+          </div>
+
+          <div id="code-list" class="stack-list code-list"></div>
+
+          <div class="pager">
+            <button id="codes-prev-page" type="button" class="secondary">上一页</button>
+            <span id="codes-page-label">第 1 页</span>
+            <button id="codes-next-page" type="button" class="secondary">下一页</button>
+          </div>
+        </section>
+      </div>
+    </details>
+
+    <section class="admin-grid">
+      <details id="users-section" class="card fold-card" open>
+        <summary class="fold-summary">
+          <div>
+            <p class="eyebrow">用户管理</p>
+            <h2>用户检索</h2>
+          </div>
+          <span class="summary-tip">优先按 TG 昵称或 @username 搜索，未命中再回退 TGID 和 Emby 字段</span>
+        </summary>
+        <div class="fold-body">
+          <form id="search-form" class="search-form">
+            <label class="search-field">
+              <span>搜索关键词</span>
+              <input id="search-input" type="search" placeholder="例如：TG 昵称、@username；未命中再按 TGID 或 Emby 搜索">
+            </label>
+            <button type="submit">开始搜索</button>
+          </form>
+
+          <div id="user-list" class="stack-list user-list"></div>
+
+          <div class="pager">
+            <button id="prev-page" type="button" class="secondary">上一页</button>
+            <span id="page-label">第 1 页</span>
+            <button id="next-page" type="button" class="secondary">下一页</button>
+          </div>
+        </div>
+      </details>
+
+      <details id="editor-section" class="card fold-card" open>
+        <summary class="fold-summary">
+          <div>
+            <p class="eyebrow">用户编辑</p>
+            <h2>资料编辑</h2>
+          </div>
+          <span class="summary-tip">修改状态、账户余额、注册时长额度、密码和到期时间</span>
+        </summary>
+        <div class="fold-body">
+          <p id="editor-status" class="muted">先从左侧选择一个用户。</p>
+
+          <form id="editor-form" class="grid-form">
+            <label>
+              账号 ID
+              <input id="field-tg" type="number" readonly>
+            </label>
+            <label>
+              用户状态
+              <select id="field-lv">
+                <option value="a">a · 白名单用户</option>
+                <option value="b">b · 正常用户</option>
+                <option value="c">c · 已封禁用户</option>
+                <option value="d">d · 未注册用户</option>
+              </select>
+            </label>
+            <label>
+              Emby 名称
+              <input id="field-name" type="text">
+            </label>
+            <label>
+              Emby ID
+              <input id="field-embyid" type="text">
+            </label>
+            <label>
+              当前余额
+              <input id="field-iv" type="number">
+            </label>
+            <label>
+              注册/续期天数
+              <input id="field-us" type="number">
+            </label>
+            <label>
+              登录密码
+              <input id="field-pwd" type="text">
+            </label>
+            <label>
+              安全码
+              <input id="field-pwd2" type="text">
+            </label>
+            <label>
+              创建时间
+              <input id="field-cr" type="datetime-local">
+            </label>
+            <label>
+              到期时间
+              <input id="field-ex" type="datetime-local">
+            </label>
+            <label>
+              最近变更
+              <input id="field-ch" type="datetime-local">
+            </label>
+
+            <div class="form-actions">
+              <button id="save-user" type="submit">保存修改</button>
+            </div>
           </form>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>TG</th>
-                <th>名称</th>
-                <th>等级</th>
-                <th>片刻碎片</th>
-                <th>Emby</th>
-              </tr>
-            </thead>
-            <tbody id="user-table-body"></tbody>
-          </table>
-        </div>
-        <div class="pager">
-          <button id="prev-page" type="button">上一页</button>
-          <span id="page-label">第 1 页</span>
-          <button id="next-page" type="button">下一页</button>
-        </div>
-      </div>
+      </details>
 
-      <div class="panel editor-panel">
-        <div class="panel-head">
-          <h2>用户编辑</h2>
-          <p id="editor-status" class="muted">先从左侧选择一个用户。</p>
+      <details id="plugins-section" class="card fold-card" open>
+        <summary class="fold-summary">
+          <div>
+            <p class="eyebrow">插件管理</p>
+            <h2>插件状态</h2>
+          </div>
+          <span class="summary-tip">支持上传 ZIP 快捷导入插件，并控制启用状态和首页底栏显示</span>
+        </summary>
+        <div class="fold-body">
+          <section class="plugin-import-card">
+            <div>
+              <p class="eyebrow">快捷导入</p>
+              <h3>上传插件 ZIP</h3>
+            </div>
+            <p class="plugin-meta">压缩包根目录，或唯一一级目录内需要包含 <code>plugin.json</code> 和入口模块文件。</p>
+            <p class="plugin-meta">如果导入结果提示需要重建容器，直接执行 <code>docker compose build pivkeyuebmy &amp;&amp; docker compose up -d pivkeyuebmy</code> 即可完成依赖安装与重启。</p>
+            <form id="plugin-import-form" class="mini-form plugin-import-form">
+              <label>
+                插件压缩包
+                <input id="plugin-import-file" type="file" accept=".zip,application/zip">
+              </label>
+              <div class="check-row">
+                <label class="check-item">
+                  <input id="plugin-import-enabled" type="checkbox" checked>
+                  <span>导入后立即启用</span>
+                </label>
+                <label class="check-item">
+                  <input id="plugin-import-replace" type="checkbox">
+                  <span>覆盖已存在插件</span>
+                </label>
+              </div>
+              <button id="plugin-import-submit" type="submit">导入插件</button>
+            </form>
+          </section>
+          <div id="plugin-list" class="stack-list plugin-list"></div>
         </div>
-        <form id="editor-form" class="editor-grid">
-          <label>TG
-            <input id="field-tg" type="number" readonly>
-          </label>
-          <label>等级
-            <select id="field-lv">
-              <option value="a">a</option>
-              <option value="b">b</option>
-              <option value="c">c</option>
-              <option value="d">d</option>
-            </select>
-          </label>
-          <label>Emby 名称
-            <input id="field-name" type="text">
-          </label>
-          <label>Emby ID
-            <input id="field-embyid" type="text">
-          </label>
-          <label>片刻碎片
-            <input id="field-iv" type="number">
-          </label>
-          <label>注册额度
-            <input id="field-us" type="number">
-          </label>
-          <label>登录密码
-            <input id="field-pwd" type="text">
-          </label>
-          <label>安全码
-            <input id="field-pwd2" type="text">
-          </label>
-          <label>创建时间
-            <input id="field-cr" type="datetime-local">
-          </label>
-          <label>到期时间
-            <input id="field-ex" type="datetime-local">
-          </label>
-          <label>最近变更
-            <input id="field-ch" type="datetime-local">
-          </label>
-          <button id="save-user" type="submit" class="primary">保存修改</button>
-        </form>
-      </div>
-
-      <div class="panel">
-        <div class="panel-head">
-          <h2>插件状态</h2>
-          <p class="muted">后续修仙、赌场、股市玩法直接按插件接入。</p>
-        </div>
-        <div id="plugin-list" class="plugin-list"></div>
-      </div>
+      </details>
     </section>
   </main>
 
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="/static/admin.js"></script>
 </body>
 </html>

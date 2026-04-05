@@ -3,134 +3,117 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PIVKEYU Mini App</title>
-  <style>
-    :root {
-      --bg: #f8f1e7;
-      --card: rgba(255, 250, 244, 0.88);
-      --ink: #241d1a;
-      --muted: #78695c;
-      --accent: #b84c31;
-      font-family: "IBM Plex Sans", "Noto Sans SC", "Segoe UI Variable", sans-serif;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      color: var(--ink);
-      background:
-        radial-gradient(circle at top left, rgba(184, 76, 49, 0.18), transparent 30%),
-        linear-gradient(180deg, #fff8ee 0%, var(--bg) 100%);
-    }
-    main {
-      width: min(820px, calc(100vw - 24px));
-      margin: 0 auto;
-      padding: 20px 0 28px;
-      display: grid;
-      gap: 16px;
-    }
-    .card {
-      padding: 18px;
-      border-radius: 24px;
-      background: var(--card);
-      border: 1px solid rgba(36, 29, 26, 0.1);
-      box-shadow: 0 24px 60px rgba(66, 39, 24, 0.12);
-    }
-    .eyebrow {
-      margin: 0 0 10px;
-      color: var(--accent);
-      font-size: 12px;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-      font-weight: 700;
-    }
-    h1, h2, p { margin: 0; }
-    .meta-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
-      margin-top: 16px;
-    }
-    .meta-item {
-      padding: 14px;
-      border-radius: 18px;
-      background: rgba(255, 255, 255, 0.64);
-    }
-    .meta-item span {
-      display: block;
-      font-size: 12px;
-      color: var(--muted);
-    }
-    .meta-item strong {
-      display: block;
-      margin-top: 6px;
-      font-size: 22px;
-    }
-    .plugin-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 14px;
-    }
-    .chip {
-      padding: 8px 12px;
-      border-radius: 999px;
-      background: rgba(184, 76, 49, 0.1);
-      color: var(--accent);
-      font-size: 13px;
-    }
-    .muted { color: var(--muted); }
-    @media (max-width: 720px) {
-      .meta-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-  </style>
+  <title>首页面板</title>
+  <link rel="stylesheet" href="/static/miniapp.css">
 </head>
 <body>
-  <main>
-    <section class="card">
-      <p class="eyebrow">PIVKEYU Mini App</p>
-      <h1>片刻面板</h1>
-      <p id="welcome-text" class="muted">正在和 Telegram 同步身份信息……</p>
-    </section>
+  <main class="app-shell">
+    <section class="hero-panel card">
+      <div class="hero-main">
+        <p class="eyebrow">主控台</p>
+        <h1>首页面板</h1>
+        <p id="welcome-text" class="hero-copy">正在同步账号资料...</p>
+        <div class="hero-pills">
+          <span id="account-level-badge" class="badge badge--pending">加载中</span>
+          <span id="plugin-count-pill" class="hero-pill">0 个入口</span>
+          <span id="role-pill" class="hero-pill">普通用户</span>
+        </div>
+        <p id="hero-note" class="hero-note">绑定账号后，可从这里快速进入所有可用页面。</p>
+      </div>
 
-    <section class="card">
-      <h2>我的账户</h2>
-      <div class="meta-grid">
-        <article class="meta-item">
-          <span>TG ID</span>
-          <strong id="tg-id">-</strong>
-        </article>
-        <article class="meta-item">
-          <span>昵称</span>
-          <strong id="tg-name">-</strong>
-        </article>
-        <article class="meta-item">
-          <span>等级</span>
-          <strong id="account-lv">-</strong>
-        </article>
-        <article class="meta-item">
-          <span>片刻碎片</span>
-          <strong id="account-iv">-</strong>
-        </article>
-        <article class="meta-item">
-          <span>Emby 用户</span>
-          <strong id="account-name">-</strong>
-        </article>
-        <article class="meta-item">
-          <span>到期时间</span>
-          <strong id="account-ex">-</strong>
-        </article>
+      <div class="hero-side">
+        <section class="overview-card">
+          <p class="eyebrow">概览</p>
+          <div class="overview-grid">
+            <article class="profile-item">
+              <span>站点品牌</span>
+              <strong id="brand-name">-</strong>
+            </article>
+            <article class="profile-item">
+              <span>积分名称</span>
+              <strong id="currency-name">-</strong>
+            </article>
+            <article class="profile-item">
+              <span>当前昵称</span>
+              <strong id="hero-name">-</strong>
+            </article>
+            <article class="profile-item">
+              <span>账号 ID</span>
+              <strong id="hero-id">-</strong>
+            </article>
+          </div>
+        </section>
+
+        <section id="admin-entry-card" class="hero-admin hidden">
+          <div class="hero-admin-copy">
+            <span class="hero-admin-label">主人入口</span>
+            <p>默认保留当前首页视图，需要时再进入后台面板。</p>
+          </div>
+          <button id="admin-entry-button" type="button" class="ghost">打开后台</button>
+        </section>
       </div>
     </section>
 
-    <section class="card">
-      <h2>插件入口</h2>
-      <p class="muted">这里会展示当前已发现的玩法插件，后面可以继续扩成修仙、赌场和股市。</p>
-      <div id="plugin-row" class="plugin-row"></div>
+    <section class="board-grid">
+      <details class="card fold-card" open>
+        <summary class="fold-summary">
+          <div>
+            <p class="eyebrow">账号信息</p>
+            <h2>身份与订阅</h2>
+          </div>
+          <span class="summary-tip">等级、余额、到期时间与配额</span>
+        </summary>
+        <div class="fold-body">
+          <p id="account-level-desc" class="section-copy">正在加载账号状态...</p>
+          <div class="profile-grid">
+            <article class="profile-item">
+              <span>账号 ID</span>
+              <strong id="tg-id">-</strong>
+            </article>
+            <article class="profile-item">
+              <span>显示名称</span>
+              <strong id="tg-name">-</strong>
+            </article>
+            <article class="profile-item">
+              <span>当前余额</span>
+              <strong id="account-iv">-</strong>
+            </article>
+            <article class="profile-item">
+              <span>Emby 账号</span>
+              <strong id="account-name">-</strong>
+            </article>
+            <article class="profile-item">
+              <span>到期时间</span>
+              <strong id="account-ex">-</strong>
+            </article>
+            <article class="profile-item">
+              <span>注册/续期天数</span>
+              <strong id="account-us">-</strong>
+            </article>
+          </div>
+        </div>
+      </details>
+
+      <details class="card fold-card span-2" open>
+        <summary class="fold-summary">
+          <div>
+            <p class="eyebrow">功能入口</p>
+            <h2>可用页面</h2>
+          </div>
+          <span class="summary-tip">仅展示当前可直接进入的页面入口</span>
+        </summary>
+        <div class="fold-body">
+          <div class="section-top">
+            <p class="section-copy">主页只保留当前可用的功能页面，方便你快速切换到对应模块。</p>
+            <span id="plugin-count" class="section-pill">已加载 0 / 0</span>
+          </div>
+          <div id="plugin-grid" class="plugin-grid"></div>
+        </div>
+      </details>
     </section>
   </main>
+
+  <nav id="bottom-nav" class="bottom-nav"></nav>
 
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="/static/miniapp.js"></script>

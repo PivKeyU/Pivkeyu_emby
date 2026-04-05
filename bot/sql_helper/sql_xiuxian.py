@@ -1,0 +1,2530 @@
+from __future__ import annotations
+
+import copy
+from datetime import datetime, timedelta
+from typing import Any
+
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    BigInteger,
+    String,
+    Text,
+    UniqueConstraint,
+)
+
+from bot.sql_helper import Base, Session
+from bot.sql_helper.sql_emby import Emby
+
+
+REALM_ORDER = ["凡人", "炼气", "筑基", "结丹", "元婴", "化神", "须弥", "芥子", "混元一体"]
+FIVE_ELEMENTS = ["金", "木", "水", "火", "土"]
+ELEMENT_GENERATES = {"木": "火", "火": "土", "土": "金", "金": "水", "水": "木"}
+ELEMENT_CONTROLS = {"木": "土", "土": "水", "水": "火", "火": "金", "金": "木"}
+ITEM_KIND_LABELS = {
+    "artifact": "法宝",
+    "pill": "丹药",
+    "talisman": "符箓",
+    "material": "材料",
+    "technique": "功法",
+}
+ARTIFACT_TYPE_LABELS = {
+    "battle": "战斗法宝",
+    "support": "辅助法宝",
+}
+PILL_TYPE_LABELS = {
+    "foundation": "筑基突破",
+    "clear_poison": "清心解毒",
+    "cultivation": "修为提升",
+    "stone": "灵石补给",
+}
+SECT_ROLE_PRESETS = [
+    ("leader", "掌门", 1),
+    ("elder", "长老", 2),
+    ("core", "真传弟子", 3),
+    ("inner_deacon", "内门执事", 4),
+    ("outer_deacon", "外门执事", 5),
+    ("inner_disciple", "内门弟子", 6),
+    ("outer_disciple", "外门弟子", 7),
+]
+SECT_ROLE_LABELS = {key: label for key, label, _ in SECT_ROLE_PRESETS}
+TASK_SCOPE_LABELS = {
+    "official": "官方任务",
+    "sect": "宗门任务",
+    "personal": "个人悬赏",
+}
+TASK_TYPE_LABELS = {
+    "quiz": "答题任务",
+    "custom": "自定义任务",
+}
+TECHNIQUE_TYPE_LABELS = {
+    "balanced": "均衡功法",
+    "cultivation": "吐纳功法",
+    "combat": "斗战功法",
+    "defense": "护体功法",
+    "support": "辅修功法",
+}
+RECIPE_KIND_LABELS = {
+    "artifact": "炼制法宝",
+    "pill": "炼制丹药",
+    "talisman": "炼制符箓",
+}
+ENVELOPE_MODE_LABELS = {
+    "normal": "普通红包",
+    "lucky": "拼手气红包",
+    "exclusive": "专属红包",
+}
+DEFAULT_ROOT_QUALITY_VALUE_RULES = {
+    "废灵根": {"cultivation_rate": 0.72, "breakthrough_bonus": -8, "combat_factor": 0.92},
+    "下品灵根": {"cultivation_rate": 0.88, "breakthrough_bonus": -3, "combat_factor": 0.97},
+    "中品灵根": {"cultivation_rate": 1.0, "breakthrough_bonus": 0, "combat_factor": 1.0},
+    "上品灵根": {"cultivation_rate": 1.12, "breakthrough_bonus": 3, "combat_factor": 1.05},
+    "极品灵根": {"cultivation_rate": 1.24, "breakthrough_bonus": 6, "combat_factor": 1.1},
+    "天灵根": {"cultivation_rate": 1.38, "breakthrough_bonus": 12, "combat_factor": 1.16},
+    "变异灵根": {"cultivation_rate": 1.3, "breakthrough_bonus": 9, "combat_factor": 1.14},
+}
+DEFAULT_EXPLORATION_DROP_WEIGHT_RULES = {
+    "material_divine_sense_divisor": 5,
+    "high_quality_threshold": 4,
+    "high_quality_fortune_divisor": 5,
+    "high_quality_root_level_start": 3,
+}
+DEFAULT_ITEM_QUALITY_VALUE_RULES = {
+    "凡品": {"artifact_multiplier": 1.0, "pill_multiplier": 1.0, "talisman_multiplier": 1.0},
+    "下品": {"artifact_multiplier": 1.0, "pill_multiplier": 1.0, "talisman_multiplier": 1.0},
+    "中品": {"artifact_multiplier": 1.0, "pill_multiplier": 1.0, "talisman_multiplier": 1.0},
+    "上品": {"artifact_multiplier": 1.0, "pill_multiplier": 1.0, "talisman_multiplier": 1.0},
+    "极品": {"artifact_multiplier": 1.0, "pill_multiplier": 1.0, "talisman_multiplier": 1.0},
+    "仙品": {"artifact_multiplier": 1.0, "pill_multiplier": 1.0, "talisman_multiplier": 1.0},
+    "先天至宝": {"artifact_multiplier": 1.0, "pill_multiplier": 1.0, "talisman_multiplier": 1.0},
+}
+DEFAULT_SETTINGS = {
+    "coin_exchange_rate": 100,
+    "exchange_fee_percent": 1,
+    "min_coin_exchange": 1,
+    "shop_broadcast_cost": 20,
+    "official_shop_name": "风月阁",
+    "artifact_equip_limit": 3,
+    "allow_non_admin_image_upload": False,
+    "chat_cultivation_chance": 8,
+    "chat_cultivation_min_gain": 1,
+    "chat_cultivation_max_gain": 3,
+    "robbery_daily_limit": 3,
+    "robbery_max_steal": 180,
+    "red_packet_merit_min_stone": 100,
+    "red_packet_merit_min_count": 3,
+    "red_packet_merit_reward": 2,
+    "red_packet_merit_modes": ["normal", "lucky", "exclusive"],
+    "high_quality_broadcast_level": 4,
+    "root_quality_value_rules": DEFAULT_ROOT_QUALITY_VALUE_RULES,
+    "exploration_drop_weight_rules": DEFAULT_EXPLORATION_DROP_WEIGHT_RULES,
+    "item_quality_value_rules": DEFAULT_ITEM_QUALITY_VALUE_RULES,
+    "immortal_touch_infusion_layers": 1,
+}
+DEFAULT_SETTINGS["duel_bet_minutes"] = 2
+
+QUALITY_LEVEL_LABELS = {
+    1: "凡品",
+    2: "下品",
+    3: "中品",
+    4: "上品",
+    5: "极品",
+    6: "仙品",
+    7: "先天至宝",
+}
+QUALITY_LABEL_LEVELS = {label: level for level, label in QUALITY_LEVEL_LABELS.items()}
+QUALITY_LEVEL_COLORS = {
+    1: "#9ca3af",
+    2: "#22c55e",
+    3: "#3b82f6",
+    4: "#8b5cf6",
+    5: "#f59e0b",
+    6: "#ef4444",
+    7: "linear-gradient(135deg, #fb7185 0%, #f59e0b 18%, #fde047 36%, #34d399 54%, #60a5fa 72%, #a78bfa 88%, #f472b6 100%)",
+}
+QUALITY_LEVEL_DESCRIPTIONS = {
+    1: "新手过渡基础货，例如破损木剑、粗制丹药。",
+    2: "前期主力，可通过简单任务或低级商店稳定获得。",
+    3: "中期主力，开始出现基础词条与明显属性加成。",
+    4: "后期主力，通常拥有 1-2 个实用词条或特效。",
+    5: "毕业级物品，固定拥有强力特效或完整战斗定位。",
+    6: "传说级稀有物，往往与事件、榜单或极低概率掉落绑定。",
+    7: "神话级至宝，通常具备唯一机制或全服级稀有度。",
+}
+QUALITY_LEVEL_FEATURES = {
+    1: "无词条或单一基础词条",
+    2: "单一基础词条，数值稳定",
+    3: "1 个属性词条，可能带低阶特效",
+    4: "1-2 个实用词条，开始出现百分比或机制词条",
+    5: "固定强词条或核心特效",
+    6: "强力特效，可能改变玩法节奏",
+    7: "唯一机制、套装或事件级特效",
+}
+PILL_TYPE_LABELS = {
+    "foundation": "突破加成",
+    "clear_poison": "解毒",
+    "cultivation": "提升修为",
+    "stone": "补给灵石",
+    "comprehension": "提升悟性",
+    "qi_blood": "提升气血",
+    "true_yuan": "提升真元",
+    "body_movement": "提升身法",
+    "attack": "提升攻击",
+    "defense": "提升防御",
+}
+ATTRIBUTE_LABELS = {
+    "bone_bonus": "根骨",
+    "comprehension_bonus": "悟性",
+    "divine_sense_bonus": "神识",
+    "fortune_bonus": "机缘",
+    "qi_blood_bonus": "气血",
+    "true_yuan_bonus": "真元",
+    "body_movement_bonus": "身法",
+    "attack_bonus": "攻击",
+    "defense_bonus": "防御",
+}
+ROOT_QUALITY_LEVELS = {
+    "废灵根": 1,
+    "下品灵根": 2,
+    "中品灵根": 3,
+    "上品灵根": 4,
+    "极品灵根": 5,
+    "天灵根": 6,
+    "变异灵根": 7,
+}
+ROOT_QUALITY_COLORS = {
+    "废灵根": "#6b7280",
+    "下品灵根": "#22c55e",
+    "中品灵根": "#3b82f6",
+    "上品灵根": "#8b5cf6",
+    "极品灵根": "#f59e0b",
+    "天灵根": "#ef4444",
+    "变异灵根": "#ec4899",
+}
+ROOT_VARIANT_ELEMENTS = ["雷", "风"]
+
+
+def utcnow() -> datetime:
+    return datetime.utcnow()
+
+
+def normalize_realm_stage(stage: str | None) -> str:
+    raw = str(stage or "").strip()
+    if not raw:
+        return "凡人"
+    aliases = {
+        "练气": "炼气",
+    }
+    return aliases.get(raw, raw)
+
+
+def normalize_quality_level(level: int | str | None) -> int:
+    if isinstance(level, str):
+        level = QUALITY_LABEL_LEVELS.get(level.strip(), level)
+    try:
+        value = int(level or 1)
+    except (TypeError, ValueError):
+        value = 1
+    return max(1, min(value, max(QUALITY_LEVEL_LABELS)))
+
+
+def normalize_quality_label(label: str | None) -> str:
+    level = normalize_quality_level(label or QUALITY_LEVEL_LABELS[1])
+    return QUALITY_LEVEL_LABELS[level]
+
+
+def get_quality_meta(level_or_label: int | str | None) -> dict[str, Any]:
+    level = normalize_quality_level(level_or_label)
+    return {
+        "level": level,
+        "label": QUALITY_LEVEL_LABELS[level],
+        "color": QUALITY_LEVEL_COLORS.get(level, "#9ca3af"),
+        "description": QUALITY_LEVEL_DESCRIPTIONS.get(level, ""),
+        "feature": QUALITY_LEVEL_FEATURES.get(level, ""),
+    }
+
+
+class XiuxianSetting(Base):
+    __tablename__ = "xiuxian_settings"
+
+    setting_key = Column(String(64), primary_key=True)
+    setting_value = Column(JSON, nullable=True)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianImageUploadPermission(Base):
+    __tablename__ = "xiuxian_image_upload_permissions"
+
+    tg = Column(BigInteger, primary_key=True, autoincrement=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianProfile(Base):
+    __tablename__ = "xiuxian_profiles"
+
+    tg = Column(BigInteger, primary_key=True, autoincrement=False)
+    display_name = Column(String(128), nullable=True)
+    username = Column(String(64), nullable=True)
+    consented = Column(Boolean, default=False, nullable=False)
+    root_type = Column(String(32), nullable=True)
+    root_primary = Column(String(8), nullable=True)
+    root_secondary = Column(String(8), nullable=True)
+    root_relation = Column(String(16), nullable=True)
+    root_bonus = Column(Integer, default=0, nullable=False)
+    root_quality = Column(String(32), nullable=True)
+    root_quality_level = Column(Integer, default=1, nullable=False)
+    root_quality_color = Column(String(32), nullable=True)
+    realm_stage = Column(String(32), default="凡人", nullable=False)
+    realm_layer = Column(Integer, default=0, nullable=False)
+    cultivation = Column(Integer, default=0, nullable=False)
+    spiritual_stone = Column(Integer, default=0, nullable=False)
+    bone = Column(Integer, default=12, nullable=False)
+    comprehension = Column(Integer, default=12, nullable=False)
+    divine_sense = Column(Integer, default=12, nullable=False)
+    fortune = Column(Integer, default=12, nullable=False)
+    qi_blood = Column(Integer, default=120, nullable=False)
+    true_yuan = Column(Integer, default=120, nullable=False)
+    body_movement = Column(Integer, default=12, nullable=False)
+    attack_power = Column(Integer, default=12, nullable=False)
+    defense_power = Column(Integer, default=12, nullable=False)
+    insight_bonus = Column(Integer, default=0, nullable=False)
+    sect_contribution = Column(Integer, default=0, nullable=False)
+    dan_poison = Column(Integer, default=0, nullable=False)
+    breakthrough_pill_uses = Column(Integer, default=0, nullable=False)
+    sect_id = Column(Integer, nullable=True)
+    sect_role_key = Column(String(32), nullable=True)
+    last_salary_claim_at = Column(DateTime, nullable=True)
+    robbery_daily_count = Column(Integer, default=0, nullable=False)
+    robbery_day_key = Column(String(16), nullable=True)
+    current_artifact_id = Column(Integer, nullable=True)
+    active_talisman_id = Column(Integer, nullable=True)
+    current_technique_id = Column(Integer, nullable=True)
+    shop_name = Column(String(64), nullable=True)
+    shop_broadcast = Column(Boolean, default=False, nullable=False)
+    last_train_at = Column(DateTime, nullable=True)
+    retreat_started_at = Column(DateTime, nullable=True)
+    retreat_end_at = Column(DateTime, nullable=True)
+    retreat_gain_per_minute = Column(Integer, default=0, nullable=False)
+    retreat_cost_per_minute = Column(Integer, default=0, nullable=False)
+    retreat_minutes_total = Column(Integer, default=0, nullable=False)
+    retreat_minutes_resolved = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianJournal(Base):
+    __tablename__ = "xiuxian_journals"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tg = Column(BigInteger, nullable=False)
+    action_type = Column(String(32), nullable=False)
+    title = Column(String(128), nullable=False)
+    detail = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+class XiuxianSect(Base):
+    __tablename__ = "xiuxian_sects"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(64), nullable=False, unique=True)
+    description = Column(Text, nullable=True)
+    image_url = Column(String(512), nullable=True)
+    min_realm_stage = Column(String(32), nullable=True)
+    min_realm_layer = Column(Integer, default=1, nullable=False)
+    min_stone = Column(Integer, default=0, nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianSectRole(Base):
+    __tablename__ = "xiuxian_sect_roles"
+    __table_args__ = (UniqueConstraint("sect_id", "role_key", name="uq_xiuxian_sect_role_key"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    sect_id = Column(Integer, ForeignKey("xiuxian_sects.id", ondelete="CASCADE"), nullable=False)
+    role_key = Column(String(32), nullable=False)
+    role_name = Column(String(64), nullable=False)
+    attack_bonus = Column(Integer, default=0, nullable=False)
+    defense_bonus = Column(Integer, default=0, nullable=False)
+    duel_rate_bonus = Column(Integer, default=0, nullable=False)
+    cultivation_bonus = Column(Integer, default=0, nullable=False)
+    monthly_salary = Column(Integer, default=0, nullable=False)
+    can_publish_tasks = Column(Boolean, default=False, nullable=False)
+    sort_order = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianMaterial(Base):
+    __tablename__ = "xiuxian_materials"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(64), nullable=False, unique=True)
+    quality_level = Column(Integer, default=1, nullable=False)
+    image_url = Column(String(512), nullable=True)
+    description = Column(Text, nullable=True)
+    enabled = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianMaterialInventory(Base):
+    __tablename__ = "xiuxian_material_inventory"
+    __table_args__ = (UniqueConstraint("tg", "material_id", name="uq_xiuxian_material_inventory"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tg = Column(BigInteger, nullable=False)
+    material_id = Column(Integer, ForeignKey("xiuxian_materials.id", ondelete="CASCADE"), nullable=False)
+    quantity = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianRecipe(Base):
+    __tablename__ = "xiuxian_recipes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(64), nullable=False, unique=True)
+    recipe_kind = Column(String(16), nullable=False)
+    result_kind = Column(String(16), nullable=False)
+    result_ref_id = Column(Integer, nullable=False)
+    result_quantity = Column(Integer, default=1, nullable=False)
+    base_success_rate = Column(Integer, default=60, nullable=False)
+    broadcast_on_success = Column(Boolean, default=False, nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianRecipeIngredient(Base):
+    __tablename__ = "xiuxian_recipe_ingredients"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    recipe_id = Column(Integer, ForeignKey("xiuxian_recipes.id", ondelete="CASCADE"), nullable=False)
+    material_id = Column(Integer, ForeignKey("xiuxian_materials.id", ondelete="CASCADE"), nullable=False)
+    quantity = Column(Integer, default=1, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianScene(Base):
+    __tablename__ = "xiuxian_scenes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(64), nullable=False, unique=True)
+    description = Column(Text, nullable=True)
+    image_url = Column(String(512), nullable=True)
+    max_minutes = Column(Integer, default=60, nullable=False)
+    event_pool = Column(JSON, nullable=True)
+    enabled = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianSceneDrop(Base):
+    __tablename__ = "xiuxian_scene_drops"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    scene_id = Column(Integer, ForeignKey("xiuxian_scenes.id", ondelete="CASCADE"), nullable=False)
+    reward_kind = Column(String(16), nullable=False)
+    reward_ref_id = Column(Integer, nullable=True)
+    quantity_min = Column(Integer, default=1, nullable=False)
+    quantity_max = Column(Integer, default=1, nullable=False)
+    weight = Column(Integer, default=1, nullable=False)
+    stone_reward = Column(Integer, default=0, nullable=False)
+    event_text = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianExploration(Base):
+    __tablename__ = "xiuxian_explorations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tg = Column(BigInteger, nullable=False)
+    scene_id = Column(Integer, ForeignKey("xiuxian_scenes.id", ondelete="CASCADE"), nullable=False)
+    started_at = Column(DateTime, default=utcnow, nullable=False)
+    end_at = Column(DateTime, nullable=False)
+    claimed = Column(Boolean, default=False, nullable=False)
+    reward_kind = Column(String(16), nullable=True)
+    reward_ref_id = Column(Integer, nullable=True)
+    reward_quantity = Column(Integer, default=0, nullable=False)
+    stone_reward = Column(Integer, default=0, nullable=False)
+    event_text = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianTask(Base):
+    __tablename__ = "xiuxian_tasks"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String(128), nullable=False)
+    description = Column(Text, nullable=True)
+    task_scope = Column(String(16), nullable=False)
+    task_type = Column(String(16), default="quiz", nullable=False)
+    owner_tg = Column(BigInteger, nullable=True)
+    sect_id = Column(Integer, nullable=True)
+    question_text = Column(Text, nullable=True)
+    answer_text = Column(String(255), nullable=True)
+    image_url = Column(String(512), nullable=True)
+    required_item_kind = Column(String(16), nullable=True)
+    required_item_ref_id = Column(Integer, nullable=True)
+    required_item_quantity = Column(Integer, default=0, nullable=False)
+    reward_stone = Column(Integer, default=0, nullable=False)
+    reward_item_kind = Column(String(16), nullable=True)
+    reward_item_ref_id = Column(Integer, nullable=True)
+    reward_item_quantity = Column(Integer, default=0, nullable=False)
+    max_claimants = Column(Integer, default=1, nullable=False)
+    claimants_count = Column(Integer, default=0, nullable=False)
+    active_in_group = Column(Boolean, default=False, nullable=False)
+    group_chat_id = Column(BigInteger, nullable=True)
+    group_message_id = Column(Integer, nullable=True)
+    winner_tg = Column(BigInteger, nullable=True)
+    enabled = Column(Boolean, default=True, nullable=False)
+    status = Column(String(16), default="open", nullable=False)
+    deadline_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianTaskClaim(Base):
+    __tablename__ = "xiuxian_task_claims"
+    __table_args__ = (UniqueConstraint("task_id", "tg", name="uq_xiuxian_task_claim"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    task_id = Column(Integer, ForeignKey("xiuxian_tasks.id", ondelete="CASCADE"), nullable=False)
+    tg = Column(BigInteger, nullable=False)
+    status = Column(String(16), default="accepted", nullable=False)
+    submitted_answer = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianRedEnvelope(Base):
+    __tablename__ = "xiuxian_red_envelopes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    creator_tg = Column(BigInteger, nullable=False)
+    cover_text = Column(String(255), nullable=True)
+    mode = Column(String(16), nullable=False)
+    target_tg = Column(BigInteger, nullable=True)
+    amount_total = Column(Integer, default=0, nullable=False)
+    count_total = Column(Integer, default=1, nullable=False)
+    remaining_amount = Column(Integer, default=0, nullable=False)
+    remaining_count = Column(Integer, default=0, nullable=False)
+    status = Column(String(16), default="active", nullable=False)
+    group_chat_id = Column(BigInteger, nullable=True)
+    message_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianRedEnvelopeClaim(Base):
+    __tablename__ = "xiuxian_red_envelope_claims"
+    __table_args__ = (UniqueConstraint("envelope_id", "tg", name="uq_xiuxian_red_envelope_claim"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    envelope_id = Column(Integer, ForeignKey("xiuxian_red_envelopes.id", ondelete="CASCADE"), nullable=False)
+    tg = Column(BigInteger, nullable=False)
+    amount = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+class XiuxianDuelBetPool(Base):
+    __tablename__ = "xiuxian_duel_bet_pools"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    challenger_tg = Column(BigInteger, nullable=False)
+    defender_tg = Column(BigInteger, nullable=False)
+    stake = Column(Integer, default=0, nullable=False)
+    group_chat_id = Column(BigInteger, nullable=False)
+    duel_message_id = Column(Integer, nullable=True)
+    bet_message_id = Column(Integer, nullable=True)
+    bets_close_at = Column(DateTime, nullable=False)
+    resolved = Column(Boolean, default=False, nullable=False)
+    winner_tg = Column(BigInteger, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianDuelBet(Base):
+    __tablename__ = "xiuxian_duel_bets"
+    __table_args__ = (UniqueConstraint("pool_id", "tg", name="uq_xiuxian_duel_bet"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    pool_id = Column(Integer, ForeignKey("xiuxian_duel_bet_pools.id", ondelete="CASCADE"), nullable=False)
+    tg = Column(BigInteger, nullable=False)
+    side = Column(String(16), nullable=False)
+    amount = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+class XiuxianTechnique(Base):
+    __tablename__ = "xiuxian_techniques"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(64), nullable=False, unique=True)
+    rarity = Column(String(32), default="凡品", nullable=False)
+    technique_type = Column(String(16), default="balanced", nullable=False)
+    image_url = Column(String(512), nullable=True)
+    description = Column(Text, nullable=True)
+    attack_bonus = Column(Integer, default=0, nullable=False)
+    defense_bonus = Column(Integer, default=0, nullable=False)
+    bone_bonus = Column(Integer, default=0, nullable=False)
+    comprehension_bonus = Column(Integer, default=0, nullable=False)
+    divine_sense_bonus = Column(Integer, default=0, nullable=False)
+    fortune_bonus = Column(Integer, default=0, nullable=False)
+    qi_blood_bonus = Column(Integer, default=0, nullable=False)
+    true_yuan_bonus = Column(Integer, default=0, nullable=False)
+    body_movement_bonus = Column(Integer, default=0, nullable=False)
+    duel_rate_bonus = Column(Integer, default=0, nullable=False)
+    cultivation_bonus = Column(Integer, default=0, nullable=False)
+    breakthrough_bonus = Column(Integer, default=0, nullable=False)
+    min_realm_stage = Column(String(32), nullable=True)
+    min_realm_layer = Column(Integer, default=1, nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianArtifact(Base):
+    __tablename__ = "xiuxian_artifacts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(64), nullable=False, unique=True)
+    rarity = Column(String(32), default="凡品", nullable=False)
+    image_url = Column(String(512), nullable=True)
+    description = Column(Text, nullable=True)
+    attack_bonus = Column(Integer, default=0, nullable=False)
+    defense_bonus = Column(Integer, default=0, nullable=False)
+    bone_bonus = Column(Integer, default=0, nullable=False)
+    comprehension_bonus = Column(Integer, default=0, nullable=False)
+    divine_sense_bonus = Column(Integer, default=0, nullable=False)
+    fortune_bonus = Column(Integer, default=0, nullable=False)
+    qi_blood_bonus = Column(Integer, default=0, nullable=False)
+    true_yuan_bonus = Column(Integer, default=0, nullable=False)
+    body_movement_bonus = Column(Integer, default=0, nullable=False)
+    artifact_type = Column(String(16), default="battle", nullable=False)
+    duel_rate_bonus = Column(Integer, default=0, nullable=False)
+    cultivation_bonus = Column(Integer, default=0, nullable=False)
+    min_realm_stage = Column(String(32), nullable=True)
+    min_realm_layer = Column(Integer, default=1, nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianPill(Base):
+    __tablename__ = "xiuxian_pills"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(64), nullable=False, unique=True)
+    rarity = Column(String(32), default="凡品", nullable=False)
+    pill_type = Column(String(32), nullable=False)
+    image_url = Column(String(512), nullable=True)
+    description = Column(Text, nullable=True)
+    effect_value = Column(Integer, default=0, nullable=False)
+    poison_delta = Column(Integer, default=0, nullable=False)
+    attack_bonus = Column(Integer, default=0, nullable=False)
+    defense_bonus = Column(Integer, default=0, nullable=False)
+    bone_bonus = Column(Integer, default=0, nullable=False)
+    comprehension_bonus = Column(Integer, default=0, nullable=False)
+    divine_sense_bonus = Column(Integer, default=0, nullable=False)
+    fortune_bonus = Column(Integer, default=0, nullable=False)
+    qi_blood_bonus = Column(Integer, default=0, nullable=False)
+    true_yuan_bonus = Column(Integer, default=0, nullable=False)
+    body_movement_bonus = Column(Integer, default=0, nullable=False)
+    min_realm_stage = Column(String(32), nullable=True)
+    min_realm_layer = Column(Integer, default=1, nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianTalisman(Base):
+    __tablename__ = "xiuxian_talismans"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(64), nullable=False, unique=True)
+    rarity = Column(String(32), default="凡品", nullable=False)
+    image_url = Column(String(512), nullable=True)
+    description = Column(Text, nullable=True)
+    attack_bonus = Column(Integer, default=0, nullable=False)
+    defense_bonus = Column(Integer, default=0, nullable=False)
+    bone_bonus = Column(Integer, default=0, nullable=False)
+    comprehension_bonus = Column(Integer, default=0, nullable=False)
+    divine_sense_bonus = Column(Integer, default=0, nullable=False)
+    fortune_bonus = Column(Integer, default=0, nullable=False)
+    qi_blood_bonus = Column(Integer, default=0, nullable=False)
+    true_yuan_bonus = Column(Integer, default=0, nullable=False)
+    body_movement_bonus = Column(Integer, default=0, nullable=False)
+    duel_rate_bonus = Column(Integer, default=0, nullable=False)
+    min_realm_stage = Column(String(32), nullable=True)
+    min_realm_layer = Column(Integer, default=1, nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianArtifactInventory(Base):
+    __tablename__ = "xiuxian_artifact_inventory"
+    __table_args__ = (UniqueConstraint("tg", "artifact_id", name="uq_xiuxian_artifact_inventory"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tg = Column(BigInteger, nullable=False)
+    artifact_id = Column(Integer, ForeignKey("xiuxian_artifacts.id", ondelete="CASCADE"), nullable=False)
+    quantity = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianEquippedArtifact(Base):
+    __tablename__ = "xiuxian_equipped_artifacts"
+    __table_args__ = (
+        UniqueConstraint("tg", "slot", name="uq_xiuxian_equipped_artifact_slot"),
+        UniqueConstraint("tg", "artifact_id", name="uq_xiuxian_equipped_artifact_unique"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tg = Column(BigInteger, nullable=False)
+    artifact_id = Column(Integer, ForeignKey("xiuxian_artifacts.id", ondelete="CASCADE"), nullable=False)
+    slot = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianPillInventory(Base):
+    __tablename__ = "xiuxian_pill_inventory"
+    __table_args__ = (UniqueConstraint("tg", "pill_id", name="uq_xiuxian_pill_inventory"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tg = Column(BigInteger, nullable=False)
+    pill_id = Column(Integer, ForeignKey("xiuxian_pills.id", ondelete="CASCADE"), nullable=False)
+    quantity = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianTalismanInventory(Base):
+    __tablename__ = "xiuxian_talisman_inventory"
+    __table_args__ = (UniqueConstraint("tg", "talisman_id", name="uq_xiuxian_talisman_inventory"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tg = Column(BigInteger, nullable=False)
+    talisman_id = Column(Integer, ForeignKey("xiuxian_talismans.id", ondelete="CASCADE"), nullable=False)
+    quantity = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianShopItem(Base):
+    __tablename__ = "xiuxian_shop_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    owner_tg = Column(BigInteger, nullable=True)
+    shop_name = Column(String(64), nullable=False)
+    item_kind = Column(String(16), nullable=False)
+    item_ref_id = Column(Integer, nullable=False)
+    item_name = Column(String(64), nullable=False)
+    quantity = Column(Integer, default=0, nullable=False)
+    price_stone = Column(Integer, default=0, nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
+    is_official = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianDuelRecord(Base):
+    __tablename__ = "xiuxian_duel_records"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    challenger_tg = Column(BigInteger, nullable=False)
+    defender_tg = Column(BigInteger, nullable=False)
+    winner_tg = Column(BigInteger, nullable=False)
+    loser_tg = Column(BigInteger, nullable=False)
+    challenger_rate = Column(Integer, default=500, nullable=False)
+    defender_rate = Column(Integer, default=500, nullable=False)
+    summary = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+def realm_index(stage: str | None) -> int:
+    try:
+        return REALM_ORDER.index(normalize_realm_stage(stage))
+    except ValueError:
+        return 0
+
+
+def serialize_profile(profile: XiuxianProfile | None) -> dict[str, Any] | None:
+    if profile is None:
+        return None
+
+    realm_stage = normalize_realm_stage(profile.realm_stage)
+    return {
+        "tg": profile.tg,
+        "display_name": profile.display_name,
+        "username": profile.username,
+        "display_label": profile.display_name or (f"@{profile.username}" if profile.username else f"TG {profile.tg}"),
+        "consented": profile.consented,
+        "root_type": profile.root_type,
+        "root_primary": profile.root_primary,
+        "root_secondary": profile.root_secondary,
+        "root_relation": profile.root_relation,
+        "root_bonus": profile.root_bonus,
+        "root_quality": profile.root_quality,
+        "root_quality_level": profile.root_quality_level,
+        "root_quality_color": profile.root_quality_color,
+        "realm_stage": realm_stage,
+        "realm_layer": profile.realm_layer,
+        "cultivation": profile.cultivation,
+        "spiritual_stone": profile.spiritual_stone,
+        "bone": profile.bone,
+        "comprehension": profile.comprehension,
+        "divine_sense": profile.divine_sense,
+        "fortune": profile.fortune,
+        "qi_blood": profile.qi_blood,
+        "true_yuan": profile.true_yuan,
+        "body_movement": profile.body_movement,
+        "attack_power": profile.attack_power,
+        "defense_power": profile.defense_power,
+        "insight_bonus": profile.insight_bonus,
+        "sect_contribution": profile.sect_contribution,
+        "dan_poison": profile.dan_poison,
+        "breakthrough_pill_uses": profile.breakthrough_pill_uses,
+        "sect_id": profile.sect_id,
+        "sect_role_key": profile.sect_role_key,
+        "sect_role_label": SECT_ROLE_LABELS.get(profile.sect_role_key or "", profile.sect_role_key),
+        "last_salary_claim_at": profile.last_salary_claim_at.isoformat() if profile.last_salary_claim_at else None,
+        "robbery_daily_count": profile.robbery_daily_count,
+        "robbery_day_key": profile.robbery_day_key,
+        "current_artifact_id": profile.current_artifact_id,
+        "active_talisman_id": profile.active_talisman_id,
+        "current_technique_id": profile.current_technique_id,
+        "shop_name": profile.shop_name,
+        "shop_broadcast": profile.shop_broadcast,
+        "last_train_at": profile.last_train_at.isoformat() if profile.last_train_at else None,
+        "retreat_started_at": profile.retreat_started_at.isoformat() if profile.retreat_started_at else None,
+        "retreat_end_at": profile.retreat_end_at.isoformat() if profile.retreat_end_at else None,
+        "retreat_gain_per_minute": profile.retreat_gain_per_minute,
+        "retreat_cost_per_minute": profile.retreat_cost_per_minute,
+        "retreat_minutes_total": profile.retreat_minutes_total,
+        "retreat_minutes_resolved": profile.retreat_minutes_resolved,
+        "created_at": profile.created_at.isoformat() if profile.created_at else None,
+        "updated_at": profile.updated_at.isoformat() if profile.updated_at else None,
+    }
+
+
+def serialize_journal(row: XiuxianJournal | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "id": row.id,
+        "tg": row.tg,
+        "action_type": row.action_type,
+        "title": row.title,
+        "detail": row.detail,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+def serialize_sect(sect: XiuxianSect | None) -> dict[str, Any] | None:
+    if sect is None:
+        return None
+    return {
+        "id": sect.id,
+        "name": sect.name,
+        "description": sect.description,
+        "image_url": sect.image_url,
+        "min_realm_stage": sect.min_realm_stage,
+        "min_realm_layer": sect.min_realm_layer,
+        "min_stone": sect.min_stone,
+        "enabled": sect.enabled,
+    }
+
+
+def serialize_sect_role(role: XiuxianSectRole | None) -> dict[str, Any] | None:
+    if role is None:
+        return None
+    return {
+        "id": role.id,
+        "sect_id": role.sect_id,
+        "role_key": role.role_key,
+        "role_name": role.role_name,
+        "attack_bonus": role.attack_bonus,
+        "defense_bonus": role.defense_bonus,
+        "duel_rate_bonus": role.duel_rate_bonus,
+        "cultivation_bonus": role.cultivation_bonus,
+        "monthly_salary": role.monthly_salary,
+        "can_publish_tasks": role.can_publish_tasks,
+        "sort_order": role.sort_order,
+    }
+
+
+def serialize_material(material: XiuxianMaterial | None) -> dict[str, Any] | None:
+    if material is None:
+        return None
+    quality = get_quality_meta(material.quality_level)
+    return {
+        "id": material.id,
+        "name": material.name,
+        "quality_level": material.quality_level,
+        "quality_label": quality["label"],
+        "quality_color": quality["color"],
+        "quality_description": quality["description"],
+        "quality_feature": quality["feature"],
+        "image_url": material.image_url,
+        "description": material.description,
+        "enabled": material.enabled,
+    }
+
+
+def serialize_recipe(recipe: XiuxianRecipe | None) -> dict[str, Any] | None:
+    if recipe is None:
+        return None
+    return {
+        "id": recipe.id,
+        "name": recipe.name,
+        "recipe_kind": recipe.recipe_kind,
+        "recipe_kind_label": RECIPE_KIND_LABELS.get(recipe.recipe_kind, recipe.recipe_kind),
+        "result_kind": recipe.result_kind,
+        "result_kind_label": ITEM_KIND_LABELS.get(recipe.result_kind, recipe.result_kind),
+        "result_ref_id": recipe.result_ref_id,
+        "result_quantity": recipe.result_quantity,
+        "base_success_rate": recipe.base_success_rate,
+        "broadcast_on_success": recipe.broadcast_on_success,
+        "enabled": recipe.enabled,
+    }
+
+
+def serialize_scene(scene: XiuxianScene | None) -> dict[str, Any] | None:
+    if scene is None:
+        return None
+    return {
+        "id": scene.id,
+        "name": scene.name,
+        "description": scene.description,
+        "image_url": scene.image_url,
+        "max_minutes": scene.max_minutes,
+        "event_pool": scene.event_pool or [],
+        "enabled": scene.enabled,
+    }
+
+
+def serialize_scene_drop(drop: XiuxianSceneDrop | None) -> dict[str, Any] | None:
+    if drop is None:
+        return None
+    return {
+        "id": drop.id,
+        "scene_id": drop.scene_id,
+        "reward_kind": drop.reward_kind,
+        "reward_kind_label": ITEM_KIND_LABELS.get(drop.reward_kind, drop.reward_kind),
+        "reward_ref_id": drop.reward_ref_id,
+        "quantity_min": drop.quantity_min,
+        "quantity_max": drop.quantity_max,
+        "weight": drop.weight,
+        "stone_reward": drop.stone_reward,
+        "event_text": drop.event_text,
+    }
+
+
+def serialize_exploration(exploration: XiuxianExploration | None) -> dict[str, Any] | None:
+    if exploration is None:
+        return None
+    return {
+        "id": exploration.id,
+        "tg": exploration.tg,
+        "scene_id": exploration.scene_id,
+        "started_at": exploration.started_at.isoformat() if exploration.started_at else None,
+        "end_at": exploration.end_at.isoformat() if exploration.end_at else None,
+        "claimed": exploration.claimed,
+        "reward_kind": exploration.reward_kind,
+        "reward_kind_label": ITEM_KIND_LABELS.get(exploration.reward_kind or "", exploration.reward_kind),
+        "reward_ref_id": exploration.reward_ref_id,
+        "reward_quantity": exploration.reward_quantity,
+        "stone_reward": exploration.stone_reward,
+        "event_text": exploration.event_text,
+    }
+
+
+def serialize_task(task: XiuxianTask | None) -> dict[str, Any] | None:
+    if task is None:
+        return None
+    return {
+        "id": task.id,
+        "title": task.title,
+        "description": task.description,
+        "task_scope": task.task_scope,
+        "task_scope_label": TASK_SCOPE_LABELS.get(task.task_scope, task.task_scope),
+        "task_type": task.task_type,
+        "task_type_label": TASK_TYPE_LABELS.get(task.task_type, task.task_type),
+        "owner_tg": task.owner_tg,
+        "sect_id": task.sect_id,
+        "question_text": task.question_text,
+        "image_url": task.image_url,
+        "required_item_kind": task.required_item_kind,
+        "required_item_kind_label": ITEM_KIND_LABELS.get(task.required_item_kind or "", task.required_item_kind),
+        "required_item_ref_id": task.required_item_ref_id,
+        "required_item_quantity": task.required_item_quantity,
+        "reward_stone": task.reward_stone,
+        "reward_item_kind": task.reward_item_kind,
+        "reward_item_kind_label": ITEM_KIND_LABELS.get(task.reward_item_kind or "", task.reward_item_kind),
+        "reward_item_ref_id": task.reward_item_ref_id,
+        "reward_item_quantity": task.reward_item_quantity,
+        "max_claimants": task.max_claimants,
+        "claimants_count": task.claimants_count,
+        "active_in_group": task.active_in_group,
+        "group_chat_id": task.group_chat_id,
+        "group_message_id": task.group_message_id,
+        "winner_tg": task.winner_tg,
+        "enabled": task.enabled,
+        "status": task.status,
+        "deadline_at": task.deadline_at.isoformat() if task.deadline_at else None,
+        "created_at": task.created_at.isoformat() if task.created_at else None,
+    }
+
+
+def serialize_red_envelope(envelope: XiuxianRedEnvelope | None) -> dict[str, Any] | None:
+    if envelope is None:
+        return None
+    return {
+        "id": envelope.id,
+        "creator_tg": envelope.creator_tg,
+        "cover_text": envelope.cover_text,
+        "mode": envelope.mode,
+        "mode_label": ENVELOPE_MODE_LABELS.get(envelope.mode, envelope.mode),
+        "target_tg": envelope.target_tg,
+        "amount_total": envelope.amount_total,
+        "count_total": envelope.count_total,
+        "remaining_amount": envelope.remaining_amount,
+        "remaining_count": envelope.remaining_count,
+        "status": envelope.status,
+        "group_chat_id": envelope.group_chat_id,
+        "message_id": envelope.message_id,
+        "created_at": envelope.created_at.isoformat() if envelope.created_at else None,
+    }
+
+
+def serialize_artifact(artifact: XiuxianArtifact | None) -> dict[str, Any] | None:
+    if artifact is None:
+        return None
+    quality = get_quality_meta(artifact.rarity)
+
+    return {
+        "id": artifact.id,
+        "name": artifact.name,
+        "rarity": quality["label"],
+        "rarity_level": quality["level"],
+        "quality_color": quality["color"],
+        "quality_description": quality["description"],
+        "quality_feature": quality["feature"],
+        "artifact_type": artifact.artifact_type,
+        "artifact_type_label": ARTIFACT_TYPE_LABELS.get(artifact.artifact_type, artifact.artifact_type),
+        "image_url": artifact.image_url,
+        "description": artifact.description,
+        "attack_bonus": artifact.attack_bonus,
+        "defense_bonus": artifact.defense_bonus,
+        "bone_bonus": artifact.bone_bonus,
+        "comprehension_bonus": artifact.comprehension_bonus,
+        "divine_sense_bonus": artifact.divine_sense_bonus,
+        "fortune_bonus": artifact.fortune_bonus,
+        "qi_blood_bonus": artifact.qi_blood_bonus,
+        "true_yuan_bonus": artifact.true_yuan_bonus,
+        "body_movement_bonus": artifact.body_movement_bonus,
+        "duel_rate_bonus": artifact.duel_rate_bonus,
+        "cultivation_bonus": artifact.cultivation_bonus,
+        "min_realm_stage": artifact.min_realm_stage,
+        "min_realm_layer": artifact.min_realm_layer,
+        "enabled": artifact.enabled,
+    }
+
+
+def serialize_pill(pill: XiuxianPill | None) -> dict[str, Any] | None:
+    if pill is None:
+        return None
+    quality = get_quality_meta(pill.rarity)
+
+    return {
+        "id": pill.id,
+        "name": pill.name,
+        "rarity": quality["label"],
+        "rarity_level": quality["level"],
+        "quality_color": quality["color"],
+        "quality_description": quality["description"],
+        "quality_feature": quality["feature"],
+        "pill_type": pill.pill_type,
+        "pill_type_label": PILL_TYPE_LABELS.get(pill.pill_type, pill.pill_type),
+        "effect_label": PILL_TYPE_LABELS.get(pill.pill_type, pill.pill_type),
+        "image_url": pill.image_url,
+        "description": pill.description,
+        "effect_value": pill.effect_value,
+        "poison_delta": pill.poison_delta,
+        "attack_bonus": pill.attack_bonus,
+        "defense_bonus": pill.defense_bonus,
+        "bone_bonus": pill.bone_bonus,
+        "comprehension_bonus": pill.comprehension_bonus,
+        "divine_sense_bonus": pill.divine_sense_bonus,
+        "fortune_bonus": pill.fortune_bonus,
+        "qi_blood_bonus": pill.qi_blood_bonus,
+        "true_yuan_bonus": pill.true_yuan_bonus,
+        "body_movement_bonus": pill.body_movement_bonus,
+        "min_realm_stage": pill.min_realm_stage,
+        "min_realm_layer": pill.min_realm_layer,
+        "enabled": pill.enabled,
+    }
+
+
+def serialize_talisman(talisman: XiuxianTalisman | None) -> dict[str, Any] | None:
+    if talisman is None:
+        return None
+    quality = get_quality_meta(talisman.rarity)
+
+    return {
+        "id": talisman.id,
+        "name": talisman.name,
+        "rarity": quality["label"],
+        "rarity_level": quality["level"],
+        "quality_color": quality["color"],
+        "quality_description": quality["description"],
+        "quality_feature": quality["feature"],
+        "image_url": talisman.image_url,
+        "description": talisman.description,
+        "attack_bonus": talisman.attack_bonus,
+        "defense_bonus": talisman.defense_bonus,
+        "bone_bonus": talisman.bone_bonus,
+        "comprehension_bonus": talisman.comprehension_bonus,
+        "divine_sense_bonus": talisman.divine_sense_bonus,
+        "fortune_bonus": talisman.fortune_bonus,
+        "qi_blood_bonus": talisman.qi_blood_bonus,
+        "true_yuan_bonus": talisman.true_yuan_bonus,
+        "body_movement_bonus": talisman.body_movement_bonus,
+        "duel_rate_bonus": talisman.duel_rate_bonus,
+        "min_realm_stage": talisman.min_realm_stage,
+        "min_realm_layer": talisman.min_realm_layer,
+        "enabled": talisman.enabled,
+    }
+
+
+def serialize_technique(technique: XiuxianTechnique | None) -> dict[str, Any] | None:
+    if technique is None:
+        return None
+    quality = get_quality_meta(technique.rarity)
+    return {
+        "id": technique.id,
+        "name": technique.name,
+        "rarity": quality["label"],
+        "rarity_level": quality["level"],
+        "quality_color": quality["color"],
+        "quality_description": quality["description"],
+        "quality_feature": quality["feature"],
+        "technique_type": technique.technique_type,
+        "technique_type_label": TECHNIQUE_TYPE_LABELS.get(technique.technique_type, technique.technique_type),
+        "image_url": technique.image_url,
+        "description": technique.description,
+        "attack_bonus": technique.attack_bonus,
+        "defense_bonus": technique.defense_bonus,
+        "bone_bonus": technique.bone_bonus,
+        "comprehension_bonus": technique.comprehension_bonus,
+        "divine_sense_bonus": technique.divine_sense_bonus,
+        "fortune_bonus": technique.fortune_bonus,
+        "qi_blood_bonus": technique.qi_blood_bonus,
+        "true_yuan_bonus": technique.true_yuan_bonus,
+        "body_movement_bonus": technique.body_movement_bonus,
+        "duel_rate_bonus": technique.duel_rate_bonus,
+        "cultivation_bonus": technique.cultivation_bonus,
+        "breakthrough_bonus": technique.breakthrough_bonus,
+        "min_realm_stage": normalize_realm_stage(technique.min_realm_stage),
+        "min_realm_layer": technique.min_realm_layer,
+        "enabled": technique.enabled,
+    }
+
+
+def serialize_shop_item(item: XiuxianShopItem | None) -> dict[str, Any] | None:
+    if item is None:
+        return None
+
+    return {
+        "id": item.id,
+        "owner_tg": item.owner_tg,
+        "shop_name": item.shop_name,
+        "item_kind": item.item_kind,
+        "item_kind_label": ITEM_KIND_LABELS.get(item.item_kind, item.item_kind),
+        "item_ref_id": item.item_ref_id,
+        "item_name": item.item_name,
+        "quantity": item.quantity,
+        "price_stone": item.price_stone,
+        "enabled": item.enabled,
+        "is_official": item.is_official,
+        "created_at": item.created_at.isoformat() if item.created_at else None,
+    }
+
+
+def serialize_image_upload_permission(permission: XiuxianImageUploadPermission | None) -> dict[str, Any] | None:
+    if permission is None:
+        return None
+
+    return {
+        "tg": permission.tg,
+        "created_at": permission.created_at.isoformat() if permission.created_at else None,
+        "updated_at": permission.updated_at.isoformat() if permission.updated_at else None,
+    }
+
+
+def get_xiuxian_settings() -> dict[str, Any]:
+    with Session() as session:
+        rows = session.query(XiuxianSetting).all()
+        settings = {row.setting_key: row.setting_value for row in rows}
+    merged = copy.deepcopy(DEFAULT_SETTINGS)
+    merged.update(settings)
+    return merged
+
+
+def set_xiuxian_settings(patch: dict[str, Any]) -> dict[str, Any]:
+    with Session() as session:
+        for key, value in patch.items():
+            row = session.query(XiuxianSetting).filter(XiuxianSetting.setting_key == key).first()
+            if row is None:
+                row = XiuxianSetting(setting_key=key, setting_value=value)
+                session.add(row)
+            else:
+                row.setting_value = value
+                row.updated_at = utcnow()
+        session.commit()
+    return get_xiuxian_settings()
+
+
+def list_image_upload_permissions() -> list[dict[str, Any]]:
+    with Session() as session:
+        rows = (
+            session.query(XiuxianImageUploadPermission)
+            .order_by(XiuxianImageUploadPermission.updated_at.desc(), XiuxianImageUploadPermission.tg.asc())
+            .all()
+        )
+        return [serialize_image_upload_permission(row) for row in rows]
+
+
+def has_image_upload_permission(tg: int) -> bool:
+    with Session() as session:
+        row = session.query(XiuxianImageUploadPermission).filter(XiuxianImageUploadPermission.tg == tg).first()
+        return row is not None
+
+
+def grant_image_upload_permission(tg: int) -> dict[str, Any]:
+    with Session() as session:
+        row = session.query(XiuxianImageUploadPermission).filter(XiuxianImageUploadPermission.tg == tg).first()
+        if row is None:
+            row = XiuxianImageUploadPermission(tg=tg)
+            session.add(row)
+        row.updated_at = utcnow()
+        session.commit()
+        session.refresh(row)
+        return serialize_image_upload_permission(row)
+
+
+def revoke_image_upload_permission(tg: int) -> bool:
+    with Session() as session:
+        row = session.query(XiuxianImageUploadPermission).filter(XiuxianImageUploadPermission.tg == tg).first()
+        if row is None:
+            return False
+        session.delete(row)
+        session.commit()
+        return True
+
+
+def get_profile(tg: int, create: bool = False) -> XiuxianProfile | None:
+    with Session() as session:
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).first()
+        if profile is None and create:
+            profile = XiuxianProfile(tg=tg)
+            session.add(profile)
+            session.commit()
+            session.refresh(profile)
+        return profile
+
+
+def upsert_profile(tg: int, **fields) -> XiuxianProfile:
+    with Session() as session:
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).first()
+        if profile is None:
+            profile = XiuxianProfile(tg=tg)
+            session.add(profile)
+
+        if "realm_stage" in fields:
+            fields["realm_stage"] = normalize_realm_stage(fields.get("realm_stage"))
+
+        for key, value in fields.items():
+            setattr(profile, key, value)
+
+        profile.updated_at = utcnow()
+        session.commit()
+        session.refresh(profile)
+        return profile
+
+
+def get_artifact(artifact_id: int) -> XiuxianArtifact | None:
+    with Session() as session:
+        return session.query(XiuxianArtifact).filter(XiuxianArtifact.id == artifact_id).first()
+
+
+def get_pill(pill_id: int) -> XiuxianPill | None:
+    with Session() as session:
+        return session.query(XiuxianPill).filter(XiuxianPill.id == pill_id).first()
+
+
+def get_talisman(talisman_id: int) -> XiuxianTalisman | None:
+    with Session() as session:
+        return session.query(XiuxianTalisman).filter(XiuxianTalisman.id == talisman_id).first()
+
+
+def get_technique(technique_id: int) -> XiuxianTechnique | None:
+    with Session() as session:
+        return session.query(XiuxianTechnique).filter(XiuxianTechnique.id == technique_id).first()
+
+
+def list_artifacts(enabled_only: bool = False) -> list[dict[str, Any]]:
+    with Session() as session:
+        query = session.query(XiuxianArtifact)
+        if enabled_only:
+            query = query.filter(XiuxianArtifact.enabled.is_(True))
+        return [serialize_artifact(item) for item in query.order_by(XiuxianArtifact.id.desc()).all()]
+
+
+def list_pills(enabled_only: bool = False) -> list[dict[str, Any]]:
+    with Session() as session:
+        query = session.query(XiuxianPill)
+        if enabled_only:
+            query = query.filter(XiuxianPill.enabled.is_(True))
+        return [serialize_pill(item) for item in query.order_by(XiuxianPill.id.desc()).all()]
+
+
+def list_talismans(enabled_only: bool = False) -> list[dict[str, Any]]:
+    with Session() as session:
+        query = session.query(XiuxianTalisman)
+        if enabled_only:
+            query = query.filter(XiuxianTalisman.enabled.is_(True))
+        return [serialize_talisman(item) for item in query.order_by(XiuxianTalisman.id.desc()).all()]
+
+
+def list_techniques(enabled_only: bool = False) -> list[dict[str, Any]]:
+    with Session() as session:
+        query = session.query(XiuxianTechnique)
+        if enabled_only:
+            query = query.filter(XiuxianTechnique.enabled.is_(True))
+        return [serialize_technique(item) for item in query.order_by(XiuxianTechnique.id.desc()).all()]
+
+
+def create_artifact(**fields) -> dict[str, Any]:
+    fields = dict(fields)
+    artifact_type = str(fields.get("artifact_type") or "battle").strip() or "battle"
+    fields["artifact_type"] = artifact_type
+    fields["rarity"] = normalize_quality_label(fields.get("rarity"))
+    fields["min_realm_stage"] = normalize_realm_stage(fields.get("min_realm_stage")) if fields.get("min_realm_stage") else None
+    with Session() as session:
+        artifact = XiuxianArtifact(**fields)
+        session.add(artifact)
+        session.commit()
+        session.refresh(artifact)
+        return serialize_artifact(artifact)
+
+
+def create_pill(**fields) -> dict[str, Any]:
+    fields = dict(fields)
+    fields["rarity"] = normalize_quality_label(fields.get("rarity"))
+    fields["pill_type"] = str(fields.get("pill_type") or "foundation").strip() or "foundation"
+    fields["min_realm_stage"] = normalize_realm_stage(fields.get("min_realm_stage")) if fields.get("min_realm_stage") else None
+    with Session() as session:
+        pill = XiuxianPill(**fields)
+        session.add(pill)
+        session.commit()
+        session.refresh(pill)
+        return serialize_pill(pill)
+
+
+def create_talisman(**fields) -> dict[str, Any]:
+    fields = dict(fields)
+    fields["rarity"] = normalize_quality_label(fields.get("rarity"))
+    fields["min_realm_stage"] = normalize_realm_stage(fields.get("min_realm_stage")) if fields.get("min_realm_stage") else None
+    with Session() as session:
+        talisman = XiuxianTalisman(**fields)
+        session.add(talisman)
+        session.commit()
+        session.refresh(talisman)
+        return serialize_talisman(talisman)
+
+
+def create_technique(**fields) -> dict[str, Any]:
+    fields = dict(fields)
+    fields["rarity"] = normalize_quality_label(fields.get("rarity"))
+    fields["technique_type"] = str(fields.get("technique_type") or "balanced").strip() or "balanced"
+    fields["min_realm_stage"] = normalize_realm_stage(fields.get("min_realm_stage")) if fields.get("min_realm_stage") else None
+    with Session() as session:
+        technique = XiuxianTechnique(**fields)
+        session.add(technique)
+        session.commit()
+        session.refresh(technique)
+        return serialize_technique(technique)
+
+
+def delete_artifact(artifact_id: int) -> bool:
+    with Session() as session:
+        row = session.query(XiuxianArtifact).filter(XiuxianArtifact.id == artifact_id).first()
+        if row is None:
+            return False
+        session.delete(row)
+        session.commit()
+        return True
+
+
+def delete_pill(pill_id: int) -> bool:
+    with Session() as session:
+        row = session.query(XiuxianPill).filter(XiuxianPill.id == pill_id).first()
+        if row is None:
+            return False
+        session.delete(row)
+        session.commit()
+        return True
+
+
+def delete_talisman(talisman_id: int) -> bool:
+    with Session() as session:
+        row = session.query(XiuxianTalisman).filter(XiuxianTalisman.id == talisman_id).first()
+        if row is None:
+            return False
+        session.delete(row)
+        session.commit()
+        return True
+
+
+def delete_technique(technique_id: int) -> bool:
+    with Session() as session:
+        row = session.query(XiuxianTechnique).filter(XiuxianTechnique.id == technique_id).first()
+        if row is None:
+            return False
+        session.query(XiuxianProfile).filter(XiuxianProfile.current_technique_id == technique_id).update(
+            {"current_technique_id": None, "updated_at": utcnow()},
+            synchronize_session=False,
+        )
+        session.delete(row)
+        session.commit()
+        return True
+
+
+def grant_artifact_to_user(tg: int, artifact_id: int, quantity: int = 1) -> dict[str, Any]:
+    with Session() as session:
+        row = (
+            session.query(XiuxianArtifactInventory)
+            .filter(
+                XiuxianArtifactInventory.tg == tg,
+                XiuxianArtifactInventory.artifact_id == artifact_id,
+            )
+            .first()
+        )
+        if row is None:
+            row = XiuxianArtifactInventory(tg=tg, artifact_id=artifact_id, quantity=0)
+            session.add(row)
+        row.quantity += max(int(quantity), 1)
+        row.updated_at = utcnow()
+        session.commit()
+        artifact = session.query(XiuxianArtifact).filter(XiuxianArtifact.id == artifact_id).first()
+        return {
+            "artifact": serialize_artifact(artifact),
+            "quantity": row.quantity,
+        }
+
+
+def grant_pill_to_user(tg: int, pill_id: int, quantity: int = 1) -> dict[str, Any]:
+    with Session() as session:
+        row = (
+            session.query(XiuxianPillInventory)
+            .filter(
+                XiuxianPillInventory.tg == tg,
+                XiuxianPillInventory.pill_id == pill_id,
+            )
+            .first()
+        )
+        if row is None:
+            row = XiuxianPillInventory(tg=tg, pill_id=pill_id, quantity=0)
+            session.add(row)
+        row.quantity += max(int(quantity), 1)
+        row.updated_at = utcnow()
+        session.commit()
+        pill = session.query(XiuxianPill).filter(XiuxianPill.id == pill_id).first()
+        return {
+            "pill": serialize_pill(pill),
+            "quantity": row.quantity,
+        }
+
+
+def grant_talisman_to_user(tg: int, talisman_id: int, quantity: int = 1) -> dict[str, Any]:
+    with Session() as session:
+        row = (
+            session.query(XiuxianTalismanInventory)
+            .filter(
+                XiuxianTalismanInventory.tg == tg,
+                XiuxianTalismanInventory.talisman_id == talisman_id,
+            )
+            .first()
+        )
+        if row is None:
+            row = XiuxianTalismanInventory(tg=tg, talisman_id=talisman_id, quantity=0)
+            session.add(row)
+        row.quantity += max(int(quantity), 1)
+        row.updated_at = utcnow()
+        session.commit()
+        talisman = session.query(XiuxianTalisman).filter(XiuxianTalisman.id == talisman_id).first()
+        return {
+            "talisman": serialize_talisman(talisman),
+            "quantity": row.quantity,
+        }
+
+
+def list_user_artifacts(tg: int) -> list[dict[str, Any]]:
+    with Session() as session:
+        rows = (
+            session.query(XiuxianArtifactInventory, XiuxianArtifact)
+            .join(XiuxianArtifact, XiuxianArtifact.id == XiuxianArtifactInventory.artifact_id)
+            .filter(XiuxianArtifactInventory.tg == tg)
+            .order_by(XiuxianArtifact.id.desc())
+            .all()
+        )
+        return [
+            {
+                "quantity": inventory.quantity,
+                "artifact": serialize_artifact(artifact),
+            }
+            for inventory, artifact in rows
+        ]
+
+
+def list_equipped_artifacts(tg: int) -> list[dict[str, Any]]:
+    with Session() as session:
+        rows = (
+            session.query(XiuxianEquippedArtifact, XiuxianArtifact)
+            .join(XiuxianArtifact, XiuxianArtifact.id == XiuxianEquippedArtifact.artifact_id)
+            .filter(XiuxianEquippedArtifact.tg == tg)
+            .order_by(XiuxianEquippedArtifact.slot.asc(), XiuxianEquippedArtifact.id.asc())
+            .all()
+        )
+        return [
+            {
+                "slot": equipped.slot,
+                "artifact": serialize_artifact(artifact),
+            }
+            for equipped, artifact in rows
+        ]
+
+
+def list_user_pills(tg: int) -> list[dict[str, Any]]:
+    with Session() as session:
+        rows = (
+            session.query(XiuxianPillInventory, XiuxianPill)
+            .join(XiuxianPill, XiuxianPill.id == XiuxianPillInventory.pill_id)
+            .filter(XiuxianPillInventory.tg == tg)
+            .order_by(XiuxianPill.id.desc())
+            .all()
+        )
+        return [
+            {
+                "quantity": inventory.quantity,
+                "pill": serialize_pill(pill),
+            }
+            for inventory, pill in rows
+        ]
+
+
+def list_user_talismans(tg: int) -> list[dict[str, Any]]:
+    with Session() as session:
+        rows = (
+            session.query(XiuxianTalismanInventory, XiuxianTalisman)
+            .join(XiuxianTalisman, XiuxianTalisman.id == XiuxianTalismanInventory.talisman_id)
+            .filter(XiuxianTalismanInventory.tg == tg)
+            .order_by(XiuxianTalisman.id.desc())
+            .all()
+        )
+        return [
+            {
+                "quantity": inventory.quantity,
+                "talisman": serialize_talisman(talisman),
+            }
+            for inventory, talisman in rows
+        ]
+
+
+def consume_user_pill(tg: int, pill_id: int, quantity: int = 1) -> bool:
+    with Session() as session:
+        row = (
+            session.query(XiuxianPillInventory)
+            .filter(
+                XiuxianPillInventory.tg == tg,
+                XiuxianPillInventory.pill_id == pill_id,
+            )
+            .with_for_update()
+            .first()
+        )
+        if row is None or row.quantity < quantity:
+            return False
+
+        row.quantity -= quantity
+        row.updated_at = utcnow()
+        if row.quantity <= 0:
+            session.delete(row)
+        session.commit()
+        return True
+
+
+def consume_user_talisman(tg: int, talisman_id: int, quantity: int = 1) -> bool:
+    with Session() as session:
+        row = (
+            session.query(XiuxianTalismanInventory)
+            .filter(
+                XiuxianTalismanInventory.tg == tg,
+                XiuxianTalismanInventory.talisman_id == talisman_id,
+            )
+            .with_for_update()
+            .first()
+        )
+        if row is None or row.quantity < quantity:
+            return False
+
+        row.quantity -= quantity
+        row.updated_at = utcnow()
+        if row.quantity <= 0:
+            session.delete(row)
+        session.commit()
+        return True
+
+
+def use_user_artifact_listing_stock(tg: int, artifact_id: int, quantity: int = 1) -> bool:
+    with Session() as session:
+        row = (
+            session.query(XiuxianArtifactInventory)
+            .filter(
+                XiuxianArtifactInventory.tg == tg,
+                XiuxianArtifactInventory.artifact_id == artifact_id,
+            )
+            .with_for_update()
+            .first()
+        )
+        if row is None or row.quantity < quantity:
+            return False
+
+        row.quantity -= quantity
+        row.updated_at = utcnow()
+        if row.quantity <= 0:
+            session.delete(row)
+        session.commit()
+        return True
+
+
+def use_user_pill_listing_stock(tg: int, pill_id: int, quantity: int = 1) -> bool:
+    with Session() as session:
+        row = (
+            session.query(XiuxianPillInventory)
+            .filter(
+                XiuxianPillInventory.tg == tg,
+                XiuxianPillInventory.pill_id == pill_id,
+            )
+            .with_for_update()
+            .first()
+        )
+        if row is None or row.quantity < quantity:
+            return False
+
+        row.quantity -= quantity
+        row.updated_at = utcnow()
+        if row.quantity <= 0:
+            session.delete(row)
+        session.commit()
+        return True
+
+
+def use_user_talisman_listing_stock(tg: int, talisman_id: int, quantity: int = 1) -> bool:
+    with Session() as session:
+        row = (
+            session.query(XiuxianTalismanInventory)
+            .filter(
+                XiuxianTalismanInventory.tg == tg,
+                XiuxianTalismanInventory.talisman_id == talisman_id,
+            )
+            .with_for_update()
+            .first()
+        )
+        if row is None or row.quantity < quantity:
+            return False
+
+        row.quantity -= quantity
+        row.updated_at = utcnow()
+        if row.quantity <= 0:
+            session.delete(row)
+        session.commit()
+        return True
+
+
+def set_equipped_artifact(tg: int, artifact_id: int, equip_limit: int = 3) -> dict[str, Any] | None:
+    with Session() as session:
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+        if profile is None:
+            return None
+
+        equipped_rows = (
+            session.query(XiuxianEquippedArtifact)
+            .filter(XiuxianEquippedArtifact.tg == tg)
+            .order_by(XiuxianEquippedArtifact.slot.asc(), XiuxianEquippedArtifact.id.asc())
+            .with_for_update()
+            .all()
+        )
+        existing = next((row for row in equipped_rows if row.artifact_id == artifact_id), None)
+        action = "equipped"
+
+        if existing is not None:
+            session.delete(existing)
+            session.flush()
+            action = "unequipped"
+        else:
+            safe_limit = max(int(equip_limit or 0), 1)
+            if len(equipped_rows) >= safe_limit:
+                raise ValueError(f"当前最多只能装备 {safe_limit} 件法宝。")
+            used_slots = {row.slot for row in equipped_rows}
+            slot = 1
+            while slot in used_slots:
+                slot += 1
+            session.add(XiuxianEquippedArtifact(tg=tg, artifact_id=artifact_id, slot=slot))
+            session.flush()
+
+        refreshed = (
+            session.query(XiuxianEquippedArtifact)
+            .filter(XiuxianEquippedArtifact.tg == tg)
+            .order_by(XiuxianEquippedArtifact.slot.asc(), XiuxianEquippedArtifact.id.asc())
+            .all()
+        )
+        for index, row in enumerate(refreshed, start=1):
+            row.slot = index
+
+        profile.current_artifact_id = refreshed[0].artifact_id if refreshed else None
+        profile.updated_at = utcnow()
+        session.commit()
+        session.refresh(profile)
+        return {
+            "profile": serialize_profile(profile),
+            "action": action,
+            "equipped_count": len(refreshed),
+            "equipped_artifact_ids": [row.artifact_id for row in refreshed],
+        }
+
+
+def set_active_talisman(tg: int, talisman_id: int | None) -> dict[str, Any] | None:
+    with Session() as session:
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).first()
+        if profile is None:
+            return None
+
+        profile.active_talisman_id = talisman_id
+        profile.updated_at = utcnow()
+        session.commit()
+        session.refresh(profile)
+        return serialize_profile(profile)
+
+
+def set_current_technique(tg: int, technique_id: int | None) -> dict[str, Any] | None:
+    with Session() as session:
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).first()
+        if profile is None:
+            return None
+        profile.current_technique_id = technique_id
+        profile.updated_at = utcnow()
+        session.commit()
+        session.refresh(profile)
+        return serialize_profile(profile)
+
+
+def list_shop_items(
+    owner_tg: int | None = None,
+    official_only: bool | None = None,
+    include_disabled: bool = False,
+) -> list[dict[str, Any]]:
+    with Session() as session:
+        query = session.query(XiuxianShopItem)
+        if not include_disabled:
+            query = query.filter(XiuxianShopItem.enabled.is_(True))
+        if owner_tg is not None:
+            query = query.filter(XiuxianShopItem.owner_tg == owner_tg)
+        if official_only is True:
+            query = query.filter(XiuxianShopItem.is_official.is_(True))
+        elif official_only is False:
+            query = query.filter(XiuxianShopItem.is_official.is_(False))
+
+        return [serialize_shop_item(item) for item in query.order_by(XiuxianShopItem.id.desc()).all()]
+
+
+def create_shop_item(
+    *,
+    owner_tg: int | None,
+    shop_name: str,
+    item_kind: str,
+    item_ref_id: int,
+    item_name: str,
+    quantity: int,
+    price_stone: int,
+    is_official: bool,
+) -> dict[str, Any]:
+    with Session() as session:
+        item = XiuxianShopItem(
+            owner_tg=owner_tg,
+            shop_name=shop_name,
+            item_kind=item_kind,
+            item_ref_id=item_ref_id,
+            item_name=item_name,
+            quantity=max(int(quantity), 1),
+            price_stone=max(int(price_stone), 0),
+            is_official=is_official,
+            enabled=True,
+        )
+        session.add(item)
+        session.commit()
+        session.refresh(item)
+        return serialize_shop_item(item)
+
+
+def update_shop_item(item_id: int, **fields) -> dict[str, Any] | None:
+    with Session() as session:
+        item = session.query(XiuxianShopItem).filter(XiuxianShopItem.id == item_id).first()
+        if item is None:
+            return None
+        for key, value in fields.items():
+            setattr(item, key, value)
+        item.updated_at = utcnow()
+        session.commit()
+        session.refresh(item)
+        return serialize_shop_item(item)
+
+
+def purchase_shop_item(buyer_tg: int, item_id: int, quantity: int = 1) -> dict[str, Any]:
+    with Session() as session:
+        item = (
+            session.query(XiuxianShopItem)
+            .filter(XiuxianShopItem.id == item_id, XiuxianShopItem.enabled.is_(True))
+            .with_for_update()
+            .first()
+        )
+        if item is None:
+            raise ValueError("商品不存在或已下架")
+
+        amount = max(int(quantity), 1)
+        if item.quantity < amount:
+            raise ValueError("商品库存不足")
+
+        buyer = (
+            session.query(XiuxianProfile)
+            .filter(XiuxianProfile.tg == buyer_tg)
+            .with_for_update()
+            .first()
+        )
+        if buyer is None or not buyer.consented:
+            raise ValueError("买家尚未踏入仙途")
+
+        total_cost = item.price_stone * amount
+        if buyer.spiritual_stone < total_cost:
+            raise ValueError("灵石不足")
+
+        buyer.spiritual_stone -= total_cost
+        buyer.updated_at = utcnow()
+
+        seller = None
+        if item.owner_tg is not None:
+            seller = (
+                session.query(XiuxianProfile)
+                .filter(XiuxianProfile.tg == item.owner_tg)
+                .with_for_update()
+                .first()
+            )
+            if seller is not None:
+                seller.spiritual_stone += total_cost
+                seller.updated_at = utcnow()
+
+        seller_tg = item.owner_tg
+        item.quantity -= amount
+        item.updated_at = utcnow()
+        if item.quantity <= 0:
+            item.enabled = False
+
+        if item.item_kind == "artifact":
+            row = (
+                session.query(XiuxianArtifactInventory)
+                .filter(
+                    XiuxianArtifactInventory.tg == buyer_tg,
+                    XiuxianArtifactInventory.artifact_id == item.item_ref_id,
+                )
+                .first()
+            )
+            if row is None:
+                row = XiuxianArtifactInventory(tg=buyer_tg, artifact_id=item.item_ref_id, quantity=0)
+                session.add(row)
+            row.quantity += amount
+            row.updated_at = utcnow()
+        elif item.item_kind == "pill":
+            row = (
+                session.query(XiuxianPillInventory)
+                .filter(
+                    XiuxianPillInventory.tg == buyer_tg,
+                    XiuxianPillInventory.pill_id == item.item_ref_id,
+                )
+                .first()
+            )
+            if row is None:
+                row = XiuxianPillInventory(tg=buyer_tg, pill_id=item.item_ref_id, quantity=0)
+                session.add(row)
+            row.quantity += amount
+            row.updated_at = utcnow()
+        elif item.item_kind == "talisman":
+            row = (
+                session.query(XiuxianTalismanInventory)
+                .filter(
+                    XiuxianTalismanInventory.tg == buyer_tg,
+                    XiuxianTalismanInventory.talisman_id == item.item_ref_id,
+                )
+                .first()
+            )
+            if row is None:
+                row = XiuxianTalismanInventory(tg=buyer_tg, talisman_id=item.item_ref_id, quantity=0)
+                session.add(row)
+            row.quantity += amount
+            row.updated_at = utcnow()
+        else:
+            raise ValueError("不支持的商品类型")
+
+        session.commit()
+        name_map = get_emby_name_map([buyer_tg] + ([seller_tg] if seller_tg else []))
+        return {
+            "item": serialize_shop_item(item),
+            "buyer_balance": buyer.spiritual_stone,
+            "seller_balance": None if seller is None else seller.spiritual_stone,
+            "total_cost": total_cost,
+            "buyer_tg": buyer_tg,
+            "buyer_name": name_map.get(buyer_tg, f"TG {buyer_tg}"),
+            "seller_tg": seller_tg,
+            "seller_name": name_map.get(seller_tg, f"TG {seller_tg}") if seller_tg else None,
+        }
+
+
+def create_duel_record(
+    challenger_tg: int,
+    defender_tg: int,
+    winner_tg: int,
+    loser_tg: int,
+    challenger_rate: int,
+    defender_rate: int,
+    summary: str,
+) -> dict[str, Any]:
+    with Session() as session:
+        record = XiuxianDuelRecord(
+            challenger_tg=challenger_tg,
+            defender_tg=defender_tg,
+            winner_tg=winner_tg,
+            loser_tg=loser_tg,
+            challenger_rate=challenger_rate,
+            defender_rate=defender_rate,
+            summary=summary,
+        )
+        session.add(record)
+        session.commit()
+        session.refresh(record)
+        return {
+            "id": record.id,
+            "challenger_tg": record.challenger_tg,
+            "defender_tg": record.defender_tg,
+            "winner_tg": record.winner_tg,
+            "loser_tg": record.loser_tg,
+            "challenger_rate": record.challenger_rate,
+            "defender_rate": record.defender_rate,
+            "summary": record.summary,
+            "created_at": record.created_at.isoformat() if record.created_at else None,
+        }
+
+
+def get_emby_name_map(tgs: list[int]) -> dict[int, str]:
+    if not tgs:
+        return {}
+
+    with Session() as session:
+        mapping: dict[int, str] = {}
+        profiles = session.query(XiuxianProfile).filter(XiuxianProfile.tg.in_(tgs)).all()
+        for profile in profiles:
+            label = profile.display_name or (f"@{profile.username}" if profile.username else None)
+            if label:
+                mapping[int(profile.tg)] = label
+        emby_rows = session.query(Emby).filter(Emby.tg.in_(tgs)).all()
+        for row in emby_rows:
+            mapping.setdefault(int(row.tg), row.name or row.embyid or f"TG {row.tg}")
+        for tg in tgs:
+            mapping.setdefault(int(tg), f"TG {tg}")
+        return mapping
+
+
+def list_profiles() -> list[XiuxianProfile]:
+    with Session() as session:
+        return session.query(XiuxianProfile).filter(XiuxianProfile.consented.is_(True)).all()
+
+
+def search_profiles(
+    query: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> dict[str, Any]:
+    page = max(int(page or 1), 1)
+    page_size = max(min(int(page_size or 20), 50), 1)
+    offset = (page - 1) * page_size
+    with Session() as session:
+        q = session.query(XiuxianProfile).filter(XiuxianProfile.consented.is_(True))
+        if query and query.strip():
+            keyword = query.strip()
+            if keyword.isdigit():
+                q = q.filter(XiuxianProfile.tg == int(keyword))
+            else:
+                pattern = f"%{keyword}%"
+                q = q.filter(
+                    (XiuxianProfile.display_name.ilike(pattern))
+                    | (XiuxianProfile.username.ilike(pattern))
+                )
+        total = q.count()
+        rows = q.order_by(XiuxianProfile.updated_at.desc()).offset(offset).limit(page_size).all()
+        return {
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "items": [serialize_profile(row) for row in rows],
+        }
+
+
+ADMIN_EDITABLE_PROFILE_FIELDS = {
+    "spiritual_stone", "cultivation", "realm_stage", "realm_layer",
+    "bone", "comprehension", "divine_sense", "fortune",
+    "qi_blood", "true_yuan", "body_movement", "attack_power", "defense_power",
+    "insight_bonus", "dan_poison", "sect_contribution",
+    "display_name", "username",
+}
+
+
+def admin_patch_profile(tg: int, **fields) -> dict[str, Any] | None:
+    safe = {k: v for k, v in fields.items() if k in ADMIN_EDITABLE_PROFILE_FIELDS and v is not None}
+    if not safe:
+        raise ValueError("没有可更新的字段")
+    if "realm_stage" in safe:
+        safe["realm_stage"] = normalize_realm_stage(safe.get("realm_stage"))
+    with Session() as session:
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).first()
+        if profile is None or not profile.consented:
+            return None
+        for key, value in safe.items():
+            setattr(profile, key, value)
+        profile.updated_at = utcnow()
+        session.commit()
+        session.refresh(profile)
+        return serialize_profile(profile)
+
+
+def get_sect(sect_id: int) -> XiuxianSect | None:
+    with Session() as session:
+        return session.query(XiuxianSect).filter(XiuxianSect.id == sect_id).first()
+
+
+def list_sects(enabled_only: bool = False) -> list[dict[str, Any]]:
+    with Session() as session:
+        query = session.query(XiuxianSect)
+        if enabled_only:
+            query = query.filter(XiuxianSect.enabled.is_(True))
+        return [serialize_sect(item) for item in query.order_by(XiuxianSect.id.desc()).all()]
+
+
+def create_sect(**fields) -> dict[str, Any]:
+    fields = dict(fields)
+    fields["min_realm_stage"] = normalize_realm_stage(fields.get("min_realm_stage")) if fields.get("min_realm_stage") else None
+    with Session() as session:
+        sect = XiuxianSect(**fields)
+        session.add(sect)
+        session.commit()
+        session.refresh(sect)
+        return serialize_sect(sect)
+
+
+def delete_sect(sect_id: int) -> bool:
+    with Session() as session:
+        row = session.query(XiuxianSect).filter(XiuxianSect.id == sect_id).first()
+        if row is None:
+            return False
+        session.delete(row)
+        session.commit()
+        return True
+
+
+def replace_sect_roles(sect_id: int, roles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    with Session() as session:
+        session.query(XiuxianSectRole).filter(XiuxianSectRole.sect_id == sect_id).delete()
+        payloads = []
+        for role in roles:
+            row = XiuxianSectRole(sect_id=sect_id, **role)
+            session.add(row)
+            payloads.append(row)
+        session.commit()
+        return [serialize_sect_role(row) for row in payloads]
+
+
+def list_sect_roles(sect_id: int) -> list[dict[str, Any]]:
+    with Session() as session:
+        rows = (
+            session.query(XiuxianSectRole)
+            .filter(XiuxianSectRole.sect_id == sect_id)
+            .order_by(XiuxianSectRole.sort_order.asc(), XiuxianSectRole.id.asc())
+            .all()
+        )
+        return [serialize_sect_role(row) for row in rows]
+
+
+def get_material(material_id: int) -> XiuxianMaterial | None:
+    with Session() as session:
+        return session.query(XiuxianMaterial).filter(XiuxianMaterial.id == material_id).first()
+
+
+def list_materials(enabled_only: bool = False) -> list[dict[str, Any]]:
+    with Session() as session:
+        query = session.query(XiuxianMaterial)
+        if enabled_only:
+            query = query.filter(XiuxianMaterial.enabled.is_(True))
+        return [serialize_material(row) for row in query.order_by(XiuxianMaterial.id.desc()).all()]
+
+
+def create_material(**fields) -> dict[str, Any]:
+    fields = dict(fields)
+    fields["quality_level"] = normalize_quality_level(fields.get("quality_level"))
+    with Session() as session:
+        material = XiuxianMaterial(**fields)
+        session.add(material)
+        session.commit()
+        session.refresh(material)
+        return serialize_material(material)
+
+
+def delete_material(material_id: int) -> bool:
+    with Session() as session:
+        row = session.query(XiuxianMaterial).filter(XiuxianMaterial.id == material_id).first()
+        if row is None:
+            return False
+        session.delete(row)
+        session.commit()
+        return True
+
+
+def grant_material_to_user(tg: int, material_id: int, quantity: int = 1) -> dict[str, Any]:
+    with Session() as session:
+        row = (
+            session.query(XiuxianMaterialInventory)
+            .filter(
+                XiuxianMaterialInventory.tg == tg,
+                XiuxianMaterialInventory.material_id == material_id,
+            )
+            .first()
+        )
+        if row is None:
+            row = XiuxianMaterialInventory(tg=tg, material_id=material_id, quantity=0)
+            session.add(row)
+        row.quantity += max(int(quantity), 1)
+        row.updated_at = utcnow()
+        session.commit()
+        material = session.query(XiuxianMaterial).filter(XiuxianMaterial.id == material_id).first()
+        return {
+            "material": serialize_material(material),
+            "quantity": row.quantity,
+        }
+
+
+def list_user_materials(tg: int) -> list[dict[str, Any]]:
+    with Session() as session:
+        rows = (
+            session.query(XiuxianMaterialInventory, XiuxianMaterial)
+            .join(XiuxianMaterial, XiuxianMaterial.id == XiuxianMaterialInventory.material_id)
+            .filter(XiuxianMaterialInventory.tg == tg)
+            .order_by(XiuxianMaterial.id.desc())
+            .all()
+        )
+        return [
+            {
+                "quantity": inventory.quantity,
+                "material": serialize_material(material),
+            }
+            for inventory, material in rows
+        ]
+
+
+def consume_user_materials(tg: int, material_id: int, quantity: int = 1) -> bool:
+    with Session() as session:
+        row = (
+            session.query(XiuxianMaterialInventory)
+            .filter(
+                XiuxianMaterialInventory.tg == tg,
+                XiuxianMaterialInventory.material_id == material_id,
+            )
+            .with_for_update()
+            .first()
+        )
+        if row is None or row.quantity < quantity:
+            return False
+        row.quantity -= quantity
+        row.updated_at = utcnow()
+        if row.quantity <= 0:
+            session.delete(row)
+        session.commit()
+        return True
+
+
+def get_recipe(recipe_id: int) -> XiuxianRecipe | None:
+    with Session() as session:
+        return session.query(XiuxianRecipe).filter(XiuxianRecipe.id == recipe_id).first()
+
+
+def list_recipes(enabled_only: bool = False) -> list[dict[str, Any]]:
+    with Session() as session:
+        query = session.query(XiuxianRecipe)
+        if enabled_only:
+            query = query.filter(XiuxianRecipe.enabled.is_(True))
+        return [serialize_recipe(row) for row in query.order_by(XiuxianRecipe.id.desc()).all()]
+
+
+def create_recipe(**fields) -> dict[str, Any]:
+    with Session() as session:
+        recipe = XiuxianRecipe(**fields)
+        session.add(recipe)
+        session.commit()
+        session.refresh(recipe)
+        return serialize_recipe(recipe)
+
+
+def delete_recipe(recipe_id: int) -> bool:
+    with Session() as session:
+        row = session.query(XiuxianRecipe).filter(XiuxianRecipe.id == recipe_id).first()
+        if row is None:
+            return False
+        session.delete(row)
+        session.commit()
+        return True
+
+
+def replace_recipe_ingredients(recipe_id: int, ingredients: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    with Session() as session:
+        session.query(XiuxianRecipeIngredient).filter(XiuxianRecipeIngredient.recipe_id == recipe_id).delete()
+        rows = []
+        for payload in ingredients:
+            row = XiuxianRecipeIngredient(recipe_id=recipe_id, **payload)
+            session.add(row)
+            rows.append(row)
+        session.commit()
+        return [
+            {
+                "id": row.id,
+                "recipe_id": row.recipe_id,
+                "material_id": row.material_id,
+                "quantity": row.quantity,
+            }
+            for row in rows
+        ]
+
+
+def list_recipe_ingredients(recipe_id: int) -> list[dict[str, Any]]:
+    with Session() as session:
+        rows = (
+            session.query(XiuxianRecipeIngredient, XiuxianMaterial)
+            .join(XiuxianMaterial, XiuxianMaterial.id == XiuxianRecipeIngredient.material_id)
+            .filter(XiuxianRecipeIngredient.recipe_id == recipe_id)
+            .order_by(XiuxianRecipeIngredient.id.asc())
+            .all()
+        )
+        return [
+            {
+                "id": ingredient.id,
+                "recipe_id": ingredient.recipe_id,
+                "material_id": ingredient.material_id,
+                "quantity": ingredient.quantity,
+                "material": serialize_material(material),
+            }
+            for ingredient, material in rows
+        ]
+
+
+def get_scene(scene_id: int) -> XiuxianScene | None:
+    with Session() as session:
+        return session.query(XiuxianScene).filter(XiuxianScene.id == scene_id).first()
+
+
+def list_scenes(enabled_only: bool = False) -> list[dict[str, Any]]:
+    with Session() as session:
+        query = session.query(XiuxianScene)
+        if enabled_only:
+            query = query.filter(XiuxianScene.enabled.is_(True))
+        return [serialize_scene(row) for row in query.order_by(XiuxianScene.id.desc()).all()]
+
+
+def create_scene(**fields) -> dict[str, Any]:
+    with Session() as session:
+        scene = XiuxianScene(**fields)
+        session.add(scene)
+        session.commit()
+        session.refresh(scene)
+        return serialize_scene(scene)
+
+
+def delete_scene(scene_id: int) -> bool:
+    with Session() as session:
+        row = session.query(XiuxianScene).filter(XiuxianScene.id == scene_id).first()
+        if row is None:
+            return False
+        session.delete(row)
+        session.commit()
+        return True
+
+
+def create_scene_drop(**fields) -> dict[str, Any]:
+    with Session() as session:
+        drop = XiuxianSceneDrop(**fields)
+        session.add(drop)
+        session.commit()
+        session.refresh(drop)
+        return serialize_scene_drop(drop)
+
+
+def list_scene_drops(scene_id: int) -> list[dict[str, Any]]:
+    with Session() as session:
+        rows = (
+            session.query(XiuxianSceneDrop)
+            .filter(XiuxianSceneDrop.scene_id == scene_id)
+            .order_by(XiuxianSceneDrop.id.asc())
+            .all()
+        )
+        return [serialize_scene_drop(row) for row in rows]
+
+
+def get_task(task_id: int) -> XiuxianTask | None:
+    with Session() as session:
+        return session.query(XiuxianTask).filter(XiuxianTask.id == task_id).first()
+
+
+def list_tasks(enabled_only: bool = True) -> list[dict[str, Any]]:
+    with Session() as session:
+        query = session.query(XiuxianTask)
+        if enabled_only:
+            query = query.filter(XiuxianTask.enabled.is_(True))
+        return [serialize_task(row) for row in query.order_by(XiuxianTask.id.desc()).all()]
+
+
+def create_task(**fields) -> dict[str, Any]:
+    fields = dict(fields)
+    if fields.get("required_item_kind"):
+        fields["required_item_kind"] = str(fields.get("required_item_kind")).strip() or None
+    fields["required_item_ref_id"] = int(fields.get("required_item_ref_id") or 0) or None
+    fields["required_item_quantity"] = max(int(fields.get("required_item_quantity") or 0), 0)
+    if fields.get("reward_item_kind"):
+        fields["reward_item_kind"] = str(fields.get("reward_item_kind")).strip() or None
+    fields["reward_item_ref_id"] = int(fields.get("reward_item_ref_id") or 0) or None
+    fields["reward_item_quantity"] = max(int(fields.get("reward_item_quantity") or 0), 0)
+    with Session() as session:
+        task = XiuxianTask(**fields)
+        session.add(task)
+        session.commit()
+        session.refresh(task)
+        return serialize_task(task)
+
+
+def delete_task(task_id: int) -> bool:
+    with Session() as session:
+        row = session.query(XiuxianTask).filter(XiuxianTask.id == task_id).first()
+        if row is None:
+            return False
+        session.delete(row)
+        session.commit()
+        return True
+
+
+def list_task_claims(task_id: int) -> list[dict[str, Any]]:
+    with Session() as session:
+        rows = (
+            session.query(XiuxianTaskClaim)
+            .filter(XiuxianTaskClaim.task_id == task_id)
+            .order_by(XiuxianTaskClaim.id.asc())
+            .all()
+        )
+        return [
+            {
+                "id": row.id,
+                "task_id": row.task_id,
+                "tg": row.tg,
+                "status": row.status,
+                "submitted_answer": row.submitted_answer,
+            }
+            for row in rows
+        ]
+
+
+def create_journal(tg: int, action_type: str, title: str, detail: str | None = None) -> dict[str, Any]:
+    with Session() as session:
+        row = XiuxianJournal(
+            tg=tg,
+            action_type=(action_type or "system").strip()[:32],
+            title=(title or "未知操作").strip()[:128],
+            detail=(detail or "").strip() or None,
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return serialize_journal(row)
+
+
+def list_recent_journals(tg: int, hours: int = 24) -> list[dict[str, Any]]:
+    since = utcnow() - timedelta(hours=max(int(hours or 24), 1))
+    with Session() as session:
+        rows = (
+            session.query(XiuxianJournal)
+            .filter(XiuxianJournal.tg == tg, XiuxianJournal.created_at >= since)
+            .order_by(XiuxianJournal.created_at.desc(), XiuxianJournal.id.desc())
+            .all()
+        )
+        return [serialize_journal(row) for row in rows]
+
+
+def create_red_envelope(**fields) -> dict[str, Any]:
+    with Session() as session:
+        envelope = XiuxianRedEnvelope(**fields)
+        session.add(envelope)
+        session.commit()
+        session.refresh(envelope)
+        return serialize_red_envelope(envelope)
+
+
+def get_red_envelope(envelope_id: int) -> XiuxianRedEnvelope | None:
+    with Session() as session:
+        return session.query(XiuxianRedEnvelope).filter(XiuxianRedEnvelope.id == envelope_id).first()
+
+
+def list_red_envelope_claims(envelope_id: int) -> list[dict[str, Any]]:
+    with Session() as session:
+        rows = (
+            session.query(XiuxianRedEnvelopeClaim)
+            .filter(XiuxianRedEnvelopeClaim.envelope_id == envelope_id)
+            .order_by(XiuxianRedEnvelopeClaim.id.asc())
+            .all()
+        )
+        payload = [
+            {
+                "id": row.id,
+                "envelope_id": row.envelope_id,
+                "tg": row.tg,
+                "amount": row.amount,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            }
+            for row in rows
+        ]
+    name_map = get_emby_name_map([int(item["tg"]) for item in payload])
+    for item in payload:
+        item["name"] = name_map.get(int(item["tg"]), f"TG {item['tg']}")
+    return payload
+
+
+def cancel_personal_shop_item(owner_tg: int, item_id: int) -> dict[str, Any]:
+    with Session() as session:
+        item = (
+            session.query(XiuxianShopItem)
+            .filter(
+                XiuxianShopItem.id == item_id,
+                XiuxianShopItem.owner_tg == owner_tg,
+                XiuxianShopItem.is_official.is_(False),
+            )
+            .with_for_update()
+            .first()
+        )
+        if item is None:
+            raise ValueError("未找到可取消的个人上架商品")
+
+        restore_quantity = max(int(item.quantity or 0), 0)
+        if restore_quantity > 0:
+            if item.item_kind == "artifact":
+                row = (
+                    session.query(XiuxianArtifactInventory)
+                    .filter(
+                        XiuxianArtifactInventory.tg == owner_tg,
+                        XiuxianArtifactInventory.artifact_id == item.item_ref_id,
+                    )
+                    .first()
+                )
+                if row is None:
+                    row = XiuxianArtifactInventory(tg=owner_tg, artifact_id=item.item_ref_id, quantity=0)
+                    session.add(row)
+                row.quantity += restore_quantity
+                row.updated_at = utcnow()
+            elif item.item_kind == "pill":
+                row = (
+                    session.query(XiuxianPillInventory)
+                    .filter(
+                        XiuxianPillInventory.tg == owner_tg,
+                        XiuxianPillInventory.pill_id == item.item_ref_id,
+                    )
+                    .first()
+                )
+                if row is None:
+                    row = XiuxianPillInventory(tg=owner_tg, pill_id=item.item_ref_id, quantity=0)
+                    session.add(row)
+                row.quantity += restore_quantity
+                row.updated_at = utcnow()
+            elif item.item_kind == "talisman":
+                row = (
+                    session.query(XiuxianTalismanInventory)
+                    .filter(
+                        XiuxianTalismanInventory.tg == owner_tg,
+                        XiuxianTalismanInventory.talisman_id == item.item_ref_id,
+                    )
+                    .first()
+                )
+                if row is None:
+                    row = XiuxianTalismanInventory(tg=owner_tg, talisman_id=item.item_ref_id, quantity=0)
+                    session.add(row)
+                row.quantity += restore_quantity
+                row.updated_at = utcnow()
+            else:
+                raise ValueError("暂不支持该类型商品取消上架")
+
+        item.quantity = 0
+        item.enabled = False
+        item.updated_at = utcnow()
+        session.commit()
+        session.refresh(item)
+        return {
+            "item": serialize_shop_item(item),
+            "restored_quantity": restore_quantity,
+        }
+
+
+def create_duel_bet_pool(**fields) -> dict[str, Any]:
+    with Session() as session:
+        pool = XiuxianDuelBetPool(**fields)
+        session.add(pool)
+        session.commit()
+        session.refresh(pool)
+        return {
+            "id": pool.id,
+            "challenger_tg": pool.challenger_tg,
+            "defender_tg": pool.defender_tg,
+            "stake": pool.stake,
+            "group_chat_id": pool.group_chat_id,
+            "duel_message_id": pool.duel_message_id,
+            "bet_message_id": pool.bet_message_id,
+            "bets_close_at": pool.bets_close_at.isoformat() if pool.bets_close_at else None,
+            "resolved": pool.resolved,
+            "winner_tg": pool.winner_tg,
+        }
+
+
+def get_duel_bet_pool(pool_id: int) -> XiuxianDuelBetPool | None:
+    with Session() as session:
+        return session.query(XiuxianDuelBetPool).filter(XiuxianDuelBetPool.id == pool_id).first()

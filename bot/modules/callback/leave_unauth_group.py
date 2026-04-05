@@ -1,5 +1,5 @@
 """
- 一个群组检测，防止别人把bot拉过去，而刚好代码出现漏洞。
+ 一个群组检测，防止别人把本女仆拉过去，而刚好代码出现漏洞。
 """
 import asyncio
 
@@ -15,9 +15,9 @@ processed_groups = set()
 async def leave_bot(chat_id):
     await asyncio.sleep(30)
     try:
-        # 踢出bot
+        # 踢出本女仆
         await bot.leave_chat(chat_id)
-        LOGGER.info(f"bot已 退出未授权群聊【{chat_id}】")
+        LOGGER.info(f"本女仆已退出未授权群聊【{chat_id}】")
     except Exception as e:
         # 记录异常信息
         LOGGER.error(e)
@@ -33,25 +33,25 @@ async def anti_use_bot(_, msg):
         try:
             await bot.send_message(owner,
                                    f"[{msg.from_user.first_name}](tg://user?id={msg.from_user.id})"
-                                   f"[`{msg.from_user.id}`]试图将bot拉入 `{msg.chat.id}` 已被发现")
+                                   f"[`{msg.from_user.id}`]试图将本女仆拉入 `{msg.chat.id}` 已被发现")
             asyncio.create_task(leave_bot(msg.chat.id))
             await bot.send_message(msg.chat.id,
-                                   f'❎ 这并非一个授权群组！！！[`{msg.chat.id}`]\n\n本bot将在 **30s** 自动退出如有疑问请联系开发👇',
+                                   f'❎ 这并非一个授权群组！！！[`{msg.chat.id}`]\n\n本女仆将在 **30s** 自动退出，如有疑问请联系开发👇',
                                    reply_markup=dp_g_ikb)
             LOGGER.info(f"【[{msg.from_user.first_name}](tg://user?id={msg.from_user.id})"
-                        f"[`{msg.from_user.id}`]试图将bot拉入 `{msg.chat.id}` 已被发现】")
+                        f"[`{msg.from_user.id}`]试图将本女仆拉入 `{msg.chat.id}` 已被发现】")
         except Exception as e:
             # 记录异常信息
             LOGGER.error(e)
 
     elif msg.from_user is None:
         try:
-            await bot.send_message(chat_id=owner, text=f'有坏蛋 试图将bot拉入 `{msg.chat.id}` 已被发现')
+            await bot.send_message(chat_id=owner, text=f'有坏蛋试图将本女仆拉入 `{msg.chat.id}`，已被发现')
             asyncio.create_task(leave_bot(msg.chat.id))
             await bot.send_message(msg.chat.id,
-                                   f'❎ 这并非一个授权群组！！！[`{msg.chat.id}`]\n\n本bot将在 **30s** 自动退出如有疑问请联系开发👇',
+                                   f'❎ 这并非一个授权群组！！！[`{msg.chat.id}`]\n\n本女仆将在 **30s** 自动退出，如有疑问请联系开发👇',
                                    reply_markup=dp_g_ikb)
-            LOGGER.info(f"【有坏蛋试图将bot拉入 `{msg.chat.id}` 已被发现】")
+            LOGGER.info(f"【有坏蛋试图将本女仆拉入 `{msg.chat.id}` 已被发现】")
         except Exception as e:
             # 记录异常信息
             LOGGER.error(e)

@@ -1,0 +1,15 @@
+{
+    admin off
+}
+
+{$PIVKEYU_PUBLIC_DOMAIN:localhost} {
+    encode gzip zstd
+
+    header {
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+
+    reverse_proxy {$PIVKEYU_UPSTREAM:127.0.0.1:8838}
+}

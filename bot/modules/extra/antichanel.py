@@ -14,7 +14,7 @@ from bot.func_helper.filters import admins_on_filter
 
 async def get_user_input(msg):
     await msg.delete()
-    gm = msg.sender_chat.title if msg.sender_chat else f'管理员 [{msg.from_user.first_name}](tg://user?id={msg.from_user.id})'
+    gm = msg.sender_chat.title if msg.sender_chat else f'主人 [{msg.from_user.first_name}](tg://user?id={msg.from_user.id})'
     if msg.reply_to_message is None:
         try:
             chatid = int(msg.command[1])

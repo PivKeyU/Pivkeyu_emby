@@ -13,7 +13,7 @@ cache = Cache()
 """start面板 ↓"""
 
 
-def judge_start_ikb(is_admin: bool, account: bool) -> InlineKeyboardMarkup:
+def judge_start_ikb(is_admin: bool, account: bool, user_id: int | None = None) -> InlineKeyboardMarkup:
     """
     start面板按钮
     """
@@ -165,7 +165,7 @@ def date_ikb(i) -> InlineKeyboardMarkup:
                 [('🔙 - 返回', 'ch_link')]])
 
 # 翻页按钮
-async def cr_paginate(total_page: int, current_page: int, n) -> InlineKeyboardMarkup:
+async def cr_paginate(total_page: int, current_page: int, n, tg: int | None = None) -> InlineKeyboardMarkup:
     """
     :param total_page: 总数
     :param current_page: 目前
@@ -173,9 +173,10 @@ async def cr_paginate(total_page: int, current_page: int, n) -> InlineKeyboardMa
     :return:
     """
     keyboard = InlineKeyboard()
-    keyboard.paginate(total_page, current_page, 'pagination_keyboard:{number}' + f'_{n}')
-    next = InlineButton('⏭️ 后退+5', f'users_iv:{current_page + 5}-{n}')
-    previous = InlineButton('⏮️ 前进-5', f'users_iv:{current_page - 5}-{n}')
+    callback_suffix = f'_{n}' if tg is None else f'_{n}_{tg}'
+    keyboard.paginate(total_page, current_page, 'pagination_keyboard:{number}' + callback_suffix)
+    next = InlineButton('⏭️ 后退+5', f'pagination_keyboard:{current_page + 5}{callback_suffix}')
+    previous = InlineButton('⏮️ 前进-5', f'pagination_keyboard:{current_page - 5}{callback_suffix}')
     followUp = [InlineButton('❌ 关闭', f'closeit')]
     if total_page > 5:
         if current_page - 5 >= 1:
@@ -359,7 +360,7 @@ def config_preparation() -> InlineKeyboardMarkup:
          [('🎬 显/隐指定库', 'set_block'), (f'{fuxx_pt} 皮套人过滤功能', 'set_fuxx_pitao')],
          [('💠 普通用户线路', 'set_line'),('🌟 白名单线路', 'set_whitelist_line')],
          [(f'{leave_ban} 退群封禁', 'leave_ban'), (f'{uplays} 观影奖励结算', 'set_uplays')],
-         [(f'{auto_up} 自动更新bot', 'set_update'), (f'{mp_set} Moviepilot点播', 'set_mp')],
+         [(f'{auto_up} 自动更新本女仆', 'set_update'), (f'{mp_set} Moviepilot点播', 'set_mp')],
          [(f'{red_envelope_status} 红包', 'set_red_envelope_status'), (f'{allow_private} 专属红包', 'set_red_envelope_allow_private')],
             [('🎟️ 分区通行码', 'partition_code_panel')],
          [(f'设置赠送资格天数({config.kk_gift_days}天)', 'set_kk_gift_days'), (f'设置活跃检测天数({config.activity_check_days}天)', 'set_activity_check_days')],

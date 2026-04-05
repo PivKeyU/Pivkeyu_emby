@@ -1,5 +1,7 @@
 import json
 import os
+import shutil
+from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional, Union
 
@@ -7,6 +9,14 @@ from typing import Dict, List, Optional, Union
 
 MAX_INT_VALUE = 2147483647  # 2^31 - 1
 MIN_INT_VALUE = -2147483648  # -2^31
+
+DEFAULT_DB_HOST = "127.0.0.1"
+DEFAULT_DB_USER = "pivkeyu"
+DEFAULT_DB_PASSWORD = "pivkeyu"
+DEFAULT_DB_NAME = "pivkeyu"
+DEFAULT_CONFIG_PATH = Path("data/config.json")
+LEGACY_CONFIG_PATH = Path("config.json")
+CONFIG_EXAMPLE_PATH = Path("config_example.json")
 
 class ExDate(BaseModel):
     mon: int = 30
@@ -67,7 +77,7 @@ class Open(BaseModel):
 
 
 class Ranks(BaseModel):
-    logo: str = "PIVKEYU"
+    logo: str = "PivKeyU_Emby"
     backdrop: bool = False
 
 
@@ -159,10 +169,10 @@ class Config(BaseModel):
     emby_block: Optional[List[str]] = []
     emby_line: str
     extra_emby_libs: Optional[List[str]] = []
-    db_host: str
-    db_user: str
-    db_pwd: str
-    db_name: str
+    db_host: str = DEFAULT_DB_HOST
+    db_user: str = DEFAULT_DB_USER
+    db_pwd: str = DEFAULT_DB_PASSWORD
+    db_name: str = DEFAULT_DB_NAME
     db_port: int = 3306
     tz_ad: Optional[str] = None
     tz_api: Optional[str] = None
@@ -203,6 +213,8 @@ class Config(BaseModel):
     auto_update: AutoUpdate = Field(default_factory=AutoUpdate)
     red_envelope: RedEnvelope = Field(default_factory=RedEnvelope)
     api: API = Field(default_factory=API)
+    plugin_nav: Dict[str, bool] = Field(default_factory=dict)
+    plugin_enabled: Dict[str, bool] = Field(default_factory=dict)
 
     def __init__(self, **data):
         super().__init__(**data)
@@ -210,13 +222,53 @@ class Config(BaseModel):
             self.admins.remove(self.owner)
 
     @classmethod
+    def resolve_config_path(cls) -> Path:
+        if DEFAULT_CONFIG_PATH.is_file():
+            return DEFAULT_CONFIG_PATH
+
+        if LEGACY_CONFIG_PATH.is_file():
+            return LEGACY_CONFIG_PATH
+
+        DEFAULT_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        if CONFIG_EXAMPLE_PATH.is_file():
+            shutil.copyfile(CONFIG_EXAMPLE_PATH, DEFAULT_CONFIG_PATH)
+            return DEFAULT_CONFIG_PATH
+
+        return LEGACY_CONFIG_PATH
+
+    @classmethod
+    def apply_runtime_defaults(cls, config: dict) -> dict:
+        defaults = {
+            "db_host": DEFAULT_DB_HOST,
+            "db_user": DEFAULT_DB_USER,
+            "db_pwd": DEFAULT_DB_PASSWORD,
+            "db_name": DEFAULT_DB_NAME,
+        }
+
+        for key, value in defaults.items():
+            current = config.get(key)
+            if current is None or not str(current).strip():
+                config[key] = value
+
+        return config
+
+    @classmethod
     def load_config(cls):
-        with open("config.json", "r", encoding="utf-8") as f:
-            config = json.load(f)
-            return cls(**config)
+        config_path = cls.resolve_config_path()
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = cls.apply_runtime_defaults(json.load(f))
+                return cls(**config)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"配置文件不是合法 JSON: {config_path} "
+                f"(line {exc.lineno}, column {exc.colno})。"
+            ) from exc
 
     def save_config(self):
-        with open("config.json", "w", encoding="utf-8") as f:
+        config_path = self.resolve_config_path()
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(config_path, "w", encoding="utf-8") as f:
             json.dump(self.model_dump(), f, indent=4, ensure_ascii=False)
 
 

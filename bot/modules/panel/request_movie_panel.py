@@ -19,7 +19,7 @@ ITEMS_PER_PAGE = 10
 @bot.on_callback_query(filters.regex('download_center') & user_in_group_on_filter)
 async def call_download_center(_, call):
     if not moviepilot.status:
-        return await callAnswer(call, '❌ 管理员未开启点播功能', True)
+        return await callAnswer(call, '❌ 主人未开启点播功能', True)
     await callAnswer(call, '🔍 点播中心')
     await editMessage(call, '🔍 欢迎进入点播中心', buttons=re_download_center_ikb)
 
@@ -27,7 +27,7 @@ async def call_download_center(_, call):
 @bot.on_callback_query(filters.regex('get_resource') & user_in_group_on_filter)
 async def download_media(_, call):
     if not moviepilot.status:
-        return await callAnswer(call, '❌ 管理员未开启点播功能', True)
+        return await callAnswer(call, '❌ 主人未开启点播功能', True)
 
     emby_user = sql_get_emby(tg=call.from_user.id)
     if not emby_user:
@@ -249,7 +249,7 @@ user_data = {}
 @bot.on_callback_query(filters.regex('download_rate') & user_in_group_on_filter)
 async def call_rate(_, call):
     if not moviepilot.status:
-        return await callAnswer(call, '❌ 管理员未开启点播功能', True)
+        return await callAnswer(call, '❌ 主人未开启点播功能', True)
     await callAnswer(call, '📈 查看点播下载任务')
     request_record, has_prev, has_next = sql_get_request_record_by_tg(
         call.from_user.id)

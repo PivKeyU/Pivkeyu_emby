@@ -36,13 +36,13 @@ async def rmemby_user(_, msg):
             sign_name = f'{msg.sender_chat.title}' if msg.sender_chat else f'[{msg.from_user.first_name}](tg://user?id={msg.from_user.id})'
             try:
                 await reply.edit(
-                    f'🎯 done，管理员  {sign_name} 已将 [{first.first_name}](tg://user?id={e.tg}) 账户 {e.name} 删除。')
+                    f'🎯 done，主人  {sign_name} 已将 [{first.first_name}](tg://user?id={e.tg}) 账户 {e.name} 删除。')
                 await bot.send_message(e.tg,
-                                       f'🎯 done，管理员 {sign_name} 已将 您的账户 {e.name} 删除。')
+                                       f'🎯 done，主人 {sign_name} 已将 您的账户 {e.name} 删除。')
             except:
                 pass
             LOGGER.info(
-                f"【admin】：管理员 {sign_name} 执行删除 {first.first_name}-{e.tg} 账户 {e.name}")
+                f"【admin】：主人 {sign_name} 执行删除 {first.first_name}-{e.tg} 账户 {e.name}")
     else:
         await reply.edit(f"💢 [ta](tg://user?id={b}) 还没有注册账户呢")
 @bot.on_message(filters.command('only_rm_record', prefixes) & admins_on_filter)
@@ -73,13 +73,13 @@ async def only_rm_record(_, msg):
             res2 = sql_delete_emby2_by_name(name=tg_id)
         sign_name = f'{msg.sender_chat.title}' if msg.sender_chat else f'[{msg.from_user.first_name}](tg://user?id={msg.from_user.id})'
         if res1 or res2:
-            await sendMessage(msg, f"管理员 {sign_name} 已删除 TG ID: {tg_id} 的数据库记录")
+            await sendMessage(msg, f"主人 {sign_name} 已删除 TG ID: {tg_id} 的数据库记录")
             LOGGER.info(
-                f"管理员 {sign_name} 删除了用户 {tg_id} 的数据库记录")
+                f"主人 {sign_name} 删除了用户 {tg_id} 的数据库记录")
         else:
             await sendMessage(msg, "❌ 删除记录失败")
             LOGGER.error(
-                f"管理员 {sign_name} 删除用户 {tg_id} 的数据库记录失败")
+                f"主人 {sign_name} 删除用户 {tg_id} 的数据库记录失败")
     except Exception as ex:
         await sendMessage(msg, "❌ 删除记录失败")
         LOGGER.error(f"删除用户 {tg_id} 的数据库记录失败, {ex}")
@@ -103,6 +103,6 @@ async def only_rm_emby(_, msg):
         if not res:
             return await sendMessage(msg, f"❌ 删除用户 {emby_id} 失败")
         sign_name = f'{msg.sender_chat.title}' if msg.sender_chat else f'[{msg.from_user.first_name}](tg://user?id={msg.from_user.id})'
-        await sendMessage(msg, f"管理员 {sign_name} 已删除用户 {emby_id} 的Emby账号")
+        await sendMessage(msg, f"主人 {sign_name} 已删除用户 {emby_id} 的Emby账号")
         LOGGER.info(
-            f"管理员 {sign_name} 删除了用户 {emby_id} 的Emby账号")
+            f"主人 {sign_name} 删除了用户 {emby_id} 的Emby账号")

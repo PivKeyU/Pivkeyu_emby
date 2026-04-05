@@ -286,6 +286,46 @@ def _root_quality_payload(name: str | None) -> dict[str, Any]:
     return rules.get(name or "中品灵根", rules["中品灵根"])
 
 
+def _normalized_root_quality(profile: dict[str, Any] | None) -> str:
+    profile = profile or {}
+
+    raw_quality = str(profile.get("root_quality") or "").strip()
+    if raw_quality in ROOT_QUALITY_LEVELS:
+        return raw_quality
+    if raw_quality == "地灵根":
+        return "极品灵根"
+
+    try:
+        quality_level = int(profile.get("root_quality_level") or 0)
+    except (TypeError, ValueError):
+        quality_level = 0
+    if quality_level > 0:
+        for name, level in ROOT_QUALITY_LEVELS.items():
+            if level == quality_level:
+                return name
+
+    root_type = str(profile.get("root_type") or "").strip()
+    relation = str(profile.get("root_relation") or "").strip()
+    try:
+        root_bonus = int(profile.get("root_bonus") or 0)
+    except (TypeError, ValueError):
+        root_bonus = 0
+
+    if root_type == "天灵根" or root_bonus >= ROOT_SPECIAL_BONUS["天灵根"]:
+        return "天灵根"
+    if root_type == "变异灵根":
+        return "变异灵根"
+    if root_type == "地灵根" or root_bonus >= ROOT_SPECIAL_BONUS["地灵根"]:
+        return "极品灵根"
+    if root_type == "双灵根":
+        if relation == "相克" or root_bonus < 0:
+            return "中品灵根"
+        return "上品灵根"
+    if root_type == "单灵根":
+        return "中品灵根"
+    return "中品灵根"
+
+
 def _roll_root_quality() -> str:
     roll = random.randint(1, 100)
     cursor = 0
@@ -958,86 +998,12 @@ def determine_relation(primary: str, secondary: str) -> tuple[str, int]:
     return "平衡", 0
 
 
-def generate_root_payload() -> dict[str, Any]:
-    if random.randint(1, 100) == 1:
-        return {
-            "root_type": "天灵根",
-            "root_primary": random.choice(FIVE_ELEMENTS),
-            "root_secondary": None,
-            "root_relation": "天道垂青",
-            "root_bonus": ROOT_SPECIAL_BONUS["天灵根"],
-        }
-
-    if random.randint(1, 100) == 1:
-        return {
-            "root_type": "地灵根",
-            "root_primary": random.choice(FIVE_ELEMENTS),
-            "root_secondary": None,
-            "root_relation": "地脉相合",
-            "root_bonus": ROOT_SPECIAL_BONUS["地灵根"],
-        }
-
-    if random.randint(1, 100) <= 10:
-        primary, secondary = random.sample(FIVE_ELEMENTS, 2)
-        relation, bonus = determine_relation(primary, secondary)
-        return {
-            "root_type": "双灵根",
-            "root_primary": primary,
-            "root_secondary": secondary,
-            "root_relation": relation,
-            "root_bonus": bonus,
-        }
-
-    primary = random.choice(FIVE_ELEMENTS)
-    return {
-        "root_type": "单灵根",
-        "root_primary": primary,
-        "root_secondary": None,
-        "root_relation": "平稳中正",
-        "root_bonus": 0,
-    }
-
-
-def format_root(payload: dict[str, Any]) -> str:
-    if payload["root_type"] in {"天灵根", "地灵根"}:
-        return f"{payload['root_type']} · {payload['root_primary']}灵属"
-    if payload["root_type"] == "双灵根":
-        return f"双灵根 · {payload['root_primary']}/{payload['root_secondary']} · {payload['root_relation']}"
-    return f"单灵根 · {payload['root_primary']}灵属"
-
-
 def ensure_xiuxian_profile(tg: int) -> dict[str, Any]:
     profile = get_profile(tg, create=True)
     return serialize_profile(profile)
 
 
-def init_path_for_user(tg: int) -> dict[str, Any]:
-    ensure_seed_data()
-    profile = get_profile(tg, create=True)
-    if profile and profile.consented:
-        return serialize_full_profile(tg)
-
-    root_payload = generate_root_payload()
-    updated = upsert_profile(
-        tg,
-        consented=True,
-        root_type=root_payload["root_type"],
-        root_primary=root_payload["root_primary"],
-        root_secondary=root_payload["root_secondary"],
-        root_relation=root_payload["root_relation"],
-        root_bonus=root_payload["root_bonus"],
-        realm_stage="炼气",
-        realm_layer=1,
-        cultivation=0,
-        spiritual_stone=50,
-        dan_poison=0,
-        shop_name="",
-        shop_broadcast=False,
-    )
-    return serialize_full_profile(updated.tg)
-
-
-def serialize_full_profile(tg: int) -> dict[str, Any]:
+def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
     ensure_seed_data()
     profile = get_profile(tg, create=True)
     if profile and profile.consented:
@@ -1140,201 +1106,12 @@ def serialize_full_profile(tg: int) -> dict[str, Any]:
     }
 
 
-def practice_for_user(tg: int) -> dict[str, Any]:
-    profile = get_profile(tg, create=False)
-    if profile is None or not profile.consented:
-        raise ValueError("你还没有踏入仙途。")
-    if _is_retreating(profile):
-        raise ValueError("闭关期间无法吐纳修炼。")
-    if is_same_china_day(profile.last_train_at, utcnow()):
-        raise ValueError("今日已经吐纳过一次了。")
-
-    profile_data = serialize_profile(profile)
-    artifact_effects = merge_artifact_effects(profile_data, collect_equipped_artifacts(tg))
-    sect_effects = get_sect_effects(profile_data)
-    artifact_bonus = (
-        int(artifact_effects.get("cultivation_bonus", 0))
-        + int(sect_effects.get("cultivation_bonus", 0))
-        + int(profile_data.get("insight_bonus", 0) or 0)
-    )
-    poison_penalty = min(int(profile.dan_poison or 0) // 5, 20)
-    gain = max(random.randint(18, 36) + artifact_bonus - poison_penalty, 5)
-    stone_gain = random.randint(2, 8)
-    stage = profile.realm_stage or "炼气"
-    layer, cultivation, upgraded_layers, remaining = apply_cultivation_gain(
-        stage,
-        int(profile.realm_layer or 1),
-        int(profile.cultivation or 0),
-        gain,
-    )
-
-    updated = upsert_profile(
-        tg,
-        cultivation=cultivation,
-        spiritual_stone=int(profile.spiritual_stone or 0) + stone_gain,
-        realm_layer=layer,
-        last_train_at=utcnow(),
-        dan_poison=min(int(profile.dan_poison or 0), 100),
-    )
-
-    return {
-        "gain": gain,
-        "stone_gain": stone_gain,
-        "upgraded_layers": upgraded_layers,
-        "remaining": remaining,
-        "profile": serialize_full_profile(tg),
-    }
-
-
 def _find_pill_in_inventory(tg: int, pill_type: str) -> dict[str, Any] | None:
     for row in list_user_pills(tg):
         pill = row["pill"]
         if pill["pill_type"] == pill_type and row["quantity"] > 0:
             return row
     return None
-
-
-def breakthrough_for_user(tg: int, use_pill: bool = False) -> dict[str, Any]:
-    profile = get_profile(tg, create=False)
-    if profile is None or not profile.consented:
-        raise ValueError("你还没有踏入仙途。")
-    if _is_retreating(profile):
-        raise ValueError("闭关期间无法突破。")
-    if int(profile.realm_layer or 0) < 9:
-        raise ValueError("只有达到当前境界九层后才能尝试突破。")
-
-    stage = profile.realm_stage or "炼气"
-    required_cultivation = cultivation_threshold(stage, 9)
-    if int(profile.cultivation or 0) < required_cultivation:
-        raise ValueError(f"当前修为尚未圆满，还差 {required_cultivation - int(profile.cultivation or 0)} 点修为。")
-    next_stage = next_realm_stage(stage)
-    if next_stage is None:
-        raise ValueError("你已走到当前修行体系的尽头，暂时无法继续突破。")
-
-    profile_data = serialize_profile(profile)
-    equipped_artifacts = list_equipped_artifacts(tg)
-    artifact_effects = resolve_equipped_artifacts_total(profile_data, equipped_artifacts)
-    talisman_obj = get_talisman(profile.active_talisman_id) if profile.active_talisman_id else None
-    talisman_effects = resolve_talisman_effects(profile_data, serialize_talisman(talisman_obj)) if talisman_obj else None
-    sect_effects = get_sect_effects(profile_data)
-    tech_obj = get_technique(profile.current_technique_id) if profile.current_technique_id else None
-    technique_effects = resolve_technique_effects(profile_data, serialize_technique(tech_obj)) if tech_obj else None
-
-    stats = _effective_stats(profile_data, artifact_effects, talisman_effects, sect_effects, technique_effects)
-
-    success_rate = BREAKTHROUGH_BASE_RATE.get(stage, 12)
-    # 加上功法、法宝提供的“突破”词条加成
-    success_rate += int(stats.get("breakthrough_bonus", 0))
-
-    pill_bonus = 0
-    used_pill_name = None
-    if use_pill:
-        # 统一使用 foundation 类型作为突破辅助药，后续可根据 realm 扩展更多丹药
-        pill_row = _find_pill_in_inventory(tg, "foundation")
-        if pill_row is None:
-            raise ValueError("你没有可用的突破辅助丹药（如筑基丹）。")
-
-        used_pill_name = pill_row["pill"]["name"]
-        pill_effects = resolve_pill_effects(
-            profile_data,
-            pill_row["pill"],
-            {
-                "pill_uses": int(profile.breakthrough_pill_uses or 0),
-                "base_success_rate": success_rate,
-            },
-        )
-        pill_bonus = int(round(pill_effects.get("success_rate_bonus", 0)))
-        if pill_bonus <= 0:
-            # 基础保底加成
-            pill_bonus = max(50 - int(profile.breakthrough_pill_uses or 0) * 5, 30)
-        success_rate += pill_bonus
-
-    success_rate = max(min(success_rate, 95), 1)
-    roll = random.randint(1, 100)
-    success = roll <= success_rate
-
-    if use_pill and used_pill_name:
-        pill_row = _find_pill_in_inventory(tg, "foundation")
-        if pill_row is None or not consume_user_pill(tg, pill_row["pill"]["id"], 1):
-            raise ValueError("筑基丹消耗失败，请稍后再试。")
-
-    if success:
-        updated = upsert_profile(
-            tg,
-            realm_stage=next_stage,
-            realm_layer=1,
-            cultivation=0,
-            breakthrough_pill_uses=int(profile.breakthrough_pill_uses or 0) + (1 if use_pill else 0),
-        )
-    else:
-        updated = upsert_profile(
-            tg,
-            cultivation=max(int(profile.cultivation or 0) - required_cultivation // 2, 0),
-            breakthrough_pill_uses=int(profile.breakthrough_pill_uses or 0) + (1 if use_pill else 0),
-        )
-
-    return {
-        "success": success,
-        "roll": roll,
-        "success_rate": success_rate,
-        "pill_bonus": pill_bonus,
-        "used_pill": used_pill_name,
-        "profile": serialize_full_profile(updated.tg),
-    }
-
-
-def consume_pill_for_user(tg: int, pill_id: int) -> dict[str, Any]:
-    profile = get_profile(tg, create=False)
-    if profile is None or not profile.consented:
-        raise ValueError("你还没有踏入仙途。")
-    if _is_retreating(profile):
-        raise ValueError("闭关期间无法服用丹药。")
-
-    pill = get_pill(pill_id)
-    if pill is None or not pill.enabled:
-        raise ValueError("未找到可用的丹药。")
-    if not realm_requirement_met(serialize_profile(profile), pill.min_realm_stage, pill.min_realm_layer):
-        raise ValueError(f"需要达到 {format_realm_requirement(pill.min_realm_stage, pill.min_realm_layer)} 才能服用这枚丹药。")
-    if pill.pill_type == "foundation":
-        raise ValueError("筑基丹只能在突破时使用。")
-    if not consume_user_pill(tg, pill_id, 1):
-        raise ValueError("你的背包里没有这枚丹药。")
-
-    profile_data = serialize_profile(profile)
-    pill_data = serialize_pill(pill)
-    pill_effects = resolve_pill_effects(profile_data, pill_data)
-    dan_poison = min(int(profile.dan_poison or 0) + int(round(pill_effects.get("poison_delta", 0))), 100)
-    cultivation = int(profile.cultivation or 0)
-    spiritual_stone = int(profile.spiritual_stone or 0)
-    insight_bonus = int(profile.insight_bonus or 0)
-
-    if pill.pill_type == "clear_poison":
-        dan_poison = max(dan_poison - int(round(pill_effects.get("clear_poison", pill_effects.get("effect_value", 50)))), 0)
-    elif pill.pill_type == "cultivation":
-        cultivation += int(round(pill_effects.get("cultivation_gain", pill_effects.get("effect_value", 0))))
-    elif pill.pill_type == "stone":
-        spiritual_stone += int(round(pill_effects.get("stone_gain", pill_effects.get("effect_value", 0))))
-    elif pill.pill_type == "insight":
-        insight_bonus += int(round(pill_effects.get("insight_gain", pill_effects.get("effect_value", 0))))
-
-    layer, cultivation, _, _ = apply_cultivation_gain(
-        profile.realm_stage or "炼气",
-        int(profile.realm_layer or 1),
-        cultivation,
-        0,
-    )
-    updated = upsert_profile(
-        tg,
-        dan_poison=dan_poison,
-        cultivation=cultivation,
-        spiritual_stone=spiritual_stone,
-        insight_bonus=insight_bonus,
-        realm_layer=layer,
-    )
-    return {
-        "pill": {**pill_data, "resolved_effects": pill_effects},
-        "profile": serialize_full_profile(updated.tg),
-    }
 
 
 def equip_artifact_for_user(tg: int, artifact_id: int) -> dict[str, Any]:
@@ -1677,131 +1454,6 @@ def compute_talisman_score(
     )
 
 
-def compute_duel_odds(challenger_tg: int, defender_tg: int) -> dict[str, Any]:
-    challenger = serialize_full_profile(challenger_tg)
-    defender = serialize_full_profile(defender_tg)
-    challenger_profile = challenger["profile"]
-    defender_profile = defender["profile"]
-    if not challenger_profile["consented"] or not defender_profile["consented"]:
-        raise ValueError("斗法双方都必须已经踏入仙途。")
-
-    challenger_artifacts = challenger.get("equipped_artifacts") or []
-    defender_artifacts = defender.get("equipped_artifacts") or []
-    challenger_talisman = challenger["active_talisman"]
-    defender_talisman = defender["active_talisman"]
-
-    stage_diff = realm_index(challenger_profile["realm_stage"]) - realm_index(defender_profile["realm_stage"])
-    layer_diff = int(challenger_profile["realm_layer"] or 0) - int(defender_profile["realm_layer"] or 0)
-    challenger_sect = get_sect_effects(challenger_profile)
-    defender_sect = get_sect_effects(defender_profile)
-    artifact_diff = (
-        compute_artifact_score(challenger_profile, challenger_artifacts, defender_profile)
-        + compute_talisman_score(challenger_profile, challenger_talisman, defender_profile)
-        + int(challenger_sect.get("attack_bonus", 0))
-        + int(challenger_sect.get("defense_bonus", 0))
-        + int(challenger_sect.get("duel_rate_bonus", 0)) * 10
-        - compute_artifact_score(defender_profile, defender_artifacts, challenger_profile)
-        - compute_talisman_score(defender_profile, defender_talisman, challenger_profile)
-        - int(defender_sect.get("attack_bonus", 0))
-        - int(defender_sect.get("defense_bonus", 0))
-        - int(defender_sect.get("duel_rate_bonus", 0)) * 10
-    )
-    root_diff = int(challenger_profile["root_bonus"] or 0) - int(defender_profile["root_bonus"] or 0)
-
-    rate = 0.5
-    rate += stage_diff * 0.12
-    rate += layer_diff * 0.015
-    rate += artifact_diff / 1000
-    rate += root_diff / 100
-
-    if abs(stage_diff) >= 2:
-        rate = max(min(rate, 0.999), 0.001)
-    else:
-        rate = max(min(rate, 0.95), 0.05)
-
-    defender_rate = max(min(1 - rate, 0.999), 0.001)
-
-    return {
-        "challenger": challenger,
-        "defender": defender,
-        "challenger_rate": round(rate, 4),
-        "defender_rate": round(defender_rate, 4),
-        "weights": {
-            "stage_diff": stage_diff,
-            "layer_diff": layer_diff,
-            "artifact_diff": artifact_diff,
-            "root_diff": root_diff,
-            "challenger_talisman": None if challenger_talisman is None else challenger_talisman["name"],
-            "defender_talisman": None if defender_talisman is None else defender_talisman["name"],
-        },
-    }
-
-
-def resolve_duel(challenger_tg: int, defender_tg: int, stake: int = 0) -> dict[str, Any]:
-    duel = compute_duel_odds(challenger_tg, defender_tg)
-    challenger_profile = duel["challenger"]["profile"]
-    defender_profile = duel["defender"]["profile"]
-    stake_amount = max(int(stake), 0)
-
-    if stake_amount > 0:
-        if int(challenger_profile["spiritual_stone"] or 0) < stake_amount or int(defender_profile["spiritual_stone"] or 0) < stake_amount:
-            raise ValueError("双方至少有一方灵石不足，无法进行赌斗。")
-
-    roll = random.random()
-    challenger_win = roll <= duel["challenger_rate"]
-    winner_tg = challenger_tg if challenger_win else defender_tg
-    loser_tg = defender_tg if challenger_win else challenger_tg
-    pot = stake_amount * 2
-
-    winner_profile = get_profile(winner_tg, create=False)
-    loser_profile = get_profile(loser_tg, create=False)
-    if winner_profile is None or loser_profile is None:
-        raise ValueError("斗法双方的修仙资料缺失。")
-
-    winner_fields = {
-        "spiritual_stone": int(winner_profile.spiritual_stone or 0) + stake_amount,
-    }
-    loser_fields = {
-        "spiritual_stone": int(loser_profile.spiritual_stone or 0) - stake_amount if stake_amount else int(loser_profile.spiritual_stone or 0),
-    }
-
-    if stake_amount:
-        winner_fields["spiritual_stone"] = int(winner_profile.spiritual_stone or 0) + stake_amount
-
-    upsert_profile(winner_tg, **winner_fields)
-    upsert_profile(loser_tg, **loser_fields)
-    if challenger_profile.get("active_talisman_id"):
-        set_active_talisman(challenger_tg, None)
-    if defender_profile.get("active_talisman_id"):
-        set_active_talisman(defender_tg, None)
-
-    summary = (
-        f"胜率：挑战者 {duel['challenger_rate'] * 100:.1f}% / 应战者 {duel['defender_rate'] * 100:.1f}%\n"
-        f"境界差 {duel['weights']['stage_diff']}，层数差 {duel['weights']['layer_diff']}\n"
-        f"法宝差 {duel['weights']['artifact_diff']}，灵根差 {duel['weights']['root_diff']}"
-    )
-
-    record = create_duel_record(
-        challenger_tg=challenger_tg,
-        defender_tg=defender_tg,
-        winner_tg=winner_tg,
-        loser_tg=loser_tg,
-        challenger_rate=round(duel["challenger_rate"] * 1000),
-        defender_rate=round(duel["defender_rate"] * 1000),
-        summary=summary,
-    )
-
-    return {
-        "winner_tg": winner_tg,
-        "loser_tg": loser_tg,
-        "stake": stake_amount,
-        "pot": pot,
-        "summary": summary,
-        "record": record,
-        "odds": duel,
-    }
-
-
 def build_leaderboard(kind: str, page: int = 1, page_size: int = 20) -> dict[str, Any]:
     profiles = [serialize_profile(row) for row in list_profiles()]
     tgs = [int(item["tg"]) for item in profiles]
@@ -1964,6 +1616,10 @@ def search_xiuxian_players(
     return search_profiles(query=query, page=page, page_size=page_size)
 
 
+def admin_patch_player(tg: int, **fields) -> dict[str, Any] | None:
+    return admin_patch_profile(tg, **fields)
+
+
 def _battle_bundle(bundle_or_profile: dict[str, Any], opponent_profile: dict[str, Any] | None = None, apply_random: bool = False) -> dict[str, Any]:
     if "profile" in bundle_or_profile:
         bundle = bundle_or_profile
@@ -2058,11 +1714,17 @@ def _battle_bundle(bundle_or_profile: dict[str, Any], opponent_profile: dict[str
 def serialize_full_profile(tg: int) -> dict[str, Any]:
     bundle = _legacy_serialize_full_profile(tg)
     profile = bundle.get("profile") or {}
-    quality_name = _normalized_root_quality(profile)
-    quality = _root_quality_payload(quality_name)
-    profile["root_quality"] = quality_name
-    profile["root_quality_level"] = profile.get("root_quality_level") or quality["level"]
-    profile["root_quality_color"] = profile.get("root_quality_color") or quality["color"]
+    has_root = bool(str(profile.get("root_type") or "").strip() or str(profile.get("root_quality") or "").strip())
+    if has_root:
+        quality_name = _normalized_root_quality(profile)
+        quality = _root_quality_payload(quality_name)
+        profile["root_quality"] = quality_name
+        profile["root_quality_level"] = profile.get("root_quality_level") or quality["level"]
+        profile["root_quality_color"] = profile.get("root_quality_color") or quality["color"]
+    else:
+        profile["root_quality"] = None
+        profile["root_quality_level"] = None
+        profile["root_quality_color"] = None
     profile["root_text"] = format_root(profile)
     battle = _battle_bundle(bundle)
     bundle["effective_stats"] = {
@@ -2127,8 +1789,11 @@ def generate_root_payload() -> dict[str, Any]:
 
 
 def format_root(payload: dict[str, Any]) -> str:
+    root_type = str(payload.get("root_type") or "").strip()
+    if not root_type:
+        return "尚未踏入仙途"
+
     quality = _normalized_root_quality(payload)
-    root_type = str(payload.get("root_type") or "单灵根")
     primary = str(payload.get("root_primary") or "")
     secondary = str(payload.get("root_secondary") or "")
     relation = str(payload.get("root_relation") or "")
