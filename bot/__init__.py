@@ -1,6 +1,7 @@
 #! /usr/bin/python3
 # -*- coding: utf-8 -*-
 import contextlib
+import os
 from pathlib import Path
 
 from .func_helper.logger_config import logu, Now
@@ -71,6 +72,17 @@ moviepilot = config.moviepilot
 auto_update = config.auto_update
 api = config.api
 plugin_nav = config.plugin_nav
+
+
+def _env_int(name: str, default: int, minimum: int = 1) -> int:
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        return max(minimum, int(raw))
+    except (TypeError, ValueError):
+        LOGGER.warning(f"环境变量 {name}={raw!r} 不是有效整数，回退到默认值 {default}")
+        return default
 
 
 def _validate_telegram_credentials():
@@ -179,11 +191,13 @@ from pyromod import Client
 proxy = {} if not config.proxy.scheme else config.proxy.dict()
 session_dir = Path("data/session")
 session_dir.mkdir(parents=True, exist_ok=True)
+pyrogram_workers = _env_int("PIVKEYU_PYROGRAM_WORKERS", 128, 1)
+pyrogram_max_concurrent_transmissions = _env_int("PIVKEYU_PYROGRAM_MAX_CONCURRENT_TRANSMISSIONS", 256, 1)
 
 bot = Client(bot_name, api_id=owner_api, api_hash=owner_hash, bot_token=bot_token, proxy=proxy,
              workdir=str(session_dir),
-             workers=128,
-             max_concurrent_transmissions=256, parse_mode=enums.ParseMode.MARKDOWN)
+             workers=pyrogram_workers,
+             max_concurrent_transmissions=pyrogram_max_concurrent_transmissions, parse_mode=enums.ParseMode.MARKDOWN)
 
 
 LOGGER.info("Clinet 客户端准备")

@@ -13,6 +13,25 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker, scoped_session
 
+
+def _env_int(name: str, default: int, minimum: int = 0) -> int:
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        return max(minimum, int(raw))
+    except (TypeError, ValueError):
+        LOGGER.warning(f"环境变量 {name}={raw!r} 不是有效整数，回退到默认值 {default}")
+        return default
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
 # 创建engine对象
 def _validate_db_config():
     missing = []
@@ -38,19 +57,26 @@ _validate_db_config()
 DATABASE_URL = f"mysql+pymysql://{db_user}:{db_pwd}@{db_host}:{db_port}/{db_name}?charset=utf8mb4"
 DB_STARTUP_MAX_RETRIES = max(1, int(os.getenv("PIVKEYU_DB_STARTUP_MAX_RETRIES", "20")))
 DB_STARTUP_RETRY_DELAY = max(0.5, float(os.getenv("PIVKEYU_DB_STARTUP_RETRY_DELAY", "3")))
-DB_CONNECT_TIMEOUT = max(1, int(os.getenv("PIVKEYU_DB_CONNECT_TIMEOUT", "5")))
+DB_CONNECT_TIMEOUT = _env_int("PIVKEYU_DB_CONNECT_TIMEOUT", 5, 1)
+DB_POOL_SIZE = _env_int("PIVKEYU_DB_POOL_SIZE", 24, 1)
+DB_MAX_OVERFLOW = _env_int("PIVKEYU_DB_MAX_OVERFLOW", 24, 0)
+DB_POOL_TIMEOUT = _env_int("PIVKEYU_DB_POOL_TIMEOUT", 30, 1)
+DB_POOL_RECYCLE = _env_int("PIVKEYU_DB_POOL_RECYCLE", 60 * 30, 30)
+DB_POOL_PRE_PING = _env_bool("PIVKEYU_DB_POOL_PRE_PING", True)
+DB_POOL_USE_LIFO = _env_bool("PIVKEYU_DB_POOL_USE_LIFO", True)
+DB_POOL_RESET_ON_RETURN = (os.getenv("PIVKEYU_DB_POOL_RESET_ON_RETURN", "rollback") or "rollback").strip()
 
 engine = create_engine(
     DATABASE_URL,
     echo=False,
     echo_pool=False,
-    pool_size=24,
-    max_overflow=24,
-    pool_timeout=30,
-    pool_recycle=60 * 30,
-    pool_pre_ping=True,
-    pool_use_lifo=True,
-    pool_reset_on_return="rollback",
+    pool_size=DB_POOL_SIZE,
+    max_overflow=DB_MAX_OVERFLOW,
+    pool_timeout=DB_POOL_TIMEOUT,
+    pool_recycle=DB_POOL_RECYCLE,
+    pool_pre_ping=DB_POOL_PRE_PING,
+    pool_use_lifo=DB_POOL_USE_LIFO,
+    pool_reset_on_return=DB_POOL_RESET_ON_RETURN,
     connect_args={
         "init_command": "SET NAMES utf8mb4",
         "connect_timeout": DB_CONNECT_TIMEOUT,

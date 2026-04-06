@@ -1,0 +1,26 @@
+[mysqld]
+# 偏激进的默认值，目标是在 4C/8G+ Linux 服务器上支撑约 500-800 人使用。
+skip-name-resolve=ON
+max_connections=800
+max_connect_errors=10000
+back_log=1024
+thread_cache_size=128
+table_open_cache=4096
+table_open_cache_instances=8
+table_definition_cache=2048
+open_files_limit=131072
+innodb_open_files=8192
+innodb_buffer_pool_size=1G
+innodb_buffer_pool_instances=2
+innodb_io_capacity=1000
+innodb_io_capacity_max=2000
+max_allowed_packet=64M
+tmp_table_size=128M
+max_heap_table_size=128M
+query_cache_type=0
+query_cache_size=0
+performance_schema=OFF
+wait_timeout=28800
+interactive_timeout=28800
+net_read_timeout=30
+net_write_timeout=60

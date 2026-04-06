@@ -4,14 +4,33 @@
 emby的api操作方法 - 使用aiohttp重构版本
 """
 import asyncio
-import aiohttp
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple, Dict, Any, List, Union
 from contextlib import asynccontextmanager
 
+import aiohttp
+
 from bot import emby_url, emby_api, emby_block, extra_emby_libs, LOGGER
 from bot.sql_helper.sql_emby import sql_update_emby, Emby
 from bot.func_helper.utils import pwd_create, convert_runtime, cache, Singleton
+
+
+def _env_int(name: str, default: int, minimum: int = 0) -> int:
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        return max(minimum, int(raw))
+    except (TypeError, ValueError):
+        LOGGER.warning(f"环境变量 {name}={raw!r} 不是有效整数，回退到默认值 {default}")
+        return default
+
+
+EMBY_HTTP_LIMIT = _env_int("PIVKEYU_EMBY_HTTP_LIMIT", 64, 1)
+EMBY_HTTP_LIMIT_PER_HOST = min(_env_int("PIVKEYU_EMBY_HTTP_LIMIT_PER_HOST", 16, 1), EMBY_HTTP_LIMIT)
+EMBY_HTTP_KEEPALIVE_TIMEOUT = _env_int("PIVKEYU_EMBY_HTTP_KEEPALIVE_TIMEOUT", 60, 5)
+EMBY_HTTP_DNS_CACHE_TTL = _env_int("PIVKEYU_EMBY_HTTP_DNS_CACHE_TTL", 300, 0)
 
 
 def create_policy(admin=False, disable=False, limit: int = 2, block: list = None):
@@ -128,11 +147,11 @@ class Embyservice(metaclass=Singleton):
         async with self._session_lock:
             if self._session is None or self._session.closed:
                 connector = aiohttp.TCPConnector(
-                    limit=64,  # 连接池大小
-                    limit_per_host=16,  # 每个主机的连接数
-                    keepalive_timeout=60,  # 保持连接时间
+                    limit=EMBY_HTTP_LIMIT,  # 连接池大小
+                    limit_per_host=EMBY_HTTP_LIMIT_PER_HOST,  # 每个主机的连接数
+                    keepalive_timeout=EMBY_HTTP_KEEPALIVE_TIMEOUT,  # 保持连接时间
                     enable_cleanup_closed=True,
-                    ttl_dns_cache=300
+                    ttl_dns_cache=EMBY_HTTP_DNS_CACHE_TTL
                 )
                 self._session = aiohttp.ClientSession(
                     headers=self.headers,

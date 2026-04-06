@@ -8,10 +8,22 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=此处填写你在服务器上存放Bot的目录 # 例如/root/pivkeyu_emby/
 ExecStart=python3 此处填写入口程序 # 例如/root/pivkeyu_emby/main.py
+Environment=PIVKEYU_NOFILE_SOFT=131072
+Environment=PIVKEYU_DB_POOL_SIZE=64
+Environment=PIVKEYU_DB_MAX_OVERFLOW=64
+Environment=PIVKEYU_DB_POOL_TIMEOUT=60
+Environment=PIVKEYU_DB_POOL_RECYCLE=1800
+Environment=PIVKEYU_PYROGRAM_WORKERS=256
+Environment=PIVKEYU_PYROGRAM_MAX_CONCURRENT_TRANSMISSIONS=1024
+Environment=PIVKEYU_EMBY_HTTP_LIMIT=192
+Environment=PIVKEYU_EMBY_HTTP_LIMIT_PER_HOST=64
 Restart=on-abnormal
 PrivateTmp=True
 RestartSec=5s
 KillMode=mixed
+TimeoutStopSec=45s
+LimitNOFILE=131072
+TasksMax=16384
 
 StandardOutput=null
 StandardError=syslog

@@ -7,6 +7,10 @@ services:
     command: mysqld --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     restart: always
     network_mode: host
+    ulimits:
+      nofile:
+        soft: 131072
+        hard: 131072
     environment:
       MYSQL_ROOT_PASSWORD: pivkeyu
       MYSQL_USER: pivkeyu
@@ -15,6 +19,7 @@ services:
       MYSQL_ROOT_HOST: "%"
     volumes:
       - ./db:/var/lib/mysql
+      - ./mysql/conf.d/zz-pivkeyu-tuning.cnf:/etc/mysql/conf.d/zz-pivkeyu-tuning.cnf:ro
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
       interval: 5s
@@ -35,13 +40,27 @@ services:
       mysql:
         condition: service_healthy
     environment:
+      PIVKEYU_NOFILE_SOFT: 131072
       PIVKEYU_DB_STARTUP_MAX_RETRIES: 20
       PIVKEYU_DB_STARTUP_RETRY_DELAY: 3
       PIVKEYU_DB_CONNECT_TIMEOUT: 5
+      PIVKEYU_DB_POOL_SIZE: 64
+      PIVKEYU_DB_MAX_OVERFLOW: 64
+      PIVKEYU_DB_POOL_TIMEOUT: 60
+      PIVKEYU_DB_POOL_RECYCLE: 1800
+      PIVKEYU_DB_POOL_PRE_PING: "true"
+      PIVKEYU_DB_POOL_USE_LIFO: "true"
+      PIVKEYU_DB_POOL_RESET_ON_RETURN: rollback
+      PIVKEYU_PYROGRAM_WORKERS: 256
+      PIVKEYU_PYROGRAM_MAX_CONCURRENT_TRANSMISSIONS: 1024
+      PIVKEYU_EMBY_HTTP_LIMIT: 192
+      PIVKEYU_EMBY_HTTP_LIMIT_PER_HOST: 64
+      PIVKEYU_EMBY_HTTP_KEEPALIVE_TIMEOUT: 90
+      PIVKEYU_EMBY_HTTP_DNS_CACHE_TTL: 600
     ulimits:
       nofile:
-        soft: 65535
-        hard: 65535
+        soft: 131072
+        hard: 131072
     volumes:
       - ./data:/app/data
       - ./log:/app/log

@@ -18,6 +18,7 @@ pivkeyu_emby 是一个基于 Telegram、Emby、FastAPI 和 MySQL 的管理机器
 ├── caddy/                # Caddy 反代配置
 ├── data/                 # 运行时数据、config.json、运行时插件
 ├── log/                  # 日志与运行时产物
+├── mysql/                # MySQL 附加调优配置
 ├── scripts/              # 冒烟检查与辅助脚本
 ├── config_example.json   # 示例配置
 ├── docker-compose.yml    # 默认部署编排
@@ -133,6 +134,15 @@ db_pwd = pivkeyu
 db_name = pivkeyu
 ```
 
+底层调优默认值还包括：
+
+- 应用容器与 MySQL 容器 `nofile=131072`
+- MySQL 额外挂载 `mysql/conf.d/zz-pivkeyu-tuning.cnf`
+- 数据库连接池默认 `pool_size=64`、`max_overflow=64`
+- Pyrogram 默认 `workers=256`
+- Emby `aiohttp` 连接池默认 `limit=192`、`limit_per_host=64`
+- 当前这组默认值偏激进，更适合 `4C/8G+` 的 Linux 服务器；如果机器更小，建议先下调 MySQL Buffer Pool 和并发参数
+
 ### Web 与 Mini App
 
 - `api.status`：是否启动 FastAPI
@@ -229,6 +239,8 @@ docker compose build
 - MySQL 已配置健康检查，应用会等待数据库健康后再启动
 - 数据库在刚启动还未就绪时，应用会按重试参数等待后再执行迁移
 - 默认运行配置建议都放在 `data/` 下，避免重建镜像后丢失
+- 如需按机器规格调优，可直接调整 `docker-compose.yml` 里的 `PIVKEYU_DB_*`、`PIVKEYU_PYROGRAM_*`、`PIVKEYU_EMBY_HTTP_*` 环境变量
+- 非 Docker 部署可直接使用 [pivkeyu_emby.service](/Users/pivkeyu/Documents/pivkeyu_emby/pivkeyu_emby.service) 中的 `LimitNOFILE` 和 `Environment=` 模板
 
 ## 补充文档
 
