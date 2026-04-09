@@ -1,4 +1,5 @@
 const storageKey = "pivkeyu-admin-token";
+const DEFAULT_BACK_PATH = "/miniapp";
 
 const LEVEL_META = {
   a: {
@@ -40,6 +41,12 @@ const UNKNOWN_LEVEL = {
 };
 
 const tgApp = window.Telegram?.WebApp || null;
+const tgBackButton = tgApp?.BackButton || null;
+const backState = {
+  fallbackPath: DEFAULT_BACK_PATH,
+  returnTo: "",
+  referrerPath: ""
+};
 
 const state = {
   page: 1,
@@ -64,6 +71,7 @@ const refs = {
   authStatus: document.querySelector("#auth-status"),
   authModePill: document.querySelector("#auth-mode-pill"),
   selectedUserPill: document.querySelector("#selected-user-pill"),
+  pageBackButton: document.querySelector("#page-back-button"),
   tokenPanel: document.querySelector("#token-panel"),
   tokenForm: document.querySelector("#token-form"),
   tokenInput: document.querySelector("#admin-token"),
@@ -109,6 +117,37 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function currentRelativePath() {
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
+}
+
+function toSameOriginPath(path, fallback = "") {
+  if (!path) return fallback;
+  try {
+    const url = new URL(path, window.location.origin);
+    if (url.origin !== window.location.origin) {
+      return fallback;
+    }
+    return `${url.pathname}${url.search}${url.hash}` || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function withReturnTo(path, returnTo = currentRelativePath()) {
+  const safePath = toSameOriginPath(path, "");
+  if (!safePath) {
+    return "";
+  }
+
+  const url = new URL(safePath, window.location.origin);
+  const safeReturnTo = toSameOriginPath(returnTo, "");
+  if (safeReturnTo) {
+    url.searchParams.set("return_to", safeReturnTo);
+  }
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 function getLevelMeta(levelCode) {
@@ -189,6 +228,52 @@ function closeInlinePopup() {
   }
 }
 
+function handleBackNavigation() {
+  const modalLayer = document.querySelector("#modal-layer");
+  if (modalLayer && !modalLayer.classList.contains("hidden")) {
+    closeInlinePopup();
+    return;
+  }
+
+  const currentPath = currentRelativePath();
+  if (backState.returnTo && backState.returnTo !== currentPath) {
+    window.location.href = backState.returnTo;
+    return;
+  }
+
+  if (backState.referrerPath && backState.referrerPath !== currentPath) {
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    window.location.href = backState.referrerPath;
+    return;
+  }
+
+  window.location.href = backState.fallbackPath;
+}
+
+function setupBackNavigation(defaultPath = DEFAULT_BACK_PATH) {
+  backState.fallbackPath = toSameOriginPath(defaultPath, DEFAULT_BACK_PATH) || DEFAULT_BACK_PATH;
+  backState.returnTo = toSameOriginPath(new URLSearchParams(window.location.search).get("return_to"), "");
+  backState.referrerPath = toSameOriginPath(document.referrer, "");
+
+  const currentPath = currentRelativePath();
+  const hasPrevious = (backState.returnTo && backState.returnTo !== currentPath)
+    || (backState.referrerPath && backState.referrerPath !== currentPath);
+
+  if (refs.pageBackButton) {
+    refs.pageBackButton.textContent = hasPrevious ? "返回上一级" : "返回首页";
+    refs.pageBackButton.addEventListener("click", handleBackNavigation);
+  }
+
+  if (tgBackButton) {
+    tgBackButton.offClick?.(handleBackNavigation);
+    tgBackButton.onClick(handleBackNavigation);
+    tgBackButton.show();
+  }
+}
+
 document.querySelector("#modal-close")?.addEventListener("click", closeInlinePopup);
 document.querySelector("#modal-confirm")?.addEventListener("click", closeInlinePopup);
 document.querySelector("[data-modal-close]")?.addEventListener("click", closeInlinePopup);
@@ -196,6 +281,9 @@ window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     closeInlinePopup();
   }
+});
+window.addEventListener("beforeunload", () => {
+  tgBackButton?.offClick?.(handleBackNavigation);
 });
 
 async function popup(title, message, tone = "success") {
@@ -611,7 +699,7 @@ function renderPlugins(items) {
       </button>`
     );
     if (item.admin_path) {
-      actions.push(`<a class="ghost-button" href="${escapeHtml(item.admin_path)}">打开插件后台</a>`);
+      actions.push(`<a class="ghost-button" href="${escapeHtml(withReturnTo(item.admin_path))}">打开插件后台</a>`);
     }
     if (item.miniapp_path && item.enabled) {
       actions.push(`<a class="ghost-button" href="${escapeHtml(item.miniapp_path)}">打开插件页面</a>`);
@@ -1209,6 +1297,8 @@ refs.pluginList.addEventListener("click", async (event) => {
     tgApp.setHeaderColor("#f8f9fa");
     tgApp.setBackgroundColor("#f8f9fa");
   }
+
+  setupBackNavigation();
 
   const telegramOk = await tryTelegramAuth();
   if (telegramOk) {

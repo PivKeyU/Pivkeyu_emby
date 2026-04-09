@@ -1232,6 +1232,9 @@ def resolve_quiz_answer(chat_id: int, tg: int, answer_text: str) -> dict[str, An
     normalized = _normalize_quiz_answer_text(answer_text)
     if not normalized:
         return None
+    profile = serialize_profile(get_profile(tg, create=False))
+    if not profile or not profile.get("consented"):
+        return None
     with Session() as session:
         rows = (
             session.query(XiuxianTask)
@@ -1249,8 +1252,7 @@ def resolve_quiz_answer(chat_id: int, tg: int, answer_text: str) -> dict[str, An
             if normalized != _normalize_quiz_answer_text(task.answer_text):
                 continue
             if task.task_scope == "sect":
-                profile = serialize_profile(get_profile(tg, create=False))
-                if not profile or int(profile.get("sect_id") or 0) != int(task.sect_id or 0):
+                if int(profile.get("sect_id") or 0) != int(task.sect_id or 0):
                     continue
             if task.winner_tg:
                 continue

@@ -18,7 +18,7 @@ from pyrogram.enums import ChatMemberStatus
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot import LOGGER, api as api_config, bot, config, group, owner, prefixes
-from bot.func_helper.msg_utils import callAnswer
+from bot.func_helper.msg_utils import callAnswer, escape_markdown
 from bot.plugins import list_plugins
 from bot.plugins.xiuxian_game.service import (
     admin_patch_player,
@@ -968,19 +968,20 @@ async def _push_quiz_task(task: dict[str, Any]) -> dict[str, Any] | None:
     if not chat_id:
         return None
     text = _task_group_text(task)
+    escaped_text = escape_markdown(text)
     image_source = _resolve_group_image_source(task.get("image_url"))
     if image_source:
         caption, overflow = _split_photo_caption(text)
         try:
-            sent = await bot.send_photo(chat_id, image_source, caption=caption or None)
+            sent = await bot.send_photo(chat_id, image_source, caption=escape_markdown(caption) if caption else None)
         except Exception as exc:
             LOGGER.warning(f"xiuxian task photo push fallback task={task.get('id')} chat={chat_id}: {exc}")
             sent = await bot.send_photo(chat_id, image_source)
             overflow = text
         if overflow:
-            await bot.send_message(chat_id, overflow, reply_to_message_id=sent.id)
+            await bot.send_message(chat_id, escape_markdown(overflow), reply_to_message_id=sent.id)
     else:
-        sent = await bot.send_message(chat_id, text)
+        sent = await bot.send_message(chat_id, escaped_text)
     return mark_task_group_message(task["id"], chat_id, sent.id)
 
 
@@ -1331,15 +1332,24 @@ def register_bot(bot_instance) -> None:
                 f"{reward['reward_item'].get('quantity', 1)} 个{(reward['reward_item'].get('artifact') or reward['reward_item'].get('pill') or reward['reward_item'].get('talisman') or reward['reward_item'].get('material') or {}).get('name', '物品')}"
             )
         reward_text = "、".join(reward_lines) if reward_lines else "任务奖励"
-        await msg.reply_text(f"答题成功，{msg.from_user.first_name} 已完成《{task['title']}》，奖励：{reward_text}。", quote=True)
+        winner_name = msg.from_user.first_name or f"TG {msg.from_user.id}"
+        success_text = escape_markdown(f"答题成功，{winner_name} 已完成《{task['title']}》，奖励：{reward_text}。")
         try:
+            await msg.reply_text(success_text, quote=True)
+        except Exception as exc:
+            LOGGER.warning(f"xiuxian quiz completion reply failed: {exc}")
+            await bot_instance.send_message(msg.chat.id, success_text, reply_to_message_id=msg.id)
+        try:
+            task_chat_id = int(task.get("group_chat_id") or msg.chat.id)
             if task.get("group_message_id"):
-                summary = _task_group_text(task) + f"\n\n已完成：{msg.from_user.first_name}"
+                summary = escape_markdown(_task_group_text(task) + f"\n\n已完成：{winner_name}")
                 if task.get("image_url"):
                     caption, _ = _split_photo_caption(summary)
-                    await bot_instance.edit_message_caption(msg.chat.id, int(task["group_message_id"]), caption or "任务已完成")
+                    await bot_instance.edit_message_caption(task_chat_id, int(task["group_message_id"]), caption or "任务已完成")
                 else:
-                    await bot_instance.edit_message_text(msg.chat.id, int(task["group_message_id"]), summary)
+                    await bot_instance.edit_message_text(task_chat_id, int(task["group_message_id"]), summary)
+            else:
+                await bot_instance.send_message(task_chat_id, escape_markdown(f"任务《{task['title']}》已由 {winner_name} 完成。"))
         except Exception as exc:
             LOGGER.warning(f"xiuxian quiz task message refresh failed: {exc}")
 

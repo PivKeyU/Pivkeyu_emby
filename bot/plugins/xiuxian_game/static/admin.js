@@ -1,4 +1,6 @@
 const tg = window.Telegram?.WebApp;
+const tgBackButton = tg?.BackButton || null;
+const DEFAULT_BACK_PATH = "/admin";
 
 const REALM_OPTIONS = ["凡人", "炼气", "筑基", "结丹", "元婴", "化神", "须弥", "芥子", "混元一体"];
 const QUALITY_OPTIONS = ["凡品", "黄品", "玄品", "地品", "天品", "仙品"];
@@ -23,6 +25,11 @@ const state = {
   token: localStorage.getItem("xiuxian_admin_token") || "",
   initData: tg?.initData || "",
   bundle: null,
+};
+const backState = {
+  fallbackPath: DEFAULT_BACK_PATH,
+  returnTo: "",
+  referrerPath: ""
 };
 
 const ADMIN_SECTION_LABELS = {
@@ -163,6 +170,63 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function currentRelativePath() {
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
+}
+
+function toSameOriginPath(path, fallback = "") {
+  if (!path) return fallback;
+  try {
+    const url = new URL(path, window.location.origin);
+    if (url.origin !== window.location.origin) {
+      return fallback;
+    }
+    return `${url.pathname}${url.search}${url.hash}` || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function handleBackNavigation() {
+  const currentPath = currentRelativePath();
+  if (backState.returnTo && backState.returnTo !== currentPath) {
+    window.location.href = backState.returnTo;
+    return;
+  }
+
+  if (backState.referrerPath && backState.referrerPath !== currentPath) {
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    window.location.href = backState.referrerPath;
+    return;
+  }
+
+  window.location.href = backState.fallbackPath;
+}
+
+function setupBackNavigation(defaultPath = DEFAULT_BACK_PATH) {
+  backState.fallbackPath = toSameOriginPath(defaultPath, DEFAULT_BACK_PATH) || DEFAULT_BACK_PATH;
+  backState.returnTo = toSameOriginPath(new URLSearchParams(window.location.search).get("return_to"), "");
+  backState.referrerPath = toSameOriginPath(document.referrer, "");
+
+  const currentPath = currentRelativePath();
+  const hasPrevious = (backState.returnTo && backState.returnTo !== currentPath)
+    || (backState.referrerPath && backState.referrerPath !== currentPath);
+  const backButton = document.getElementById("page-back-button");
+  if (backButton) {
+    backButton.textContent = hasPrevious ? "返回上一级" : "返回管理台";
+    backButton.addEventListener("click", handleBackNavigation);
+  }
+
+  if (tgBackButton) {
+    tgBackButton.offClick?.(handleBackNavigation);
+    tgBackButton.onClick(handleBackNavigation);
+    tgBackButton.show();
+  }
 }
 
 function adminStatus(text, tone = "info") {
@@ -1510,6 +1574,10 @@ tg?.ready?.();
 tg?.expand?.();
 tg?.setHeaderColor?.("#f8f9fa");
 tg?.setBackgroundColor?.("#f8f9fa");
+setupBackNavigation();
+window.addEventListener("beforeunload", () => {
+  tgBackButton?.offClick?.(handleBackNavigation);
+});
 bootstrapAdmin().catch(async (error) => {
   adminStatus(String(error.message || error), "error");
   await popup("初始化失败", String(error.message || error), "error");

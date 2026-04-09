@@ -60,6 +60,37 @@ function formatDate(value, fallback = "未设置") {
   return Number.isNaN(date.getTime()) ? fallback : date.toLocaleString("zh-CN");
 }
 
+function currentRelativePath() {
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
+}
+
+function toSameOriginPath(path, fallback = "") {
+  if (!path) return fallback;
+  try {
+    const url = new URL(path, window.location.origin);
+    if (url.origin !== window.location.origin) {
+      return fallback;
+    }
+    return `${url.pathname}${url.search}${url.hash}` || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function withReturnTo(path, returnTo = currentRelativePath()) {
+  const safePath = toSameOriginPath(path, "");
+  if (!safePath) {
+    return "";
+  }
+
+  const url = new URL(safePath, window.location.origin);
+  const safeReturnTo = toSameOriginPath(returnTo, "");
+  if (safeReturnTo) {
+    url.searchParams.set("return_to", safeReturnTo);
+  }
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
 function renderPlugins(items) {
   const pluginGrid = document.querySelector("#plugin-grid");
   pluginGrid.innerHTML = "";
@@ -205,7 +236,7 @@ async function bootstrapMiniApp() {
     if (permissions?.is_admin && permissions?.admin_url) {
       adminEntryCard.classList.remove("hidden");
       adminEntryButton.onclick = () => {
-        window.location.href = permissions.admin_url;
+        window.location.href = withReturnTo(permissions.admin_url);
       };
     } else {
       adminEntryCard.classList.add("hidden");
