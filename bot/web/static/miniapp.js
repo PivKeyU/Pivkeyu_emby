@@ -91,6 +91,48 @@ function withReturnTo(path, returnTo = currentRelativePath()) {
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
+function visibleFoldCards() {
+  return [...document.querySelectorAll(".fold-card")].filter((card) => !card.classList.contains("hidden"));
+}
+
+function syncFoldToolbar() {
+  const toolbar = document.querySelector("#fold-toolbar");
+  if (!toolbar) return;
+
+  const cards = visibleFoldCards();
+  toolbar.classList.toggle("hidden", cards.length < 2);
+
+  const count = document.querySelector("#fold-count");
+  if (count) {
+    count.textContent = `当前可折叠 ${cards.length} 个板块`;
+  }
+
+  const openAllButton = document.querySelector("[data-fold-open-all]");
+  const closeAllButton = document.querySelector("[data-fold-close-all]");
+  if (openAllButton) {
+    openAllButton.disabled = !cards.some((card) => !card.open);
+  }
+  if (closeAllButton) {
+    closeAllButton.disabled = !cards.some((card) => card.open);
+  }
+}
+
+function toggleFoldCards(open) {
+  visibleFoldCards().forEach((card) => {
+    card.open = open;
+  });
+  syncFoldToolbar();
+}
+
+function setupFoldToolbar() {
+  document.querySelector("[data-fold-open-all]")?.addEventListener("click", () => toggleFoldCards(true));
+  document.querySelector("[data-fold-close-all]")?.addEventListener("click", () => toggleFoldCards(false));
+  document.querySelectorAll(".fold-card").forEach((card) => {
+    card.addEventListener("toggle", syncFoldToolbar);
+  });
+  syncFoldToolbar();
+}
+
 function renderPlugins(items) {
   const pluginGrid = document.querySelector("#plugin-grid");
   pluginGrid.innerHTML = "";
@@ -268,4 +310,5 @@ document.querySelector("#plugin-grid").addEventListener("click", (event) => {
   window.location.href = button.dataset.openPath;
 });
 
+setupFoldToolbar();
 bootstrapMiniApp();

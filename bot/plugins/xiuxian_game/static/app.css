@@ -79,6 +79,8 @@ body.is-modal-open {
 .hero-side,
 .hero-admin,
 .hero-admin-copy,
+.fold-toolbar,
+.fold-toolbar-copy,
 .board-grid,
 .toast-stack,
 .modal-actions,
@@ -189,6 +191,20 @@ h3 {
   border-radius: var(--radius-lg);
   background: var(--surface-soft);
   border: 1px solid var(--line-strong);
+}
+
+.fold-toolbar {
+  padding: 14px 16px;
+}
+
+.fold-toolbar-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.fold-toolbar-actions button {
+  width: 100%;
 }
 
 .hero-admin-label {
@@ -618,6 +634,16 @@ button:disabled {
   .hero-panel {
     grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
     align-items: start;
+  }
+
+  .fold-toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .fold-toolbar-actions {
+    width: max-content;
+    min-width: 240px;
   }
 
   .board-grid {

@@ -109,21 +109,6 @@ const DEFAULT_DROP_WEIGHT_RULES = {
   high_quality_root_level_start: 3,
 };
 
-REALM_OPTIONS.splice(0, REALM_OPTIONS.length, "凡人", "练气", "筑基", "结丹", "元婴", "化神", "须弥", "芥子", "混元一体");
-QUALITY_OPTIONS.splice(0, QUALITY_OPTIONS.length, "凡品", "下品", "中品", "上品", "极品", "仙品", "先天至宝");
-PILL_TYPES.splice(0, PILL_TYPES.length, ...[
-  { value: "foundation", label: "突破加成", effect: "突破助力值" },
-  { value: "clear_poison", label: "解毒", effect: "减少丹毒值" },
-  { value: "cultivation", label: "提升修为", effect: "增加修为值" },
-  { value: "stone", label: "补给灵石", effect: "增加灵石值" },
-  { value: "comprehension", label: "提升悟性", effect: "增加悟性值" },
-  { value: "qi_blood", label: "提升气血", effect: "增加气血值" },
-  { value: "true_yuan", label: "提升真元", effect: "增加真元值" },
-  { value: "body_movement", label: "提升身法", effect: "增加身法值" },
-  { value: "attack", label: "提升攻击", effect: "增加攻击值" },
-  { value: "defense", label: "提升防御", effect: "增加防御值" },
-]);
-
 REALM_OPTIONS.splice(0, REALM_OPTIONS.length, "凡人", "炼气", "筑基", "结丹", "元婴", "化神", "须弥", "芥子", "混元一体");
 QUALITY_OPTIONS.splice(0, QUALITY_OPTIONS.length, "凡品", "下品", "中品", "上品", "极品", "仙品", "先天至宝");
 PILL_TYPES.splice(0, PILL_TYPES.length, ...[

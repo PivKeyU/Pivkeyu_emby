@@ -205,13 +205,58 @@ function renderBottomNav(items = []) {
   }
 }
 
+function visibleFoldCards() {
+  return [...document.querySelectorAll(".fold-card")].filter((card) => !card.classList.contains("hidden"));
+}
+
+function syncFoldToolbar() {
+  const toolbar = document.querySelector("#fold-toolbar");
+  if (!toolbar) return;
+
+  const cards = visibleFoldCards();
+  toolbar.classList.toggle("hidden", cards.length < 2);
+
+  const count = document.querySelector("#fold-count");
+  if (count) {
+    count.textContent = `当前显示 ${cards.length} 个模块`;
+  }
+
+  const openAllButton = document.querySelector("[data-fold-open-all]");
+  const closeAllButton = document.querySelector("[data-fold-close-all]");
+  if (openAllButton) {
+    openAllButton.disabled = !cards.some((card) => !card.open);
+  }
+  if (closeAllButton) {
+    closeAllButton.disabled = !cards.some((card) => card.open);
+  }
+}
+
+function toggleFoldCards(open) {
+  visibleFoldCards().forEach((card) => {
+    card.open = open;
+  });
+  syncFoldToolbar();
+}
+
+function setupFoldToolbar() {
+  document.querySelector("[data-fold-open-all]")?.addEventListener("click", () => toggleFoldCards(true));
+  document.querySelector("[data-fold-close-all]")?.addEventListener("click", () => toggleFoldCards(false));
+  document.querySelectorAll(".fold-card").forEach((card) => {
+    card.addEventListener("toggle", syncFoldToolbar);
+  });
+  syncFoldToolbar();
+}
+
 function ensureSectionState(selector, visible, openWhenVisible = false) {
   const section = document.querySelector(selector);
   if (!section) return;
   section.classList.toggle("hidden", !visible);
-  if (visible && openWhenVisible) {
+  if (!visible) {
+    section.open = false;
+  } else if (openWhenVisible) {
     section.open = true;
   }
+  syncFoldToolbar();
 }
 
 function renderInventorySelect() {
@@ -2434,6 +2479,8 @@ renderProfile = function renderProfileRedesigned(bundle) {
   syncAdminEntry(bundle);
   syncUserTaskComposer();
 };
+
+setupFoldToolbar();
 
 bootstrap().catch(async (error) => {
   const message = normalizeError(error, "修仙面板初始化失败。");

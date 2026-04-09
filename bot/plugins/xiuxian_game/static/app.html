@@ -49,10 +49,21 @@
       </div>
     </section>
 
+    <section id="fold-toolbar" class="card fold-toolbar hidden">
+      <div class="fold-toolbar-copy">
+        <p class="eyebrow">区块折叠</p>
+        <p id="fold-count" class="section-copy">当前显示 0 个模块</p>
+      </div>
+      <div class="fold-toolbar-actions">
+        <button type="button" class="ghost" data-fold-open-all>全部展开</button>
+        <button type="button" class="ghost" data-fold-close-all>全部收起</button>
+      </div>
+    </section>
+
     <details id="enter-card" class="card fold-card hidden" open>
       <summary class="fold-summary">
         <div>
-          <p class="eyebrow">踏入仙途</p>
+          <p class="eyebrow">新手引导</p>
           <h2>踏入仙途</h2>
         </div>
         <span class="summary-tip">确认后会抽取灵根并建立修仙档案</span>
@@ -64,10 +75,10 @@
     </details>
 
     <div class="board-grid">
-      <details id="profile-card" class="card fold-card span-2 hidden" open>
+      <details id="profile-card" class="card fold-card span-2 hidden">
         <summary class="fold-summary">
           <div>
-            <p class="eyebrow">道途总览</p>
+            <p class="eyebrow">角色信息</p>
             <h2>道途总览</h2>
           </div>
           <span class="summary-tip">境界、修为、法宝位与闭关状态</span>
@@ -80,7 +91,7 @@
       <details id="action-card" class="card fold-card hidden">
         <summary class="fold-summary">
           <div>
-            <p class="eyebrow">修炼操作</p>
+            <p class="eyebrow">日常修行</p>
             <h2>修炼操作</h2>
           </div>
           <span class="summary-tip">吐纳、突破、闭关</span>
@@ -111,7 +122,7 @@
       <details id="exchange-card" class="card fold-card hidden">
         <summary class="fold-summary">
           <div>
-            <p class="eyebrow">货币互兑</p>
+            <p class="eyebrow">资源流转</p>
             <h2>货币互兑</h2>
           </div>
           <span class="summary-tip">碎片与灵石双向兑换</span>
@@ -140,7 +151,7 @@
       <details id="inventory-card" class="card fold-card span-2 hidden">
         <summary class="fold-summary">
           <div>
-            <p class="eyebrow">背包与装备</p>
+            <p class="eyebrow">仓储整理</p>
             <h2>背包与装备</h2>
           </div>
           <span class="summary-tip">法宝、符箓、丹药分栏展示</span>
@@ -166,7 +177,7 @@
       <details id="technique-card" class="card fold-card hidden">
         <summary class="fold-summary">
           <div>
-            <p class="eyebrow">功法</p>
+            <p class="eyebrow">参悟传承</p>
             <h2>功法</h2>
           </div>
           <span class="summary-tip">切换当前参悟功法，影响修炼、突破与斗法</span>
@@ -180,7 +191,7 @@
       <details id="official-shop-card" class="card fold-card hidden">
         <summary class="fold-summary">
           <div>
-            <p class="eyebrow">官方商店</p>
+            <p class="eyebrow">官方供给</p>
             <h2>风月阁</h2>
           </div>
           <span class="summary-tip">官方上架区</span>
@@ -193,7 +204,7 @@
       <details id="market-card" class="card fold-card span-2 hidden">
         <summary class="fold-summary">
           <div>
-            <p class="eyebrow">坊市</p>
+            <p class="eyebrow">交易往来</p>
             <h2>坊市</h2>
           </div>
           <span class="summary-tip">个人店铺与群修市集</span>
@@ -249,7 +260,7 @@
       <details id="sect-card" class="card fold-card span-2 hidden">
         <summary class="fold-summary">
           <div>
-            <p class="eyebrow">宗门</p>
+            <p class="eyebrow">仙门势力</p>
             <h2>宗门</h2>
           </div>
           <span class="summary-tip">加入宗门、领取俸禄、退出宗门</span>
@@ -275,7 +286,7 @@
       <details id="task-card" class="card fold-card span-2 hidden">
         <summary class="fold-summary">
           <div>
-            <p class="eyebrow">悬赏任务</p>
+            <p class="eyebrow">悬赏委托</p>
             <h2>悬赏任务</h2>
           </div>
           <span class="summary-tip">官方、宗门与个人悬赏</span>
@@ -334,7 +345,7 @@
       <details id="craft-card" class="card fold-card span-2 hidden">
         <summary class="fold-summary">
           <div>
-            <p class="eyebrow">炼制</p>
+            <p class="eyebrow">丹器工坊</p>
             <h2>炼制</h2>
           </div>
           <span class="summary-tip">材料背包与合成配方</span>
@@ -354,7 +365,7 @@
       <details id="explore-card" class="card fold-card span-2 hidden">
         <summary class="fold-summary">
           <div>
-            <p class="eyebrow">探索</p>
+            <p class="eyebrow">秘境游历</p>
             <h2>探索</h2>
           </div>
           <span class="summary-tip">派遣探索与领取奖励</span>
@@ -374,7 +385,7 @@
       <details id="red-envelope-card" class="card fold-card hidden">
         <summary class="fold-summary">
           <div>
-            <p class="eyebrow">灵石红包</p>
+            <p class="eyebrow">群内互动</p>
             <h2>灵石红包</h2>
           </div>
           <span class="summary-tip">群内派发灵石红包</span>
@@ -406,7 +417,7 @@
       <details id="journal-card" class="card fold-card hidden">
         <summary class="fold-summary">
           <div>
-            <p class="eyebrow">往来与日志</p>
+            <p class="eyebrow">记录中心</p>
             <h2>往来与日志</h2>
           </div>
           <span class="summary-tip">赠石记录与近 24 小时动态</span>
@@ -429,7 +440,7 @@
       <details id="leaderboard-card" class="card fold-card hidden">
         <summary class="fold-summary">
           <div>
-            <p class="eyebrow">排行榜</p>
+            <p class="eyebrow">排名观测</p>
             <h2>排行榜</h2>
           </div>
           <span class="summary-tip">灵石、境界、法宝榜</span>

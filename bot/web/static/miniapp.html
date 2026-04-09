@@ -54,8 +54,19 @@
       </div>
     </section>
 
+    <section id="fold-toolbar" class="card fold-toolbar">
+      <div class="fold-toolbar-copy">
+        <p class="eyebrow">区块折叠</p>
+        <p id="fold-count" class="section-copy">当前可折叠 0 个板块</p>
+      </div>
+      <div class="fold-toolbar-actions">
+        <button type="button" class="ghost" data-fold-open-all>全部展开</button>
+        <button type="button" class="ghost" data-fold-close-all>全部收起</button>
+      </div>
+    </section>
+
     <section class="board-grid">
-      <details class="card fold-card" open>
+      <details class="card fold-card">
         <summary class="fold-summary">
           <div>
             <p class="eyebrow">账号信息</p>
@@ -94,7 +105,7 @@
         </div>
       </details>
 
-      <details class="card fold-card span-2" open>
+      <details class="card fold-card span-2">
         <summary class="fold-summary">
           <div>
             <p class="eyebrow">功能入口</p>
