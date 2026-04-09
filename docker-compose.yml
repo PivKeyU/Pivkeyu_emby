@@ -29,11 +29,7 @@ services:
       start_period: 30s
 
   pivkeyu_emby:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: pivkeyu_emby:local
-    pull_policy: never
+    image: pivkeyu/pivkeyu_emby:latest
     container_name: pivkeyu_emby
     restart: always
     network_mode: host
