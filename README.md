@@ -1,59 +1,78 @@
 # pivkeyu_emby
 
-pivkeyu_emby 是一个基于 Telegram、Emby、FastAPI 和 MySQL 的管理机器人，提供用户面板、管理面板、Mini App、Webhook、排行榜、定时任务和插件系统。
+pivkeyu_emby 是一个面向 Emby 服主的 Telegram 管理系统，核心栈为 Telegram Bot + FastAPI + MySQL + Docker Compose。
 
-## 功能概览
+它不是只停留在 TG 指令层的 Emby 机器人，而是把以下几件事一起做完整了：
 
-- Telegram 用户侧功能：注册、签到、积分、续期、红包、邀请码、资源查询
-- 管理侧功能：用户管理、续期、审计、同步、批量操作、配置面板
-- Web 能力：`/admin` 管理后台、`/miniapp` Telegram Mini App、Emby Webhook
-- 插件系统：支持内置插件和运行时插件，支持插件依赖安装与迁移
-- 部署方式：Docker Compose 本地构建优先，默认附带 MySQL 与 Caddy 反代
+- 机器人用户功能
+- Web 管理后台 ` /admin `
+- Telegram Mini App ` /miniapp `
+- 插件系统，包括运行时导入、权限声明、数据库迁移、依赖检测
+- 面向 Docker Compose 的日常部署与升级流程
 
-## 目录说明
+如果你最关心的是怎么部署，直接看 [Docker Compose 安装](#docker-compose-安装)。
+如果你最关心的是怎么扩展，直接看 [插件开发流程](#插件开发流程)。
 
-```text
-.
-├── bot/                  # Telegram Bot、Web、数据库、插件主代码
-├── caddy/                # Caddy 反代配置
-├── data/                 # 运行时数据、config.json、运行时插件
-├── log/                  # 日志与运行时产物
-├── mysql/                # MySQL 附加调优配置
-├── scripts/              # 冒烟检查与辅助脚本
-├── config_example.json   # 示例配置
-├── docker-compose.yml    # 默认部署编排
-├── Dockerfile            # 应用镜像构建文件
-└── main.py               # 启动入口
-```
+## 为什么选 pivkeyu_emby
 
-## 快速开始
+- 默认使用已发布的 Docker Hub 镜像，常规部署不需要本地先 `docker build`
+- 自带 Web 管理后台和 Telegram Mini App，不需要再单独补一套 Web 面板
+- 插件不只是命令扩展，还可以挂 Web 路由、静态资源、Mini App 页面、后台页面
+- 运行时插件支持 ZIP 导入、数据库迁移记录、依赖检查、启停开关
+- `data/` 会持久化配置、运行时插件、插件状态，重建容器后不会丢
+- Compose 内置 MySQL、Caddy、健康检查和一组默认性能参数，开箱即可跑
+
+## 相较于 Sakura_embyboss 的区别
+
+下面这张表说的是两者当前公开文档里最直观的使用体验差异，不是“谁绝对更强”，而是项目定位不同。
+
+| 维度 | Sakura_embyboss 官方文档主流程 | pivkeyu_emby |
+| --- | --- | --- |
+| Docker 部署入口 | 以拉源码、复制 `config.json`、在项目目录执行 `docker-compose up -d` 为主 | 默认直接使用 Docker Hub 镜像，`docker compose pull && docker compose up -d` 即可 |
+| 配置持久化 | 主要映射单个 `config.json` 和 `log/` | 默认持久化 `data/`、`log/`、`db/`，运行时插件和插件状态也一起保留 |
+| Web 能力 | 项目简介里仍写着 “敬请期待 重写 + web操作” | 已经落地 `/admin`、`/miniapp`、插件后台页、插件 Mini App 页 |
+| 插件开发 | 公开文档重点仍在 bot 本体部署与配置 | 提供 manifest、权限声明、运行时 ZIP 导入、迁移记录、依赖检测、Mini App 元信息 |
+| 反代与入口 | 文档主要聚焦 Bot 和 Compose 本身 | 默认附带 Caddy 反代，适合直接挂 HTTPS 域名 |
+| 发版方式 | 更偏源码使用和镜像拉取混合 | 更偏“官方镜像给使用者，源码仓库给开发者和插件作者” |
+
+如果你只是想要一个 TG Emby Bot，Sakura_embyboss 仍然是一个成熟选项。
+如果你想要的是“Bot + Web 管理台 + Mini App + 插件扩展”的一体化方案，pivkeyu_emby 更直接。
+
+## Docker Compose 安装
 
 ### 1. 准备条件
 
-- 一台适合 `host` 网络模式的 Linux 服务器
-- Docker 和 Docker Compose
-- Telegram `bot_token`
+- Linux 服务器，推荐直接使用 Docker Compose
+- Docker Engine 和 Docker Compose v2
+- 一个可用的 Telegram Bot
 - Telegram `api_id` / `api_hash`
-- Emby 管理员 API Key 和 Emby 服务地址
+- Emby 管理员 API Key
+- 一个外网 HTTPS 域名，如果你要启用 Web 后台和 Mini App
 
-### 2. 构建并启动
+### 2. 获取项目
 
 ```bash
-docker compose build --no-cache
-docker compose up -d
+git clone https://github.com/PivKeyU/Pivkeyu_emby.git
+cd Pivkeyu_emby
 ```
 
-### 3. 修改配置
+### 3. 初始化目录
 
-Docker 部署时，程序优先读取：
-
-```text
-./data/config.json
+```bash
+mkdir -p data log db caddy/data caddy/config
+cp config_example.json data/config.json
 ```
 
-如果该文件不存在，首次启动会由 `config_example.json` 自动生成。
+说明：
 
-### 4. 至少替换这些字段
+- 程序优先读取 `data/config.json`
+- `docker-compose.yml` 默认使用 `pivkeyu/pivkeyu_emby:latest`
+- MySQL 数据会写到 `./db`
+- 运行时插件会写到 `./data/runtime_plugins`
+
+### 4. 修改 `data/config.json`
+
+至少先把这些字段替换成你自己的：
 
 - `bot_name`
 - `bot_token`
@@ -67,182 +86,397 @@ Docker 部署时，程序优先读取：
 - `emby_url`
 - `emby_line`
 
-如果你要启用 Web 后台和 Mini App，还需要配置：
+如果你要启用 Web 后台和 Mini App，还必须配置：
 
-- `api.status`
+- `api.status = true`
 - `api.public_url`
 - `api.admin_token`
 
-### 5. 运行本地冒烟检查
+最常见的 Web 配置示例：
+
+```json
+"api": {
+  "status": true,
+  "http_url": "0.0.0.0",
+  "http_port": 8838,
+  "public_url": "https://bot.example.com",
+  "miniapp_title": "片刻面板",
+  "admin_token": "replace_with_a_long_random_admin_token",
+  "webapp_auth_max_age": 86400,
+  "allow_origins": ["*"]
+}
+```
+
+### 5. 可选：配置 Caddy 域名
+
+如果你要直接使用仓库自带的 Caddy，可以创建 `.env`：
 
 ```bash
-python3 scripts/smoke_checks.py
+cat > .env <<'EOF'
+PIVKEYU_PUBLIC_DOMAIN=bot.example.com
+PIVKEYU_UPSTREAM=127.0.0.1:8838
+EOF
 ```
 
-## 配置规则
+如果你自己有 Nginx、Traefik、Cloudflare Tunnel 或其他反代，也可以不用仓库里的 Caddy 服务。
 
-程序读取配置文件的优先级如下：
-
-1. `data/config.json`
-2. `config.json`
-3. 如果都不存在，则从 `config_example.json` 复制到 `data/config.json`
-
-`config_example.json` 中的 `_comment_*` 字段只是说明文字，程序会自动忽略。
-
-## 关键配置项
-
-### Telegram 与权限
-
-- `bot_name`：机器人用户名，不带 `@`
-- `bot_token`：BotFather 提供的 token
-- `owner_api`：Telegram `api_id`
-- `owner_hash`：Telegram `api_hash`
-- `owner`：最高管理员 TG ID
-- `admins`：附加管理员列表
-- `group`：允许使用功能的群组 ID 列表
-- `main_group`：主群公开用户名
-- `chanel`：频道公开用户名
-
-### Emby
-
-- `emby_api`：Emby 管理 API Key
-- `emby_url`：Emby 服务地址
-- `emby_line`：展示给用户的 Emby 线路
-- `emby_whitelist_line`：白名单专属线路
-- `emby_block`：默认隐藏的媒体库
-- `extra_emby_libs`：额外媒体库列表
-- `partition_libs`：分区礼包和媒体库映射
-
-### 数据库
-
-- `db_host`
-- `db_user`
-- `db_pwd`
-- `db_name`
-- `db_port`
-- `db_is_docker`
-- `db_docker_name`
-- `db_backup_dir`
-- `db_backup_maxcount`
-
-当前默认 `docker-compose.yml` 使用：
-
-```text
-db_host = 127.0.0.1
-db_user = pivkeyu
-db_pwd = pivkeyu
-db_name = pivkeyu
-```
-
-底层调优默认值还包括：
-
-- 应用容器与 MySQL 容器 `nofile=131072`
-- MySQL 额外挂载 `mysql/conf.d/zz-pivkeyu-tuning.cnf`
-- 数据库连接池默认 `pool_size=64`、`max_overflow=64`
-- Pyrogram 默认 `workers=256`
-- Emby `aiohttp` 连接池默认 `limit=192`、`limit_per_host=64`
-- 当前这组默认值偏激进，更适合 `4C/8G+` 的 Linux 服务器；如果机器更小，建议先下调 MySQL Buffer Pool 和并发参数
-
-### Web 与 Mini App
-
-- `api.status`：是否启动 FastAPI
-- `api.http_url` / `api.http_port`：监听地址和端口
-- `api.public_url`：外网 HTTPS 地址
-- `api.miniapp_title`：Telegram 菜单按钮标题
-- `api.admin_token`：后台鉴权令牌
-- `api.allow_origins`：CORS 白名单
-
-## 默认访问入口
-
-- `GET /health`：健康检查
-- `GET /admin`：管理后台
-- `GET /miniapp`：Mini App 页面
-- `POST /emby/webhook/*`：Emby Webhook
-
-启用 API 后，本地默认监听：
-
-```text
-http://127.0.0.1:8838
-```
-
-## 插件系统
-
-### 插件位置
-
-```text
-内置插件：
-bot/plugins/<plugin_name>/
-
-运行时插件：
-data/runtime_plugins/<plugin_name>/
-```
-
-### 当前内置探针插件
-
-仓库内置了样例插件 `pivkeyu_template`，可用来确认插件系统正常工作：
-
-- Bot 侧：`/plugin_ping`
-- Web 侧：`GET /plugins/template/ping`
-
-### 运行时插件行为
-
-- 后台上传安装的运行时插件保存在 `data/runtime_plugins`
-- Docker 重建镜像后，这些插件仍会跟随 `data/` 保留
-- Docker 重建时会自动安装 `plugin.json` 中声明的 `dependencies.python`
-- 插件自带的 `migrations/*.py` 会在加载前自动执行并记录历史
-
-推荐的 Docker 插件升级流程：
-
-1. 在 `/admin` 后台上传新的插件 ZIP
-2. 如果后台提示需要重建容器，执行：
+### 6. 启动服务
 
 ```bash
-docker compose build pivkeyu_emby
-docker compose up -d pivkeyu_emby
+docker compose pull
+docker compose up -d
 ```
 
-3. 容器启动后会自动安装依赖、执行迁移并重新加载插件
+默认会启动：
 
-更详细的插件开发说明见：
+- `mysql`
+- `pivkeyu_emby`
+- `pivkeyu-caddy`
 
-- [bot/plugins/README.md](bot/plugins/README.md)
-- [bot/plugins/xiuxian_game/README.md](bot/plugins/xiuxian_game/README.md)
+### 7. 验证服务
 
-## 反代与 HTTPS
+查看容器状态：
 
-仓库内置了 `Caddy` 反代服务，相关说明见：
+```bash
+docker compose ps
+```
 
-- [REVERSE_PROXY.md](REVERSE_PROXY.md)
+查看应用日志：
 
-如果你不需要自动 HTTPS，可以自行裁剪 `docker-compose.yml` 中的 `pivkeyu-caddy` 服务。
+```bash
+docker compose logs -f pivkeyu_emby
+```
 
-## 开发与检查
+健康检查：
 
-### 语法和离线烟测
+```bash
+curl http://127.0.0.1:8838/health
+```
+
+默认入口：
+
+- `http://127.0.0.1:8838/admin`
+- `http://127.0.0.1:8838/miniapp`
+- `https://你的域名/admin`
+- `https://你的域名/miniapp`
+
+## Docker Compose 升级
+
+标准升级方式：
+
+```bash
+docker compose pull
+docker compose up -d --force-recreate
+```
+
+如果你只想更新主应用：
+
+```bash
+docker compose pull pivkeyu_emby
+docker compose up -d --force-recreate pivkeyu_emby
+```
+
+升级后可以确认容器到底跑的是哪个镜像：
+
+```bash
+docker inspect pivkeyu_emby --format '{{.Config.Image}}'
+```
+
+正常应该看到：
+
+```text
+pivkeyu/pivkeyu_emby:latest
+```
+
+## 目录与持久化说明
+
+```text
+.
+├── bot/                         # 主代码、Web、插件、数据库逻辑
+├── caddy/                       # Caddy 反代配置
+├── data/                        # 配置、运行时插件、插件状态、session
+│   ├── config.json
+│   ├── runtime_plugins/
+│   └── plugin_state/
+├── db/                          # MySQL 数据目录
+├── log/                         # 日志目录
+├── mysql/                       # MySQL 调优配置
+├── scripts/                     # 冒烟检查和辅助脚本
+├── config_example.json          # 配置模板
+├── docker-compose.yml           # 默认镜像部署编排
+└── Dockerfile                   # 本地构建或自定义镜像时使用
+```
+
+重点记住：
+
+- `data/config.json` 是你的主配置
+- `data/runtime_plugins/` 是运行时插件目录
+- `data/plugin_state/` 是插件自己的持久化数据目录
+- `db/` 和 `log/` 也应该保留，不建议随便删
+
+## 插件开发流程
+
+这一节是本项目和普通 Emby TG Bot 差别最大的地方。
+
+你开发的插件不只可以加 TG 指令，还可以：
+
+- 提供 FastAPI 路由
+- 提供独立 Mini App 页面
+- 提供插件后台页面
+- 声明数据库迁移
+- 声明 Python 依赖
+
+### 1. 先区分三种插件形态
+
+- `runtime`：推荐，支持后台上传 ZIP，适合大多数功能扩展
+- `builtin`：随仓库源码一起维护，适合仓库内置功能
+- `core`：强耦合核心插件，不适合运行时 ZIP 导入
+
+### 2. 目录结构
+
+推荐的运行时插件目录：
+
+```text
+data/runtime_plugins/<your_plugin>/
+├── plugin.json
+├── plugin.py
+├── static/          # 可选，插件自己的静态资源
+└── migrations/      # 可选，插件专属数据库迁移
+```
+
+仓库内置插件目录：
+
+```text
+bot/plugins/<your_plugin>/
+├── plugin.json
+├── plugin.py
+└── static/
+```
+
+最快的起步方式是直接参考样例插件：
+
+- [bot/plugins/pivkeyu_template](bot/plugins/pivkeyu_template)
+- [bot/plugins/xiuxian_game](bot/plugins/xiuxian_game)
+
+### 3. 编写 `plugin.json`
+
+一个较完整的示例：
+
+```json
+{
+  "schema_version": 2,
+  "id": "hello-plugin",
+  "name": "示例插件",
+  "version": "0.1.0",
+  "description": "最小可用插件示例",
+  "entry": "plugin",
+  "enabled": true,
+  "plugin_type": "runtime",
+  "permissions": [
+    "telegram.commands",
+    "web.routes",
+    "web.static",
+    "database.plugin_migrations"
+  ],
+  "dependencies": {
+    "python": []
+  },
+  "database": {
+    "migrations_dir": "migrations"
+  },
+  "miniapp": {
+    "path": "/plugins/hello/app",
+    "admin_path": "/plugins/hello/admin",
+    "label": "Hello",
+    "icon": "✨",
+    "bottom_nav_default": true
+  }
+}
+```
+
+几个关键字段：
+
+- `id`：插件唯一标识，不要和其他插件冲突
+- `entry`：入口模块名，默认就是 `plugin`
+- `permissions`：声明插件会使用哪些能力
+- `dependencies.python`：额外 Python 依赖列表
+- `database.migrations_dir`：迁移目录
+- `miniapp.path`：插件 Mini App 路径
+- `miniapp.admin_path`：插件后台路径
+
+### 4. 编写 `plugin.py`
+
+最小示例：
+
+```python
+from fastapi import APIRouter
+from pyrogram import filters
+
+from bot import prefixes
+
+
+def register_bot(bot, context=None) -> None:
+    @bot.on_message(filters.command("plugin_ping", prefixes))
+    async def plugin_ping(_, msg):
+        await msg.reply_text("plugin ok")
+
+
+def register_web(app, context=None) -> None:
+    router = APIRouter(prefix="/plugins/hello", tags=["Hello Plugin"])
+
+    @router.get("/ping")
+    async def ping():
+        return {"ok": True}
+
+    app.include_router(router)
+```
+
+说明：
+
+- `register_bot(bot, context=None)`：注册 TG 指令、回调、事件
+- `register_web(app, context=None)`：注册 FastAPI 路由
+- 第二个参数 `context` 是可选的，插件管理器会自动兼容
+
+### 5. 如果插件需要 Mini App / 后台页
+
+你可以在 `plugin.json` 里声明：
+
+- `miniapp.path`
+- `miniapp.admin_path`
+- `miniapp.label`
+- `miniapp.icon`
+
+然后在 `register_web()` 中自己挂载静态资源和页面路由。
+
+仓库里的修仙插件就是一个完整例子：
+
+- 用户页：`/plugins/xiuxian/app`
+- 后台页：`/plugins/xiuxian/admin`
+
+### 6. 如果插件需要数据库迁移
+
+把迁移脚本放到 `migrations/` 目录，格式类似：
+
+```python
+def upgrade(connection):
+    connection.exec_driver_sql(
+        "CREATE TABLE IF NOT EXISTS hello_plugin_records (id INTEGER PRIMARY KEY)"
+    )
+```
+
+迁移规则：
+
+- 系统会在插件加载前自动执行未执行过的迁移
+- 已执行过的迁移文件不能改内容
+- 如果逻辑有变化，请新增一个迁移文件，不要覆盖旧文件
+
+### 7. 插件自己的持久化数据放哪里
+
+每个插件都会拿到独立目录：
+
+```text
+data/plugin_state/<plugin_id>/
+```
+
+适合存：
+
+- 插件自己的缓存
+- 插件自己的 JSON 配置
+- 导入文件、临时文件、生成结果
+
+### 8. 开发、打包、导入
+
+推荐流程：
+
+1. 先从 `bot/plugins/pivkeyu_template` 复制一个最小插件
+2. 在本地调通 `plugin.json` 和 `plugin.py`
+3. 如果是运行时插件，把压缩包根目录做成：
+
+```text
+your_plugin.zip
+├── plugin.json
+├── plugin.py
+├── static/
+└── migrations/
+```
+
+4. 到 `/admin` 后台上传 ZIP
+5. 根据后台提示决定是“直接启用”还是“需要本地构建模式”
+
+### 9. 什么时候可以直接热更新，什么时候必须本地构建
+
+可以直接上传并启用：
+
+- 没有额外 Python 依赖
+- 不依赖系统级库
+- 只是新增 TG 指令、Web 路由、静态页面、纯 Python 逻辑
+
+建议切换到本地构建模式：
+
+- `dependencies.python` 不为空
+- 需要 `pip install` 第三方库
+- 需要系统库、编译型依赖或额外二进制支持
+
+### 10. 插件开发推荐的 Compose 本地构建模式
+
+默认 `docker-compose.yml` 是“直接拉官方镜像”的使用者模式。
+
+如果你在开发插件，建议额外创建一个 `docker-compose.override.yml`：
+
+```yaml
+services:
+  pivkeyu_emby:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: pivkeyu_emby:local
+    pull_policy: never
+```
+
+然后用这套命令：
+
+```bash
+docker compose up -d --build pivkeyu_emby
+```
+
+这样容器在构建时会自动执行：
+
+- 运行时插件依赖安装
+- 代码打包进镜像
+- 启动后自动插件迁移
+
+这也是插件作者最推荐的开发姿势。
+
+## 开发检查
+
+### Python 语法检查
 
 ```bash
 python3 -m compileall main.py bot scripts
-python3 scripts/smoke_checks.py
 ```
 
-### Docker 烟测
+### Docker 配置检查
 
 ```bash
 docker compose config
-docker compose build
 ```
 
-## 注意事项
+### 冒烟检查
 
-- 当前 `docker-compose.yml` 使用 `network_mode: host`，更适合 Linux 服务器
-- 项目启动时会自动执行数据库迁移
-- MySQL 已配置健康检查，应用会等待数据库健康后再启动
-- 数据库在刚启动还未就绪时，应用会按重试参数等待后再执行迁移
-- 默认运行配置建议都放在 `data/` 下，避免重建镜像后丢失
-- 如需按机器规格调优，可直接调整 `docker-compose.yml` 里的 `PIVKEYU_DB_*`、`PIVKEYU_PYROGRAM_*`、`PIVKEYU_EMBY_HTTP_*` 环境变量
-- 非 Docker 部署可直接使用 [pivkeyu_emby.service](/Users/pivkeyu/Documents/pivkeyu_emby/pivkeyu_emby.service) 中的 `LimitNOFILE` 和 `Environment=` 模板
+```bash
+python3 scripts/smoke_checks.py
+```
 
-## 补充文档
+## 相关文档
 
 - [REVERSE_PROXY.md](REVERSE_PROXY.md)
 - [bot/plugins/README.md](bot/plugins/README.md)
+- [bot/plugins/xiuxian_game/README.md](bot/plugins/xiuxian_game/README.md)
+
+## 对比参考
+
+下面这些页面用于说明上面“相较于 Sakura_embyboss 的区别”一节的对比背景：
+
+- Sakura 项目简介：https://berry8838.github.io/Sakura_embyboss/show/
+- Sakura Docker Compose 部署文档：https://berry8838.github.io/Sakura_embyboss/deploy/start_docker/
+- Sakura `docker-compose.yml` 模板：https://berry8838.github.io/Sakura_embyboss/deploy/compose/

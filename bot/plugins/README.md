@@ -79,21 +79,53 @@ def register_web(app, context=None) -> None:
 - 已加载和未启用的插件都会出现在 `/admin` 面板的插件区
 - 插件自带的 `migrations/*.py` 会在加载前自动执行一次，系统会记录已执行历史
 - 修改已执行过的迁移文件内容是不允许的；请新增新的迁移文件
-- 插件声明了额外 Python 依赖时，Docker 重建会自动安装这些依赖
+- 插件声明了额外 Python 依赖时，需要在本地构建模式下重建容器，构建阶段会自动安装这些依赖
 - `plugin_type=core` 仅适合随仓库和镜像一起发布，不支持后台 ZIP 运行时导入
 - 仓库内置了 `pivkeyu_template` 样例插件，可用于快速验活
 
-Docker 环境下的推荐更新流程：
+Docker 环境下推荐分成两种流程：
+
+### 1. 默认镜像模式
+
+适用场景：
+
+- 插件没有额外 Python 依赖
+- 插件只是纯 Python 逻辑、TG 指令或 Web 页面
+
+流程：
 
 1. 在 `/admin` 上传新的插件 ZIP
-2. 如果后台提示需要重建容器，执行：
+2. 如果后台没有提示 `container_rebuild_required`，插件会在下一次加载流程中直接启用
 
-```bash
-docker compose build pivkeyu_emby
-docker compose up -d pivkeyu_emby
+### 2. 本地构建模式
+
+适用场景：
+
+- `dependencies.python` 不为空
+- 插件需要第三方 Python 包
+- 插件需要系统依赖或编译型依赖
+
+建议额外创建 `docker-compose.override.yml`：
+
+```yaml
+services:
+  pivkeyu_emby:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: pivkeyu_emby:local
+    pull_policy: never
 ```
 
-3. 容器启动后，系统会自动执行插件依赖安装、数据库迁移与插件加载
+然后执行：
+
+```bash
+docker compose up -d --build pivkeyu_emby
+```
+
+容器启动后，系统会自动执行插件依赖安装、数据库迁移与插件加载。
+
+如果你只想看完整说明，直接回到仓库根 README 的“插件开发流程”章节。
 
 当前仓库内已经落地的修仙插件手册见：
 
