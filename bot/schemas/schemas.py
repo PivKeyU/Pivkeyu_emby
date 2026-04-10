@@ -69,6 +69,7 @@ class Open(BaseModel):
     whitelist_cost: int = 9999
     invite_cost: int = 1000
     srank_cost: int = 5
+    change_pwd2_cost: int = 100
 
     # 每次创建 Open 对象时被重置为 0
     def __init__(self, **data):

@@ -57,7 +57,8 @@ def members_ikb(is_admin: bool = False, account: bool = False) -> InlineKeyboard
     if account:
         normal = [[('🏪 兑换商店', 'storeall'), ('🗑️ 删除账号', 'delme')],
                     [('🎬 显示/隐藏', 'embyblock'), ('⭕ 重置密码', 'reset')],
-                    [('💖 我的收藏', 'my_favorites'),('💠 我的设备', 'my_devices')],
+                    [('🔐 更换安全码', 'change_pwd2'), ('💖 我的收藏', 'my_favorites')],
+                    [('💠 我的设备', 'my_devices')],
                     ]
         if moviepilot.status:
             normal.append([('🍿 点播中心', 'download_center')])
@@ -78,6 +79,7 @@ re_changetg_ikb = ikb([[('✨ 换绑TG', 'changetg'), ('💫 用户主页', 'mem
 re_bindtg_ikb = ikb([[('✨ 绑定TG', 'bindtg'), ('💫 用户主页', 'members')]])
 re_delme_ikb = ikb([[('♻️ 重试', 'delme')], [('🔙 返回', 'members')]])
 re_reset_ikb = ikb([[('♻️ 重试', 'reset')], [('🔙 返回', 'members')]])
+re_change_pwd2_ikb = ikb([[('♻️ 重试', 'change_pwd2')], [('🔙 返回', 'members')]])
 re_exchange_b_ikb = ikb([[('♻️ 重试', 'exchange'), ('❌ 关闭', 'closeit')]])
 re_born_ikb = ikb([[('✨ 重输', 'store-reborn'), ('💫 返回', 'storeall')]])
 
@@ -365,6 +367,7 @@ def config_preparation() -> InlineKeyboardMarkup:
             [('🎟️ 分区通行码', 'partition_code_panel')],
          [(f'设置赠送资格天数({config.kk_gift_days}天)', 'set_kk_gift_days'), (f'设置活跃检测天数({config.activity_check_days}天)', 'set_activity_check_days')],
          [(f'设置封存账号天数({config.freeze_days}天)', 'set_freeze_days')],
+         [(f'更换安全码费用({config.open.change_pwd2_cost}{sakura_b})', 'set_change_pwd2_cost')],
          [(f'设置签到权限({checkin_lv_text})', 'set_checkin_lv')],
          [('🔙 返回', 'manage')]])
     return keyboard

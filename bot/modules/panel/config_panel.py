@@ -754,6 +754,46 @@ async def set_kk_gift_days(_, call):
             LOGGER.info(f"【admin】：{call.from_user.id} - 更新赠送资格天数完成")
 
 
+@bot.on_callback_query(filters.regex('set_change_pwd2_cost') & admins_on_filter)
+async def set_change_pwd2_cost(_, call):
+    await callAnswer(call, '📌 设置更换安全码费用')
+    send = await editMessage(
+        call,
+        f"🔐【设置更换安全码费用】\n\n请输入一个非负整数\n取消点击 /cancel\n\n当前费用: {config.open.change_pwd2_cost}{sakura_b}"
+    )
+    if send is False:
+        return
+
+    txt = await callListen(call, 120, back_set_ikb('set_change_pwd2_cost'))
+    if txt is False:
+        return
+
+    elif txt.text == '/cancel':
+        await txt.delete()
+        await editMessage(call, '__您已经取消输入__ **会话已结束！**', buttons=back_set_ikb('set_change_pwd2_cost'))
+    else:
+        await txt.delete()
+        try:
+            cost = int(txt.text)
+            if cost < 0:
+                raise ValueError("费用不能小于 0")
+        except ValueError:
+            await editMessage(
+                call,
+                f"请注意格式! 请输入不小于 0 的整数。您的输入如下: \n\n`{txt.text}`",
+                buttons=back_set_ikb('set_change_pwd2_cost')
+            )
+        else:
+            config.open.change_pwd2_cost = cost
+            save_config()
+            await editMessage(
+                call,
+                f"🔐【更换安全码费用】\n\n{cost}{sakura_b} **Done!**",
+                buttons=back_config_p_ikb
+            )
+            LOGGER.info(f"【admin】：{call.from_user.id} - 更新更换安全码费用为 {cost}{sakura_b} 完成")
+
+
 @bot.on_callback_query(filters.regex('set_fuxx_pitao') & admins_on_filter)
 async def set_fuxx_pitao(_, call):
     config.fuxx_pitao = not config.fuxx_pitao

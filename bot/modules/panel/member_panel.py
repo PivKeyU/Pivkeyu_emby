@@ -9,6 +9,7 @@ import asyncio
 import datetime
 import math
 import random
+import re
 from datetime import timedelta, datetime
 from bot.schemas import ExDate, Yulv
 from bot import bot, LOGGER, _open, emby_line, sakura_b, ranks, group, config, schedall
@@ -18,7 +19,8 @@ from bot.func_helper.filters import user_in_group_on_filter
 from bot.func_helper.utils import members_info, tem_adduser, cr_link_one, judge_admins, tem_deluser, pwd_create
 from bot.func_helper.fix_bottons import members_ikb, back_members_ikb, re_create_ikb, del_me_ikb, re_delme_ikb, \
     re_reset_ikb, re_changetg_ikb, emby_block_ikb, user_emby_block_ikb, user_emby_unblock_ikb, re_exchange_b_ikb, \
-    store_ikb, re_bindtg_ikb, close_it_ikb, store_query_page, re_born_ikb, send_changetg_ikb, favorites_page_ikb
+    store_ikb, re_bindtg_ikb, close_it_ikb, store_query_page, re_born_ikb, send_changetg_ikb, favorites_page_ikb, \
+    re_change_pwd2_ikb
 from bot.func_helper.msg_utils import callAnswer, editMessage, callListen, sendMessage, ask_return, deleteMessage
 from bot.modules.commands import p_start
 from bot.modules.commands.partition_code import _redeem_partition_code
@@ -29,6 +31,11 @@ from bot.sql_helper.sql_emby2 import sql_get_emby2, sql_delete_emby2
 
 # 添加全局锁
 _create_user_lock = asyncio.Lock()
+_SECURITY_CODE_PATTERN = re.compile(r"^\d{4,6}$")
+
+
+def _is_valid_security_code(value: str) -> bool:
+    return bool(_SECURITY_CODE_PATTERN.fullmatch((value or "").strip()))
 
 # 创号函数
 async def create_user(_, call, us, stats):
@@ -478,6 +485,113 @@ async def reset(_, call):
                     else:
                         await editMessage(call, '🫥 操作失败！请联系主人。', buttons=back_members_ikb)
                         LOGGER.error(f"【重置密码】：{call.from_user.id} 重置密码失败 ！")
+
+
+@bot.on_callback_query(filters.regex('^change_pwd2$'))
+async def change_pwd2(_, call):
+    e = sql_get_emby(tg=call.from_user.id)
+    if e is None:
+        return await callAnswer(call, '⚠️ 数据库没有你，请重新 /start录入', True)
+    if e.embyid is None:
+        return await bot.answer_callback_query(call.id, '未查询到账户，不许乱点！💢', show_alert=True)
+
+    change_cost = max(0, int(getattr(_open, 'change_pwd2_cost', 0) or 0))
+    if e.iv < change_cost:
+        return await bot.answer_callback_query(
+            call.id,
+            f'❌ 当前更换安全码需要 {change_cost}{sakura_b}，而您只有 {e.iv}{sakura_b}',
+            show_alert=True
+        )
+
+    await callAnswer(call, "🔴 请先进行 安全码 验证")
+    send = await editMessage(
+        call,
+        f'**🔰安全码更换**：\n\n'
+        f'👮🏻 请先发送当前安全码进行验证。\n'
+        f'💰 本次操作将扣除 `{change_cost}` {sakura_b}\n'
+        f'🛑 **停止请点 /cancel**',
+        buttons=back_members_ikb
+    )
+    if send is False:
+        return
+
+    old_code_message = await callListen(call, 120, buttons=back_members_ikb)
+    if old_code_message is False:
+        return
+
+    if old_code_message.text == '/cancel':
+        await old_code_message.delete()
+        await editMessage(call, '__您已经取消输入__ **会话已结束！**', buttons=back_members_ikb)
+        return
+
+    if old_code_message.text != e.pwd2:
+        await old_code_message.delete()
+        await editMessage(call, f'**💢 验证不通过，{old_code_message.text} 安全码错误。**', buttons=re_change_pwd2_ikb)
+        return
+
+    await old_code_message.delete()
+    await editMessage(
+        call,
+        f'🎯 请在 120s 内输入新的安全码\n\n'
+        f'· 仅支持 **4 到 6 位数字**\n'
+        f'· 本次操作将扣除 `{change_cost}` {sakura_b}\n'
+        f'· 发送 /cancel 可取消，本次不会扣费',
+        buttons=back_members_ikb
+    )
+
+    new_code_message = await callListen(call, 120, buttons=back_members_ikb)
+    if new_code_message is False:
+        return
+
+    if new_code_message.text == '/cancel':
+        await new_code_message.delete()
+        await editMessage(call, '__您已经取消输入__ **会话已结束！**', buttons=back_members_ikb)
+        return
+
+    new_code = (new_code_message.text or "").strip()
+    await new_code_message.delete()
+
+    if not _is_valid_security_code(new_code):
+        await editMessage(
+            call,
+            f'**💢 新安全码格式错误。**\n\n'
+            f'您输入的是 `{new_code}`\n'
+            f'请使用 **4 到 6 位数字**。',
+            buttons=re_change_pwd2_ikb
+        )
+        return
+
+    current_user = sql_get_emby(tg=call.from_user.id)
+    if current_user is None or current_user.embyid is None:
+        await editMessage(call, '🫥 未找到当前账户信息，请重新 /start 后再试。', buttons=back_members_ikb)
+        return
+
+    if new_code == (current_user.pwd2 or ""):
+        await editMessage(call, '🫥 新安全码不能和当前安全码相同。', buttons=re_change_pwd2_ikb)
+        return
+
+    if current_user.iv < change_cost:
+        await editMessage(
+            call,
+            f'🫥 当前余额不足，无法完成更换。\n\n需要 {change_cost}{sakura_b}，当前只有 {current_user.iv}{sakura_b}。',
+            buttons=back_members_ikb
+        )
+        return
+
+    remaining_iv = current_user.iv - change_cost
+    if sql_update_emby(Emby.tg == call.from_user.id, pwd2=new_code, iv=remaining_iv, ch=datetime.now()):
+        await editMessage(
+            call,
+            f'🕶️ 操作完成！已为您更新安全码为 `{new_code}`。\n'
+            f'本次扣除 `{change_cost}` {sakura_b}，剩余 `{remaining_iv}` {sakura_b}。',
+            buttons=back_members_ikb
+        )
+        LOGGER.info(
+            f"【更换安全码】：{call.from_user.id} 成功更新安全码，扣除 {change_cost}{sakura_b}，剩余 {remaining_iv}{sakura_b}"
+        )
+    else:
+        await editMessage(call, '🫥 更换安全码失败！请联系主人。', buttons=back_members_ikb)
+        LOGGER.error(f"【更换安全码】：{call.from_user.id} 更新安全码失败")
 
 
 # 显示/隐藏某些库

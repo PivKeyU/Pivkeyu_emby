@@ -90,9 +90,10 @@
     "exchange_cost": 100,
     "whitelist_cost": 9999,
     "invite_cost": 1000,
-    "srank_cost": 5
+    "srank_cost": 5,
+    "change_pwd2_cost": 100
   },
-  "_comment_open_2": "checkin_lv / invite_lv 可选 a, b, d；分别代表白名单、普通用户、所有人。",
+  "_comment_open_2": "checkin_lv / invite_lv 可选 a, b, d；分别代表白名单、普通用户、所有人。change_pwd2_cost 为用户在 bot 内更换安全码时需要支付的片刻碎片。",
 
   "_comment_scheduler": "定时任务开关。message_id/chat_id 这类运行时字段一般不要手改。",
   "schedall": {
