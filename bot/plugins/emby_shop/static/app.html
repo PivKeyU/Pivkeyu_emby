@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>商店插件</title>
+  <link rel="stylesheet" href="/plugins/shop/static/shop.css">
+</head>
+<body>
+  <main class="shop-shell">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">商店插件</p>
+        <h1 id="shop-title">仙舟小铺</h1>
+        <p id="shop-notice" class="muted">正在同步商品与余额信息...</p>
+        <div class="hero-actions">
+          <span id="user-role" class="tag">等待校验</span>
+          <a class="button-link secondary" href="/miniapp">返回主页</a>
+        </div>
+      </div>
+      <div class="stats-grid">
+        <article class="metric">
+          <span>Emby 余额</span>
+          <strong id="balance-amount">-</strong>
+        </article>
+        <article class="metric">
+          <span>可购买商品</span>
+          <strong id="item-count">-</strong>
+        </article>
+        <article class="metric">
+          <span>我的上架</span>
+          <strong id="my-item-count">-</strong>
+        </article>
+        <article class="metric">
+          <span>插件版本</span>
+          <strong id="shop-version">-</strong>
+        </article>
+      </div>
+    </section>
+
+    <section class="card section">
+      <div class="card-head">
+        <div>
+          <p class="eyebrow">商品列表</p>
+          <h2>可购买商品</h2>
+        </div>
+        <button id="refresh-button" type="button" class="secondary">刷新</button>
+      </div>
+      <p id="app-status" class="status-bar muted">正在加载商品列表。</p>
+      <div id="product-list" class="products-grid"></div>
+    </section>
+
+    <section id="listing-section" class="card section hidden">
+      <div class="card-head">
+        <div>
+          <p class="eyebrow">我要上架</p>
+          <h2>发布商品</h2>
+        </div>
+      </div>
+      <form id="listing-form" class="grid-form">
+        <label>
+          商品标题
+          <input id="listing-title" type="text" maxlength="128" placeholder="例如：TG 群资格、兑换码、资料包">
+        </label>
+        <label>
+          价格（Emby 货币）
+          <input id="listing-price" type="number" min="0" value="10">
+        </label>
+        <label>
+          库存
+          <input id="listing-stock" type="number" min="1" value="1">
+        </label>
+        <label>
+          商品图片
+          <input id="listing-image" type="text" placeholder="https://... 或上传后自动回填">
+          <div class="upload-inline">
+            <input id="listing-image-file" type="file" accept="image/*">
+            <button id="listing-upload" type="button" class="secondary">上传图片</button>
+          </div>
+        </label>
+        <label class="wide">
+          商品描述
+          <textarea id="listing-description" placeholder="描述商品内容、适用范围和注意事项"></textarea>
+        </label>
+        <label class="wide">
+          自动发货内容
+          <textarea id="listing-delivery" placeholder="购买后机器人会私聊发送这段内容，例如兑换码、下载链接、使用说明"></textarea>
+        </label>
+        <label class="wide">
+          <input id="listing-notify" type="checkbox">
+          上架和成交时同步通知到群组
+        </label>
+        <div class="form-actions wide">
+          <button id="listing-submit" type="submit">发布商品</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card section">
+      <div class="card-head">
+        <div>
+          <p class="eyebrow">我的商品</p>
+          <h2>我发布的商品</h2>
+        </div>
+      </div>
+      <div id="my-product-list" class="list-grid"></div>
+    </section>
+  </main>
+
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="/plugins/shop/static/app.js"></script>
+</body>
+</html>

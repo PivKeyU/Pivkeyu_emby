@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>商店后台</title>
+  <link rel="stylesheet" href="/plugins/shop/static/shop.css">
+</head>
+<body>
+  <main class="shop-shell">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">商店后台</p>
+        <h1>商品与订单管理</h1>
+        <p id="admin-status" class="muted">正在校验后台身份并加载商店数据...</p>
+        <div class="hero-actions">
+          <span id="admin-auth-mode" class="tag">待认证</span>
+          <a class="button-link secondary" href="/admin">返回管理台</a>
+        </div>
+      </div>
+      <div class="card-grid">
+        <article class="metric">
+          <span>商品总数</span>
+          <strong id="admin-item-count">-</strong>
+        </article>
+        <article class="metric">
+          <span>近 20 笔订单</span>
+          <strong id="admin-order-count">-</strong>
+        </article>
+        <article class="metric">
+          <span>用户上架开关</span>
+          <strong id="admin-user-listing-state">-</strong>
+        </article>
+      </div>
+    </section>
+
+    <section class="card section">
+      <div class="card-head">
+        <div>
+          <p class="eyebrow">后台认证</p>
+          <h2>浏览器直开时输入后台令牌</h2>
+        </div>
+      </div>
+      <form id="token-form" class="grid-form">
+        <label class="wide">
+          后台令牌
+          <input id="admin-token" type="password" placeholder="输入 admin_token">
+        </label>
+        <div class="form-actions wide">
+          <button id="token-submit" type="submit">保存并验证</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card section">
+      <div class="card-head">
+        <div>
+          <p class="eyebrow">商店设置</p>
+          <h2>发布权限与文案</h2>
+        </div>
+      </div>
+      <form id="settings-form" class="grid-form">
+        <label>
+          商店标题
+          <input id="setting-title" type="text">
+        </label>
+        <label>
+          货币名称
+          <input id="setting-currency" type="text">
+        </label>
+        <label class="wide">
+          商店公告
+          <textarea id="setting-notice" placeholder="展示在前台顶部的公告文案"></textarea>
+        </label>
+        <label class="wide">
+          <input id="setting-allow-user-listing" type="checkbox">
+          允许普通用户自行上架商品
+        </label>
+        <div class="form-actions wide">
+          <button id="settings-submit" type="submit">保存设置</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card section">
+      <div class="card-head">
+        <div>
+          <p class="eyebrow">上架商品</p>
+          <h2>后台新增商品</h2>
+        </div>
+      </div>
+      <form id="item-form" class="grid-form">
+        <label>
+          商品标题
+          <input id="item-title" type="text" maxlength="128">
+        </label>
+        <label>
+          价格（Emby 货币）
+          <input id="item-price" type="number" min="0" value="10">
+        </label>
+        <label>
+          库存
+          <input id="item-stock" type="number" min="1" value="1">
+        </label>
+        <label>
+          图片地址
+          <input id="item-image" type="text" placeholder="https://... 或上传后自动回填">
+          <div class="upload-inline">
+            <input id="item-image-file" type="file" accept="image/*">
+            <button id="item-upload" type="button" class="secondary">上传图片</button>
+          </div>
+        </label>
+        <label class="wide">
+          商品描述
+          <textarea id="item-description"></textarea>
+        </label>
+        <label class="wide">
+          自动发货内容
+          <textarea id="item-delivery"></textarea>
+        </label>
+        <label>
+          <input id="item-notify" type="checkbox">
+          通知群组
+        </label>
+        <label>
+          <input id="item-official" type="checkbox" checked>
+          标记为官方商品
+        </label>
+        <label>
+          <input id="item-enabled" type="checkbox" checked>
+          立即上架
+        </label>
+        <div class="form-actions wide">
+          <button id="item-submit" type="submit">创建商品</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card section">
+      <div class="card-head">
+        <div>
+          <p class="eyebrow">商品清单</p>
+          <h2>当前商品</h2>
+        </div>
+      </div>
+      <div id="admin-product-list" class="list-grid"></div>
+    </section>
+
+    <section class="card section">
+      <div class="card-head">
+        <div>
+          <p class="eyebrow">最近订单</p>
+          <h2>成交记录</h2>
+        </div>
+      </div>
+      <div id="admin-order-list" class="list-grid"></div>
+    </section>
+  </main>
+
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="/plugins/shop/static/admin.js"></script>
+</body>
+</html>

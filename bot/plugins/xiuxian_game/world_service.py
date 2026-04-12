@@ -935,6 +935,7 @@ def create_red_envelope_for_user(
     *,
     tg: int,
     cover_text: str,
+    image_url: str = "",
     mode: str,
     amount_total: int,
     count_total: int,
@@ -948,11 +949,15 @@ def create_red_envelope_for_user(
     count_total = max(int(count_total or 1), 1)
     if int(profile.spiritual_stone or 0) < amount_total:
         raise ValueError("灵石不足")
-    updated = upsert_profile(tg, spiritual_stone=int(profile.spiritual_stone or 0) - amount_total)
+    updated = upsert_profile(
+        tg,
+        spiritual_stone=int(profile.spiritual_stone or 0) - amount_total,
+    )
     with Session() as session:
         envelope = XiuxianRedEnvelope(
             creator_tg=tg,
             cover_text=cover_text or "恭喜发财",
+            image_url=image_url or None,
             mode=mode,
             target_tg=target_tg,
             amount_total=amount_total,
@@ -966,9 +971,11 @@ def create_red_envelope_for_user(
         session.commit()
         session.refresh(envelope)
         serialized = serialize_red_envelope(envelope)
-    row = get_red_envelope(serialized["id"])
     create_journal(tg, "red_envelope", "发放红包", f"发放了 {amount_total} 灵石红包【{serialized.get('cover_text') or '福运临门'}】")
-    return {"envelope": serialized, "profile": serialize_profile(updated)}
+    return {
+        "envelope": serialized,
+        "profile": serialize_profile(updated),
+    }
 
 
 def _draw_red_envelope_amount(envelope: XiuxianRedEnvelope) -> int:

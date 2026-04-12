@@ -37,7 +37,7 @@
           <p class="eyebrow" data-section-key="settings">基础设定</p>
           <h2>基础规则</h2>
         </div>
-        <span class="summary-tip">兑换、赌斗、广播、品质倍率、掉落权重、仙人抚顶、上传权限</span>
+        <span class="summary-tip">兑换、广播、聊天成长、掉落倍率、仙人抚顶与上传权限</span>
       </summary>
       <div class="fold-body">
         <form id="settings-form" class="grid-form settings-layout">
@@ -79,45 +79,6 @@
           <section class="setting-panel">
             <div class="setting-panel-head">
               <div>
-                <strong>斗法与装备</strong>
-                <p>赌斗时间、灵石与法宝掠夺规则、装备位与解绑成本。</p>
-              </div>
-            </div>
-            <div class="setting-panel-grid">
-              <label>
-                赌斗下注倒计时（分钟）
-                <input id="setting-duel-minutes" type="number" min="1" max="15" value="2">
-              </label>
-              <label>
-                胜者额外掠夺比例（%）
-                <input id="setting-duel-steal" type="number" min="0" max="100" value="25">
-              </label>
-              <label>
-                法宝掠夺基础概率（%）
-                <input id="setting-artifact-plunder" type="number" min="0" max="100" value="20">
-              </label>
-              <label>
-                法宝装备上限
-                <input id="setting-artifact-limit" type="number" min="1" max="12" value="3">
-              </label>
-              <label>
-                装备解绑费用（每件/张）
-                <input id="setting-unbind-cost" type="number" min="0" value="100">
-              </label>
-              <label>
-                高品质群播阈值
-                <input id="setting-quality-broadcast" type="number" min="1" value="4">
-              </label>
-              <label>
-                仙人抚顶灌注等级
-                <input id="setting-immortal-touch-layers" type="number" min="1" max="9" value="1">
-              </label>
-            </div>
-          </section>
-
-          <section class="setting-panel">
-            <div class="setting-panel-head">
-              <div>
                 <strong>聊天与日常事件</strong>
                 <p>群聊修炼、抢劫和红包奖励统一管理。</p>
               </div>
@@ -148,16 +109,8 @@
                 <input id="setting-robbery-max" type="number" min="0" value="180">
               </label>
               <label>
-                红包奖励功德最低灵石
-                <input id="setting-red-stone" type="number" min="0" value="100">
-              </label>
-              <label>
-                红包奖励功德最低个数
-                <input id="setting-red-count" type="number" min="1" value="3">
-              </label>
-              <label>
-                红包奖励功德点数
-                <input id="setting-red-merit" type="number" min="0" value="2">
+                仙人抚顶灌注等级
+                <input id="setting-immortal-touch-layers" type="number" min="1" max="9" value="1">
               </label>
             </div>
           </section>
@@ -226,10 +179,61 @@
     <details class="card fold-card">
       <summary class="fold-summary">
         <div>
+          <p class="eyebrow" data-section-key="duel-settings">斗法设定</p>
+          <h2>斗法与装备规则</h2>
+        </div>
+        <span class="summary-tip">把斗法倒计时、掠夺比例、法宝位和解绑成本独立管理</span>
+      </summary>
+      <div class="fold-body">
+        <form id="duel-settings-form" class="grid-form settings-layout">
+          <section class="setting-panel setting-panel--full">
+            <div class="setting-panel-head">
+              <div>
+                <strong>斗法核心参数</strong>
+                <p>影响赌斗节奏、法宝掠夺和装备管理成本。</p>
+              </div>
+            </div>
+            <div class="setting-panel-grid">
+              <label>
+                赌斗下注倒计时（分钟）
+                <input id="setting-duel-minutes" type="number" min="1" max="15" value="2">
+              </label>
+              <label>
+                胜者额外掠夺比例（%）
+                <input id="setting-duel-steal" type="number" min="0" max="100" value="25">
+              </label>
+              <label>
+                法宝掠夺基础概率（%）
+                <input id="setting-artifact-plunder" type="number" min="0" max="100" value="20">
+              </label>
+              <label>
+                法宝装备上限
+                <input id="setting-artifact-limit" type="number" min="1" max="12" value="3">
+              </label>
+              <label>
+                装备解绑费用（每件/张）
+                <input id="setting-unbind-cost" type="number" min="0" value="100">
+              </label>
+              <label>
+                高品质群播阈值
+                <input id="setting-quality-broadcast" type="number" min="1" value="4">
+              </label>
+            </div>
+          </section>
+          <div class="form-actions wide-field">
+            <button type="submit">保存斗法设置</button>
+          </div>
+        </form>
+      </div>
+    </details>
+
+    <details class="card fold-card">
+      <summary class="fold-summary">
+        <div>
           <p class="eyebrow" data-section-key="artifacts">法宝</p>
           <h2>法宝管理</h2>
         </div>
-        <span class="summary-tip">战斗法宝与辅助法宝分开，只有辅助法宝可带功德词条</span>
+        <span class="summary-tip">战斗法宝偏向斗法，辅助法宝偏向属性与养成增益</span>
       </summary>
       <div class="fold-body">
         <form id="artifact-form" class="grid-form">
@@ -943,7 +947,21 @@
             <button type="submit">搜索</button>
           </div>
         </form>
+        <div id="player-search-summary" class="muted player-search-summary"></div>
         <div id="player-search-results" class="stack-list"></div>
+        <div id="player-search-pagination" class="player-pagination hidden">
+          <div class="player-pagination-actions">
+            <button id="player-page-prev" type="button" class="secondary">上一页</button>
+            <button id="player-page-next" type="button" class="secondary">下一页</button>
+          </div>
+          <form id="player-page-jump-form" class="player-page-jump">
+            <label>
+              跳转到页数
+              <input id="player-page-jump-input" type="number" min="1" inputmode="numeric" placeholder="输入页码">
+            </label>
+            <button type="submit" class="secondary">跳转</button>
+          </form>
+        </div>
         <div id="player-edit-panel" style="display:none;">
           <h3 id="player-edit-title" style="margin:12px 0 8px;font-size:1rem;"></h3>
           <div id="player-account-panel" class="stack-item" style="margin-bottom:12px;">

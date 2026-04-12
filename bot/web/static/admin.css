@@ -312,6 +312,10 @@ h2 {
   line-height: 1.5;
 }
 
+.plugin-meta[data-tone="error"] {
+  color: #b54c57;
+}
+
 .user-card {
   width: 100%;
   cursor: pointer;

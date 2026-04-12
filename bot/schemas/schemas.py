@@ -127,7 +127,17 @@ class MP(BaseModel):
 class AutoUpdate(BaseModel):
     status: bool = True
     git_repo: Optional[str] = "pivkeyu/pivkeyu_emby"  # github仓库名/魔改的请填自己的仓库
+    docker_image: Optional[str] = "pivkeyu/pivkeyu_emby:latest"
+    container_name: Optional[str] = "pivkeyu_emby"
+    compose_service: Optional[str] = "pivkeyu_emby"
+    check_interval_minutes: int = 30
     commit_sha: Optional[str] = None  # 最近一次commit
+    image_digest: Optional[str] = None  # 最近一次已应用的镜像摘要
+    last_remote_digest: Optional[str] = None  # 最近一次查询到的远端摘要
+    last_checked_at: Optional[str] = None  # 最近一次检查时间
+    last_remote_updated_at: Optional[str] = None  # 最近一次远端镜像更新时间
+    last_status: Optional[str] = None  # 最近一次检查结果
+    last_error: Optional[str] = None  # 最近一次错误
     up_description: Optional[str] = None  # 更新描述
 
 

@@ -1,7 +1,7 @@
 {
   "id": "xiuxian-game",
   "name": "修仙玩法",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "独立的修仙插件，包含灵根、境界、斗法、商店、法宝、丹药、排行榜和货币互通。",
   "entry": "plugin",
   "enabled": true,

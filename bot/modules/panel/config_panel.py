@@ -13,6 +13,7 @@ from bot.func_helper.filters import admins_on_filter
 from bot.func_helper.fix_bottons import config_preparation, close_it_ikb, back_config_p_ikb, back_set_ikb, mp_config_ikb
 from bot.func_helper.msg_utils import deleteMessage, editMessage, callAnswer, callListen, sendPhoto, sendFile
 from bot.func_helper.scheduler import scheduler
+from bot.scheduler.auto_update import update_auto_update_settings
 from bot.scheduler.sync_mp_download import sync_download_tasks
 from bot.sql_helper.sql_partition import (
     sql_add_partition_codes,
@@ -578,20 +579,22 @@ async def set_block(_, call):
 @bot.on_callback_query(filters.regex('set_update') & admins_on_filter)
 async def set_auto_update(_, call):
     try:
-        # 简化逻辑，只设置一次
-        auto_update.status = not auto_update.status
-        if auto_update.status:
-            message = '👮🏻‍♂️您已开启 auto_update 自动更新本女仆代码\n\n运行时间：12:30UTC+0800'
-            LOGGER.info(f"【admin】：主人 {call.from_user.first_name} 已启用 auto_update 自动更新本女仆代码")
+        state = update_auto_update_settings({"status": not auto_update.status})
+        if state["status"]:
+            message = (
+                "👮🏻‍♂️ 已开启自动更新\n\n"
+                f"仓库：{state['git_repo']}\n"
+                f"镜像：{state['docker_image']}\n"
+                f"间隔：{state['check_interval_minutes']} 分钟"
+            )
+            LOGGER.info(f"【admin】：主人 {call.from_user.first_name} 已启用自动更新")
         else:
-            message = '👮🏻‍♂️ 您已关闭 auto_update 自动更新本女仆代码，如您需要更换仓库，请于配置文件中 git_repo 填写'
-            LOGGER.info(f"【admin】：主人 {call.from_user.first_name} 已关闭 auto_update 自动更新本女仆代码")
+            message = "👮🏻‍♂️ 已关闭自动更新"
+            LOGGER.info(f"【admin】：主人 {call.from_user.first_name} 已关闭自动更新")
 
         await callAnswer(call, message, True)
         await config_p_re(_, call)
-        save_config()
     except Exception as e:
-        # 异常处理，记录错误信息
         LOGGER.error(f"【admin】：主人 {call.from_user.first_name} 尝试更改 auto_update状态时出错: {e}")
 
 

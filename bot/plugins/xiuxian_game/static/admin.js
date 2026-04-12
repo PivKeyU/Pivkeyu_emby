@@ -20,11 +20,18 @@ const ROLE_PRESETS = [
   ["inner_disciple", "内门弟子"],
   ["outer_disciple", "外门弟子"],
 ];
+const PLAYER_SEARCH_PAGE_SIZE = 10;
 
 const state = {
   token: localStorage.getItem("xiuxian_admin_token") || "",
   initData: tg?.initData || "",
   bundle: null,
+  playerSearch: {
+    query: "",
+    page: 1,
+    pageSize: PLAYER_SEARCH_PAGE_SIZE,
+    total: 0,
+  },
 };
 const backState = {
   fallbackPath: DEFAULT_BACK_PATH,
@@ -34,6 +41,7 @@ const backState = {
 
 const ADMIN_SECTION_LABELS = {
   settings: "\u57fa\u7840\u8bbe\u5b9a",
+  "duel-settings": "\u6597\u6cd5\u8bbe\u5b9a",
   artifacts: "\u6cd5\u5b9d",
   talismans: "\u7b26\u7bab",
   pills: "\u4e39\u836f",
@@ -47,7 +55,7 @@ const ADMIN_SECTION_LABELS = {
   "official shop": "\u5b98\u65b9\u5546\u5e97",
   players: "\u89d2\u8272\u7ba1\u7406",
 };
-const ADMIN_CORE_SECTION_KEYS = new Set(["settings", "tasks", "grant", "official shop", "players"]);
+const ADMIN_CORE_SECTION_KEYS = new Set(["settings", "duel-settings", "tasks", "grant", "official shop", "players"]);
 
 const ITEM_AFFIX_FIELDS = [
   ["attack", "攻击"],
@@ -571,7 +579,7 @@ function bindUploadButtons() {
       const target = $(button.dataset.uploadTarget);
       try {
         const payload = await uploadImage(file, button.dataset.uploadFolder || "admin");
-        if (target) target.value = payload.relative_url || payload.url;
+        if (target) target.value = payload.url || payload.relative_url;
         await popup("上传成功", "图片地址已经自动写回表单。");
       } catch (error) {
         await popup("上传失败", String(error.message || error), "error");
@@ -588,8 +596,6 @@ function updatePillEffectLabel() {
     label.childNodes[0].textContent = row.effect;
   }
 }
-
-function updateArtifactMeritState() {}
 
 function createBuilderRow(html) {
   const wrapper = document.createElement("div");
@@ -970,9 +976,6 @@ function applySettings(settings = {}) {
   $("setting-chat-max").value = settings.chat_cultivation_max_gain ?? 3;
   $("setting-robbery-limit").value = settings.robbery_daily_limit ?? 3;
   $("setting-robbery-max").value = settings.robbery_max_steal ?? 180;
-  $("setting-red-stone").value = settings.red_packet_merit_min_stone ?? 100;
-  $("setting-red-count").value = settings.red_packet_merit_min_count ?? 3;
-  $("setting-red-merit").value = settings.red_packet_merit_reward ?? 2;
   $("setting-quality-broadcast").value = settings.high_quality_broadcast_level ?? 4;
   const immortalTouchNode = $("setting-immortal-touch-layers");
   if (immortalTouchNode) immortalTouchNode.value = settings.immortal_touch_infusion_layers ?? 1;
@@ -995,7 +998,10 @@ async function bootstrapAdmin(forceToken = false) {
   applySettings(data.settings || {});
   syncSelects();
   renderWorld();
-  await searchPlayers($("player-search-q")?.value || "");
+  await searchPlayers({
+    query: $("player-search-q")?.value || "",
+    page: state.playerSearch?.page || 1,
+  });
   renderAdminNavigator();
   adminStatus(`修仙后台已就绪，当前管理数据加载完成。`, "success");
 }
@@ -1007,7 +1013,6 @@ async function submitAndRefresh(handler, successTitle, successMessage) {
 }
 
 function bindEvents() {
-  $("artifact-type")?.addEventListener("change", updateArtifactMeritState);
   $("pill-type")?.addEventListener("change", updatePillEffectLabel);
   $("recipe-result-kind")?.addEventListener("change", syncSelects);
   $("grant-kind")?.addEventListener("change", syncSelects);
@@ -1034,29 +1039,32 @@ function bindEvents() {
       coin_exchange_rate: Number($("setting-rate").value || 100),
       exchange_fee_percent: Number($("setting-fee").value || 1),
       min_coin_exchange: Number($("setting-min").value || 1),
-      duel_bet_minutes: Number($("setting-duel-minutes").value || 2),
-      duel_winner_steal_percent: Number($("setting-duel-steal").value || 25),
-      artifact_plunder_chance: Number($("setting-artifact-plunder").value || 20),
       message_auto_delete_seconds: Number($("setting-message-auto-delete").value || 0),
-      equipment_unbind_cost: Number($("setting-unbind-cost").value || 0),
       shop_broadcast_cost: Number($("setting-broadcast").value || 20),
       official_shop_name: $("setting-shop-name").value.trim(),
-      artifact_equip_limit: Number($("setting-artifact-limit").value || 3),
       allow_non_admin_image_upload: $("setting-user-upload").checked,
       chat_cultivation_chance: Number($("setting-chat-chance").value || 8),
       chat_cultivation_min_gain: Number($("setting-chat-min").value || 1),
       chat_cultivation_max_gain: Number($("setting-chat-max").value || 3),
       robbery_daily_limit: Number($("setting-robbery-limit").value || 3),
       robbery_max_steal: Number($("setting-robbery-max").value || 180),
-      red_packet_merit_min_stone: Number($("setting-red-stone").value || 100),
-      red_packet_merit_min_count: Number($("setting-red-count").value || 3),
-      red_packet_merit_reward: Number($("setting-red-merit").value || 2),
-      high_quality_broadcast_level: Number($("setting-quality-broadcast").value || 4),
       immortal_touch_infusion_layers: Number($("setting-immortal-touch-layers")?.value || 1),
       root_quality_value_rules: collectRootQualityRules(),
       item_quality_value_rules: collectItemQualityRules(),
       exploration_drop_weight_rules: collectDropWeightRules(),
     }), "保存成功", "基础规则已更新。");
+  });
+
+  $("duel-settings-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/settings", {
+      duel_bet_minutes: Number($("setting-duel-minutes").value || 2),
+      duel_winner_steal_percent: Number($("setting-duel-steal").value || 25),
+      artifact_plunder_chance: Number($("setting-artifact-plunder").value || 20),
+      equipment_unbind_cost: Number($("setting-unbind-cost").value || 0),
+      artifact_equip_limit: Number($("setting-artifact-limit").value || 3),
+      high_quality_broadcast_level: Number($("setting-quality-broadcast").value || 4),
+    }), "保存成功", "斗法与装备规则已更新。");
   });
 
   $("artifact-form")?.addEventListener("submit", async (event) => {
@@ -1076,7 +1084,6 @@ function bindEvents() {
       min_realm_layer: Number($("artifact-layer").value || 1),
     }), "创建成功", "法宝已加入修仙体系。");
     form?.reset?.();
-    updateArtifactMeritState();
     syncSelects();
   });
 
@@ -1220,7 +1227,6 @@ function bindEvents() {
   });
 
   bindUploadButtons();
-  updateArtifactMeritState();
   updatePillEffectLabel();
 }
 
@@ -1309,7 +1315,6 @@ function bindAttributeAwareSubmitters() {
     }), "创建成功", "法宝已经录入修仙体系。");
     form?.reset?.();
     syncSelects();
-    updateArtifactMeritState();
   }, true);
 
   $("talisman-form")?.addEventListener("submit", async (event) => {
@@ -1412,7 +1417,7 @@ function bindAttributeAwareSubmitters() {
     } catch (error) {
       const message = String(error.message || error);
       adminStatus(message, "error");
-      await popup("Upload Error", message, "error");
+      await popup("上传失败", message, "error");
     }
   });
 
@@ -1422,7 +1427,7 @@ function bindAttributeAwareSubmitters() {
     } catch (error) {
       const message = String(error.message || error);
       adminStatus(message, "error");
-      await popup("Upload Error", message, "error");
+      await popup("上传失败", message, "error");
     }
   });
 }
@@ -1535,14 +1540,83 @@ function renderPlayerAccount(account) {
   `;
 }
 
-async function searchPlayers(q = "") {
-  const data = await request("GET", `/plugins/xiuxian/admin-api/players?q=${encodeURIComponent(q)}&page=1&page_size=30`);
+function playerSearchTotalPages() {
+  const total = Number(state.playerSearch?.total || 0);
+  const pageSize = Number(state.playerSearch?.pageSize || PLAYER_SEARCH_PAGE_SIZE);
+  return Math.max(Math.ceil(total / pageSize), 1);
+}
+
+function renderPlayerSearchSummary(items = []) {
+  const node = $("player-search-summary");
+  if (!node) return;
+  const total = Number(state.playerSearch?.total || 0);
+  const page = Number(state.playerSearch?.page || 1);
+  const pageSize = Number(state.playerSearch?.pageSize || PLAYER_SEARCH_PAGE_SIZE);
+  const totalPages = playerSearchTotalPages();
+  if (total <= 0) {
+    node.textContent = "当前没有符合条件的角色。";
+    return;
+  }
+  const start = (page - 1) * pageSize + 1;
+  const end = Math.min(start + items.length - 1, total);
+  node.textContent = `共 ${total} 位角色，当前第 ${page}/${totalPages} 页，显示 ${start}-${end}。`;
+}
+
+function renderPlayerSearchPagination() {
+  const pagination = $("player-search-pagination");
+  const prevButton = $("player-page-prev");
+  const nextButton = $("player-page-next");
+  const jumpInput = $("player-page-jump-input");
+  if (!pagination || !prevButton || !nextButton || !jumpInput) return;
+  const total = Number(state.playerSearch?.total || 0);
+  const page = Number(state.playerSearch?.page || 1);
+  const totalPages = playerSearchTotalPages();
+  const hasItems = total > 0;
+  pagination.classList.toggle("hidden", !hasItems);
+  prevButton.disabled = !hasItems || page <= 1;
+  nextButton.disabled = !hasItems || page >= totalPages;
+  jumpInput.min = "1";
+  jumpInput.max = String(totalPages);
+  jumpInput.placeholder = hasItems ? `输入 1-${totalPages}` : "暂无页码";
+}
+
+function bindPlayerSearchResultClicks(container) {
+  container.querySelectorAll("[data-tg]").forEach((el) => {
+    el.addEventListener("click", () => {
+      openPlayerEdit(Number(el.dataset.tg)).catch((error) => popup("加载失败", String(error.message || error), "error"));
+    });
+  });
+}
+
+async function searchPlayers(options = {}) {
+  const query = String(options.query ?? state.playerSearch?.query ?? "");
+  const requestedPage = Math.max(Number(options.page ?? state.playerSearch?.page ?? 1), 1);
+  const pageSize = Number(options.pageSize ?? state.playerSearch?.pageSize ?? PLAYER_SEARCH_PAGE_SIZE);
   const container = $("player-search-results");
-  if (!data || !data.items || data.items.length === 0) {
+  if (container) {
+    container.innerHTML = `<article class="stack-item"><strong>正在加载角色...</strong></article>`;
+  }
+  const data = await request("GET", `/plugins/xiuxian/admin-api/players?q=${encodeURIComponent(query)}&page=${requestedPage}&page_size=${pageSize}`);
+  const total = Number(data?.total || 0);
+  const totalPages = Math.max(Math.ceil(total / Math.max(Number(data?.page_size || pageSize), 1)), 1);
+  if (total > 0 && requestedPage > totalPages) {
+    return searchPlayers({ query, page: totalPages, pageSize });
+  }
+  state.playerSearch = {
+    query,
+    page: Math.max(Number(data?.page || requestedPage), 1),
+    pageSize: Math.max(Number(data?.page_size || pageSize), 1),
+    total,
+  };
+  const items = data?.items || [];
+  renderPlayerSearchSummary(items);
+  renderPlayerSearchPagination();
+  if (!container) return;
+  if (!items.length) {
     container.innerHTML = `<article class="stack-item"><strong>未找到角色</strong></article>`;
     return;
   }
-  container.innerHTML = data.items.map((p) => `
+  container.innerHTML = items.map((p) => `
     <article class="stack-item" style="cursor:pointer" data-tg="${p.tg}">
       <div class="stack-item-head">
         <strong>${escapeHtml(p.display_label || p.display_name || (p.username ? "@" + p.username : "TG " + p.tg))}</strong>
@@ -1552,11 +1626,7 @@ async function searchPlayers(q = "") {
       <p>${escapeHtml(p.emby_account?.name || "未绑定 Emby")} · ${escapeHtml(p.emby_account?.embyid || "无 Emby ID")}</p>
     </article>
   `).join("");
-  container.querySelectorAll("[data-tg]").forEach((el) => {
-    el.addEventListener("click", () => {
-      openPlayerEdit(Number(el.dataset.tg)).catch((error) => popup("加载失败", String(error.message || error), "error"));
-    });
-  });
+  bindPlayerSearchResultClicks(container);
 }
 
 async function openPlayerEdit(tg) {
@@ -1588,7 +1658,10 @@ async function submitPlayerEdit(e) {
     await request("PATCH", `/plugins/xiuxian/admin-api/players/${tg}`, payload);
     await popup("操作成功", "角色属性已保存", "success");
     $("player-edit-panel").style.display = "none";
-    await searchPlayers($("player-search-q")?.value || "");
+    await searchPlayers({
+      query: $("player-search-q")?.value || "",
+      page: state.playerSearch?.page || 1,
+    });
   } catch (err) {
     await popup("保存失败", String(err.message || err), "error");
   }
@@ -1596,7 +1669,33 @@ async function submitPlayerEdit(e) {
 
 document.getElementById("player-search-form")?.addEventListener("submit", (e) => {
   e.preventDefault();
-  searchPlayers($("player-search-q")?.value || "");
+  searchPlayers({
+    query: $("player-search-q")?.value || "",
+    page: 1,
+  });
+});
+document.getElementById("player-page-prev")?.addEventListener("click", () => {
+  searchPlayers({
+    query: $("player-search-q")?.value || "",
+    page: Math.max((state.playerSearch?.page || 1) - 1, 1),
+  });
+});
+document.getElementById("player-page-next")?.addEventListener("click", () => {
+  searchPlayers({
+    query: $("player-search-q")?.value || "",
+    page: Math.min((state.playerSearch?.page || 1) + 1, playerSearchTotalPages()),
+  });
+});
+document.getElementById("player-page-jump-form")?.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const jumpInput = $("player-page-jump-input");
+  const totalPages = playerSearchTotalPages();
+  const targetPage = Math.min(Math.max(Number(jumpInput?.value || 1), 1), totalPages);
+  if (jumpInput) jumpInput.value = "";
+  searchPlayers({
+    query: $("player-search-q")?.value || "",
+    page: targetPage,
+  });
 });
 document.getElementById("player-edit-form")?.addEventListener("submit", submitPlayerEdit);
 document.getElementById("player-edit-cancel")?.addEventListener("click", () => {

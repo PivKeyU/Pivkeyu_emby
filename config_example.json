@@ -175,11 +175,21 @@
   "_comment_update": "自动更新。发布给别人用时建议默认关闭，避免误拉取其他仓库。",
   "auto_update": {
     "status": false,
-    "git_repo": "owner/pivkeyu_emby",
+    "git_repo": "pivkeyu/pivkeyu_emby",
+    "docker_image": "pivkeyu/pivkeyu_emby:latest",
+    "container_name": "pivkeyu_emby",
+    "compose_service": "pivkeyu_emby",
+    "check_interval_minutes": 30,
     "commit_sha": null,
+    "image_digest": null,
+    "last_remote_digest": null,
+    "last_checked_at": null,
+    "last_remote_updated_at": null,
+    "last_status": null,
+    "last_error": null,
     "up_description": null
   },
-  "_comment_update_2": "如果要启用自动更新，请把 git_repo 改成你自己的 GitHub 仓库 owner/repo。",
+  "_comment_update_2": "如果要启用自动更新，建议同时挂载 /var/run/docker.sock 并确保容器内可用 docker compose，以便自动拉取镜像并重建服务。",
 
   "_comment_red_envelope": "红包玩法开关。",
   "red_envelope": {

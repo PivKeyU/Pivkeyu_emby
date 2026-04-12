@@ -61,6 +61,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./log:/app/log
+      - /var/run/docker.sock:/var/run/docker.sock
 
   pivkeyu-caddy:
     image: caddy:2-alpine

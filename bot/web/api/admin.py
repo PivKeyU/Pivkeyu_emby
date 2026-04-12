@@ -11,6 +11,7 @@ from sqlalchemy import func
 from bot import LOGGER, bot, config, save_config
 from bot.func_helper.utils import cr_link_one, rn_link_one
 from bot.plugins import PluginImportError, import_plugin_archive, list_plugins, sync_plugin_runtime_state
+from bot.scheduler.auto_update import serialize_auto_update_state, update_auto_update_settings
 from bot.sql_helper import Session
 from bot.sql_helper.sql_code import Code, CodeRedeem
 from bot.sql_helper.sql_emby import Emby
@@ -38,6 +39,15 @@ class AdminUserPatch(BaseModel):
 class AdminPluginPatch(BaseModel):
     enabled: bool | None = None
     bottom_nav_visible: bool | None = None
+
+
+class AdminAutoUpdatePatch(BaseModel):
+    status: bool | None = None
+    git_repo: str | None = None
+    docker_image: str | None = None
+    container_name: str | None = None
+    compose_service: str | None = None
+    check_interval_minutes: int | None = Field(default=None, ge=5, le=1440)
 
 
 class AdminCodeCreatePayload(BaseModel):
@@ -310,8 +320,20 @@ async def summary():
             "active_accounts": active_accounts,
             "banned_users": banned_users,
             "total_currency": int(total_currency),
+            "auto_update": serialize_auto_update_state(),
         },
     }
+
+
+@router.get("/system/auto-update")
+async def get_auto_update():
+    return {"code": 200, "data": serialize_auto_update_state()}
+
+
+@router.patch("/system/auto-update")
+async def patch_auto_update(payload: AdminAutoUpdatePatch):
+    data = update_auto_update_settings(payload.model_dump(exclude_unset=True))
+    return {"code": 200, "data": data}
 
 
 @router.get("/users")

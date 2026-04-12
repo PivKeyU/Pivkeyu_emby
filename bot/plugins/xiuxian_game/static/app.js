@@ -1670,6 +1670,28 @@ document.querySelector("#task-image-upload")?.addEventListener("click", async (e
   }
 });
 
+document.querySelector("#red-image-upload")?.addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const fileInput = document.querySelector("#red-image-file");
+  const targetInput = document.querySelector("#red-image");
+  const file = fileInput?.files?.[0];
+  try {
+    const payload = await runButtonAction(button, "上传中…", () =>
+      uploadImage("/plugins/xiuxian/api/upload-image", file, "red-envelopes")
+    );
+    targetInput.value = payload.url;
+    if (fileInput) {
+      fileInput.value = "";
+    }
+    setStatus("红包封面上传成功，已自动回填地址。", "success");
+    await popup("上传成功", "红包封面图已上传并写入当前表单。");
+  } catch (error) {
+    const message = normalizeError(error, "红包封面上传失败。");
+    setStatus(message, "error");
+    await popup("上传失败", message, "error");
+  }
+});
+
 document.querySelector("#task-form-legacy")?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
@@ -1809,6 +1831,7 @@ document.querySelector("#red-envelope-form")?.addEventListener("submit", async (
   try {
     const payload = await runButtonAction(button, "发送中…", () => postJson("/plugins/xiuxian/api/red-envelope/create", {
       cover_text: document.querySelector("#red-cover").value.trim(),
+      image_url: document.querySelector("#red-image").value.trim(),
       mode: document.querySelector("#red-mode").value,
       amount_total: Number(document.querySelector("#red-amount").value || 0),
       count_total: Number(document.querySelector("#red-count").value || 1),

@@ -8,7 +8,9 @@ async def check_restart():
     if schedall.restart_chat_id != 0:
         chat_id, msg_id = schedall.restart_chat_id, schedall.restart_msg_id
         up_description = auto_update.up_description if auto_update.up_description else ""
-        text = 'Restarted Successfully!\n\n' + up_description
+        text = "✅ 本女仆已完成重启并加载新版本。"
+        if up_description:
+            text += "\n\n" + up_description
         try:
             await bot.edit_message_text(chat_id=chat_id, message_id=msg_id, text=text)
         except BadRequest:

@@ -95,6 +95,19 @@ const refs = {
   codePrevPage: document.querySelector("#codes-prev-page"),
   codeNextPage: document.querySelector("#codes-next-page"),
   codePageLabel: document.querySelector("#codes-page-label"),
+  autoUpdateForm: document.querySelector("#auto-update-form"),
+  autoUpdateSave: document.querySelector("#auto-update-save"),
+  autoUpdateStatus: document.querySelector("#auto-update-status"),
+  autoUpdateGitRepo: document.querySelector("#auto-update-git-repo"),
+  autoUpdateDockerImage: document.querySelector("#auto-update-docker-image"),
+  autoUpdateComposeService: document.querySelector("#auto-update-compose-service"),
+  autoUpdateContainerName: document.querySelector("#auto-update-container-name"),
+  autoUpdateInterval: document.querySelector("#auto-update-interval"),
+  autoUpdateEnabledText: document.querySelector("#update-enabled-text"),
+  autoUpdateLastChecked: document.querySelector("#update-last-checked"),
+  autoUpdateLastStatus: document.querySelector("#update-last-status"),
+  autoUpdateCommitSha: document.querySelector("#update-commit-sha"),
+  autoUpdateNote: document.querySelector("#update-note"),
   pluginList: document.querySelector("#plugin-list"),
   pluginImportForm: document.querySelector("#plugin-import-form"),
   pluginImportFile: document.querySelector("#plugin-import-file"),
@@ -541,6 +554,21 @@ function setSummary(data) {
   document.querySelector("#summary-currency").textContent = formatCount(data.total_currency);
 }
 
+function setAutoUpdate(data = {}) {
+  refs.autoUpdateEnabledText.textContent = data.status ? "已启用" : "已关闭";
+  refs.autoUpdateLastChecked.textContent = fmtDateTime(data.last_checked_at);
+  refs.autoUpdateLastStatus.textContent = data.last_status || "未运行";
+  refs.autoUpdateCommitSha.textContent = data.commit_sha ? String(data.commit_sha).slice(0, 7) : "未记录";
+  refs.autoUpdateStatus.checked = Boolean(data.status);
+  refs.autoUpdateGitRepo.value = data.git_repo || "";
+  refs.autoUpdateDockerImage.value = data.docker_image || "";
+  refs.autoUpdateComposeService.value = data.compose_service || "";
+  refs.autoUpdateContainerName.value = data.container_name || "";
+  refs.autoUpdateInterval.value = Number(data.check_interval_minutes || 30);
+  refs.autoUpdateNote.textContent = data.up_description || data.last_error || "保存后会按设定间隔检查 GitHub 与 Docker 镜像。";
+  refs.autoUpdateNote.dataset.tone = data.last_error ? "error" : "info";
+}
+
 function renderUsers(items) {
   refs.userList.innerHTML = "";
 
@@ -757,6 +785,12 @@ function fillEditor(item) {
 async function loadSummary() {
   const result = await api("/admin-api/summary");
   setSummary(result.data);
+  setAutoUpdate(result.data.auto_update || {});
+}
+
+async function loadAutoUpdate() {
+  const result = await api("/admin-api/system/auto-update");
+  setAutoUpdate(result.data || {});
 }
 
 async function loadPlugins() {
@@ -825,7 +859,7 @@ async function loadUser(tg) {
 }
 
 async function refreshDashboard() {
-  await Promise.all([loadSummary(), loadPlugins(), loadUsers(), loadCodes()]);
+  await Promise.all([loadSummary(), loadAutoUpdate(), loadPlugins(), loadUsers(), loadCodes()]);
 }
 
 async function tryTelegramAuth() {
@@ -967,6 +1001,35 @@ async function createCodes(event) {
   }
 }
 
+async function saveAutoUpdate(event) {
+  event.preventDefault();
+
+  const payload = {
+    status: refs.autoUpdateStatus.checked,
+    git_repo: refs.autoUpdateGitRepo.value.trim() || null,
+    docker_image: refs.autoUpdateDockerImage.value.trim() || null,
+    compose_service: refs.autoUpdateComposeService.value.trim() || null,
+    container_name: refs.autoUpdateContainerName.value.trim() || null,
+    check_interval_minutes: Number(refs.autoUpdateInterval.value || 30)
+  };
+
+  try {
+    const result = await runButtonAction(refs.autoUpdateSave, "保存中...", () => api("/admin-api/system/auto-update", {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    }));
+    setAutoUpdate(result.data || {});
+    setAdminStatus("自动更新配置已保存。", "success");
+    showToast("自动更新配置已保存。", "success");
+    await popup("保存成功", "自动更新配置已保存，新的定时规则已经生效。", "success");
+  } catch (error) {
+    const message = normalizeError(error);
+    setAdminStatus(`保存自动更新配置失败：${message}`, "error");
+    showToast(`保存失败：${message}`, "error");
+    await popup("保存失败", message, "error");
+  }
+}
+
 async function deleteSelectedCodes() {
   const codes = [...state.selectedCodes];
   if (!codes.length) {
@@ -1023,6 +1086,7 @@ function syncSuffixField() {
 }
 
 refs.codeCreateForm?.addEventListener("submit", createCodes);
+refs.autoUpdateForm?.addEventListener("submit", saveAutoUpdate);
 refs.codeCreateSuffixMode?.addEventListener("change", syncSuffixField);
 refs.codeCreateCopy?.addEventListener("click", async () => {
   const value = refs.codeOutput.value.trim();

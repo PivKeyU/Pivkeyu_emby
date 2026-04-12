@@ -248,11 +248,38 @@ button:disabled {
   font-size: 12px;
 }
 
+.player-search-summary {
+  min-height: 18px;
+  font-size: 12px;
+}
+
 .stack-item-head {
   display: flex;
   justify-content: space-between;
   gap: 8px;
   align-items: start;
+}
+
+.player-pagination {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(91, 140, 255, 0.08);
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.player-pagination-actions,
+.player-page-jump {
+  display: grid;
+  gap: 10px;
+}
+
+.player-page-jump label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .item-tags {
@@ -430,6 +457,20 @@ button:disabled {
   .inline-actions,
   .upload-inline {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .player-pagination {
+    grid-template-columns: auto minmax(260px, 360px);
+    align-items: end;
+  }
+
+  .player-pagination-actions {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
+
+  .player-page-jump {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
   }
 
   .builder-row {

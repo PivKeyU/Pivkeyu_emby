@@ -13,6 +13,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
         default-libmysqlclient-dev \
+        docker-compose \
+        docker.io \
         git \
         libffi-dev \
         libjpeg-dev \

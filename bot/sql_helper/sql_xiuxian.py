@@ -104,6 +104,12 @@ DEFAULT_ITEM_QUALITY_VALUE_RULES = {
     "仙品": {"artifact_multiplier": 1.0, "pill_multiplier": 1.0, "talisman_multiplier": 1.0},
     "先天至宝": {"artifact_multiplier": 1.0, "pill_multiplier": 1.0, "talisman_multiplier": 1.0},
 }
+DEPRECATED_XIUXIAN_SETTING_KEYS = {
+    "red_packet_merit_min_stone",
+    "red_packet_merit_min_count",
+    "red_packet_merit_reward",
+    "red_packet_merit_modes",
+}
 DEFAULT_SETTINGS = {
     "coin_exchange_rate": 100,
     "exchange_fee_percent": 1,
@@ -121,10 +127,6 @@ DEFAULT_SETTINGS = {
     "chat_cultivation_max_gain": 3,
     "robbery_daily_limit": 3,
     "robbery_max_steal": 180,
-    "red_packet_merit_min_stone": 100,
-    "red_packet_merit_min_count": 3,
-    "red_packet_merit_reward": 2,
-    "red_packet_merit_modes": ["normal", "lucky", "exclusive"],
     "high_quality_broadcast_level": 4,
     "root_quality_value_rules": DEFAULT_ROOT_QUALITY_VALUE_RULES,
     "exploration_drop_weight_rules": DEFAULT_EXPLORATION_DROP_WEIGHT_RULES,
@@ -534,6 +536,7 @@ class XiuxianRedEnvelope(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     creator_tg = Column(BigInteger, nullable=False)
     cover_text = Column(String(255), nullable=True)
+    image_url = Column(String(512), nullable=True)
     mode = Column(String(16), nullable=False)
     target_tg = Column(BigInteger, nullable=True)
     amount_total = Column(Integer, default=0, nullable=False)
@@ -1020,6 +1023,7 @@ def serialize_red_envelope(envelope: XiuxianRedEnvelope | None) -> dict[str, Any
         "id": envelope.id,
         "creator_tg": envelope.creator_tg,
         "cover_text": envelope.cover_text,
+        "image_url": envelope.image_url,
         "mode": envelope.mode,
         "mode_label": ENVELOPE_MODE_LABELS.get(envelope.mode, envelope.mode),
         "target_tg": envelope.target_tg,
@@ -1220,14 +1224,17 @@ def get_xiuxian_settings() -> dict[str, Any]:
     with Session() as session:
         rows = session.query(XiuxianSetting).all()
         settings = {row.setting_key: row.setting_value for row in rows}
+    for key in DEPRECATED_XIUXIAN_SETTING_KEYS:
+        settings.pop(key, None)
     merged = copy.deepcopy(DEFAULT_SETTINGS)
     merged.update(settings)
     return merged
 
 
 def set_xiuxian_settings(patch: dict[str, Any]) -> dict[str, Any]:
+    sanitized_patch = {key: value for key, value in patch.items() if key not in DEPRECATED_XIUXIAN_SETTING_KEYS}
     with Session() as session:
-        for key, value in patch.items():
+        for key, value in sanitized_patch.items():
             row = session.query(XiuxianSetting).filter(XiuxianSetting.setting_key == key).first()
             if row is None:
                 row = XiuxianSetting(setting_key=key, setting_value=value)

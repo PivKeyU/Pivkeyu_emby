@@ -2,16 +2,16 @@ import asyncio
 import os
 from sys import argv, executable
 
-import requests
 from pyrogram import filters
 from pyrogram.types import Message
 
-from bot import bot, sakura_b, schedall, save_config, prefixes, _open, owner, LOGGER, auto_update, group
+from bot import LOGGER, _open, bot, owner, prefixes, sakura_b, save_config, schedall
 from bot.func_helper.filters import admins_on_filter, user_in_group_on_filter
 from bot.func_helper.fix_bottons import sched_buttons, plays_list_button
 from bot.func_helper.msg_utils import callAnswer, editMessage, deleteMessage
 from bot.func_helper.scheduler import scheduler
 from bot.scheduler import *
+from bot.scheduler.auto_update import ensure_auto_update_schedule, run_auto_update
 
 
 # 初始化命令 开机检查重启
@@ -65,6 +65,7 @@ def set_all_sche():
 
 
 set_all_sche()
+ensure_auto_update_schedule()
 
 
 async def sched_panel(_, msg):
@@ -182,83 +183,15 @@ async def page_uplayrank(_, call):
     text = a[j - 1]
     await editMessage(call, text, buttons=button)
 
-
-from asyncio import create_subprocess_shell
-
-from asyncio.subprocess import PIPE
-
-
-async def execute(command, pass_error=True):
-    """执行"""
-    executor = await create_subprocess_shell(
-        command, stdout=PIPE, stderr=PIPE, stdin=PIPE
-    )
-
-    stdout, stderr = await executor.communicate()
-    if pass_error:
-        try:
-            result = str(stdout.decode().strip()) + str(stderr.decode().strip())
-        except UnicodeDecodeError:
-            result = str(stdout.decode("gbk").strip()) + str(stderr.decode("gbk").strip())
-    else:
-        try:
-            result = str(stdout.decode().strip())
-        except UnicodeDecodeError:
-            result = str(stdout.decode("gbk").strip())
-    return result
-
-
-@scheduler.SCHEDULER.scheduled_job('cron', hour='12', minute='30', id='update_bot')
-async def update_bot(force: bool = False, msg: Message = None, manual: bool = False):
-    """
-    此为未被测试的代码片段。
-    """
-    # print("update")
-    if not auto_update.status and not manual: return
-    commit_url = f"https://api.github.com/repos/{auto_update.git_repo}/commits?per_page=1"
-    resp = requests.get(commit_url)
-    if resp.status_code == 200:
-        latest_commit = resp.json()[0]["sha"]
-        if latest_commit != auto_update.commit_sha:
-            up_description = resp.json()[0]["commit"]["message"]
-            await execute("git fetch --all")
-            if force:  # 默认不重置，保留本地更改
-                await execute("git reset --hard origin/master")
-            await execute("git pull --all")
-            # await execute(f"{executable} -m pip install --upgrade -r requirements.txt")
-            await execute(f"{executable} -m pip install  -r requirements.txt")
-            text = '【AutoUpdate】运行成功，已更新本女仆代码。正在重启本女仆...'
-            if not msg:
-                reply = await bot.send_message(chat_id=group[0], text=text)
-                schedall.restart_chat_id = group[0]
-                schedall.restart_msg_id = reply.id
-            else:
-                await msg.edit(text)
-            LOGGER.info(text)
-            auto_update.commit_sha = latest_commit
-            auto_update.up_description = up_description
-            save_config()
-            os.execl(executable, executable, *argv)
-        else:
-            message = "✅ 【AutoUpdate】运行成功，未检测到更新，结束"
-            await bot.send_message(chat_id=group[0], text=message) if not msg else await msg.edit(message)
-            LOGGER.info(message)
-
-    else:
-        text = '❌ 【AutoUpdate】失败，请检查 git_repo 是否正确，形如 `owner/pivkeyu_emby`'
-        await bot.send_message(chat_id=group[0], text=text) if not msg else await msg.edit(text)
-        LOGGER.info(text)
-
-
 @bot.on_message(filters.command('update_bot', prefixes) & admins_on_filter)
 async def get_update_bot(_, msg: Message):
     delete_task = msg.delete()
-    send_task = bot.send_message(chat_id=msg.chat.id, text='⏳ 正在更新本女仆代码，请稍等。。。')
+    send_task = bot.send_message(chat_id=msg.chat.id, text='⏳ 正在检查 GitHub 与 Docker 镜像更新，请稍等。。。')
     results = await asyncio.gather(delete_task, send_task)
-    # results[1] 是发送消息的结果，从中提取 chat_id 和 message_id
     if len(results) == 2 and isinstance(results[1], Message):
         reply = results[1]
-        schedall.restart_chat_id = reply.chat.id
-        schedall.restart_msg_id = reply.id
-        save_config()
-        await update_bot(msg=reply, manual=True)
+        try:
+            await run_auto_update(manual=True, reply_message=reply)
+        except Exception as exc:
+            LOGGER.error(f"manual auto update failed: {exc}")
+            await reply.edit(f"❌ 自动更新失败：{exc}")

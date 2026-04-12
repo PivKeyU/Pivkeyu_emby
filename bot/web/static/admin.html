@@ -81,6 +81,7 @@
       </div>
       <div class="control-pills">
         <button type="button" class="nav-pill" data-section-target="summary-section">概览</button>
+        <button type="button" class="nav-pill" data-section-target="update-section">自动更新</button>
         <button type="button" class="nav-pill" data-section-target="codes-section">注册码</button>
         <button type="button" class="nav-pill" data-section-target="users-section">用户检索</button>
         <button type="button" class="nav-pill" data-section-target="editor-section">用户编辑</button>
@@ -115,6 +116,73 @@
             <strong id="summary-currency">-</strong>
           </article>
         </div>
+      </div>
+    </details>
+
+    <details id="update-section" class="card fold-card">
+      <summary class="fold-summary">
+        <div>
+          <p class="eyebrow">自动更新</p>
+          <h2>更新策略</h2>
+        </div>
+        <span class="summary-tip">支持后台开关定时更新、仓库地址同步和镜像检查配置</span>
+      </summary>
+      <div class="fold-body">
+        <div class="summary-grid">
+          <article class="metric-card">
+            <span>当前状态</span>
+            <strong id="update-enabled-text">-</strong>
+          </article>
+          <article class="metric-card">
+            <span>最近检查</span>
+            <strong id="update-last-checked">-</strong>
+          </article>
+          <article class="metric-card">
+            <span>最近结果</span>
+            <strong id="update-last-status">-</strong>
+          </article>
+          <article class="metric-card">
+            <span>当前提交</span>
+            <strong id="update-commit-sha">-</strong>
+          </article>
+        </div>
+
+        <section class="plugin-import-card">
+          <div>
+            <p class="eyebrow">调度配置</p>
+            <h3>自动更新设置</h3>
+          </div>
+          <p id="update-note" class="plugin-meta">-</p>
+          <form id="auto-update-form" class="grid-form">
+            <label class="wide-field inline-check">
+              <input id="auto-update-status" type="checkbox">
+              启用定时更新
+            </label>
+            <label>
+              GitHub 仓库
+              <input id="auto-update-git-repo" type="text" placeholder="owner/repo">
+            </label>
+            <label>
+              Docker 镜像
+              <input id="auto-update-docker-image" type="text" placeholder="namespace/name:tag">
+            </label>
+            <label>
+              Compose 服务名
+              <input id="auto-update-compose-service" type="text" placeholder="pivkeyu_emby">
+            </label>
+            <label>
+              容器名
+              <input id="auto-update-container-name" type="text" placeholder="pivkeyu_emby">
+            </label>
+            <label>
+              检查间隔（分钟）
+              <input id="auto-update-interval" type="number" min="5" max="1440" value="30">
+            </label>
+            <div class="form-actions">
+              <button id="auto-update-save" type="submit">保存更新设置</button>
+            </div>
+          </form>
+        </section>
       </div>
     </details>
 
