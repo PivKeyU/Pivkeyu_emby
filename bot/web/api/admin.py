@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import os
+import shutil
+import time
 from datetime import datetime
 from time import monotonic
+from sys import argv, executable
 from typing import Any
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func
+from starlette.background import BackgroundTask
 
 from bot import LOGGER, bot, config, save_config
 from bot.func_helper.utils import cr_link_one, rn_link_one
@@ -15,6 +21,7 @@ from bot.scheduler.auto_update import serialize_auto_update_state, update_auto_u
 from bot.sql_helper import Session
 from bot.sql_helper.sql_code import Code, CodeRedeem
 from bot.sql_helper.sql_emby import Emby
+from bot.web.migration_bundle import MigrationBundleError, create_migration_bundle, restore_migration_bundle
 from bot.web.presenters import get_level_meta, serialize_emby_user
 
 router = APIRouter()
@@ -178,6 +185,18 @@ def _resolve_admin_actor_id(request: Request) -> int | None:
         return None
 
 
+def _restart_current_process() -> None:
+    service_name = os.getenv("PIVKEYU_RESTART_SERVICE", "").strip()
+    if service_name and os.path.exists("/bin/systemctl"):
+        os.execl("/bin/systemctl", "systemctl", "restart", service_name)
+    os.execl(executable, executable, *argv)
+
+
+def _restart_after_delay(seconds: float = 1.0) -> None:
+    time.sleep(max(float(seconds), 0.1))
+    _restart_current_process()
+
+
 def _serialize_code_actor(
     tg: int | None,
     identity_map: dict[int, dict[str, str]],
@@ -334,6 +353,47 @@ async def get_auto_update():
 async def patch_auto_update(payload: AdminAutoUpdatePatch):
     data = update_auto_update_settings(payload.model_dump(exclude_unset=True))
     return {"code": 200, "data": data}
+
+
+@router.get("/system/migration/export")
+async def export_migration_bundle():
+    exported = create_migration_bundle()
+    return FileResponse(
+        exported["archive_path"],
+        media_type="application/zip",
+        filename=exported["filename"],
+        background=BackgroundTask(shutil.rmtree, exported["temp_root"], ignore_errors=True),
+    )
+
+
+@router.post("/system/migration/import")
+async def import_migration_bundle_api(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    restore_config_file: bool = Form(False),
+    restart_after_import: bool = Form(True),
+):
+    try:
+        imported = restore_migration_bundle(await file.read(), restore_config_file=restore_config_file)
+    except MigrationBundleError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        LOGGER.error(f"migration bundle import failed: {exc}")
+        raise HTTPException(status_code=500, detail="迁移压缩包导入失败，请检查日志。") from exc
+    finally:
+        await file.close()
+
+    if restart_after_import:
+        background_tasks.add_task(_restart_after_delay, 1.2)
+
+    return {
+        "code": 200,
+        "data": {
+            **imported,
+            "restart_scheduled": bool(restart_after_import),
+            "source_filename": file.filename or "migration.zip",
+        },
+    }
 
 
 @router.get("/users")

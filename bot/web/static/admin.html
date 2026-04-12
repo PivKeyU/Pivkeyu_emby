@@ -82,6 +82,7 @@
       <div class="control-pills">
         <button type="button" class="nav-pill" data-section-target="summary-section">概览</button>
         <button type="button" class="nav-pill" data-section-target="update-section">自动更新</button>
+        <button type="button" class="nav-pill" data-section-target="migration-section">数据迁移</button>
         <button type="button" class="nav-pill" data-section-target="codes-section">注册码</button>
         <button type="button" class="nav-pill" data-section-target="users-section">用户检索</button>
         <button type="button" class="nav-pill" data-section-target="editor-section">用户编辑</button>
@@ -180,6 +181,55 @@
             </label>
             <div class="form-actions">
               <button id="auto-update-save" type="submit">保存更新设置</button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </details>
+
+    <details id="migration-section" class="card fold-card">
+      <summary class="fold-summary">
+        <div>
+          <p class="eyebrow">数据迁移</p>
+          <h2>导出与导入</h2>
+        </div>
+        <span class="summary-tip">支持导出整站迁移压缩包，并一键导入数据库、插件数据和运行时配置</span>
+      </summary>
+      <div class="fold-body">
+        <section class="plugin-import-card">
+          <div>
+            <p class="eyebrow">导出压缩包</p>
+            <h3>导出当前 Bot 数据</h3>
+          </div>
+          <p class="plugin-meta">导出的 ZIP 会包含数据库快照、当前插件信息、运行时插件目录、插件数据目录和 <code>data/config.json</code>，方便迁移到新环境。</p>
+          <div class="form-actions">
+            <button id="migration-export-button" type="button">导出迁移压缩包</button>
+          </div>
+        </section>
+
+        <section class="plugin-import-card">
+          <div>
+            <p class="eyebrow">导入压缩包</p>
+            <h3>恢复迁移数据</h3>
+          </div>
+          <p id="migration-note" class="plugin-meta">导入会覆盖压缩包内包含的数据库信息、插件目录和插件数据。若勾选恢复配置，还会同步覆盖 <code>data/config.json</code>。</p>
+          <form id="migration-import-form" class="grid-form">
+            <label>
+              迁移压缩包
+              <input id="migration-import-file" type="file" accept=".zip,application/zip" required>
+            </label>
+            <div class="check-row">
+              <label class="check-item">
+                <input id="migration-restore-config" type="checkbox">
+                同时恢复 <code>data/config.json</code>
+              </label>
+              <label class="check-item">
+                <input id="migration-restart-after-import" type="checkbox" checked>
+                导入完成后自动重启 Bot
+              </label>
+            </div>
+            <div class="form-actions">
+              <button id="migration-import-submit" type="submit">导入迁移压缩包</button>
             </div>
           </form>
         </section>

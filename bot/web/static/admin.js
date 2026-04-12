@@ -108,6 +108,13 @@ const refs = {
   autoUpdateLastStatus: document.querySelector("#update-last-status"),
   autoUpdateCommitSha: document.querySelector("#update-commit-sha"),
   autoUpdateNote: document.querySelector("#update-note"),
+  migrationExportButton: document.querySelector("#migration-export-button"),
+  migrationImportForm: document.querySelector("#migration-import-form"),
+  migrationImportFile: document.querySelector("#migration-import-file"),
+  migrationRestoreConfig: document.querySelector("#migration-restore-config"),
+  migrationRestartAfterImport: document.querySelector("#migration-restart-after-import"),
+  migrationImportSubmit: document.querySelector("#migration-import-submit"),
+  migrationNote: document.querySelector("#migration-note"),
   pluginList: document.querySelector("#plugin-list"),
   pluginImportForm: document.querySelector("#plugin-import-form"),
   pluginImportFile: document.querySelector("#plugin-import-file"),
@@ -432,6 +439,60 @@ async function importPluginArchive(file, options = {}) {
   body.append("enabled", String(Boolean(options.enabled)));
   body.append("replace_existing", String(Boolean(options.replaceExisting)));
   return api("/admin-api/plugins/import", {
+    method: "POST",
+    body
+  });
+}
+
+function resolveDownloadFilename(contentDisposition, fallback = "pivkeyu-migration.zip") {
+  if (!contentDisposition) {
+    return fallback;
+  }
+
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
+  }
+
+  const plainMatch = contentDisposition.match(/filename=\"?([^\";]+)\"?/i);
+  return plainMatch?.[1] || fallback;
+}
+
+async function downloadMigrationBundle() {
+  const response = await fetch("/admin-api/system/migration/export", {
+    headers: authHeaders()
+  });
+
+  if (!response.ok) {
+    const payload = await readPayload(response);
+    throw new Error(payload.detail || payload.message || `请求失败（HTTP ${response.status}）`);
+  }
+
+  const blob = await response.blob();
+  const filename = resolveDownloadFilename(
+    response.headers.get("content-disposition"),
+    `pivkeyu-migration-${Date.now()}.zip`
+  );
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
+async function importMigrationArchive(file, options = {}) {
+  const body = new FormData();
+  body.append("file", file);
+  body.append("restore_config_file", String(Boolean(options.restoreConfig)));
+  body.append("restart_after_import", String(Boolean(options.restartAfterImport)));
+  return api("/admin-api/system/migration/import", {
     method: "POST",
     body
   });
@@ -1165,6 +1226,82 @@ refs.codeClearSelection?.addEventListener("click", () => {
 });
 
 refs.codeDeleteSelected?.addEventListener("click", deleteSelectedCodes);
+
+refs.migrationExportButton?.addEventListener("click", async () => {
+  try {
+    await runButtonAction(refs.migrationExportButton, "打包中...", downloadMigrationBundle);
+    const message = "迁移压缩包已开始下载，包含数据库快照、插件信息和当前运行时数据。";
+    setAdminStatus(message, "success");
+    refs.migrationNote.textContent = message;
+    refs.migrationNote.dataset.tone = "info";
+    showToast("迁移压缩包已开始下载。", "success");
+  } catch (error) {
+    const message = normalizeError(error);
+    setAdminStatus(`导出迁移压缩包失败：${message}`, "error");
+    refs.migrationNote.textContent = `导出失败：${message}`;
+    refs.migrationNote.dataset.tone = "error";
+    showToast(`导出失败：${message}`, "error");
+    await popup("导出失败", message, "error");
+  }
+});
+
+refs.migrationImportForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const file = refs.migrationImportFile?.files?.[0];
+  if (!file) {
+    setAdminStatus("请先选择迁移 ZIP 压缩包。", "warning");
+    refs.migrationNote.textContent = "请先选择迁移 ZIP 压缩包，再执行导入。";
+    refs.migrationNote.dataset.tone = "info";
+    showToast("请先选择迁移 ZIP。", "warning");
+    await popup("缺少文件", "请先选择迁移 ZIP 压缩包，再执行导入。", "warning");
+    return;
+  }
+
+  const confirmed = window.confirm("导入迁移压缩包会覆盖压缩包内包含的数据库和插件数据；如果勾选了配置恢复，还会覆盖 data/config.json。是否继续？");
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const result = await runButtonAction(event.submitter || refs.migrationImportSubmit, "导入中...", () => importMigrationArchive(file, {
+      restoreConfig: refs.migrationRestoreConfig?.checked,
+      restartAfterImport: refs.migrationRestartAfterImport?.checked
+    }));
+    const payload = result.data || {};
+    const restoredTableCount = payload.database?.restored_tables?.length || 0;
+    const restoredDataCount = payload.data?.count || 0;
+    const warnings = Array.isArray(payload.warnings) ? payload.warnings : [];
+    const restartScheduled = Boolean(payload.restart_scheduled);
+    let message = `迁移压缩包已导入，已恢复 ${restoredTableCount} 张数据表和 ${restoredDataCount} 项运行时数据。`;
+    if (payload.config?.restored) {
+      message += " 已同步恢复配置文件。";
+    }
+
+    if (restartScheduled) {
+      message += " Bot 即将自动重启，请稍后重新进入后台。";
+    } else {
+      message += " 请尽快手动重启 Bot，以加载新的配置和插件状态。";
+    }
+    if (warnings.length) {
+      message += ` 注意：${warnings.join("；")}`;
+    }
+
+    refs.migrationImportForm.reset();
+    refs.migrationNote.textContent = message;
+    refs.migrationNote.dataset.tone = warnings.length ? "error" : "info";
+    setAdminStatus(message, restartScheduled ? "warning" : "success");
+    showToast(restartScheduled ? "迁移数据已导入，Bot 即将重启。" : "迁移数据已导入。", restartScheduled ? "warning" : "success");
+    await popup(restartScheduled ? "导入成功，即将重启" : "导入成功", message, restartScheduled ? "warning" : "success");
+  } catch (error) {
+    const message = normalizeError(error);
+    setAdminStatus(`导入迁移压缩包失败：${message}`, "error");
+    refs.migrationNote.textContent = `导入失败：${message}`;
+    refs.migrationNote.dataset.tone = "error";
+    showToast(`导入失败：${message}`, "error");
+    await popup("导入失败", message, "error");
+  }
+});
 
 refs.codeList?.addEventListener("change", (event) => {
   const checkbox = event.target.closest("[data-code-select]");
