@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import copy
-from datetime import datetime, timedelta
+import random
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import (
@@ -15,6 +16,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    or_,
 )
 
 from bot.sql_helper import Base, Session
@@ -106,9 +108,13 @@ DEFAULT_SETTINGS = {
     "coin_exchange_rate": 100,
     "exchange_fee_percent": 1,
     "min_coin_exchange": 1,
+    "message_auto_delete_seconds": 180,
+    "equipment_unbind_cost": 100,
+    "artifact_plunder_chance": 20,
     "shop_broadcast_cost": 20,
     "official_shop_name": "风月阁",
     "artifact_equip_limit": 3,
+    "duel_winner_steal_percent": 25,
     "allow_non_admin_image_upload": False,
     "chat_cultivation_chance": 8,
     "chat_cultivation_min_gain": 1,
@@ -206,10 +212,24 @@ ROOT_QUALITY_COLORS = {
     "变异灵根": "#ec4899",
 }
 ROOT_VARIANT_ELEMENTS = ["雷", "风"]
+SHANGHAI_TZ = timezone(timedelta(hours=8))
+UTC_TZ = timezone.utc
 
 
 def utcnow() -> datetime:
     return datetime.utcnow()
+
+
+def shanghai_now() -> datetime:
+    return datetime.now(SHANGHAI_TZ)
+
+
+def serialize_datetime(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC_TZ)
+    return value.astimezone(SHANGHAI_TZ).isoformat()
 
 
 def normalize_realm_stage(stage: str | None) -> str:
@@ -682,6 +702,7 @@ class XiuxianArtifactInventory(Base):
     tg = Column(BigInteger, nullable=False)
     artifact_id = Column(Integer, ForeignKey("xiuxian_artifacts.id", ondelete="CASCADE"), nullable=False)
     quantity = Column(Integer, default=0, nullable=False)
+    bound_quantity = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
@@ -721,6 +742,7 @@ class XiuxianTalismanInventory(Base):
     tg = Column(BigInteger, nullable=False)
     talisman_id = Column(Integer, ForeignKey("xiuxian_talismans.id", ondelete="CASCADE"), nullable=False)
     quantity = Column(Integer, default=0, nullable=False)
+    bound_quantity = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
@@ -802,7 +824,7 @@ def serialize_profile(profile: XiuxianProfile | None) -> dict[str, Any] | None:
         "sect_id": profile.sect_id,
         "sect_role_key": profile.sect_role_key,
         "sect_role_label": SECT_ROLE_LABELS.get(profile.sect_role_key or "", profile.sect_role_key),
-        "last_salary_claim_at": profile.last_salary_claim_at.isoformat() if profile.last_salary_claim_at else None,
+        "last_salary_claim_at": serialize_datetime(profile.last_salary_claim_at),
         "robbery_daily_count": profile.robbery_daily_count,
         "robbery_day_key": profile.robbery_day_key,
         "current_artifact_id": profile.current_artifact_id,
@@ -810,15 +832,15 @@ def serialize_profile(profile: XiuxianProfile | None) -> dict[str, Any] | None:
         "current_technique_id": profile.current_technique_id,
         "shop_name": profile.shop_name,
         "shop_broadcast": profile.shop_broadcast,
-        "last_train_at": profile.last_train_at.isoformat() if profile.last_train_at else None,
-        "retreat_started_at": profile.retreat_started_at.isoformat() if profile.retreat_started_at else None,
-        "retreat_end_at": profile.retreat_end_at.isoformat() if profile.retreat_end_at else None,
+        "last_train_at": serialize_datetime(profile.last_train_at),
+        "retreat_started_at": serialize_datetime(profile.retreat_started_at),
+        "retreat_end_at": serialize_datetime(profile.retreat_end_at),
         "retreat_gain_per_minute": profile.retreat_gain_per_minute,
         "retreat_cost_per_minute": profile.retreat_cost_per_minute,
         "retreat_minutes_total": profile.retreat_minutes_total,
         "retreat_minutes_resolved": profile.retreat_minutes_resolved,
-        "created_at": profile.created_at.isoformat() if profile.created_at else None,
-        "updated_at": profile.updated_at.isoformat() if profile.updated_at else None,
+        "created_at": serialize_datetime(profile.created_at),
+        "updated_at": serialize_datetime(profile.updated_at),
     }
 
 
@@ -831,7 +853,7 @@ def serialize_journal(row: XiuxianJournal | None) -> dict[str, Any] | None:
         "action_type": row.action_type,
         "title": row.title,
         "detail": row.detail,
-        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "created_at": serialize_datetime(row.created_at),
     }
 
 
@@ -942,8 +964,8 @@ def serialize_exploration(exploration: XiuxianExploration | None) -> dict[str, A
         "id": exploration.id,
         "tg": exploration.tg,
         "scene_id": exploration.scene_id,
-        "started_at": exploration.started_at.isoformat() if exploration.started_at else None,
-        "end_at": exploration.end_at.isoformat() if exploration.end_at else None,
+        "started_at": serialize_datetime(exploration.started_at),
+        "end_at": serialize_datetime(exploration.end_at),
         "claimed": exploration.claimed,
         "reward_kind": exploration.reward_kind,
         "reward_kind_label": ITEM_KIND_LABELS.get(exploration.reward_kind or "", exploration.reward_kind),
@@ -986,8 +1008,8 @@ def serialize_task(task: XiuxianTask | None) -> dict[str, Any] | None:
         "winner_tg": task.winner_tg,
         "enabled": task.enabled,
         "status": task.status,
-        "deadline_at": task.deadline_at.isoformat() if task.deadline_at else None,
-        "created_at": task.created_at.isoformat() if task.created_at else None,
+        "deadline_at": serialize_datetime(task.deadline_at),
+        "created_at": serialize_datetime(task.created_at),
     }
 
 
@@ -1008,7 +1030,7 @@ def serialize_red_envelope(envelope: XiuxianRedEnvelope | None) -> dict[str, Any
         "status": envelope.status,
         "group_chat_id": envelope.group_chat_id,
         "message_id": envelope.message_id,
-        "created_at": envelope.created_at.isoformat() if envelope.created_at else None,
+        "created_at": serialize_datetime(envelope.created_at),
     }
 
 
@@ -1162,7 +1184,7 @@ def serialize_shop_item(item: XiuxianShopItem | None) -> dict[str, Any] | None:
         "price_stone": item.price_stone,
         "enabled": item.enabled,
         "is_official": item.is_official,
-        "created_at": item.created_at.isoformat() if item.created_at else None,
+        "created_at": serialize_datetime(item.created_at),
     }
 
 
@@ -1172,8 +1194,25 @@ def serialize_image_upload_permission(permission: XiuxianImageUploadPermission |
 
     return {
         "tg": permission.tg,
-        "created_at": permission.created_at.isoformat() if permission.created_at else None,
-        "updated_at": permission.updated_at.isoformat() if permission.updated_at else None,
+        "created_at": serialize_datetime(permission.created_at),
+        "updated_at": serialize_datetime(permission.updated_at),
+    }
+
+
+def serialize_emby_account(account: Emby | None) -> dict[str, Any] | None:
+    if account is None:
+        return None
+
+    return {
+        "tg": int(account.tg),
+        "name": account.name,
+        "embyid": account.embyid,
+        "lv": account.lv,
+        "us": int(account.us or 0),
+        "iv": int(account.iv or 0),
+        "cr": serialize_datetime(account.cr),
+        "ex": serialize_datetime(account.ex),
+        "ch": serialize_datetime(account.ch),
     }
 
 
@@ -1430,12 +1469,14 @@ def grant_artifact_to_user(tg: int, artifact_id: int, quantity: int = 1) -> dict
             row = XiuxianArtifactInventory(tg=tg, artifact_id=artifact_id, quantity=0)
             session.add(row)
         row.quantity += max(int(quantity), 1)
+        row.bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
         row.updated_at = utcnow()
         session.commit()
         artifact = session.query(XiuxianArtifact).filter(XiuxianArtifact.id == artifact_id).first()
         return {
             "artifact": serialize_artifact(artifact),
             "quantity": row.quantity,
+            "bound_quantity": int(row.bound_quantity or 0),
         }
 
 
@@ -1476,12 +1517,14 @@ def grant_talisman_to_user(tg: int, talisman_id: int, quantity: int = 1) -> dict
             row = XiuxianTalismanInventory(tg=tg, talisman_id=talisman_id, quantity=0)
             session.add(row)
         row.quantity += max(int(quantity), 1)
+        row.bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
         row.updated_at = utcnow()
         session.commit()
         talisman = session.query(XiuxianTalisman).filter(XiuxianTalisman.id == talisman_id).first()
         return {
             "talisman": serialize_talisman(talisman),
             "quantity": row.quantity,
+            "bound_quantity": int(row.bound_quantity or 0),
         }
 
 
@@ -1497,6 +1540,7 @@ def list_user_artifacts(tg: int) -> list[dict[str, Any]]:
         return [
             {
                 "quantity": inventory.quantity,
+                "bound_quantity": max(min(int(inventory.bound_quantity or 0), int(inventory.quantity or 0)), 0),
                 "artifact": serialize_artifact(artifact),
             }
             for inventory, artifact in rows
@@ -1519,6 +1563,100 @@ def list_equipped_artifacts(tg: int) -> list[dict[str, Any]]:
             }
             for equipped, artifact in rows
         ]
+
+
+def plunder_random_artifact_to_user(receiver_tg: int, owner_tg: int) -> dict[str, Any] | None:
+    if receiver_tg == owner_tg:
+        raise ValueError("不能从自己身上掠夺法宝。")
+
+    with Session() as session:
+        owner_profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == owner_tg).with_for_update().first()
+        receiver_profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == receiver_tg).with_for_update().first()
+        if owner_profile is None or receiver_profile is None:
+            return None
+
+        owner_rows = (
+            session.query(XiuxianArtifactInventory)
+            .filter(XiuxianArtifactInventory.tg == owner_tg)
+            .with_for_update()
+            .all()
+        )
+        if not owner_rows:
+            return None
+
+        weighted_ids: list[int] = []
+        for row in owner_rows:
+            total_quantity = int(row.quantity or 0)
+            bound_quantity = max(min(int(row.bound_quantity or 0), total_quantity), 0)
+            weighted_ids.extend([int(row.artifact_id)] * max(total_quantity - bound_quantity, 0))
+        if not weighted_ids:
+            return None
+
+        artifact_id = random.choice(weighted_ids)
+        owner_row = next((row for row in owner_rows if int(row.artifact_id) == artifact_id), None)
+        if owner_row is None:
+            return None
+
+        equipped_rows = (
+            session.query(XiuxianEquippedArtifact)
+            .filter(XiuxianEquippedArtifact.tg == owner_tg)
+            .order_by(XiuxianEquippedArtifact.slot.asc(), XiuxianEquippedArtifact.id.asc())
+            .with_for_update()
+            .all()
+        )
+        equipped_row = next((row for row in equipped_rows if int(row.artifact_id) == artifact_id), None)
+
+        owner_row.quantity = max(int(owner_row.quantity or 0) - 1, 0)
+        owner_row.bound_quantity = max(min(int(owner_row.bound_quantity or 0), int(owner_row.quantity or 0)), 0)
+        owner_row.updated_at = utcnow()
+
+        was_equipped = False
+        if equipped_row is not None and int(owner_row.quantity or 0) < 1:
+            session.delete(equipped_row)
+            session.flush()
+            was_equipped = True
+
+        if int(owner_row.quantity or 0) <= 0:
+            session.delete(owner_row)
+
+        receiver_row = (
+            session.query(XiuxianArtifactInventory)
+            .filter(
+                XiuxianArtifactInventory.tg == receiver_tg,
+                XiuxianArtifactInventory.artifact_id == artifact_id,
+            )
+            .first()
+        )
+        if receiver_row is None:
+            receiver_row = XiuxianArtifactInventory(tg=receiver_tg, artifact_id=artifact_id, quantity=0)
+            session.add(receiver_row)
+        receiver_row.quantity += 1
+        receiver_row.bound_quantity = max(min(int(receiver_row.bound_quantity or 0), int(receiver_row.quantity or 0)), 0)
+        receiver_row.updated_at = utcnow()
+
+        refreshed_equipped = (
+            session.query(XiuxianEquippedArtifact)
+            .filter(XiuxianEquippedArtifact.tg == owner_tg)
+            .order_by(XiuxianEquippedArtifact.slot.asc(), XiuxianEquippedArtifact.id.asc())
+            .all()
+        )
+        for index, row in enumerate(refreshed_equipped, start=1):
+            row.slot = index
+
+        owner_profile.current_artifact_id = refreshed_equipped[0].artifact_id if refreshed_equipped else None
+        owner_profile.updated_at = utcnow()
+        receiver_profile.updated_at = utcnow()
+
+        artifact = session.query(XiuxianArtifact).filter(XiuxianArtifact.id == artifact_id).first()
+        owner_remaining = max(int(owner_row.quantity or 0), 0)
+        receiver_quantity = int(receiver_row.quantity or 0)
+        session.commit()
+        return {
+            "artifact": serialize_artifact(artifact),
+            "was_equipped": was_equipped,
+            "owner_remaining": owner_remaining,
+            "receiver_quantity": receiver_quantity,
+        }
 
 
 def list_user_pills(tg: int) -> list[dict[str, Any]]:
@@ -1551,6 +1689,7 @@ def list_user_talismans(tg: int) -> list[dict[str, Any]]:
         return [
             {
                 "quantity": inventory.quantity,
+                "bound_quantity": max(min(int(inventory.bound_quantity or 0), int(inventory.quantity or 0)), 0),
                 "talisman": serialize_talisman(talisman),
             }
             for inventory, talisman in rows
@@ -1594,6 +1733,7 @@ def consume_user_talisman(tg: int, talisman_id: int, quantity: int = 1) -> bool:
             return False
 
         row.quantity -= quantity
+        row.bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
         row.updated_at = utcnow()
         if row.quantity <= 0:
             session.delete(row)
@@ -1613,6 +1753,18 @@ def use_user_artifact_listing_stock(tg: int, artifact_id: int, quantity: int = 1
             .first()
         )
         if row is None or row.quantity < quantity:
+            return False
+        bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
+        equipped_count = (
+            session.query(XiuxianEquippedArtifact)
+            .filter(
+                XiuxianEquippedArtifact.tg == tg,
+                XiuxianEquippedArtifact.artifact_id == artifact_id,
+            )
+            .count()
+        )
+        available_quantity = int(row.quantity or 0) - bound_quantity - int(equipped_count or 0)
+        if available_quantity < quantity:
             return False
 
         row.quantity -= quantity
@@ -1658,6 +1810,10 @@ def use_user_talisman_listing_stock(tg: int, talisman_id: int, quantity: int = 1
         )
         if row is None or row.quantity < quantity:
             return False
+        bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
+        available_quantity = int(row.quantity or 0) - bound_quantity
+        if available_quantity < quantity:
+            return False
 
         row.quantity -= quantity
         row.updated_at = utcnow()
@@ -1665,6 +1821,130 @@ def use_user_talisman_listing_stock(tg: int, talisman_id: int, quantity: int = 1
             session.delete(row)
         session.commit()
         return True
+
+
+def bind_user_artifact(tg: int, artifact_id: int, quantity: int = 1) -> dict[str, Any]:
+    amount = max(int(quantity or 0), 1)
+    with Session() as session:
+        row = (
+            session.query(XiuxianArtifactInventory)
+            .filter(
+                XiuxianArtifactInventory.tg == tg,
+                XiuxianArtifactInventory.artifact_id == artifact_id,
+            )
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            raise ValueError("你的背包里没有这件法宝。")
+        bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
+        bindable_quantity = int(row.quantity or 0) - bound_quantity
+        if bindable_quantity < amount:
+            raise ValueError("没有足够的未绑定法宝可供绑定。")
+        row.bound_quantity = bound_quantity + amount
+        row.updated_at = utcnow()
+        session.commit()
+        return {
+            "quantity": int(row.quantity or 0),
+            "bound_quantity": int(row.bound_quantity or 0),
+        }
+
+
+def unbind_user_artifact(tg: int, artifact_id: int, cost: int, quantity: int = 1) -> dict[str, Any]:
+    amount = max(int(quantity or 0), 1)
+    unit_cost = max(int(cost or 0), 0)
+    total_cost = unit_cost * amount
+    with Session() as session:
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+        row = (
+            session.query(XiuxianArtifactInventory)
+            .filter(
+                XiuxianArtifactInventory.tg == tg,
+                XiuxianArtifactInventory.artifact_id == artifact_id,
+            )
+            .with_for_update()
+            .first()
+        )
+        if profile is None or row is None:
+            raise ValueError("你的背包里没有这件法宝。")
+        bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
+        if bound_quantity < amount:
+            raise ValueError("没有足够的已绑定法宝可供解绑。")
+        if int(profile.spiritual_stone or 0) < total_cost:
+            raise ValueError(f"灵石不足，解绑需要 {total_cost} 灵石。")
+        profile.spiritual_stone = max(int(profile.spiritual_stone or 0) - total_cost, 0)
+        profile.updated_at = utcnow()
+        row.bound_quantity = bound_quantity - amount
+        row.updated_at = utcnow()
+        session.commit()
+        return {
+            "quantity": int(row.quantity or 0),
+            "bound_quantity": int(row.bound_quantity or 0),
+            "cost": total_cost,
+            "balance": int(profile.spiritual_stone or 0),
+        }
+
+
+def bind_user_talisman(tg: int, talisman_id: int, quantity: int = 1) -> dict[str, Any]:
+    amount = max(int(quantity or 0), 1)
+    with Session() as session:
+        row = (
+            session.query(XiuxianTalismanInventory)
+            .filter(
+                XiuxianTalismanInventory.tg == tg,
+                XiuxianTalismanInventory.talisman_id == talisman_id,
+            )
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            raise ValueError("你的背包里没有这张符箓。")
+        bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
+        bindable_quantity = int(row.quantity or 0) - bound_quantity
+        if bindable_quantity < amount:
+            raise ValueError("没有足够的未绑定符箓可供绑定。")
+        row.bound_quantity = bound_quantity + amount
+        row.updated_at = utcnow()
+        session.commit()
+        return {
+            "quantity": int(row.quantity or 0),
+            "bound_quantity": int(row.bound_quantity or 0),
+        }
+
+
+def unbind_user_talisman(tg: int, talisman_id: int, cost: int, quantity: int = 1) -> dict[str, Any]:
+    amount = max(int(quantity or 0), 1)
+    unit_cost = max(int(cost or 0), 0)
+    total_cost = unit_cost * amount
+    with Session() as session:
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+        row = (
+            session.query(XiuxianTalismanInventory)
+            .filter(
+                XiuxianTalismanInventory.tg == tg,
+                XiuxianTalismanInventory.talisman_id == talisman_id,
+            )
+            .with_for_update()
+            .first()
+        )
+        if profile is None or row is None:
+            raise ValueError("你的背包里没有这张符箓。")
+        bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
+        if bound_quantity < amount:
+            raise ValueError("没有足够的已绑定符箓可供解绑。")
+        if int(profile.spiritual_stone or 0) < total_cost:
+            raise ValueError(f"灵石不足，解绑需要 {total_cost} 灵石。")
+        profile.spiritual_stone = max(int(profile.spiritual_stone or 0) - total_cost, 0)
+        profile.updated_at = utcnow()
+        row.bound_quantity = bound_quantity - amount
+        row.updated_at = utcnow()
+        session.commit()
+        return {
+            "quantity": int(row.quantity or 0),
+            "bound_quantity": int(row.bound_quantity or 0),
+            "cost": total_cost,
+            "balance": int(profile.spiritual_stone or 0),
+        }
 
 
 def set_equipped_artifact(tg: int, artifact_id: int, equip_limit: int = 3) -> dict[str, Any] | None:
@@ -1944,7 +2224,7 @@ def create_duel_record(
             "challenger_rate": record.challenger_rate,
             "defender_rate": record.defender_rate,
             "summary": record.summary,
-            "created_at": record.created_at.isoformat() if record.created_at else None,
+            "created_at": serialize_datetime(record.created_at),
         }
 
 
@@ -1967,6 +2247,21 @@ def get_emby_name_map(tgs: list[int]) -> dict[int, str]:
         return mapping
 
 
+def get_emby_account_map(tgs: list[int]) -> dict[int, dict[str, Any]]:
+    if not tgs:
+        return {}
+
+    with Session() as session:
+        rows = session.query(Emby).filter(Emby.tg.in_(tgs)).all()
+        return {int(row.tg): serialize_emby_account(row) for row in rows}
+
+
+def get_emby_account(tg: int) -> dict[str, Any] | None:
+    with Session() as session:
+        row = session.query(Emby).filter(Emby.tg == tg).first()
+        return serialize_emby_account(row)
+
+
 def list_profiles() -> list[XiuxianProfile]:
     with Session() as session:
         return session.query(XiuxianProfile).filter(XiuxianProfile.consented.is_(True)).all()
@@ -1981,24 +2276,37 @@ def search_profiles(
     page_size = max(min(int(page_size or 20), 50), 1)
     offset = (page - 1) * page_size
     with Session() as session:
-        q = session.query(XiuxianProfile).filter(XiuxianProfile.consented.is_(True))
+        q = session.query(XiuxianProfile).outerjoin(Emby, Emby.tg == XiuxianProfile.tg).filter(XiuxianProfile.consented.is_(True))
         if query and query.strip():
             keyword = query.strip()
+            normalized_keyword = keyword.lstrip("@")
             if keyword.isdigit():
-                q = q.filter(XiuxianProfile.tg == int(keyword))
+                q = q.filter(or_(XiuxianProfile.tg == int(keyword), Emby.embyid == keyword))
             else:
                 pattern = f"%{keyword}%"
+                account_pattern = f"%{normalized_keyword}%"
                 q = q.filter(
-                    (XiuxianProfile.display_name.ilike(pattern))
-                    | (XiuxianProfile.username.ilike(pattern))
+                    or_(
+                        XiuxianProfile.display_name.ilike(pattern),
+                        XiuxianProfile.username.ilike(account_pattern),
+                        Emby.name.ilike(pattern),
+                        Emby.embyid.ilike(account_pattern),
+                    )
                 )
         total = q.count()
         rows = q.order_by(XiuxianProfile.updated_at.desc()).offset(offset).limit(page_size).all()
+        account_map = get_emby_account_map([int(row.tg) for row in rows])
         return {
             "total": total,
             "page": page,
             "page_size": page_size,
-            "items": [serialize_profile(row) for row in rows],
+            "items": [
+                {
+                    **serialize_profile(row),
+                    "emby_account": account_map.get(int(row.tg)),
+                }
+                for row in rows
+            ],
         }
 
 
@@ -2008,15 +2316,31 @@ ADMIN_EDITABLE_PROFILE_FIELDS = {
     "qi_blood", "true_yuan", "body_movement", "attack_power", "defense_power",
     "insight_bonus", "dan_poison", "sect_contribution",
     "display_name", "username",
+    "root_type", "root_primary", "root_secondary", "root_relation",
+    "root_bonus", "root_quality", "root_quality_level", "root_quality_color",
+}
+
+ADMIN_NULLABLE_STRING_FIELDS = {
+    "display_name",
+    "username",
+    "root_type",
+    "root_primary",
+    "root_secondary",
+    "root_relation",
+    "root_quality",
+    "root_quality_color",
 }
 
 
 def admin_patch_profile(tg: int, **fields) -> dict[str, Any] | None:
-    safe = {k: v for k, v in fields.items() if k in ADMIN_EDITABLE_PROFILE_FIELDS and v is not None}
+    safe = {k: v for k, v in fields.items() if k in ADMIN_EDITABLE_PROFILE_FIELDS}
     if not safe:
         raise ValueError("没有可更新的字段")
     if "realm_stage" in safe:
         safe["realm_stage"] = normalize_realm_stage(safe.get("realm_stage"))
+    for key in ADMIN_NULLABLE_STRING_FIELDS:
+        if key in safe:
+            safe[key] = None if safe[key] is None else (str(safe[key]).strip() or None)
     with Session() as session:
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).first()
         if profile is None or not profile.consented:
@@ -2422,7 +2746,7 @@ def list_red_envelope_claims(envelope_id: int) -> list[dict[str, Any]]:
                 "envelope_id": row.envelope_id,
                 "tg": row.tg,
                 "amount": row.amount,
-                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "created_at": serialize_datetime(row.created_at),
             }
             for row in rows
         ]
@@ -2519,7 +2843,7 @@ def create_duel_bet_pool(**fields) -> dict[str, Any]:
             "group_chat_id": pool.group_chat_id,
             "duel_message_id": pool.duel_message_id,
             "bet_message_id": pool.bet_message_id,
-            "bets_close_at": pool.bets_close_at.isoformat() if pool.bets_close_at else None,
+            "bets_close_at": serialize_datetime(pool.bets_close_at),
             "resolved": pool.resolved,
             "winner_tg": pool.winner_tg,
         }

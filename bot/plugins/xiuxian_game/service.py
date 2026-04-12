@@ -27,6 +27,8 @@ from bot.sql_helper.sql_xiuxian import (
     ROOT_QUALITY_LEVELS,
     ROOT_VARIANT_ELEMENTS,
     admin_patch_profile,
+    bind_user_artifact,
+    bind_user_talisman,
     create_journal,
     create_artifact,
     create_duel_record,
@@ -57,6 +59,7 @@ from bot.sql_helper.sql_xiuxian import (
     list_user_talismans,
     normalize_realm_stage,
     purchase_shop_item as sql_purchase_shop_item,
+    plunder_random_artifact_to_user,
     realm_index,
     search_profiles,
     serialize_artifact,
@@ -68,6 +71,8 @@ from bot.sql_helper.sql_xiuxian import (
     set_active_talisman,
     set_equipped_artifact,
     set_xiuxian_settings,
+    unbind_user_artifact,
+    unbind_user_talisman,
     update_shop_item,
     upsert_profile,
     use_user_artifact_listing_stock,
@@ -76,6 +81,10 @@ from bot.sql_helper.sql_xiuxian import (
     consume_user_pill,
     consume_user_talisman,
     utcnow,
+)
+from bot.plugins.xiuxian_game.probability import (
+    adjust_probability_rate,
+    roll_probability_percent,
 )
 from bot.plugins.xiuxian_game.world_service import get_sect_effects
 
@@ -627,9 +636,16 @@ def build_user_artifact_rows(
 ) -> list[dict[str, Any]]:
     rows = []
     for row in list_user_artifacts(tg):
+        total_quantity = max(int(row.get("quantity") or 0), 0)
+        bound_quantity = max(min(int(row.get("bound_quantity") or 0), total_quantity), 0)
         item = row["artifact"]
         item["resolved_effects"] = resolve_artifact_effects(profile_data, item)
         item["equipped"] = int(item["id"]) in equipped_ids
+        equipped_quantity = 1 if item["equipped"] else 0
+        row["bound_quantity"] = bound_quantity
+        row["unbound_quantity"] = max(total_quantity - bound_quantity, 0)
+        row["consumable_quantity"] = max(total_quantity - bound_quantity - equipped_quantity, 0)
+        row["tradeable_quantity"] = row["consumable_quantity"]
         usable = realm_requirement_met(profile_data, item.get("min_realm_stage"), item.get("min_realm_layer"))
         if usable:
             reason = ""
@@ -644,6 +660,8 @@ def build_user_artifact_rows(
         item["usable"] = usable or item["equipped"]
         item["unusable_reason"] = "" if item["equipped"] else reason
         item["action_label"] = "卸下法宝" if item["equipped"] else "装备法宝"
+        item["bound"] = bound_quantity > 0
+        item["bound_quantity"] = bound_quantity
         rows.append(row)
     return rows
 
@@ -1054,6 +1072,8 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
 
     talismans = []
     for row in list_user_talismans(tg):
+        total_quantity = max(int(row.get("quantity") or 0), 0)
+        bound_quantity = max(min(int(row.get("bound_quantity") or 0), total_quantity), 0)
         item = row["talisman"]
         item["resolved_effects"] = resolve_talisman_effects(profile_data, item)
         usable = realm_requirement_met(profile_data, item.get("min_realm_stage"), item.get("min_realm_layer"))
@@ -1061,9 +1081,15 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         if profile_data.get("active_talisman_id") and profile_data.get("active_talisman_id") != item["id"]:
             usable = False
             reason = "你已经预装了一张待生效的符箓"
+        row["bound_quantity"] = bound_quantity
+        row["unbound_quantity"] = max(total_quantity - bound_quantity, 0)
+        row["consumable_quantity"] = row["unbound_quantity"]
+        row["tradeable_quantity"] = row["unbound_quantity"]
         item["usable"] = usable and not retreating
         item["active"] = profile_data.get("active_talisman_id") == item["id"]
         item["unusable_reason"] = "闭关期间无法启用符箓" if usable and not item["active"] and retreating else reason
+        item["bound"] = bound_quantity > 0
+        item["bound_quantity"] = bound_quantity
         talismans.append(row)
 
     all_personal_shop = list_shop_items(official_only=False)
@@ -1072,6 +1098,13 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
     settings = {
         **get_exchange_settings(),
         "artifact_equip_limit": equip_limit,
+        "equipment_unbind_cost": int(xiuxian_settings.get("equipment_unbind_cost", DEFAULT_SETTINGS["equipment_unbind_cost"]) or 0),
+        "artifact_plunder_chance": int(
+            xiuxian_settings.get("artifact_plunder_chance", DEFAULT_SETTINGS["artifact_plunder_chance"]) or 0
+        ),
+        "duel_winner_steal_percent": int(
+            xiuxian_settings.get("duel_winner_steal_percent", DEFAULT_SETTINGS["duel_winner_steal_percent"]) or 0
+        ),
     }
 
     capabilities = {
@@ -1140,6 +1173,38 @@ def equip_artifact_for_user(tg: int, artifact_id: int) -> dict[str, Any]:
     }
 
 
+def bind_artifact_for_user(tg: int, artifact_id: int) -> dict[str, Any]:
+    profile_obj = get_profile(tg, create=False)
+    if profile_obj is None or not profile_obj.consented:
+        raise ValueError("你还没有踏入仙途。")
+    artifact = get_artifact(artifact_id)
+    if artifact is None:
+        raise ValueError("未找到目标法宝。")
+    result = bind_user_artifact(tg, artifact_id, 1)
+    return {
+        "artifact": serialize_artifact(artifact),
+        "bound_quantity": int(result.get("bound_quantity") or 0),
+        "profile": serialize_full_profile(tg),
+    }
+
+
+def unbind_artifact_for_user(tg: int, artifact_id: int) -> dict[str, Any]:
+    profile_obj = get_profile(tg, create=False)
+    if profile_obj is None or not profile_obj.consented:
+        raise ValueError("你还没有踏入仙途。")
+    artifact = get_artifact(artifact_id)
+    if artifact is None:
+        raise ValueError("未找到目标法宝。")
+    cost = max(int(get_xiuxian_settings().get("equipment_unbind_cost", DEFAULT_SETTINGS["equipment_unbind_cost"]) or 0), 0)
+    result = unbind_user_artifact(tg, artifact_id, cost, 1)
+    return {
+        "artifact": serialize_artifact(artifact),
+        "bound_quantity": int(result.get("bound_quantity") or 0),
+        "cost": int(result.get("cost") or 0),
+        "profile": serialize_full_profile(tg),
+    }
+
+
 def activate_talisman_for_user(tg: int, talisman_id: int) -> dict[str, Any]:
     ensure_not_in_retreat(tg)
     profile_obj = get_profile(tg, create=False)
@@ -1163,6 +1228,38 @@ def activate_talisman_for_user(tg: int, talisman_id: int) -> dict[str, Any]:
     set_active_talisman(tg, talisman_id)
     return {
         "talisman": serialize_talisman(talisman),
+        "profile": serialize_full_profile(tg),
+    }
+
+
+def bind_talisman_for_user(tg: int, talisman_id: int) -> dict[str, Any]:
+    profile_obj = get_profile(tg, create=False)
+    if profile_obj is None or not profile_obj.consented:
+        raise ValueError("你还没有踏入仙途。")
+    talisman = get_talisman(talisman_id)
+    if talisman is None or not talisman.enabled:
+        raise ValueError("未找到可用的符箓。")
+    result = bind_user_talisman(tg, talisman_id, 1)
+    return {
+        "talisman": serialize_talisman(talisman),
+        "bound_quantity": int(result.get("bound_quantity") or 0),
+        "profile": serialize_full_profile(tg),
+    }
+
+
+def unbind_talisman_for_user(tg: int, talisman_id: int) -> dict[str, Any]:
+    profile_obj = get_profile(tg, create=False)
+    if profile_obj is None or not profile_obj.consented:
+        raise ValueError("你还没有踏入仙途。")
+    talisman = get_talisman(talisman_id)
+    if talisman is None or not talisman.enabled:
+        raise ValueError("未找到可用的符箓。")
+    cost = max(int(get_xiuxian_settings().get("equipment_unbind_cost", DEFAULT_SETTINGS["equipment_unbind_cost"]) or 0), 0)
+    result = unbind_user_talisman(tg, talisman_id, cost, 1)
+    return {
+        "talisman": serialize_talisman(talisman),
+        "bound_quantity": int(result.get("bound_quantity") or 0),
+        "cost": int(result.get("cost") or 0),
         "profile": serialize_full_profile(tg),
     }
 
@@ -1262,7 +1359,7 @@ def create_personal_shop_listing(
         if artifact is None:
             raise ValueError("未找到目标法宝。")
         if not use_user_artifact_listing_stock(tg, item_ref_id, quantity):
-            raise ValueError("背包里的法宝数量不足。")
+            raise ValueError("可交易的法宝数量不足，已绑定或已装备的法宝无法上架。")
         item_name = artifact.name
     elif item_kind == "pill":
         pill = get_pill(item_ref_id)
@@ -1276,7 +1373,7 @@ def create_personal_shop_listing(
         if talisman is None:
             raise ValueError("未找到目标符箓。")
         if not use_user_talisman_listing_stock(tg, item_ref_id, quantity):
-            raise ValueError("背包里的符箓数量不足。")
+            raise ValueError("可交易的符箓数量不足，已绑定的符箓无法上架。")
         item_name = talisman.name
     else:
         raise ValueError("不支持的上架物品类型。")
@@ -1359,6 +1456,42 @@ def patch_shop_listing(item_id: int, **fields) -> dict[str, Any] | None:
 
 def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
     patch = dict(payload)
+    if "equipment_unbind_cost" in patch and patch["equipment_unbind_cost"] is not None:
+        patch["equipment_unbind_cost"] = min(
+            _coerce_int(
+                patch["equipment_unbind_cost"],
+                DEFAULT_SETTINGS["equipment_unbind_cost"],
+                0,
+            ),
+            1000000,
+        )
+    if "artifact_plunder_chance" in patch and patch["artifact_plunder_chance"] is not None:
+        patch["artifact_plunder_chance"] = min(
+            _coerce_int(
+                patch["artifact_plunder_chance"],
+                DEFAULT_SETTINGS["artifact_plunder_chance"],
+                0,
+            ),
+            100,
+        )
+    if "duel_winner_steal_percent" in patch and patch["duel_winner_steal_percent"] is not None:
+        patch["duel_winner_steal_percent"] = min(
+            _coerce_int(
+                patch["duel_winner_steal_percent"],
+                DEFAULT_SETTINGS["duel_winner_steal_percent"],
+                0,
+            ),
+            100,
+        )
+    if "message_auto_delete_seconds" in patch and patch["message_auto_delete_seconds"] is not None:
+        patch["message_auto_delete_seconds"] = min(
+            _coerce_int(
+                patch["message_auto_delete_seconds"],
+                DEFAULT_SETTINGS["message_auto_delete_seconds"],
+                0,
+            ),
+            86400,
+        )
     if "root_quality_value_rules" in patch:
         patch["root_quality_value_rules"] = _normalize_root_quality_value_rules(patch["root_quality_value_rules"])
     if "item_quality_value_rules" in patch:
@@ -1467,19 +1600,32 @@ def build_leaderboard(kind: str, page: int = 1, page_size: int = 20) -> dict[str
             "name": emby_name_map.get(item["tg"], f"TG {item['tg']}"),
             "realm_stage": item["realm_stage"],
             "realm_layer": item["realm_layer"],
+            "cultivation": int(item["cultivation"] or 0),
             "spiritual_stone": item["spiritual_stone"],
             "artifact_name": ", ".join(artifact["name"] for artifact in equipped_artifacts[:3]) if equipped_artifacts else None,
             "artifact_score": compute_artifact_score(item, equipped_artifacts),
+            "realm_stage_rank": realm_index(item["realm_stage"]),
         }
         if kind == "stone":
             base["score"] = int(item["spiritual_stone"] or 0)
         elif kind == "realm":
-            base["score"] = realm_index(item["realm_stage"]) * 1000 + int(item["realm_layer"] or 0) * 100 + int(item["cultivation"] or 0)
+            base["score"] = base["realm_stage_rank"]
         else:
             base["score"] = base["artifact_score"]
         rows.append(base)
 
-    rows.sort(key=lambda row: (row["score"], row["tg"]), reverse=True)
+    if kind == "realm":
+        rows.sort(
+            key=lambda row: (
+                -int(row["realm_stage_rank"]),
+                -int(row["realm_layer"] or 0),
+                -int(row["cultivation"] or 0),
+                -int(row["spiritual_stone"] or 0),
+                int(row["tg"]),
+            )
+        )
+    else:
+        rows.sort(key=lambda row: (-int(row["score"] or 0), int(row["tg"])))
     rows = rows[:100]
     total = len(rows)
     total_pages = max((total + page_size - 1) // page_size, 1)
@@ -1558,8 +1704,17 @@ def maybe_gain_cultivation_from_chat(tg: int) -> dict[str, Any] | None:
         return None
 
     settings = get_xiuxian_settings()
-    chance = max(min(int(settings.get("chat_cultivation_chance", DEFAULT_SETTINGS["chat_cultivation_chance"]) or 0), 100), 0)
-    if chance <= 0 or random.randint(1, 100) > chance:
+    base_chance = max(min(int(settings.get("chat_cultivation_chance", DEFAULT_SETTINGS["chat_cultivation_chance"]) or 0), 100), 0)
+    if base_chance <= 0:
+        return None
+    chance_roll = roll_probability_percent(
+        base_chance,
+        actor_fortune=int(profile.fortune or 0),
+        actor_weight=0.35,
+        minimum=0,
+        maximum=100,
+    )
+    if not chance_roll["success"]:
         return None
 
     min_gain = max(int(settings.get("chat_cultivation_min_gain", DEFAULT_SETTINGS["chat_cultivation_min_gain"]) or 1), 1)
@@ -1617,7 +1772,44 @@ def search_xiuxian_players(
 
 
 def admin_patch_player(tg: int, **fields) -> dict[str, Any] | None:
-    return admin_patch_profile(tg, **fields)
+    patch = dict(fields)
+    root_fields = {"root_type", "root_primary", "root_secondary", "root_relation", "root_bonus", "root_quality"}
+    if root_fields.intersection(patch):
+        profile = serialize_profile(get_profile(tg, create=False))
+        if profile is None or not profile.get("consented"):
+            return None
+
+        merged = {**profile, **patch}
+        for key in ("root_type", "root_primary", "root_secondary", "root_relation", "root_quality"):
+            if key in merged:
+                merged[key] = str(merged.get(key) or "").strip() or None
+
+        root_type = merged.get("root_type")
+        if root_type != "双灵根":
+            patch["root_secondary"] = None
+            merged["root_secondary"] = None
+        if root_type in {"单灵根", "地灵根"}:
+            patch["root_relation"] = "平稳中正"
+            merged["root_relation"] = "平稳中正"
+        elif root_type == "天灵根":
+            patch["root_relation"] = "天道垂青"
+            merged["root_relation"] = "天道垂青"
+        elif root_type == "变异灵根":
+            patch["root_relation"] = "异灵独秀"
+            merged["root_relation"] = "异灵独秀"
+
+        has_root = any(merged.get(key) for key in ("root_type", "root_primary", "root_secondary", "root_quality"))
+        if has_root:
+            quality_name = _normalized_root_quality(merged)
+            quality = _root_quality_payload(quality_name)
+            patch["root_quality"] = quality_name
+            patch["root_quality_level"] = int(quality["level"])
+            patch["root_quality_color"] = quality["color"]
+        else:
+            patch["root_quality"] = None
+            patch["root_quality_level"] = 1
+            patch["root_quality_color"] = None
+    return admin_patch_profile(tg, **patch)
 
 
 def _battle_bundle(bundle_or_profile: dict[str, Any], opponent_profile: dict[str, Any] | None = None, apply_random: bool = False) -> dict[str, Any]:
@@ -1922,8 +2114,16 @@ def breakthrough_for_user(tg: int, use_pill: bool = False) -> dict[str, Any]:
         success_rate += pill_bonus
 
     success_rate = max(min(success_rate, 95), 1)
-    roll = random.randint(1, 100)
-    success = roll <= success_rate
+    success_roll = roll_probability_percent(
+        success_rate,
+        actor_fortune=stats["fortune"],
+        actor_weight=0.45,
+        minimum=1,
+        maximum=95,
+    )
+    success_rate = success_roll["chance"]
+    roll = success_roll["roll"]
+    success = bool(success_roll["success"])
     if use_pill and used_pill_name:
         pill_row = _find_pill_in_inventory(tg, "foundation")
         if pill_row is None or not consume_user_pill(tg, pill_row["pill"]["id"], 1):
@@ -2017,6 +2217,120 @@ def consume_pill_for_user(tg: int, pill_id: int) -> dict[str, Any]:
     return {"pill": {**pill_data, "resolved_effects": effects}, "profile": serialize_full_profile(updated.tg)}
 
 
+def _duel_display_name(profile: dict[str, Any]) -> str:
+    return profile.get("display_label") or f"TG {profile['tg']}"
+
+
+def _duel_item_names(items: list[dict[str, Any]] | None, fallback: str) -> str:
+    rows = [str(item.get("name") or "").strip() for item in (items or []) if str(item.get("name") or "").strip()]
+    return "、".join(rows[:3]) if rows else fallback
+
+
+def _build_duel_snapshot(
+    bundle: dict[str, Any],
+    state: dict[str, Any],
+    opponent_profile: dict[str, Any],
+    win_rate: float,
+) -> dict[str, Any]:
+    profile = bundle["profile"]
+    technique = bundle.get("current_technique") or {}
+    talisman = bundle.get("active_talisman") or {}
+    root_modifier = _root_element_duel_modifier(profile, opponent_profile)
+    variant_bonus = 0.03 if profile.get("root_type") == "变异灵根" else 0.0
+    stats = {
+        key: int(round(value))
+        for key, value in state["stats"].items()
+        if key in {
+            "bone",
+            "comprehension",
+            "divine_sense",
+            "fortune",
+            "qi_blood",
+            "true_yuan",
+            "body_movement",
+            "attack_power",
+            "defense_power",
+            "duel_rate_bonus",
+        }
+    }
+    return {
+        "name": _duel_display_name(profile),
+        "realm_text": f"{profile['realm_stage']}{profile['realm_layer']}层",
+        "power": round(state["power"], 2),
+        "win_rate": round(win_rate * 100, 1),
+        "root_text": format_root(profile),
+        "root_quality": state["quality"],
+        "root_modifier_percent": round(root_modifier * 100, 1),
+        "root_factor": round(float(state["quality_payload"]["combat_factor"]) + root_modifier + variant_bonus, 3),
+        "technique_name": technique.get("name") or "未修功法",
+        "artifact_names": _duel_item_names(bundle.get("equipped_artifacts"), "未装备法宝"),
+        "talisman_name": talisman.get("name") or "未备符箓",
+        "stats": stats,
+    }
+
+
+def _format_duel_side_block(snapshot: dict[str, Any], label: str) -> list[str]:
+    stats = snapshot["stats"]
+    return [
+        f"{label}：{snapshot['name']}",
+        f"境界：{snapshot['realm_text']} ｜ 战力：{snapshot['power']:.1f} ｜ 预测胜率：{snapshot['win_rate']:.1f}%",
+        f"灵根：{snapshot['root_text']} ｜ 五行修正 {snapshot['root_modifier_percent']:+.1f}% ｜ 灵根战斗系数 {snapshot['root_factor']:.3f}",
+        f"功法：{snapshot['technique_name']}",
+        f"法宝：{snapshot['artifact_names']} ｜ 符箓：{snapshot['talisman_name']}",
+        (
+            "核心数值："
+            f"攻 {stats['attack_power']} 防 {stats['defense_power']} "
+            f"气血 {stats['qi_blood']} 真元 {stats['true_yuan']} "
+            f"身法 {stats['body_movement']} 斗法 {stats['duel_rate_bonus']:+d}%"
+        ),
+        (
+            "资质数值："
+            f"根骨 {stats['bone']} 悟性 {stats['comprehension']} "
+            f"神识 {stats['divine_sense']} 机缘 {stats['fortune']}"
+        ),
+    ]
+
+
+def format_duel_matchup_text(
+    duel: dict[str, Any],
+    stake: int = 0,
+    title: str = "⚔️ **斗法邀请**",
+    plunder_percent: int | None = None,
+) -> str:
+    settings = get_xiuxian_settings()
+    if plunder_percent is None:
+        plunder_percent = max(
+            min(
+                int(
+                    settings.get(
+                        "duel_winner_steal_percent",
+                        DEFAULT_SETTINGS["duel_winner_steal_percent"],
+                    )
+                    or 0
+                ),
+                100,
+            ),
+            0,
+        )
+    artifact_plunder_chance = max(
+        min(int(settings.get("artifact_plunder_chance", DEFAULT_SETTINGS["artifact_plunder_chance"]) or 0), 100),
+        0,
+    )
+    lines = [
+        title,
+        *_format_duel_side_block(duel["challenger_snapshot"], "挑战者"),
+        "",
+        *_format_duel_side_block(duel["defender_snapshot"], "应战者"),
+        "",
+        f"综合预测：挑战者 {duel['challenger_rate'] * 100:.1f}% / 应战者 {duel['defender_rate'] * 100:.1f}%",
+    ]
+    if stake:
+        lines.append(f"赌注：每人 {stake} 灵石")
+    lines.append(f"胜者掠夺：败者当前灵石的 {plunder_percent}%")
+    lines.append(f"法宝掠夺：基础 {artifact_plunder_chance}% 夺取 1 件未绑定法宝，受双方机缘影响")
+    return "\n".join(lines)
+
+
 def compute_duel_odds(challenger_tg: int, defender_tg: int) -> dict[str, Any]:
     challenger = serialize_full_profile(challenger_tg)
     defender = serialize_full_profile(defender_tg)
@@ -2031,13 +2345,33 @@ def compute_duel_odds(challenger_tg: int, defender_tg: int) -> dict[str, Any]:
     rate = challenger_state["power"] / total_power
     stage_diff = realm_index(challenger_profile["realm_stage"]) - realm_index(defender_profile["realm_stage"])
     if abs(stage_diff) >= 2:
-        rate = max(min(rate, 0.999), 0.001)
+        rate = adjust_probability_rate(
+            rate,
+            actor_fortune=challenger_state["stats"]["fortune"],
+            opponent_fortune=defender_state["stats"]["fortune"],
+            actor_weight=0.18,
+            opponent_weight=0.18,
+            minimum=0.001,
+            maximum=0.999,
+        )
     else:
-        rate = max(min(rate, 0.97), 0.03)
+        rate = adjust_probability_rate(
+            rate,
+            actor_fortune=challenger_state["stats"]["fortune"],
+            opponent_fortune=defender_state["stats"]["fortune"],
+            actor_weight=0.18,
+            opponent_weight=0.18,
+            minimum=0.03,
+            maximum=0.97,
+        )
     defender_rate = max(min(1 - rate, 0.999), 0.001)
+    challenger_snapshot = _build_duel_snapshot(challenger, challenger_state, defender_profile, rate)
+    defender_snapshot = _build_duel_snapshot(defender, defender_state, challenger_profile, defender_rate)
     return {
         "challenger": challenger,
         "defender": defender,
+        "challenger_snapshot": challenger_snapshot,
+        "defender_snapshot": defender_snapshot,
         "challenger_rate": round(rate, 4),
         "defender_rate": round(defender_rate, 4),
         "challenger_power": round(challenger_state["power"], 2),
@@ -2066,6 +2400,15 @@ def resolve_duel(challenger_tg: int, defender_tg: int, stake: int = 0) -> dict[s
     challenger_profile = duel["challenger"]["profile"]
     defender_profile = duel["defender"]["profile"]
     stake_amount = max(int(stake), 0)
+    settings = get_xiuxian_settings()
+    plunder_percent = max(
+        min(int(settings.get("duel_winner_steal_percent", DEFAULT_SETTINGS["duel_winner_steal_percent"]) or 0), 100),
+        0,
+    )
+    artifact_plunder_base_chance = max(
+        min(int(settings.get("artifact_plunder_chance", DEFAULT_SETTINGS["artifact_plunder_chance"]) or 0), 100),
+        0,
+    )
     if stake_amount > 0:
         if int(challenger_profile["spiritual_stone"] or 0) < stake_amount or int(defender_profile["spiritual_stone"] or 0) < stake_amount:
             raise ValueError("双方至少有一方灵石不足，无法进行赌斗。")
@@ -2076,21 +2419,66 @@ def resolve_duel(challenger_tg: int, defender_tg: int, stake: int = 0) -> dict[s
     dynamic_rate = challenger_state["power"] / total_power
     stage_diff = realm_index(challenger_profile["realm_stage"]) - realm_index(defender_profile["realm_stage"])
     if abs(stage_diff) >= 2:
-        dynamic_rate = max(min(dynamic_rate, 0.999), 0.001)
+        dynamic_rate = adjust_probability_rate(
+            dynamic_rate,
+            actor_fortune=challenger_state["stats"]["fortune"],
+            opponent_fortune=defender_state["stats"]["fortune"],
+            actor_weight=0.18,
+            opponent_weight=0.18,
+            minimum=0.001,
+            maximum=0.999,
+        )
     else:
-        dynamic_rate = max(min(dynamic_rate, 0.97), 0.03)
+        dynamic_rate = adjust_probability_rate(
+            dynamic_rate,
+            actor_fortune=challenger_state["stats"]["fortune"],
+            opponent_fortune=defender_state["stats"]["fortune"],
+            actor_weight=0.18,
+            opponent_weight=0.18,
+            minimum=0.03,
+            maximum=0.97,
+        )
     roll = random.random()
     challenger_win = roll <= dynamic_rate
     winner_tg = challenger_tg if challenger_win else defender_tg
     loser_tg = defender_tg if challenger_win else challenger_tg
+    winner_state = challenger_state if challenger_win else defender_state
+    loser_state = defender_state if challenger_win else challenger_state
     winner_profile = get_profile(winner_tg, create=False)
     loser_profile = get_profile(loser_tg, create=False)
     if winner_profile is None or loser_profile is None:
         raise ValueError("斗法双方的修仙资料缺失。")
 
-    if stake_amount:
-        upsert_profile(winner_tg, spiritual_stone=int(winner_profile.spiritual_stone or 0) + stake_amount)
-        upsert_profile(loser_tg, spiritual_stone=max(int(loser_profile.spiritual_stone or 0) - stake_amount, 0))
+    winner_stone = int(winner_profile.spiritual_stone or 0)
+    loser_stone = int(loser_profile.spiritual_stone or 0)
+    loser_after_stake = max(loser_stone - stake_amount, 0)
+    plunder_amount = loser_after_stake * plunder_percent // 100 if plunder_percent > 0 else 0
+
+    upsert_profile(
+        winner_tg,
+        spiritual_stone=winner_stone + stake_amount + plunder_amount,
+    )
+    upsert_profile(
+        loser_tg,
+        spiritual_stone=max(loser_after_stake - plunder_amount, 0),
+    )
+
+    artifact_plunder_roll = roll_probability_percent(
+        artifact_plunder_base_chance,
+        actor_fortune=winner_state["stats"]["fortune"],
+        opponent_fortune=loser_state["stats"]["fortune"],
+        actor_weight=0.45,
+        opponent_weight=0.35,
+        minimum=0,
+        maximum=95,
+    )
+    artifact_plunder = None
+    if artifact_plunder_roll["success"]:
+        artifact_plunder = plunder_random_artifact_to_user(winner_tg, loser_tg)
+        if artifact_plunder and artifact_plunder.get("artifact"):
+            artifact_name = artifact_plunder["artifact"].get("name", "未知法宝")
+            create_journal(winner_tg, "duel", "斗法夺宝", f"斗法取胜后夺得法宝【{artifact_name}】")
+            create_journal(loser_tg, "duel", "斗法失宝", f"斗法落败后被夺走法宝【{artifact_name}】")
 
     create_duel_record(
         challenger_tg=challenger_tg,
@@ -2113,6 +2501,13 @@ def resolve_duel(challenger_tg: int, defender_tg: int, stake: int = 0) -> dict[s
         "loser_power": round(min(challenger_state["power"], defender_state["power"]), 2),
         "stake": stake_amount,
         "pot": stake_amount * 2,
+        "plunder_percent": plunder_percent,
+        "plunder_amount": plunder_amount,
+        "artifact_plunder": {
+            **artifact_plunder_roll,
+            "artifact": None if artifact_plunder is None else artifact_plunder.get("artifact"),
+            "was_equipped": bool(artifact_plunder and artifact_plunder.get("was_equipped")),
+        },
         "summary": f"战力对比 {challenger_state['power']:.1f} vs {defender_state['power']:.1f}",
     }
 
@@ -2121,16 +2516,100 @@ def generate_shop_name(first_name: str) -> str:
     return PERSONAL_SHOP_NAME
 
 
-def generate_duel_preview_text(duel: dict[str, Any], stake: int = 0) -> str:
-    challenger = duel["challenger"]["profile"]
-    defender = duel["defender"]["profile"]
-    challenger_name = challenger.get("display_label") or f"TG {challenger['tg']}"
-    defender_name = defender.get("display_label") or f"TG {defender['tg']}"
-    extra = f"\n赌注：每人 {stake} 灵石" if stake else ""
-    return (
-        f"⚔️ **斗法邀请**\n"
-        f"挑战者：{challenger_name} {challenger['realm_stage']}{challenger['realm_layer']}层\n"
-        f"应战者：{defender_name} {defender['realm_stage']}{defender['realm_layer']}层\n"
-        f"当前预测胜率：挑战者 {duel['challenger_rate'] * 100:.1f}% / 应战者 {duel['defender_rate'] * 100:.1f}%"
-        f"{extra}"
+def format_duel_settlement_text(
+    result: dict[str, Any],
+    bet_settlement: dict[str, Any] | None = None,
+    page: int = 1,
+    page_size: int = 10,
+) -> str:
+    challenger = result["challenger"]["profile"]
+    defender = result["defender"]["profile"]
+    winner_profile = challenger if int(result["winner_tg"]) == int(challenger["tg"]) else defender
+    loser_profile = defender if int(result["loser_tg"]) == int(defender["tg"]) else challenger
+    winner_name = _duel_display_name(winner_profile)
+    loser_name = _duel_display_name(loser_profile)
+    lines = [
+        "⚖️ **斗法已结算**",
+        f"胜者：{winner_name}",
+        f"败者：{loser_name}",
+        f"{result['summary']}",
+    ]
+
+    stake = int(result.get("stake") or 0)
+    if stake > 0:
+        lines.extend(
+            [
+                "",
+                "赌斗盈亏：",
+                f"{winner_name} 赢得 {stake} 灵石",
+                f"{loser_name} 输掉 {stake} 灵石",
+            ]
+        )
+
+    plunder_percent = int(result.get("plunder_percent") or 0)
+    if plunder_percent > 0:
+        lines.extend(
+            [
+                "",
+                "胜者掠夺：",
+                f"{winner_name} 额外掠夺 {int(result.get('plunder_amount') or 0)} 灵石",
+                f"掠夺比例：{plunder_percent}%",
+            ]
+        )
+
+    artifact_plunder = result.get("artifact_plunder") or {}
+    artifact_payload = artifact_plunder.get("artifact") or {}
+    if artifact_payload:
+        lines.extend(
+            [
+                "",
+                "法宝掠夺：",
+                f"{winner_name} 夺取了 {loser_name} 的 {artifact_payload.get('name', '未知法宝')}",
+                f"触发概率：{artifact_plunder.get('chance', 0)}%",
+            ]
+        )
+
+    rows = list((bet_settlement or {}).get("entries") or [])
+    page_size = max(int(page_size or 10), 1)
+    total_pages = max(ceil(len(rows) / page_size), 1)
+    current_page = min(max(int(page or 1), 1), total_pages)
+    start = (current_page - 1) * page_size
+    page_rows = rows[start : start + page_size]
+    side_label = {
+        "challenger": "挑战者",
+        "defender": "应战者",
+    }
+    lines.append("")
+    lines.append("押注结算：")
+    if not rows:
+        lines.append("暂无道友参与押注。")
+    else:
+        header = "按净收益从高到低："
+        if total_pages > 1:
+            header += f" 第 {current_page}/{total_pages} 页"
+        lines.append(header)
+        for index, row in enumerate(page_rows, start=start + 1):
+            if row.get("result") == "win":
+                lines.append(
+                    f"{index}. {row['name']} 押中{side_label.get(row.get('side'), '胜方')}，"
+                    f"下注 {row['bet_amount']}，净赚 {row['net_profit']}，返还 {row['amount']} 灵石"
+                )
+            else:
+                lines.append(
+                    f"{index}. {row['name']} 押错{side_label.get(row.get('side'), '败方')}，"
+                    f"下注 {row['bet_amount']}，净亏 {abs(int(row.get('net_profit') or 0))} 灵石"
+                )
+
+    lines.extend(
+        [
+            "",
+            "祝词：",
+            "愿胜者道心愈坚、再攀一层；愿败者锋芒不折、来日再战。",
+            "也愿诸位观战押注的道友财运常在、仙途长青，机缘与紫气同来。",
+        ]
     )
+    return "\n".join(lines)
+
+
+def generate_duel_preview_text(duel: dict[str, Any], stake: int = 0) -> str:
+    return format_duel_matchup_text(duel, stake=stake)

@@ -133,6 +133,49 @@ h2 {
   gap: 10px;
 }
 
+.settings-layout {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  align-items: start;
+}
+
+.setting-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(241, 245, 249, 0.8) 100%);
+}
+
+.setting-panel--full {
+  grid-column: 1 / -1;
+}
+
+.setting-panel-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.setting-panel-head strong {
+  display: block;
+  font-size: 15px;
+}
+
+.setting-panel-head p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.setting-panel-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
 .grid-form label,
 .mini-form label,
 .inline-editor label {

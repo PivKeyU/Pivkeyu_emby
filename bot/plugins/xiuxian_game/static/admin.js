@@ -108,6 +108,20 @@ const DEFAULT_DROP_WEIGHT_RULES = {
   high_quality_fortune_divisor: 5,
   high_quality_root_level_start: 3,
 };
+const PLAYER_STRING_FIELDS = new Set([
+  "realm_stage",
+  "root_type",
+  "root_primary",
+  "root_secondary",
+  "root_relation",
+  "root_quality",
+]);
+const EMBY_LEVEL_LABELS = {
+  a: "白名单",
+  b: "正常",
+  c: "封禁",
+  d: "未注册",
+};
 
 REALM_OPTIONS.splice(0, REALM_OPTIONS.length, "凡人", "炼气", "筑基", "结丹", "元婴", "化神", "须弥", "芥子", "混元一体");
 QUALITY_OPTIONS.splice(0, QUALITY_OPTIONS.length, "凡品", "下品", "中品", "上品", "极品", "仙品", "先天至宝");
@@ -155,6 +169,21 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function parseShanghaiDate(value) {
+  if (!value) return null;
+  const normalized = typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(value)
+    ? `${value}+00:00`
+    : value;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatShanghaiDate(value) {
+  const date = parseShanghaiDate(value);
+  if (!date) return "未设置";
+  return date.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
 }
 
 function currentRelativePath() {
@@ -928,6 +957,10 @@ function applySettings(settings = {}) {
   $("setting-fee").value = settings.exchange_fee_percent ?? 1;
   $("setting-min").value = settings.min_coin_exchange ?? 1;
   $("setting-duel-minutes").value = settings.duel_bet_minutes ?? 2;
+  $("setting-duel-steal").value = settings.duel_winner_steal_percent ?? 25;
+  $("setting-artifact-plunder").value = settings.artifact_plunder_chance ?? 20;
+  $("setting-message-auto-delete").value = settings.message_auto_delete_seconds ?? 180;
+  $("setting-unbind-cost").value = settings.equipment_unbind_cost ?? 100;
   $("setting-broadcast").value = settings.shop_broadcast_cost ?? 20;
   $("setting-shop-name").value = settings.official_shop_name ?? "风月阁";
   $("setting-artifact-limit").value = settings.artifact_equip_limit ?? 3;
@@ -1002,6 +1035,10 @@ function bindEvents() {
       exchange_fee_percent: Number($("setting-fee").value || 1),
       min_coin_exchange: Number($("setting-min").value || 1),
       duel_bet_minutes: Number($("setting-duel-minutes").value || 2),
+      duel_winner_steal_percent: Number($("setting-duel-steal").value || 25),
+      artifact_plunder_chance: Number($("setting-artifact-plunder").value || 20),
+      message_auto_delete_seconds: Number($("setting-message-auto-delete").value || 0),
+      equipment_unbind_cost: Number($("setting-unbind-cost").value || 0),
       shop_broadcast_cost: Number($("setting-broadcast").value || 20),
       official_shop_name: $("setting-shop-name").value.trim(),
       artifact_equip_limit: Number($("setting-artifact-limit").value || 3),
@@ -1475,10 +1512,28 @@ renderWorld = function renderWorldEnhanced() {
 /* ---------- Player Management ---------- */
 const PLAYER_EDIT_FIELDS = [
   "spiritual_stone", "cultivation", "realm_stage", "realm_layer",
+  "root_type", "root_primary", "root_secondary", "root_relation", "root_bonus", "root_quality",
   "bone", "comprehension", "divine_sense", "fortune",
   "qi_blood", "true_yuan", "body_movement", "attack_power", "defense_power",
   "dan_poison", "sect_contribution",
 ];
+
+function renderPlayerAccount(account) {
+  const container = $("player-account-info");
+  const panel = $("player-account-panel");
+  if (!container || !panel) return;
+  panel.style.display = "";
+  if (!account) {
+    container.innerHTML = `<p>当前角色未绑定 Emby 账户。</p>`;
+    return;
+  }
+  container.innerHTML = `
+    <p>账号名：${escapeHtml(account.name || "未设置")}</p>
+    <p>Emby ID：${escapeHtml(account.embyid || "未设置")}</p>
+    <p>等级：${escapeHtml(EMBY_LEVEL_LABELS[account.lv] || account.lv || "未设置")} · 片刻碎片：${escapeHtml(account.iv ?? 0)}</p>
+    <p>到期时间：${escapeHtml(formatShanghaiDate(account.ex))}</p>
+  `;
+}
 
 async function searchPlayers(q = "") {
   const data = await request("GET", `/plugins/xiuxian/admin-api/players?q=${encodeURIComponent(q)}&page=1&page_size=30`);
@@ -1493,7 +1548,8 @@ async function searchPlayers(q = "") {
         <strong>${escapeHtml(p.display_label || p.display_name || (p.username ? "@" + p.username : "TG " + p.tg))}</strong>
         <span class="badge">${escapeHtml(p.realm_stage || "凡人")} ${p.realm_layer || 0}层</span>
       </div>
-      <p>灵石 ${p.spiritual_stone || 0} · 修为 ${p.cultivation || 0}</p>
+      <p>灵石 ${p.spiritual_stone || 0} · 修为 ${p.cultivation || 0} · 片刻碎片 ${p.emby_account?.iv ?? 0}</p>
+      <p>${escapeHtml(p.emby_account?.name || "未绑定 Emby")} · ${escapeHtml(p.emby_account?.embyid || "无 Emby ID")}</p>
     </article>
   `).join("");
   container.querySelectorAll("[data-tg]").forEach((el) => {
@@ -1509,6 +1565,7 @@ async function openPlayerEdit(tg) {
   $("player-edit-panel").style.display = "";
   $("player-edit-tg").value = tg;
   document.getElementById("player-edit-title").textContent = `编辑: ${profile?.display_label || profile?.display_name || (profile?.username ? "@" + profile.username : "TG " + tg)}`;
+  renderPlayerAccount(data?.emby_account || profile?.emby_account || null);
   PLAYER_EDIT_FIELDS.forEach((key) => {
     const el = $("pe-" + key);
     if (el) el.value = profile?.[key] ?? "";
@@ -1525,7 +1582,7 @@ async function submitPlayerEdit(e) {
     if (!el) return;
     const raw = el.value;
     if (raw === "" || raw == null) return;
-    payload[key] = key === "realm_stage" ? raw : Number(raw);
+    payload[key] = PLAYER_STRING_FIELDS.has(key) ? raw : Number(raw);
   });
   try {
     await request("PATCH", `/plugins/xiuxian/admin-api/players/${tg}`, payload);

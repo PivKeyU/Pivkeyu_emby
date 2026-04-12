@@ -16,3 +16,9 @@ __pycache__/
 log/
 *.sql
 bot-env
+
+# Local runtime state
+data/
+db/
+caddy/config/
+caddy/data/

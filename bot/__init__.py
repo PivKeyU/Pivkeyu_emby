@@ -2,7 +2,13 @@
 # -*- coding: utf-8 -*-
 import contextlib
 import os
+import time
 from pathlib import Path
+
+BOT_TIMEZONE = "Asia/Shanghai"
+os.environ["TZ"] = BOT_TIMEZONE
+if hasattr(time, "tzset"):
+    time.tzset()
 
 from .func_helper.logger_config import logu, Now
 from .func_helper.runtime import configure_runtime_limits

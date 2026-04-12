@@ -40,101 +40,159 @@
         <span class="summary-tip">兑换、赌斗、广播、品质倍率、掉落权重、仙人抚顶、上传权限</span>
       </summary>
       <div class="fold-body">
-        <form id="settings-form" class="grid-form">
-          <label>
-            1 片刻碎片可兑换灵石
-            <input id="setting-rate" type="number" min="1" value="100">
-          </label>
-          <label>
-            兑换手续费（%）
-            <input id="setting-fee" type="number" min="0" value="1">
-          </label>
-          <label>
-            灵石兑换碎片最低灵石
-            <input id="setting-min" type="number" min="1" value="100">
-          </label>
-          <label>
-            赌斗下注倒计时（分钟）
-            <input id="setting-duel-minutes" type="number" min="1" max="15" value="2">
-          </label>
-          <label>
-            个人店铺群播消耗
-            <input id="setting-broadcast" type="number" min="0" value="20">
-          </label>
-          <label>
-            官方商店名称
-            <input id="setting-shop-name" type="text" value="风月阁">
-          </label>
-          <label>
-            法宝装备上限
-            <input id="setting-artifact-limit" type="number" min="1" max="12" value="3">
-          </label>
-          <label class="inline-check">
-            <input id="setting-user-upload" type="checkbox">
-            允许非主人用户上传图片
-          </label>
-          <label>
-            群聊涨修为概率（%）
-            <input id="setting-chat-chance" type="number" min="0" max="100" value="8">
-          </label>
-          <label>
-            群聊最少涨修为
-            <input id="setting-chat-min" type="number" min="1" value="1">
-          </label>
-          <label>
-            群聊最多涨修为
-            <input id="setting-chat-max" type="number" min="1" value="3">
-          </label>
-          <label>
-            每日抢劫上限
-            <input id="setting-robbery-limit" type="number" min="0" value="3">
-          </label>
-          <label>
-            单次抢劫最高灵石
-            <input id="setting-robbery-max" type="number" min="0" value="180">
-          </label>
-          <label>
-            红包奖励功德最低灵石
-            <input id="setting-red-stone" type="number" min="0" value="100">
-          </label>
-          <label>
-            红包奖励功德最低个数
-            <input id="setting-red-count" type="number" min="1" value="3">
-          </label>
-          <label>
-            红包奖励功德点数
-            <input id="setting-red-merit" type="number" min="0" value="2">
-          </label>
-          <label>
-            高品质群播阈值
-            <input id="setting-quality-broadcast" type="number" min="1" value="4">
-          </label>
-          <label>
-            仙人抚顶灌注等级
-            <input id="setting-immortal-touch-layers" type="number" min="1" max="9" value="1">
-          </label>
-          <div class="builder-section wide-field">
-            <div class="builder-head">
-              <strong>灵根品质数值倍率</strong>
-              <span class="summary-tip">修炼倍率、突破加成、战力倍率</span>
+        <form id="settings-form" class="grid-form settings-layout">
+          <section class="setting-panel">
+            <div class="setting-panel-head">
+              <div>
+                <strong>货币与消息</strong>
+                <p>兑换比例、手续费、商店广播和消息清理。</p>
+              </div>
             </div>
-            <div id="setting-root-quality-rows" class="builder-list"></div>
-          </div>
-          <div class="builder-section wide-field">
-            <div class="builder-head">
-              <strong>物品品质数值倍率</strong>
-              <span class="summary-tip">法宝、丹药、符箓按品质叠加倍率</span>
+            <div class="setting-panel-grid">
+              <label>
+                1 片刻碎片可兑换灵石
+                <input id="setting-rate" type="number" min="1" value="100">
+              </label>
+              <label>
+                兑换手续费（%）
+                <input id="setting-fee" type="number" min="0" value="1">
+              </label>
+              <label>
+                灵石兑换碎片最低灵石
+                <input id="setting-min" type="number" min="1" value="100">
+              </label>
+              <label>
+                消息自动删除秒数（0 关闭）
+                <input id="setting-message-auto-delete" type="number" min="0" max="86400" value="180">
+              </label>
+              <label>
+                个人店铺群播消耗
+                <input id="setting-broadcast" type="number" min="0" value="20">
+              </label>
+              <label>
+                官方商店名称
+                <input id="setting-shop-name" type="text" value="风月阁">
+              </label>
             </div>
-            <div id="setting-item-quality-rows" class="builder-list"></div>
-          </div>
-          <div class="builder-section wide-field">
-            <div class="builder-head">
-              <strong>探索掉落权重修正</strong>
-              <span class="summary-tip">神识、机缘与高品质灵根额外加权</span>
+          </section>
+
+          <section class="setting-panel">
+            <div class="setting-panel-head">
+              <div>
+                <strong>斗法与装备</strong>
+                <p>赌斗时间、灵石与法宝掠夺规则、装备位与解绑成本。</p>
+              </div>
             </div>
-            <div id="setting-drop-weight-rows" class="builder-list"></div>
-          </div>
-          <div class="form-actions">
+            <div class="setting-panel-grid">
+              <label>
+                赌斗下注倒计时（分钟）
+                <input id="setting-duel-minutes" type="number" min="1" max="15" value="2">
+              </label>
+              <label>
+                胜者额外掠夺比例（%）
+                <input id="setting-duel-steal" type="number" min="0" max="100" value="25">
+              </label>
+              <label>
+                法宝掠夺基础概率（%）
+                <input id="setting-artifact-plunder" type="number" min="0" max="100" value="20">
+              </label>
+              <label>
+                法宝装备上限
+                <input id="setting-artifact-limit" type="number" min="1" max="12" value="3">
+              </label>
+              <label>
+                装备解绑费用（每件/张）
+                <input id="setting-unbind-cost" type="number" min="0" value="100">
+              </label>
+              <label>
+                高品质群播阈值
+                <input id="setting-quality-broadcast" type="number" min="1" value="4">
+              </label>
+              <label>
+                仙人抚顶灌注等级
+                <input id="setting-immortal-touch-layers" type="number" min="1" max="9" value="1">
+              </label>
+            </div>
+          </section>
+
+          <section class="setting-panel">
+            <div class="setting-panel-head">
+              <div>
+                <strong>聊天与日常事件</strong>
+                <p>群聊修炼、抢劫和红包奖励统一管理。</p>
+              </div>
+            </div>
+            <div class="setting-panel-grid">
+              <label class="inline-check">
+                <input id="setting-user-upload" type="checkbox">
+                允许非主人用户上传图片
+              </label>
+              <label>
+                群聊涨修为概率（%）
+                <input id="setting-chat-chance" type="number" min="0" max="100" value="8">
+              </label>
+              <label>
+                群聊最少涨修为
+                <input id="setting-chat-min" type="number" min="1" value="1">
+              </label>
+              <label>
+                群聊最多涨修为
+                <input id="setting-chat-max" type="number" min="1" value="3">
+              </label>
+              <label>
+                每日抢劫上限
+                <input id="setting-robbery-limit" type="number" min="0" value="3">
+              </label>
+              <label>
+                单次抢劫最高灵石
+                <input id="setting-robbery-max" type="number" min="0" value="180">
+              </label>
+              <label>
+                红包奖励功德最低灵石
+                <input id="setting-red-stone" type="number" min="0" value="100">
+              </label>
+              <label>
+                红包奖励功德最低个数
+                <input id="setting-red-count" type="number" min="1" value="3">
+              </label>
+              <label>
+                红包奖励功德点数
+                <input id="setting-red-merit" type="number" min="0" value="2">
+              </label>
+            </div>
+          </section>
+
+          <section class="setting-panel setting-panel--full">
+            <div class="setting-panel-head">
+              <div>
+                <strong>倍率与掉落规则</strong>
+                <p>灵根、品质与探索掉落的数值规则集中管理。</p>
+              </div>
+            </div>
+            <div class="builder-section wide-field">
+              <div class="builder-head">
+                <strong>灵根品质数值倍率</strong>
+                <span class="summary-tip">修炼倍率、突破加成、战力倍率</span>
+              </div>
+              <div id="setting-root-quality-rows" class="builder-list"></div>
+            </div>
+            <div class="builder-section wide-field">
+              <div class="builder-head">
+                <strong>物品品质数值倍率</strong>
+                <span class="summary-tip">法宝、丹药、符箓按品质叠加倍率</span>
+              </div>
+              <div id="setting-item-quality-rows" class="builder-list"></div>
+            </div>
+            <div class="builder-section wide-field">
+              <div class="builder-head">
+                <strong>探索掉落权重修正</strong>
+                <span class="summary-tip">神识、机缘与高品质灵根额外加权</span>
+              </div>
+              <div id="setting-drop-weight-rows" class="builder-list"></div>
+            </div>
+          </section>
+
+          <div class="form-actions wide-field">
             <button type="submit">保存设置</button>
           </div>
         </form>
@@ -878,8 +936,8 @@
       <div class="fold-body">
         <form id="player-search-form" class="grid-form" style="margin-bottom:12px;">
           <label class="wide-field">
-            搜索（TG ID 或 TG 昵称）
-            <input id="player-search-q" type="text" placeholder="输入 TG ID、TG 昵称或 @username 搜索">
+            搜索（TG ID、TG 昵称、@username、Emby 账号）
+            <input id="player-search-q" type="text" placeholder="输入 TG ID、TG 昵称、@username、Emby 账号名或 Emby ID 搜索">
           </label>
           <div class="form-actions">
             <button type="submit">搜索</button>
@@ -888,6 +946,10 @@
         <div id="player-search-results" class="stack-list"></div>
         <div id="player-edit-panel" style="display:none;">
           <h3 id="player-edit-title" style="margin:12px 0 8px;font-size:1rem;"></h3>
+          <div id="player-account-panel" class="stack-item" style="margin-bottom:12px;">
+            <strong>账户信息</strong>
+            <div id="player-account-info" style="margin-top:8px;color:#4b5563;line-height:1.7;"></div>
+          </div>
           <form id="player-edit-form" class="grid-form">
             <input type="hidden" id="player-edit-tg">
             <label>灵石 <input id="pe-spiritual_stone" type="number"></label>
@@ -907,6 +969,68 @@
               </select>
             </label>
             <label>层数 <input id="pe-realm_layer" type="number" min="1" max="9"></label>
+            <label>
+              灵根类型
+              <select id="pe-root_type">
+                <option value=""></option>
+                <option value="单灵根">单灵根</option>
+                <option value="双灵根">双灵根</option>
+                <option value="地灵根">地灵根</option>
+                <option value="天灵根">天灵根</option>
+                <option value="变异灵根">变异灵根</option>
+              </select>
+            </label>
+            <label>
+              主灵根
+              <select id="pe-root_primary">
+                <option value=""></option>
+                <option value="金">金</option>
+                <option value="木">木</option>
+                <option value="水">水</option>
+                <option value="火">火</option>
+                <option value="土">土</option>
+                <option value="雷">雷</option>
+                <option value="风">风</option>
+              </select>
+            </label>
+            <label>
+              副灵根
+              <select id="pe-root_secondary">
+                <option value=""></option>
+                <option value="金">金</option>
+                <option value="木">木</option>
+                <option value="水">水</option>
+                <option value="火">火</option>
+                <option value="土">土</option>
+                <option value="雷">雷</option>
+                <option value="风">风</option>
+              </select>
+            </label>
+            <label>
+              灵根关系
+              <select id="pe-root_relation">
+                <option value=""></option>
+                <option value="平稳中正">平稳中正</option>
+                <option value="相生">相生</option>
+                <option value="相克">相克</option>
+                <option value="天道垂青">天道垂青</option>
+                <option value="异灵独秀">异灵独秀</option>
+              </select>
+            </label>
+            <label>灵根修正 <input id="pe-root_bonus" type="number"></label>
+            <label>
+              灵根品质
+              <select id="pe-root_quality">
+                <option value=""></option>
+                <option value="废灵根">废灵根</option>
+                <option value="下品灵根">下品灵根</option>
+                <option value="中品灵根">中品灵根</option>
+                <option value="上品灵根">上品灵根</option>
+                <option value="极品灵根">极品灵根</option>
+                <option value="天灵根">天灵根</option>
+                <option value="变异灵根">变异灵根</option>
+              </select>
+            </label>
             <label>根骨 <input id="pe-bone" type="number"></label>
             <label>悟性 <input id="pe-comprehension" type="number"></label>
             <label>神识 <input id="pe-divine_sense" type="number"></label>

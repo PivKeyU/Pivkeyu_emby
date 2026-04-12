@@ -12,6 +12,7 @@ from bot.sql_helper.sql_xiuxian import (
     SECT_ROLE_LABELS,
     SECT_ROLE_PRESETS,
     XiuxianArtifactInventory,
+    XiuxianEquippedArtifact,
     XiuxianPillInventory,
     XiuxianProfile,
     XiuxianRecipe,
@@ -36,6 +37,7 @@ from bot.sql_helper.sql_xiuxian import (
     create_task,
     create_journal,
     get_artifact,
+    get_emby_name_map,
     get_material,
     get_pill,
     get_profile,
@@ -60,10 +62,12 @@ from bot.sql_helper.sql_xiuxian import (
     list_sects,
     list_tasks,
     list_user_materials,
+    plunder_random_artifact_to_user,
     realm_index,
     replace_recipe_ingredients,
     replace_sect_roles,
     serialize_exploration,
+    serialize_datetime,
     serialize_material,
     serialize_profile,
     serialize_recipe,
@@ -76,6 +80,7 @@ from bot.sql_helper.sql_xiuxian import (
     upsert_profile,
     utcnow,
 )
+from bot.plugins.xiuxian_game.probability import roll_probability_percent
 
 
 RARITY_LEVEL_MAP = {
@@ -524,6 +529,25 @@ def _consume_required_item(
     if row is None or int(row.quantity or 0) < amount:
         raise ValueError(f"提交所需物品不足：{item.get('name', '未知物品')} × {amount}")
 
+    if item_kind == "artifact":
+        bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
+        equipped_count = (
+            session.query(XiuxianEquippedArtifact)
+            .filter(
+                XiuxianEquippedArtifact.tg == tg,
+                XiuxianEquippedArtifact.artifact_id == item_ref_id,
+            )
+            .count()
+        )
+        available_quantity = int(row.quantity or 0) - bound_quantity - int(equipped_count or 0)
+        if available_quantity < amount:
+            raise ValueError(f"提交所需法宝不足，已绑定或已装备的法宝无法提交：{item.get('name', '未知物品')} × {amount}")
+    elif item_kind == "talisman":
+        bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
+        available_quantity = int(row.quantity or 0) - bound_quantity
+        if available_quantity < amount:
+            raise ValueError(f"提交所需符箓不足，已绑定的符箓无法提交：{item.get('name', '未知物品')} × {amount}")
+
     row.quantity -= amount
     row.updated_at = utcnow()
     if row.quantity <= 0:
@@ -743,8 +767,16 @@ def craft_recipe_for_user(tg: int, recipe_id: int) -> dict[str, Any]:
     elif str(profile.get("root_quality") or "") == "变异灵根":
         success_rate += 3
     success_rate = max(min(success_rate, 95), 5)
-    roll = random.randint(1, 100)
-    success = roll <= success_rate
+    success_roll = roll_probability_percent(
+        success_rate,
+        actor_fortune=fortune,
+        actor_weight=0.25,
+        minimum=5,
+        maximum=95,
+    )
+    roll = success_roll["roll"]
+    success_rate = success_roll["chance"]
+    success = bool(success_roll["success"])
     reward = None
     if success:
         reward = _grant_item_by_kind(tg, recipe["result_kind"], int(recipe["result_ref_id"]), int(recipe["result_quantity"]))
@@ -1041,6 +1073,7 @@ def rob_player(attacker_tg: int, defender_tg: int, success_hint: float = 0.5) ->
     roll = random.random()
     success = roll <= rate
     steal_cap = int(settings.get("robbery_max_steal", DEFAULT_SETTINGS["robbery_max_steal"]) or 180)
+    artifact_plunder = None
     if success:
         amount = max(min(steal_cap, max(int(defender_obj.spiritual_stone or 0) // 6, 20)), 0)
         attacker_updated = upsert_profile(
@@ -1050,6 +1083,28 @@ def rob_player(attacker_tg: int, defender_tg: int, success_hint: float = 0.5) ->
             robbery_day_key=china_day_key(),
         )
         defender_updated = upsert_profile(defender_tg, spiritual_stone=max(int(defender_obj.spiritual_stone or 0) - amount, 0))
+        artifact_roll = roll_probability_percent(
+            int(settings.get("artifact_plunder_chance", DEFAULT_SETTINGS["artifact_plunder_chance"]) or 0),
+            actor_fortune=float(duel["challenger_snapshot"]["stats"]["fortune"]),
+            opponent_fortune=float(duel["defender_snapshot"]["stats"]["fortune"]),
+            actor_weight=0.45,
+            opponent_weight=0.35,
+            minimum=0,
+            maximum=95,
+        )
+        artifact_plunder = {
+            **artifact_roll,
+            "artifact": None,
+            "was_equipped": False,
+        }
+        if artifact_roll["success"]:
+            payload = plunder_random_artifact_to_user(attacker_tg, defender_tg)
+            if payload and payload.get("artifact"):
+                artifact_plunder["artifact"] = payload.get("artifact")
+                artifact_plunder["was_equipped"] = bool(payload.get("was_equipped"))
+                artifact_name = artifact_plunder["artifact"].get("name", "未知法宝")
+                create_journal(attacker_tg, "rob", "顺手夺宝", f"抢劫得手后又夺得法宝【{artifact_name}】")
+                create_journal(defender_tg, "rob", "法宝被夺", f"抢劫失手后被夺走法宝【{artifact_name}】")
     else:
         penalty = max(min(int(attacker_obj.spiritual_stone or 0) // 20, 30), 5)
         amount = -penalty
@@ -1067,6 +1122,7 @@ def rob_player(attacker_tg: int, defender_tg: int, success_hint: float = 0.5) ->
         "amount": amount,
         "attacker": serialize_profile(attacker_updated),
         "defender": serialize_profile(defender_updated),
+        "artifact_plunder": artifact_plunder,
     }
 
 
@@ -1116,15 +1172,18 @@ def settle_duel_bet_pool(pool_id: int, winner_tg: int) -> dict[str, Any]:
         if pool is None:
             raise ValueError("下注池不存在")
         if pool.resolved:
-            return {"pool_id": pool_id, "resolved": True, "payouts": []}
+            return {"pool_id": pool_id, "resolved": True, "entries": [], "payouts": []}
         pool.resolved = True
         pool.winner_tg = winner_tg
         winner_side = "challenger" if int(winner_tg) == int(pool.challenger_tg) else "defender"
         loser_side = "defender" if winner_side == "challenger" else "challenger"
         winner_bets = session.query(XiuxianDuelBet).filter(XiuxianDuelBet.pool_id == pool_id, XiuxianDuelBet.side == winner_side).all()
-        loser_total = sum(int(row.amount or 0) for row in session.query(XiuxianDuelBet).filter(XiuxianDuelBet.pool_id == pool_id, XiuxianDuelBet.side == loser_side).all())
+        loser_bets = session.query(XiuxianDuelBet).filter(XiuxianDuelBet.pool_id == pool_id, XiuxianDuelBet.side == loser_side).all()
+        bettor_tgs = [int(row.tg) for row in winner_bets + loser_bets]
+        name_map = get_emby_name_map(bettor_tgs)
+        loser_total = sum(int(row.amount or 0) for row in loser_bets)
         winner_total = sum(int(row.amount or 0) for row in winner_bets)
-        payouts = []
+        entries = []
         for bet in winner_bets:
             bonus = floor_div(loser_total * int(bet.amount or 0), winner_total)
             total_back = int(bet.amount or 0) + bonus
@@ -1132,10 +1191,55 @@ def settle_duel_bet_pool(pool_id: int, winner_tg: int) -> dict[str, Any]:
             if profile is not None:
                 profile.spiritual_stone += total_back
                 profile.updated_at = utcnow()
-            payouts.append({"tg": bet.tg, "amount": total_back, "bonus": bonus})
+            entries.append(
+                {
+                    "tg": int(bet.tg),
+                    "name": name_map.get(int(bet.tg), f"TG {bet.tg}"),
+                    "side": bet.side,
+                    "result": "win",
+                    "bet_amount": int(bet.amount or 0),
+                    "amount": total_back,
+                    "bonus": bonus,
+                    "net_profit": bonus,
+                }
+            )
+        for bet in loser_bets:
+            entries.append(
+                {
+                    "tg": int(bet.tg),
+                    "name": name_map.get(int(bet.tg), f"TG {bet.tg}"),
+                    "side": bet.side,
+                    "result": "lose",
+                    "bet_amount": int(bet.amount or 0),
+                    "amount": -int(bet.amount or 0),
+                    "bonus": -int(bet.amount or 0),
+                    "net_profit": -int(bet.amount or 0),
+                }
+            )
+        entries.sort(
+            key=lambda row: (
+                int(row.get("net_profit") or 0),
+                int(row.get("bet_amount") or 0),
+                -int(row.get("tg") or 0),
+            ),
+            reverse=True,
+        )
+        payouts = [row for row in entries if row.get("result") == "win"]
+        losses = [row for row in entries if row.get("result") == "lose"]
         pool.updated_at = utcnow()
         session.commit()
-    return {"pool_id": pool_id, "resolved": True, "payouts": payouts, "winner_tg": winner_tg}
+    return {
+        "pool_id": pool_id,
+        "resolved": True,
+        "entries": entries,
+        "payouts": payouts,
+        "losses": losses,
+        "winner_tg": winner_tg,
+        "winner_side": winner_side,
+        "loser_side": loser_side,
+        "winner_total": winner_total,
+        "loser_total": loser_total,
+    }
 
 
 def format_duel_bet_board(pool_id: int) -> str:
@@ -1146,7 +1250,27 @@ def format_duel_bet_board(pool_id: int) -> str:
         challenger_total = sum(int(row.amount or 0) for row in session.query(XiuxianDuelBet).filter(XiuxianDuelBet.pool_id == pool_id, XiuxianDuelBet.side == "challenger").all())
         defender_total = sum(int(row.amount or 0) for row in session.query(XiuxianDuelBet).filter(XiuxianDuelBet.pool_id == pool_id, XiuxianDuelBet.side == "defender").all())
         remaining = max(int((pool.bets_close_at - utcnow()).total_seconds()), 0)
-        return f"斗法押注中\n挑战者池：{challenger_total} 灵石\n应战者池：{defender_total} 灵石\n剩余时间：{remaining} 秒"
+        from bot.plugins.xiuxian_game.service import compute_duel_odds, format_duel_matchup_text
+
+        duel = compute_duel_odds(int(pool.challenger_tg), int(pool.defender_tg))
+        lines = [
+            format_duel_matchup_text(
+                duel,
+                stake=int(pool.stake or 0),
+                title="🎯 **斗法押注中**" if not pool.resolved else "🎯 **斗法押注已结束**",
+            ),
+            "",
+            "押注情况：",
+            f"挑战者池：{challenger_total} 灵石",
+            f"应战者池：{defender_total} 灵石",
+            f"总赌池：{challenger_total + defender_total} 灵石",
+        ]
+        if pool.resolved:
+            winner_side = "挑战者" if int(pool.winner_tg or 0) == int(pool.challenger_tg) else "应战者"
+            lines.append(f"押注状态：已结算（胜方：{winner_side}）")
+        else:
+            lines.append(f"剩余时间：{remaining} 秒")
+        return "\n".join(lines)
 
 
 def claim_task_for_user(tg: int, task_id: int) -> dict[str, Any]:
@@ -1315,7 +1439,7 @@ def create_duel_bet_pool_for_duel(
             "stake": pool.stake,
             "group_chat_id": pool.group_chat_id,
             "bet_minutes": minutes,
-            "bets_close_at": pool.bets_close_at.isoformat() if pool.bets_close_at else None,
+            "bets_close_at": serialize_datetime(pool.bets_close_at),
         }
 
 
@@ -1332,5 +1456,6 @@ def build_world_bundle(tg: int) -> dict[str, Any]:
         "settings": {
             "robbery_daily_limit": int(get_xiuxian_settings().get("robbery_daily_limit", DEFAULT_SETTINGS["robbery_daily_limit"]) or 3),
             "robbery_max_steal": int(get_xiuxian_settings().get("robbery_max_steal", DEFAULT_SETTINGS["robbery_max_steal"]) or 180),
+            "artifact_plunder_chance": int(get_xiuxian_settings().get("artifact_plunder_chance", DEFAULT_SETTINGS["artifact_plunder_chance"]) or 0),
         },
     }

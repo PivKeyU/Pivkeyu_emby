@@ -180,10 +180,19 @@ function setDisabled(button, disabled, reason = "") {
   button.title = disabled ? reason : "";
 }
 
+function parseShanghaiDate(value) {
+  if (!value) return null;
+  const normalized = typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(value)
+    ? `${value}+00:00`
+    : value;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function formatDate(value) {
   if (!value) return "未开始";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "未知" : date.toLocaleString("zh-CN");
+  const date = parseShanghaiDate(value);
+  return date ? date.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }) : "未知";
 }
 
 function profileRootText(profile) {
@@ -271,7 +280,7 @@ function renderInventorySelect() {
   if (kind === "talisman") rows = bundle.talismans;
 
   select.innerHTML = "";
-  const available = rows.filter((row) => row.quantity > 0);
+  const available = rows.filter((row) => Number(row.tradeable_quantity ?? row.quantity ?? 0) > 0);
   if (!available.length) {
     select.innerHTML = `<option value="">暂无可上架物品</option>`;
     return;
@@ -281,7 +290,7 @@ function renderInventorySelect() {
     const item = row[kind];
     const option = document.createElement("option");
     option.value = item.id;
-    option.textContent = `${item.name} · 库存 ${row.quantity}`;
+    option.textContent = `${item.name} · 可交易 ${row.tradeable_quantity ?? row.quantity}`;
     select.appendChild(option);
   }
 }
@@ -290,8 +299,8 @@ function taskRequirementRows(kind) {
   const bundle = state.profileBundle || {};
   if (kind === "artifact") {
     return (bundle.artifacts || [])
-      .filter((row) => Number(row.quantity || 0) > 0)
-      .map((row) => ({ value: row.artifact.id, label: `${row.artifact.name} · 库存 ${row.quantity}` }));
+      .filter((row) => Number(row.consumable_quantity ?? row.quantity ?? 0) > 0)
+      .map((row) => ({ value: row.artifact.id, label: `${row.artifact.name} · 可提交 ${row.consumable_quantity ?? row.quantity}` }));
   }
   if (kind === "pill") {
     return (bundle.pills || [])
@@ -300,8 +309,8 @@ function taskRequirementRows(kind) {
   }
   if (kind === "talisman") {
     return (bundle.talismans || [])
-      .filter((row) => Number(row.quantity || 0) > 0)
-      .map((row) => ({ value: row.talisman.id, label: `${row.talisman.name} · 库存 ${row.quantity}` }));
+      .filter((row) => Number(row.consumable_quantity ?? row.quantity ?? 0) > 0)
+      .map((row) => ({ value: row.talisman.id, label: `${row.talisman.name} · 可提交 ${row.consumable_quantity ?? row.quantity}` }));
   }
   if (kind === "material") {
     return (bundle.materials || [])
@@ -942,7 +951,8 @@ function renderExploreArea(bundle) {
   const active = bundle.active_exploration;
   activeRoot.innerHTML = "";
   if (active && !active.claimed) {
-    const canClaim = new Date(active.end_at).getTime() <= Date.now();
+    const endAt = parseShanghaiDate(active.end_at);
+    const canClaim = endAt ? endAt.getTime() <= Date.now() : false;
     activeRoot.innerHTML = `
       <article class="stack-item">
         <div class="stack-item-head">
@@ -1476,18 +1486,32 @@ document.querySelector("#personal-shop-list")?.addEventListener("click", async (
 });
 
 document.querySelector("#artifact-list").addEventListener("click", async (event) => {
-  const button = event.target.closest("[data-equip-id]");
+  const button = event.target.closest("[data-equip-id], [data-artifact-bind-id], [data-artifact-unbind-id]");
   if (!button || button.disabled) return;
   try {
-    const payload = await runButtonAction(button, "处理中…", () => postJson("/plugins/xiuxian/api/artifact/equip", {
-      artifact_id: Number(button.dataset.equipId)
-    }));
-    const actionText = payload.action === "unequipped" ? "已卸下法宝" : "已装备法宝";
-    const message = `${actionText}：${payload.artifact_name}`;
+    let payload;
+    let message = "";
+    if (button.dataset.artifactBindId) {
+      payload = await runButtonAction(button, "绑定中…", () => postJson("/plugins/xiuxian/api/artifact/bind", {
+        artifact_id: Number(button.dataset.artifactBindId)
+      }));
+      message = `已绑定 ${payload.artifact.name} 1 件。`;
+    } else if (button.dataset.artifactUnbindId) {
+      payload = await runButtonAction(button, "解绑中…", () => postJson("/plugins/xiuxian/api/artifact/unbind", {
+        artifact_id: Number(button.dataset.artifactUnbindId)
+      }));
+      message = `已解绑 ${payload.artifact.name} 1 件${payload.cost ? `，消耗 ${payload.cost} 灵石` : ""}。`;
+    } else {
+      payload = await runButtonAction(button, "处理中…", () => postJson("/plugins/xiuxian/api/artifact/equip", {
+        artifact_id: Number(button.dataset.equipId)
+      }));
+      const actionText = payload.action === "unequipped" ? "已卸下法宝" : "已装备法宝";
+      message = `${actionText}：${payload.artifact_name}`;
+      await refreshLeaderboard(state.leaderboard.kind, state.leaderboard.page);
+    }
     setStatus(message, "success");
     await popup("操作成功", message);
     await refreshBundle();
-    await refreshLeaderboard(state.leaderboard.kind, state.leaderboard.page);
   } catch (error) {
     const message = normalizeError(error, "法宝操作失败。");
     setStatus(message, "error");
@@ -1514,15 +1538,31 @@ document.querySelector("#pill-list").addEventListener("click", async (event) => 
 });
 
 document.querySelector("#talisman-list").addEventListener("click", async (event) => {
-  const button = event.target.closest("[data-talisman-id]");
+  const button = event.target.closest("[data-talisman-id], [data-talisman-bind-id], [data-talisman-unbind-id]");
   if (!button || button.disabled) return;
   try {
-    const payload = await runButtonAction(button, "激活中…", () => postJson("/plugins/xiuxian/api/talisman/activate", {
-      talisman_id: Number(button.dataset.talismanId)
-    }));
-    const message = `已激活 ${payload.talisman.name}，将于下一场斗法生效。`;
+    let payload;
+    let message = "";
+    let title = "操作成功";
+    if (button.dataset.talismanBindId) {
+      payload = await runButtonAction(button, "绑定中…", () => postJson("/plugins/xiuxian/api/talisman/bind", {
+        talisman_id: Number(button.dataset.talismanBindId)
+      }));
+      message = `已绑定 ${payload.talisman.name} 1 张。`;
+    } else if (button.dataset.talismanUnbindId) {
+      payload = await runButtonAction(button, "解绑中…", () => postJson("/plugins/xiuxian/api/talisman/unbind", {
+        talisman_id: Number(button.dataset.talismanUnbindId)
+      }));
+      message = `已解绑 ${payload.talisman.name} 1 张${payload.cost ? `，消耗 ${payload.cost} 灵石` : ""}。`;
+    } else {
+      payload = await runButtonAction(button, "激活中…", () => postJson("/plugins/xiuxian/api/talisman/activate", {
+        talisman_id: Number(button.dataset.talismanId)
+      }));
+      message = `已激活 ${payload.talisman.name}，将于下一场斗法生效。`;
+      title = "激活成功";
+    }
     setStatus(message, "success");
-    await popup("激活成功", message);
+    await popup(title, message);
     await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "激活符箓失败。");
@@ -2056,6 +2096,11 @@ renderArtifactList = function renderArtifactList(items, retreating, equipLimit, 
     const item = row.artifact;
     const effects = item.resolved_effects || {};
     const disabled = !item.usable || retreating;
+    const bindableQuantity = Number(row.unbound_quantity ?? row.quantity ?? 0);
+    const unbindableQuantity = Number(row.bound_quantity ?? 0);
+    const canBind = bindableQuantity > 0;
+    const canUnbind = unbindableQuantity > 0;
+    const unbindCost = Number(state.profileBundle?.settings?.equipment_unbind_cost || 0);
     const reason = item.equipped
       ? ""
       : fallbackReason(
@@ -2077,11 +2122,18 @@ renderArtifactList = function renderArtifactList(items, retreating, equipLimit, 
       <div class="item-tags">
         <span class="tag ${item.artifact_type === "support" ? "support" : ""}">${escapeHtml(item.artifact_type_label || artifactTypeLabel(item.artifact_type))}</span>
         ${qualityBadgeHtml(item.rarity || "凡品", item.quality_color, "tag")}
+        ${unbindableQuantity > 0 ? `<span class="tag">已绑定 ${escapeHtml(unbindableQuantity)}</span>` : ""}
+        ${bindableQuantity > 0 ? `<span class="tag">未绑定 ${escapeHtml(bindableQuantity)}</span>` : ""}
         ${itemAffixTags(item, effects)}
       </div>
       <p>境界要求：${escapeHtml(item.min_realm_stage ? `${item.min_realm_stage}${item.min_realm_layer}层` : "无限制")}</p>
+      <p>可交易：${escapeHtml(row.tradeable_quantity ?? 0)} ｜ 可提交：${escapeHtml(row.consumable_quantity ?? 0)}</p>
       ${reason ? `<p class="reason-text">${escapeHtml(reason)}</p>` : ""}
-      <button type="button" data-equip-id="${item.id}" ${disabled ? "disabled" : ""}>${escapeHtml(item.action_label || (item.equipped ? "卸下法宝" : "装备法宝"))}</button>
+      <div class="inline-action-buttons">
+        <button type="button" data-equip-id="${item.id}" ${disabled ? "disabled" : ""}>${escapeHtml(item.action_label || (item.equipped ? "卸下法宝" : "装备法宝"))}</button>
+        <button type="button" class="ghost" data-artifact-bind-id="${item.id}" ${canBind ? "" : "disabled"}>绑定1件</button>
+        <button type="button" class="ghost" data-artifact-unbind-id="${item.id}" ${canUnbind ? "" : "disabled"}>解绑1件${unbindCost > 0 ? `（${escapeHtml(unbindCost)}灵石）` : ""}</button>
+      </div>
     `;
     root.appendChild(card);
   }
@@ -2099,6 +2151,11 @@ renderTalismanList = function renderTalismanList(items, retreating) {
     const item = row.talisman;
     const effects = item.resolved_effects || {};
     const disabled = item.active || !item.usable || retreating;
+    const bindableQuantity = Number(row.unbound_quantity ?? row.quantity ?? 0);
+    const unbindableQuantity = Number(row.bound_quantity ?? 0);
+    const canBind = bindableQuantity > 0;
+    const canUnbind = unbindableQuantity > 0;
+    const unbindCost = Number(state.profileBundle?.settings?.equipment_unbind_cost || 0);
     const reason = item.active
       ? "当前已有待生效符箓"
       : fallbackReason(item.unusable_reason, retreating ? "闭关期间无法启用符箓" : "当前不满足启用条件");
@@ -2112,11 +2169,18 @@ renderTalismanList = function renderTalismanList(items, retreating) {
       <p>${escapeHtml(item.description || "暂无描述")}</p>
       <div class="item-tags">
         ${qualityBadgeHtml(item.rarity || "凡品", item.quality_color, "tag")}
+        ${unbindableQuantity > 0 ? `<span class="tag">已绑定 ${escapeHtml(unbindableQuantity)}</span>` : ""}
+        ${bindableQuantity > 0 ? `<span class="tag">未绑定 ${escapeHtml(bindableQuantity)}</span>` : ""}
         ${itemAffixTags(item, effects)}
       </div>
       <p>境界要求：${escapeHtml(item.min_realm_stage ? `${item.min_realm_stage}${item.min_realm_layer}层` : "无限制")}</p>
+      <p>可交易：${escapeHtml(row.tradeable_quantity ?? 0)} ｜ 可提交：${escapeHtml(row.consumable_quantity ?? 0)}</p>
       ${reason ? `<p class="reason-text">${escapeHtml(reason)}</p>` : ""}
-      <button type="button" data-talisman-id="${item.id}" ${disabled ? "disabled" : ""}>${item.active ? "已待生效" : "激活到下一场斗法"}</button>
+      <div class="inline-action-buttons">
+        <button type="button" data-talisman-id="${item.id}" ${disabled ? "disabled" : ""}>${item.active ? "已待生效" : "激活到下一场斗法"}</button>
+        <button type="button" class="ghost" data-talisman-bind-id="${item.id}" ${canBind ? "" : "disabled"}>绑定1件</button>
+        <button type="button" class="ghost" data-talisman-unbind-id="${item.id}" ${canUnbind ? "" : "disabled"}>解绑1件${unbindCost > 0 ? `（${escapeHtml(unbindCost)}灵石）` : ""}</button>
+      </div>
     `;
     root.appendChild(card);
   }
