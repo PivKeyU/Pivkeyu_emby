@@ -175,7 +175,7 @@
   "_comment_update": "自动更新。发布给别人用时建议默认关闭，避免误拉取其他仓库。",
   "auto_update": {
     "status": false,
-    "git_repo": "pivkeyu/pivkeyu_emby",
+    "git_repo": "PivKeyU/Pivkeyu_emby",
     "docker_image": "pivkeyu/pivkeyu_emby:latest",
     "container_name": "pivkeyu_emby",
     "compose_service": "pivkeyu_emby",

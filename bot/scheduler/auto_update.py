@@ -76,7 +76,7 @@ def _normalize_git_repo() -> str:
     detected = _parse_github_repo(auto_update.git_repo)
     if detected and detected != "owner/pivkeyu_emby":
         return detected
-    return _repo_from_origin() or "pivkeyu/pivkeyu_emby"
+    return _repo_from_origin() or "PivKeyU/Pivkeyu_emby"
 
 
 def _normalize_docker_image() -> str:

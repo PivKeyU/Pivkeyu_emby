@@ -126,7 +126,7 @@ class MP(BaseModel):
 
 class AutoUpdate(BaseModel):
     status: bool = True
-    git_repo: Optional[str] = "pivkeyu/pivkeyu_emby"  # github仓库名/魔改的请填自己的仓库
+    git_repo: Optional[str] = "PivKeyU/Pivkeyu_emby"  # github仓库名/魔改的请填自己的仓库
     docker_image: Optional[str] = "pivkeyu/pivkeyu_emby:latest"
     container_name: Optional[str] = "pivkeyu_emby"
     compose_service: Optional[str] = "pivkeyu_emby"
