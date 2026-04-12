@@ -5,7 +5,7 @@ from typing import Any
 
 from sqlalchemy import JSON, BigInteger, Boolean, Column, DateTime, ForeignKey, Integer, String, Text
 
-from bot import money
+from bot import pivkeyu
 from bot.sql_helper import Base, Session
 from bot.sql_helper.sql_emby import Emby
 
@@ -14,7 +14,8 @@ UTC_TZ = timezone.utc
 SHANGHAI_TZ = timezone(timedelta(hours=8))
 DEFAULT_SHOP_SETTINGS = {
     "allow_user_listing": False,
-    "currency_name": money,
+    # 商店默认沿用全局配置中的货币名称。
+    "currency_name": pivkeyu,
     "shop_title": "仙舟小铺",
     "shop_notice": "欢迎使用 Emby 货币购买数字商品。",
 }
@@ -127,7 +128,7 @@ def get_shop_settings() -> dict[str, Any]:
     merged = dict(DEFAULT_SHOP_SETTINGS)
     merged.update(data)
     merged["allow_user_listing"] = bool(merged.get("allow_user_listing", False))
-    merged["currency_name"] = str(merged.get("currency_name") or money)
+    merged["currency_name"] = str(merged.get("currency_name") or pivkeyu)
     merged["shop_title"] = str(merged.get("shop_title") or DEFAULT_SHOP_SETTINGS["shop_title"])
     merged["shop_notice"] = str(merged.get("shop_notice") or DEFAULT_SHOP_SETTINGS["shop_notice"])
     return merged
@@ -138,7 +139,7 @@ def set_shop_settings(patch: dict[str, Any]) -> dict[str, Any]:
     if "allow_user_listing" in sanitized:
         sanitized["allow_user_listing"] = bool(sanitized["allow_user_listing"])
     if "currency_name" in sanitized and sanitized["currency_name"] is not None:
-        sanitized["currency_name"] = str(sanitized["currency_name"]).strip() or money
+        sanitized["currency_name"] = str(sanitized["currency_name"]).strip() or pivkeyu
     if "shop_title" in sanitized and sanitized["shop_title"] is not None:
         sanitized["shop_title"] = str(sanitized["shop_title"]).strip() or DEFAULT_SHOP_SETTINGS["shop_title"]
     if "shop_notice" in sanitized and sanitized["shop_notice"] is not None:

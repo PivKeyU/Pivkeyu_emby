@@ -38,6 +38,8 @@ bot_photo = config.bot_photo
 _open = config.open
 admins = config.admins
 pivkeyu = config.money
+# 兼容旧模块中仍然引用的货币变量名，避免插件升级后导入失败。
+money = pivkeyu
 sakura_b = pivkeyu
 ranks = config.ranks
 prefixes = ['/', '!', '.', '，', '。']
