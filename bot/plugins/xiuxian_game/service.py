@@ -101,6 +101,7 @@ ROOT_SPECIAL_BONUS = {
 }
 ROOT_COMMON_QUALITY_ORDER = ["废灵根", "下品灵根", "中品灵根", "上品灵根", "极品灵根"]
 ROOT_SPECIAL_QUALITIES = {"天灵根", "变异灵根"}
+ROOT_TRANSFORM_PILL_TYPES = {"root_single", "root_double", "root_earth", "root_heaven", "root_variant"}
 
 PERSONAL_SHOP_NAME = "游仙小铺"
 
@@ -744,6 +745,9 @@ def _pill_usage_reason(profile_data: dict[str, Any], pill: dict[str, Any]) -> st
             return "这枚淬灵丹没有可生效的品阶。"
         if _refined_root_payload(profile_data, steps) is None:
             return "当前灵根品质已达可淬炼上限。"
+    if pill_type in ROOT_TRANSFORM_PILL_TYPES:
+        if _transformed_root_payload(profile_data, pill_type, pill.get("effect_value")) is None:
+            return "这枚丹药当前无法改变你的灵根。"
     return ""
 
 
@@ -2251,6 +2255,120 @@ def _generate_root_payload_with_floor(floor_level: int) -> dict[str, Any]:
     return best
 
 
+def _common_root_quality_name(level: int) -> str:
+    clamped_level = max(1, min(int(level or 1), ROOT_QUALITY_LEVELS["极品灵根"]))
+    return ROOT_COMMON_QUALITY_ORDER[clamped_level - 1]
+
+
+def _current_common_root_level(profile: dict[str, Any]) -> int:
+    current_quality = _normalized_root_quality(profile)
+    if current_quality in ROOT_SPECIAL_QUALITIES:
+        return ROOT_QUALITY_LEVELS["极品灵根"]
+    return max(1, min(ROOT_QUALITY_LEVELS.get(current_quality, 1), ROOT_QUALITY_LEVELS["极品灵根"]))
+
+
+def _build_single_root_payload(profile: dict[str, Any], floor_level: int) -> dict[str, Any]:
+    quality_level = max(
+        _current_common_root_level(profile),
+        max(min(int(floor_level or 0), ROOT_QUALITY_LEVELS["极品灵根"]), 0),
+        ROOT_QUALITY_LEVELS["中品灵根"],
+    )
+    quality_name = _common_root_quality_name(quality_level)
+    quality = _root_quality_payload(quality_name)
+    return {
+        "root_type": "单灵根",
+        "root_primary": random.choice(FIVE_ELEMENTS),
+        "root_secondary": None,
+        "root_relation": "平稳中正",
+        "root_bonus": 0,
+        "root_quality": quality_name,
+        "root_quality_level": int(quality["level"]),
+        "root_quality_color": quality["color"],
+    }
+
+
+def _build_double_root_payload(profile: dict[str, Any], floor_level: int) -> dict[str, Any]:
+    primary, secondary = random.sample(FIVE_ELEMENTS, 2)
+    relation, bonus = determine_relation(primary, secondary)
+    baseline = ROOT_QUALITY_LEVELS["中品灵根"] if relation == "相克" else ROOT_QUALITY_LEVELS["上品灵根"]
+    quality_level = max(
+        _current_common_root_level(profile),
+        max(min(int(floor_level or 0), ROOT_QUALITY_LEVELS["极品灵根"]), 0),
+        baseline,
+    )
+    quality_name = _common_root_quality_name(quality_level)
+    quality = _root_quality_payload(quality_name)
+    return {
+        "root_type": "双灵根",
+        "root_primary": primary,
+        "root_secondary": secondary,
+        "root_relation": relation,
+        "root_bonus": bonus,
+        "root_quality": quality_name,
+        "root_quality_level": int(quality["level"]),
+        "root_quality_color": quality["color"],
+    }
+
+
+def _build_earth_root_payload() -> dict[str, Any]:
+    quality = _root_quality_payload("极品灵根")
+    return {
+        "root_type": "地灵根",
+        "root_primary": random.choice(FIVE_ELEMENTS),
+        "root_secondary": None,
+        "root_relation": "平稳中正",
+        "root_bonus": ROOT_SPECIAL_BONUS["地灵根"],
+        "root_quality": "极品灵根",
+        "root_quality_level": int(quality["level"]),
+        "root_quality_color": quality["color"],
+    }
+
+
+def _build_heaven_root_payload() -> dict[str, Any]:
+    primary = random.choice(FIVE_ELEMENTS)
+    quality = _root_quality_payload("天灵根")
+    return {
+        "root_type": "天灵根",
+        "root_primary": primary,
+        "root_secondary": None,
+        "root_relation": "天道垂青",
+        "root_bonus": 12,
+        "root_quality": "天灵根",
+        "root_quality_level": int(quality["level"]),
+        "root_quality_color": quality["color"],
+    }
+
+
+def _build_variant_root_payload() -> dict[str, Any]:
+    primary = random.choice(ROOT_VARIANT_ELEMENTS)
+    quality = _root_quality_payload("变异灵根")
+    return {
+        "root_type": "变异灵根",
+        "root_primary": primary,
+        "root_secondary": None,
+        "root_relation": "异灵独秀",
+        "root_bonus": 10,
+        "root_quality": "变异灵根",
+        "root_quality_level": int(quality["level"]),
+        "root_quality_color": quality["color"],
+    }
+
+
+def _transformed_root_payload(profile: dict[str, Any], pill_type: str, effect_value: float | int | None = None) -> dict[str, Any] | None:
+    floor_level = max(int(round(float(effect_value or 0))), 0)
+    if pill_type == "root_single":
+        return _build_single_root_payload(profile, floor_level)
+    if pill_type == "root_double":
+        return _build_double_root_payload(profile, floor_level)
+    if pill_type == "root_earth":
+        return _build_earth_root_payload()
+    if pill_type == "root_heaven":
+        return _build_heaven_root_payload()
+    if pill_type == "root_variant":
+        return _build_variant_root_payload()
+    return None
+
+
 def format_root(payload: dict[str, Any]) -> str:
     root_type = str(payload.get("root_type") or "").strip()
     if not root_type:
@@ -2473,6 +2591,8 @@ def consume_pill_for_user(tg: int, pill_id: int) -> dict[str, Any]:
     elif pill.pill_type == "root_remold":
         floor_level = max(int(round(float(effects.get("root_quality_floor", 0) or 0))), 0)
         root_patch = _generate_root_payload_with_floor(floor_level)
+    elif pill.pill_type in ROOT_TRANSFORM_PILL_TYPES:
+        root_patch = _transformed_root_payload(profile_data, pill.pill_type, effects.get("effect_value", pill_data.get("effect_value", 0)))
 
     layer, cultivation, _, _ = apply_cultivation_gain(normalize_realm_stage(profile.realm_stage or "炼气"), int(profile.realm_layer or 1), cultivation, 0)
     updated = upsert_profile(

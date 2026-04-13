@@ -20,6 +20,11 @@ const PILL_TYPES = [
   { value: "defense", label: "提升防御", effect: "防御增量" },
   { value: "root_refine", label: "淬炼灵根", effect: "淬灵阶数" },
   { value: "root_remold", label: "重塑灵根", effect: "保底品阶" },
+  { value: "root_single", label: "洗成单灵根", effect: "保底品阶" },
+  { value: "root_double", label: "洗成双灵根", effect: "保底品阶" },
+  { value: "root_earth", label: "洗成地灵根", effect: "效果值未用" },
+  { value: "root_heaven", label: "洗成天灵根", effect: "效果值未用" },
+  { value: "root_variant", label: "洗成变异灵根", effect: "效果值未用" },
 ];
 const ROLE_PRESETS = [
   ["leader", "掌门"],
@@ -160,6 +165,11 @@ PILL_TYPES.splice(0, PILL_TYPES.length, ...[
   { value: "defense", label: "提升防御", effect: "提升防御" },
   { value: "root_refine", label: "淬炼灵根", effect: "淬灵阶数" },
   { value: "root_remold", label: "重塑灵根", effect: "保底品阶" },
+  { value: "root_single", label: "洗成单灵根", effect: "保底品阶" },
+  { value: "root_double", label: "洗成双灵根", effect: "保底品阶" },
+  { value: "root_earth", label: "洗成地灵根", effect: "效果值未用" },
+  { value: "root_heaven", label: "洗成天灵根", effect: "效果值未用" },
+  { value: "root_variant", label: "洗成变异灵根", effect: "效果值未用" },
 ]);
 ROLE_PRESETS.splice(0, ROLE_PRESETS.length, ...[
   ["leader", "掌门"],

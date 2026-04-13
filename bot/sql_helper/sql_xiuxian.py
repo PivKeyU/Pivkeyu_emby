@@ -54,6 +54,11 @@ PILL_TYPE_LABELS = {
     "defense": "提升防御",
     "root_refine": "淬炼灵根",
     "root_remold": "重塑灵根",
+    "root_single": "洗成单灵根",
+    "root_double": "洗成双灵根",
+    "root_earth": "洗成地灵根",
+    "root_heaven": "洗成天灵根",
+    "root_variant": "洗成变异灵根",
 }
 SECT_ROLE_PRESETS = [
     ("leader", "掌门", 1),
@@ -201,6 +206,11 @@ PILL_TYPE_LABELS = {
     "defense": "提升防御",
     "root_refine": "淬炼灵根",
     "root_remold": "重塑灵根",
+    "root_single": "洗成单灵根",
+    "root_double": "洗成双灵根",
+    "root_earth": "洗成地灵根",
+    "root_heaven": "洗成天灵根",
+    "root_variant": "洗成变异灵根",
 }
 PILL_EFFECT_VALUE_LABELS = {
     "foundation": "突破增幅",
@@ -218,6 +228,11 @@ PILL_EFFECT_VALUE_LABELS = {
     "defense": "防御增量",
     "root_refine": "淬灵阶数",
     "root_remold": "保底品阶",
+    "root_single": "保底品阶",
+    "root_double": "保底品阶",
+    "root_earth": "效果值未用",
+    "root_heaven": "效果值未用",
+    "root_variant": "效果值未用",
 }
 
 

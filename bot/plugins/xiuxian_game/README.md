@@ -289,6 +289,11 @@ Mini App 用户页和回调面板都可以执行：
 - `defense`
 - `root_refine`
 - `root_remold`
+- `root_single`
+- `root_double`
+- `root_earth`
+- `root_heaven`
+- `root_variant`
 
 含义：
 
@@ -307,6 +312,11 @@ Mini App 用户页和回调面板都可以执行：
 - `defense`：直接加防御
 - `root_refine`：按效果值提升灵根品阶，最高到极品灵根
 - `root_remold`：重塑灵根，效果值表示保底品阶（0-5 对应无保底到极品保底）
+- `root_single`：改造成单灵根，效果值表示保底品阶（0-5）
+- `root_double`：改造成双灵根，效果值表示保底品阶（0-5）
+- `root_earth`：改造成地灵根，效果值不参与计算
+- `root_heaven`：改造成天灵根，效果值不参与计算
+- `root_variant`：改造成变异灵根，效果值不参与计算
 
 ### 5.5 图片上传权限
 
