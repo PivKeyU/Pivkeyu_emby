@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from pyrogram import enums, filters
@@ -157,6 +157,7 @@ DUEL_MESSAGE_REFRESH_CACHE: dict[int, float] = {}
 DUEL_SETTLEMENT_CACHE: dict[int, dict[str, Any]] = {}
 MESSAGE_AUTO_DELETE_TASKS: dict[tuple[int, int], asyncio.Task] = {}
 DUEL_SETTLEMENT_PAGE_SIZE = 10
+STATIC_ASSET_PATTERN = re.compile(r'(/plugins/xiuxian/static/([A-Za-z0-9_.-]+\.(?:css|js)))')
 XIUXIAN_BOT_COMMANDS = (
     BotCommand("xiuxian", f"修仙玩法 v{PLUGIN_VERSION} [私聊]"),
     BotCommand("xiuxian_me", "展示修仙名帖 [群聊]"),
@@ -2022,13 +2023,37 @@ def register_web(app) -> None:
 
         app.state.xiuxian_exception_handler = True
 
+    def render_versioned_static_page(filename: str) -> HTMLResponse:
+        html_path = STATIC_DIR / filename
+        content = html_path.read_text(encoding="utf-8")
+
+        def replace_asset(match: re.Match[str]) -> str:
+            asset_url = match.group(1)
+            asset_name = match.group(2)
+            asset_path = STATIC_DIR / asset_name
+            try:
+                asset_version = f"{PLUGIN_VERSION}-{int(asset_path.stat().st_mtime)}"
+            except OSError:
+                asset_version = PLUGIN_VERSION
+            return f"{asset_url}?v={asset_version}"
+
+        rendered = STATIC_ASSET_PATTERN.sub(replace_asset, content)
+        return HTMLResponse(
+            rendered,
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
+
     @user_router.get("/app")
     async def xiuxian_app_page():
-        return FileResponse(STATIC_DIR / "app.html")
+        return render_versioned_static_page("app.html")
 
     @user_router.get("/admin")
     async def xiuxian_admin_page():
-        return FileResponse(STATIC_DIR / "admin.html")
+        return render_versioned_static_page("admin.html")
 
     @user_router.post("/api/bootstrap")
     async def xiuxian_bootstrap(payload: InitDataPayload):
