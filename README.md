@@ -188,6 +188,35 @@ docker inspect pivkeyu_emby --format '{{.Config.Image}}'
 pivkeyu/pivkeyu_emby:latest
 ```
 
+## Docker Hub 发布
+
+仓库已经内置 GitHub Actions 发布流程，分成两条线：
+
+- 推送到 `master` 或 `main` 时，自动构建并发布 `latest`
+- 发布 GitHub Release 时，自动构建并发布对应的版本号标签
+
+两条流程都会同时构建 `linux/amd64` 和 `linux/arm64`。
+
+你只需要在仓库的 GitHub Secrets 里配置：
+
+- `DOCKER_USERNAME`
+- `DOCKER_PASSWORD`
+
+默认镜像名是：
+
+```text
+${DOCKER_USERNAME}/pivkeyu_emby
+```
+
+如果你要在本地直接手动发布双架构镜像，可以使用：
+
+```bash
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -t pivkeyu/pivkeyu_emby:latest \
+  --push .
+```
+
 ## 目录与持久化说明
 
 ```text
