@@ -940,9 +940,10 @@ def sync_scene_with_drops_by_name(
                     event_text=str(drop.get("event_text") or "").strip() or None,
                 )
             )
+        scene_id = int(scene.id)
         session.commit()
-    scene_payload = serialize_scene(get_scene(scene.id))
-    scene_payload["drops"] = list_scene_drops(scene.id)
+    scene_payload = serialize_scene(get_scene(scene_id))
+    scene_payload["drops"] = list_scene_drops(scene_id)
     return scene_payload
 
 

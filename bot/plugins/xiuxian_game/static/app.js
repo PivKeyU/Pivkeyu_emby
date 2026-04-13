@@ -579,10 +579,10 @@ function renderProfile(bundle) {
 
   const rate = settings.rate ?? settings.coin_exchange_rate ?? 100;
   const fee = settings.fee_percent ?? settings.exchange_fee_percent ?? 1;
-  const minExchange = settings.min_coin_exchange ?? 100;
+  const minExchange = settings.min_coin_exchange ?? 1;
   const exchangeHint = document.querySelector("#exchange-hint");
   if (exchangeHint) {
-    exchangeHint.textContent = `当前比例：1 片刻碎片 = ${rate} 灵石，手续费 ${fee}%，灵石兑换碎片最低 ${minExchange} 灵石。`;
+    exchangeHint.textContent = `当前比例：1 片刻碎片 = ${rate} 灵石，手续费 ${fee}%，灵石兑换碎片最低消耗 ${minExchange} 灵石，不足 ${rate} 灵石一份的零头会保留。`;
   }
   const officialShopTitle = document.querySelector("#official-shop-title");
   if (officialShopTitle) {
@@ -1338,10 +1338,10 @@ async function refreshBundle() {
   const settings = payload.profile_bundle?.settings || {};
   const rate = settings.rate ?? settings.coin_exchange_rate ?? 100;
   const fee = settings.fee_percent ?? settings.exchange_fee_percent ?? 1;
-  const minExchange = settings.min_coin_exchange ?? 100;
+  const minExchange = settings.min_coin_exchange ?? 1;
   const exchangeHint = document.querySelector("#exchange-hint");
   if (exchangeHint) {
-    exchangeHint.textContent = `当前比例：1 片刻碎片 = ${rate} 灵石，手续费 ${fee}%，灵石兑换碎片最低 ${minExchange} 灵石。`;
+    exchangeHint.textContent = `当前比例：1 片刻碎片 = ${rate} 灵石，手续费 ${fee}%，灵石兑换碎片最低消耗 ${minExchange} 灵石，不足 ${rate} 灵石一份的零头会保留。`;
   }
 
   ensureSectionState("#journal-card", Boolean(payload.profile_bundle?.profile?.consented));
@@ -2630,10 +2630,10 @@ renderProfile = function renderProfileRedesigned(bundle) {
 
   const rate = settings.rate ?? settings.coin_exchange_rate ?? 100;
   const fee = settings.fee_percent ?? settings.exchange_fee_percent ?? 1;
-  const minExchange = settings.min_coin_exchange ?? 100;
+  const minExchange = settings.min_coin_exchange ?? 1;
   const exchangeHint = document.querySelector("#exchange-hint");
   if (exchangeHint) {
-    exchangeHint.textContent = `当前比例：1 碎片 = ${rate} 灵石，手续费 ${fee}%，灵石兑碎片至少 ${minExchange} 灵石。`;
+    exchangeHint.textContent = `当前比例：1 片刻碎片 = ${rate} 灵石，手续费 ${fee}%，灵石兑换碎片最低消耗 ${minExchange} 灵石，不足 ${rate} 灵石一份的零头会保留。`;
   }
 
   setDisabled(document.querySelector("#train-btn"), !bundle.capabilities?.can_train, "当前无法吐纳修炼");

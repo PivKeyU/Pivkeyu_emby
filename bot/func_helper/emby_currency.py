@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from math import floor
 
-from bot.sql_helper.sql_emby import Emby, sql_get_emby, sql_update_emby
-from bot.sql_helper.sql_xiuxian import get_profile, get_xiuxian_settings, upsert_profile
+from bot.sql_helper import Session
+from bot.sql_helper.sql_emby import Emby, sql_get_emby
+from bot.sql_helper.sql_xiuxian import XiuxianProfile, get_xiuxian_settings, utcnow
 
 
 def get_emby_balance(tg: int) -> int:
@@ -12,18 +13,17 @@ def get_emby_balance(tg: int) -> int:
 
 
 def add_emby_balance(tg: int, amount: int) -> int:
-    user = sql_get_emby(tg)
-    if user is None:
-        raise ValueError("用户不存在")
-
-    new_balance = int(user.iv or 0) + int(amount)
-    if new_balance < 0:
-        raise ValueError("余额不足")
-
-    if not sql_update_emby(Emby.tg == tg, iv=new_balance):
-        raise RuntimeError("更新 Emby 货币失败")
-
-    return new_balance
+    delta = int(amount)
+    with Session() as session:
+        user = session.query(Emby).filter(Emby.tg == tg).with_for_update().first()
+        if user is None:
+            raise ValueError("Emby 账号不存在")
+        new_balance = int(user.iv or 0) + delta
+        if new_balance < 0:
+            raise ValueError("片刻碎片不足")
+        user.iv = new_balance
+        session.commit()
+        return new_balance
 
 
 def subtract_emby_balance(tg: int, amount: int) -> int:
@@ -39,11 +39,15 @@ def get_exchange_settings() -> dict:
     }
 
 
+def _fee_amount(gross_amount: int, fee_percent: int) -> int:
+    return floor(max(int(gross_amount or 0), 0) * max(int(fee_percent or 0), 0) / 100)
+
+
 def preview_coin_to_stone(coin_amount: int) -> dict:
     settings = get_exchange_settings()
-    gross_stone = coin_amount * settings["rate"]
-    fee = gross_stone * settings["fee_percent"] / 100
-    net_stone = floor(max(gross_stone - fee, 0))
+    gross_stone = max(int(coin_amount or 0), 0) * settings["rate"]
+    fee = _fee_amount(gross_stone, settings["fee_percent"])
+    net_stone = max(gross_stone - fee, 0)
     return {
         "direction": "coin_to_stone",
         "gross": gross_stone,
@@ -55,12 +59,14 @@ def preview_coin_to_stone(coin_amount: int) -> dict:
 
 def preview_stone_to_coin(stone_amount: int) -> dict:
     settings = get_exchange_settings()
-    gross_coin = stone_amount / settings["rate"]
-    fee = gross_coin * settings["fee_percent"] / 100
-    net_coin = floor(max(gross_coin - fee, 0))
+    gross_coin = floor(max(int(stone_amount or 0), 0) / settings["rate"])
+    spent_stone = gross_coin * settings["rate"]
+    fee = _fee_amount(gross_coin, settings["fee_percent"])
+    net_coin = max(gross_coin - fee, 0)
     return {
         "direction": "stone_to_coin",
         "gross": gross_coin,
+        "spent_stone": spent_stone,
         "fee": fee,
         "net": net_coin,
         "settings": settings,
@@ -75,15 +81,30 @@ def convert_coin_to_stone(tg: int, coin_amount: int) -> dict:
     preview = preview_coin_to_stone(amount)
     if preview["net"] <= 0:
         raise ValueError("当前比例下可兑换的灵石不足 1")
+    with Session() as session:
+        user = session.query(Emby).filter(Emby.tg == tg).with_for_update().first()
+        if user is None:
+            raise ValueError("Emby 账号不存在")
+        if int(user.iv or 0) < amount:
+            raise ValueError("片刻碎片不足")
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+        if profile is None:
+            profile = XiuxianProfile(tg=tg)
+            session.add(profile)
+            session.flush()
 
-    subtract_emby_balance(tg, amount)
-    profile = get_profile(tg, create=True)
-    updated = upsert_profile(tg, spiritual_stone=int(profile.spiritual_stone or 0) + int(preview["net"]))
+        user.iv = int(user.iv or 0) - amount
+        profile.spiritual_stone = int(profile.spiritual_stone or 0) + int(preview["net"])
+        profile.updated_at = utcnow()
+        session.commit()
+        emby_balance = int(user.iv or 0)
+        stone_balance = int(profile.spiritual_stone or 0)
     return {
         "spent_coin": amount,
         "received_stone": preview["net"],
-        "emby_balance": get_emby_balance(tg),
-        "stone_balance": updated.spiritual_stone,
+        "gross_stone": preview["gross"],
+        "emby_balance": emby_balance,
+        "stone_balance": stone_balance,
         "fee": preview["fee"],
         "rate": preview["settings"]["rate"],
     }
@@ -94,24 +115,33 @@ def convert_stone_to_coin(tg: int, stone_amount: int) -> dict:
     if amount <= 0:
         raise ValueError("兑换数量必须大于 0")
 
-    profile = get_profile(tg, create=False)
-    if profile is None or int(profile.spiritual_stone or 0) < amount:
-        raise ValueError("灵石不足")
-
     preview = preview_stone_to_coin(amount)
-    if amount < preview["settings"]["rate"]:
-        raise ValueError(f"最低需要 {preview['settings']['rate']} 灵石才能兑换 1 片刻碎片")
-    if preview["net"] < preview["settings"]["min_coin_exchange"]:
-        raise ValueError(f"最低需要兑换到 {preview['settings']['min_coin_exchange']} 片刻碎片")
+    minimum_stone = max(preview["settings"]["rate"], preview["settings"]["min_coin_exchange"])
+    if preview["spent_stone"] < minimum_stone:
+        raise ValueError(f"最低需要 {minimum_stone} 灵石才能兑换片刻碎片")
+    if preview["gross"] <= 0 or preview["net"] <= 0:
+        raise ValueError("当前比例和手续费下可兑换的片刻碎片不足 1")
 
-    upsert_profile(tg, spiritual_stone=int(profile.spiritual_stone or 0) - amount)
-    new_coin_balance = add_emby_balance(tg, int(preview["net"]))
-    updated_profile = get_profile(tg, create=False)
+    with Session() as session:
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+        if profile is None or int(profile.spiritual_stone or 0) < int(preview["spent_stone"]):
+            raise ValueError("灵石不足")
+        user = session.query(Emby).filter(Emby.tg == tg).with_for_update().first()
+        if user is None:
+            raise ValueError("Emby 账号不存在")
+
+        profile.spiritual_stone = int(profile.spiritual_stone or 0) - int(preview["spent_stone"])
+        profile.updated_at = utcnow()
+        user.iv = int(user.iv or 0) + int(preview["net"])
+        session.commit()
+        new_coin_balance = int(user.iv or 0)
+        stone_balance = int(profile.spiritual_stone or 0)
     return {
-        "spent_stone": amount,
+        "spent_stone": preview["spent_stone"],
         "received_coin": preview["net"],
+        "gross_coin": preview["gross"],
         "emby_balance": new_coin_balance,
-        "stone_balance": 0 if updated_profile is None else updated_profile.spiritual_stone,
+        "stone_balance": stone_balance,
         "fee": preview["fee"],
         "rate": preview["settings"]["rate"],
     }

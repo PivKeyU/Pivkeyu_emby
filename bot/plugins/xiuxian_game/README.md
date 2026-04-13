@@ -432,11 +432,11 @@ shop_broadcast_cost
 说明：
 
 - `coin_exchange_rate`
-  - 1 灵石可兑换多少 Emby 货币
+  - 1 片刻碎片可兑换多少灵石
 - `exchange_fee_percent`
   - 每次互兑的手续费百分比
 - `min_coin_exchange`
-  - 灵石兑换 Emby 货币时，最少要换出多少目标货币
+  - 灵石兑换 Emby 货币时，最少要消耗多少灵石
 
 ### 8.3 当前实现规则
 
