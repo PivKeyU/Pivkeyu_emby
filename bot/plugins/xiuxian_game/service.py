@@ -1,3 +1,8 @@
+"""修仙核心数值与成长服务。
+
+这里负责灵根、属性、战斗、突破、闭关、商城等核心结算逻辑。
+"""
+
 from __future__ import annotations
 
 import random
@@ -38,6 +43,7 @@ from bot.sql_helper.sql_xiuxian import (
     create_technique,
     create_talisman,
     get_artifact,
+    get_current_title,
     get_emby_name_map,
     get_pill,
     get_profile,
@@ -50,11 +56,13 @@ from bot.sql_helper.sql_xiuxian import (
     grant_talisman_to_user,
     list_artifacts,
     list_equipped_artifacts,
+    list_materials,
     list_pills,
     list_profiles,
     list_shop_items,
     list_techniques,
     list_talismans,
+    list_user_titles,
     list_user_artifacts,
     list_user_pills,
     list_user_talismans,
@@ -69,14 +77,18 @@ from bot.sql_helper.sql_xiuxian import (
     serialize_technique,
     serialize_talisman,
     set_current_technique,
+    set_current_title,
     set_active_talisman,
     set_equipped_artifact,
     set_xiuxian_settings,
+    sync_achievement_by_key,
     sync_official_shop_name,
     sync_artifact_by_name,
+    sync_material_by_name,
     sync_pill_by_name,
     sync_talisman_by_name,
     sync_technique_by_name,
+    sync_title_by_name,
     unbind_user_artifact,
     unbind_user_talisman,
     update_shop_item,
@@ -88,11 +100,19 @@ from bot.sql_helper.sql_xiuxian import (
     consume_user_talisman,
     utcnow,
 )
+from bot.plugins.xiuxian_game.achievement_service import (
+    build_user_achievement_overview,
+    record_duel_metrics,
+)
 from bot.plugins.xiuxian_game.probability import (
     adjust_probability_rate,
     roll_probability_percent,
 )
-from bot.plugins.xiuxian_game.world_service import get_sect_effects
+from bot.plugins.xiuxian_game.world_service import (
+    get_sect_effects,
+    sync_recipe_with_ingredients_by_name,
+    sync_scene_with_drops_by_name,
+)
 
 
 ROOT_SPECIAL_BONUS = {
@@ -115,9 +135,191 @@ DEFAULT_ARTIFACTS = [
         "defense_bonus": 6,
         "duel_rate_bonus": 2,
         "cultivation_bonus": 0,
+        "combat_config": {
+            "passives": [
+                {
+                    "name": "铁锋一击",
+                    "kind": "extra_damage",
+                    "chance": 18,
+                    "flat_damage": 8,
+                    "text": "凡铁剑劈出一线寒芒，逼得对手仓促后撤。",
+                }
+            ]
+        },
         "image_url": "",
         "enabled": True,
-    }
+    },
+    {
+        "name": "青罡剑",
+        "rarity": "下品",
+        "artifact_type": "battle",
+        "description": "以寒铁与赤炎晶砂淬成，剑势凌厉，最适合初入筑基的剑修。",
+        "attack_bonus": 18,
+        "defense_bonus": 5,
+        "body_movement_bonus": 4,
+        "duel_rate_bonus": 4,
+        "combat_config": {
+            "opening_text": "青罡剑鸣，剑气先至。",
+            "passives": [
+                {
+                    "name": "剑罡斩",
+                    "kind": "extra_damage",
+                    "chance": 26,
+                    "flat_damage": 14,
+                    "ratio_percent": 20,
+                    "text": "青罡剑卷起一道剑罡，直取对手要害。",
+                }
+            ],
+        },
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 6,
+        "image_url": "",
+        "enabled": True,
+    },
+    {
+        "name": "玄龟盾",
+        "rarity": "下品",
+        "artifact_type": "support",
+        "description": "以玄龟甲片和地脉岩芯炼成，擅长化劲护体。",
+        "attack_bonus": 4,
+        "defense_bonus": 18,
+        "qi_blood_bonus": 40,
+        "duel_rate_bonus": 3,
+        "combat_config": {
+            "passives": [
+                {
+                    "name": "玄甲护身",
+                    "kind": "shield",
+                    "chance": 28,
+                    "flat_shield": 22,
+                    "ratio_percent": 24,
+                    "duration": 1,
+                    "text": "玄龟盾沉沉一震，垒起一层灵甲护住周身。",
+                }
+            ]
+        },
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 7,
+        "image_url": "",
+        "enabled": True,
+    },
+    {
+        "name": "逐云履",
+        "rarity": "中品",
+        "artifact_type": "support",
+        "description": "以云纹丝炼成的轻灵法履，步踏如风，专克笨重攻势。",
+        "attack_bonus": 8,
+        "defense_bonus": 8,
+        "body_movement_bonus": 16,
+        "duel_rate_bonus": 6,
+        "combat_config": {
+            "passives": [
+                {
+                    "name": "踏云错影",
+                    "kind": "dodge",
+                    "chance": 24,
+                    "dodge_bonus": 16,
+                    "duration": 1,
+                    "text": "逐云履轻轻一点，身形已借雾气挪开半尺。",
+                }
+            ]
+        },
+        "min_realm_stage": "筑基",
+        "min_realm_layer": 2,
+        "image_url": "",
+        "enabled": True,
+    },
+    {
+        "name": "赤焰珠",
+        "rarity": "中品",
+        "artifact_type": "battle",
+        "description": "珠内封着一缕离火，攻势不算厚重，但善于不断灼烧对手。",
+        "attack_bonus": 16,
+        "true_yuan_bonus": 50,
+        "duel_rate_bonus": 5,
+        "combat_config": {
+            "passives": [
+                {
+                    "name": "离火灼心",
+                    "kind": "burn",
+                    "chance": 22,
+                    "flat_damage": 10,
+                    "duration": 2,
+                    "text": "赤焰珠吐出离火细线，附在护体灵气上缓缓灼烧。",
+                }
+            ]
+        },
+        "min_realm_stage": "筑基",
+        "min_realm_layer": 3,
+        "image_url": "",
+        "enabled": True,
+    },
+    {
+        "name": "残修青罡古剑",
+        "rarity": "上品",
+        "artifact_type": "battle",
+        "description": "自秘境残剑中修复而来，剑身尚有裂纹，却也藏着不俗杀意。",
+        "attack_bonus": 28,
+        "defense_bonus": 10,
+        "body_movement_bonus": 6,
+        "duel_rate_bonus": 8,
+        "combat_config": {
+            "opening_text": "古剑微震，似有旧日战魂苏醒。",
+            "skills": [
+                {
+                    "name": "裂空古剑式",
+                    "kind": "extra_damage",
+                    "chance": 32,
+                    "flat_damage": 22,
+                    "ratio_percent": 28,
+                    "cost_true_yuan": 20,
+                    "text": "残修青罡古剑带着破空之声悍然斩下。",
+                }
+            ],
+            "passives": [
+                {
+                    "name": "残锋噬血",
+                    "kind": "bleed",
+                    "chance": 18,
+                    "flat_damage": 12,
+                    "duration": 2,
+                    "text": "旧伤被古剑撕开，鲜血顺着灵力痕迹一并溃散。",
+                }
+            ],
+        },
+        "min_realm_stage": "筑基",
+        "min_realm_layer": 6,
+        "image_url": "",
+        "enabled": True,
+    },
+    {
+        "name": "残修玄龟古盾",
+        "rarity": "上品",
+        "artifact_type": "support",
+        "description": "由古盾残片重新归铸，盾势厚重，最适合久战磨敌。",
+        "attack_bonus": 6,
+        "defense_bonus": 28,
+        "qi_blood_bonus": 80,
+        "duel_rate_bonus": 4,
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "镇岳灵壁",
+                    "kind": "guard",
+                    "chance": 34,
+                    "defense_ratio_percent": 30,
+                    "flat_shield": 28,
+                    "cost_true_yuan": 16,
+                    "duration": 1,
+                    "text": "古盾轰然立起，如一座小山压住来势汹汹的劲力。",
+                }
+            ]
+        },
+        "min_realm_stage": "筑基",
+        "min_realm_layer": 6,
+        "image_url": "",
+        "enabled": True,
+    },
 ]
 
 DEFAULT_PILLS = [
@@ -247,6 +449,61 @@ DEFAULT_PILLS = [
         "min_realm_layer": 9,
         "enabled": True,
     },
+    {
+        "name": "聚气丹",
+        "rarity": "下品",
+        "pill_type": "cultivation",
+        "description": "快速凝聚灵气，适合炼气后期补足修为缺口。",
+        "effect_value": 120,
+        "poison_delta": 8,
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 5,
+        "enabled": True,
+    },
+    {
+        "name": "回春丹",
+        "rarity": "下品",
+        "pill_type": "qi_blood",
+        "description": "药力温和，可补气回血并稳住战后亏空。",
+        "effect_value": 90,
+        "poison_delta": 8,
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 4,
+        "enabled": True,
+    },
+    {
+        "name": "凝元丹",
+        "rarity": "下品",
+        "pill_type": "true_yuan",
+        "description": "温养丹田，适合需要多次催动功法的修士。",
+        "effect_value": 80,
+        "poison_delta": 8,
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 5,
+        "enabled": True,
+    },
+    {
+        "name": "锐金丹",
+        "rarity": "中品",
+        "pill_type": "attack",
+        "description": "短时间内淬出锋锐金气，永久略增攻伐之力。",
+        "effect_value": 6,
+        "poison_delta": 10,
+        "min_realm_stage": "筑基",
+        "min_realm_layer": 2,
+        "enabled": True,
+    },
+    {
+        "name": "护脉丹",
+        "rarity": "中品",
+        "pill_type": "defense",
+        "description": "稳固经脉与护体真元，适合偏防御路线修士。",
+        "effect_value": 6,
+        "poison_delta": 9,
+        "min_realm_stage": "筑基",
+        "min_realm_layer": 2,
+        "enabled": True,
+    },
 ]
 
 DEFAULT_TALISMANS = [
@@ -256,9 +513,115 @@ DEFAULT_TALISMANS = [
         "description": "在下一场斗法中提高先机与攻击，增强胜率。",
         "attack_bonus": 6,
         "duel_rate_bonus": 4,
+        "body_movement_bonus": 6,
+        "combat_config": {
+            "passives": [
+                {
+                    "name": "疾风借位",
+                    "kind": "dodge",
+                    "chance": 20,
+                    "dodge_bonus": 12,
+                    "duration": 1,
+                    "text": "符风一卷，身影轻轻一晃便错开了锋芒。",
+                }
+            ]
+        },
         "image_url": "",
         "enabled": True,
-    }
+    },
+    {
+        "name": "雷火符",
+        "rarity": "下品",
+        "description": "雷火并济，命中后容易留下灼伤与麻痹余威。",
+        "attack_bonus": 10,
+        "duel_rate_bonus": 5,
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "雷火骤落",
+                    "kind": "burn",
+                    "chance": 34,
+                    "flat_damage": 12,
+                    "duration": 2,
+                    "text": "雷火符炸开一团赤雷，火星顺着灵气扑上对手衣袍。",
+                }
+            ]
+        },
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 7,
+        "image_url": "",
+        "enabled": True,
+    },
+    {
+        "name": "金钟符",
+        "rarity": "下品",
+        "description": "催起一层金钟灵罩，专克正面攻势。",
+        "defense_bonus": 12,
+        "duel_rate_bonus": 3,
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "金钟护体",
+                    "kind": "shield",
+                    "chance": 40,
+                    "flat_shield": 26,
+                    "ratio_percent": 18,
+                    "duration": 1,
+                    "text": "金钟符金光一展，钟影将周身牢牢笼住。",
+                }
+            ]
+        },
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 7,
+        "image_url": "",
+        "enabled": True,
+    },
+    {
+        "name": "轻身符",
+        "rarity": "下品",
+        "description": "以风脉符纹减轻身形，让对手更难锁定。",
+        "body_movement_bonus": 12,
+        "duel_rate_bonus": 4,
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "轻烟借步",
+                    "kind": "dodge",
+                    "chance": 30,
+                    "dodge_bonus": 20,
+                    "duration": 1,
+                    "text": "轻身符化作淡淡青烟，人已从残影中遁开。",
+                }
+            ]
+        },
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 5,
+        "image_url": "",
+        "enabled": True,
+    },
+    {
+        "name": "破甲符",
+        "rarity": "中品",
+        "description": "专克护体法门，命中后能撕开几分防御。",
+        "attack_bonus": 8,
+        "duel_rate_bonus": 4,
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "裂甲真纹",
+                    "kind": "armor_break",
+                    "chance": 28,
+                    "defense_ratio_percent": 18,
+                    "duration": 2,
+                    "text": "破甲符贴身即碎，一串真纹顺着护体灵气钻入缝隙。",
+                }
+            ]
+        },
+        "min_realm_stage": "筑基",
+        "min_realm_layer": 2,
+        "image_url": "",
+        "enabled": True,
+    },
 ]
 
 DEFAULT_TECHNIQUES = [
@@ -271,6 +634,18 @@ DEFAULT_TECHNIQUES = [
         "true_yuan_bonus": 18,
         "cultivation_bonus": 8,
         "breakthrough_bonus": 4,
+        "combat_config": {
+            "passives": [
+                {
+                    "name": "长青回气",
+                    "kind": "heal",
+                    "chance": 18,
+                    "flat_heal": 10,
+                    "ratio_percent": 8,
+                    "text": "长青诀运转片刻，经脉中回涌出一缕温润生机。",
+                }
+            ]
+        },
         "min_realm_stage": "炼气",
         "min_realm_layer": 1,
         "enabled": True,
@@ -284,6 +659,19 @@ DEFAULT_TECHNIQUES = [
         "defense_bonus": 6,
         "qi_blood_bonus": 36,
         "duel_rate_bonus": 5,
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "伏魔重拳",
+                    "kind": "extra_damage",
+                    "chance": 26,
+                    "flat_damage": 16,
+                    "ratio_percent": 20,
+                    "cost_true_yuan": 14,
+                    "text": "金刚伏魔功鼓荡气血，一拳打得空气轰然作响。",
+                }
+            ]
+        },
         "min_realm_stage": "筑基",
         "min_realm_layer": 1,
         "enabled": True,
@@ -298,10 +686,266 @@ DEFAULT_TECHNIQUES = [
         "attack_bonus": 4,
         "defense_bonus": 4,
         "breakthrough_bonus": 6,
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "凝神刺魄",
+                    "kind": "extra_damage",
+                    "chance": 24,
+                    "flat_damage": 12,
+                    "ratio_percent": 18,
+                    "cost_true_yuan": 12,
+                    "text": "太虚凝神篇化神识为细芒，猛然点向对手灵台。",
+                }
+            ]
+        },
         "min_realm_stage": "筑基",
         "min_realm_layer": 3,
         "enabled": True,
     },
+    {
+        "name": "焚天离火诀",
+        "rarity": "中品",
+        "technique_type": "attack",
+        "description": "将离火之气压入经脉，出手霸道，善于叠加灼伤。",
+        "attack_bonus": 16,
+        "true_yuan_bonus": 28,
+        "duel_rate_bonus": 6,
+        "combat_config": {
+            "opening_text": "离火自掌心涌起，四周空气都被烤得扭曲。",
+            "skills": [
+                {
+                    "name": "离火斩",
+                    "kind": "burn",
+                    "chance": 34,
+                    "flat_damage": 14,
+                    "ratio_percent": 20,
+                    "duration": 2,
+                    "cost_true_yuan": 18,
+                    "text": "焚天离火诀催出一道火芒，紧贴护体罡气一路烧进去。",
+                }
+            ]
+        },
+        "min_realm_stage": "筑基",
+        "min_realm_layer": 2,
+        "enabled": True,
+    },
+    {
+        "name": "游龙踏云步",
+        "rarity": "中品",
+        "technique_type": "movement",
+        "description": "以身法见长，讲究腾挪借势，最擅把对手的重击引空。",
+        "defense_bonus": 4,
+        "body_movement_bonus": 18,
+        "duel_rate_bonus": 7,
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "云间错影",
+                    "kind": "dodge",
+                    "chance": 32,
+                    "dodge_bonus": 22,
+                    "duration": 1,
+                    "cost_true_yuan": 12,
+                    "text": "游龙踏云步连踏数步，残影在半空拖出一串水波般的弧线。",
+                }
+            ]
+        },
+        "min_realm_stage": "筑基",
+        "min_realm_layer": 2,
+        "enabled": True,
+    },
+    {
+        "name": "玄龟镇岳经",
+        "rarity": "中品",
+        "technique_type": "defense",
+        "description": "护体厚重如山，真元越稳，挨打时反而越显难缠。",
+        "defense_bonus": 18,
+        "qi_blood_bonus": 60,
+        "duel_rate_bonus": 4,
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "镇岳灵壁",
+                    "kind": "guard",
+                    "chance": 36,
+                    "defense_ratio_percent": 26,
+                    "flat_shield": 20,
+                    "duration": 1,
+                    "cost_true_yuan": 14,
+                    "text": "玄龟镇岳经一沉，护体灵壁如山根般稳稳立住。",
+                }
+            ]
+        },
+        "min_realm_stage": "筑基",
+        "min_realm_layer": 2,
+        "enabled": True,
+    },
+    {
+        "name": "太虚摄魂篇",
+        "rarity": "中品",
+        "technique_type": "divine",
+        "description": "重神识与悟性，擅长看穿破绽，以小代价打出致命空隙。",
+        "comprehension_bonus": 5,
+        "divine_sense_bonus": 8,
+        "attack_bonus": 6,
+        "duel_rate_bonus": 5,
+        "breakthrough_bonus": 4,
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "摄魂灵刺",
+                    "kind": "armor_break",
+                    "chance": 30,
+                    "defense_ratio_percent": 16,
+                    "duration": 2,
+                    "cost_true_yuan": 16,
+                    "text": "太虚摄魂篇聚起一缕神识尖刺，直扎对方灵台与护体交界。",
+                }
+            ]
+        },
+        "min_realm_stage": "筑基",
+        "min_realm_layer": 4,
+        "enabled": True,
+    },
+]
+
+DEFAULT_TITLES = [
+    {"name": "红尘初行者", "description": "踏入仙途后的第一段旅程仍算平凡，却已不再是凡人。", "color": "#94a3b8", "fortune_bonus": 1},
+    {"name": "斗法常客", "description": "常在斗法台露面，出手已不再生涩。", "color": "#ef4444", "attack_bonus": 2, "defense_bonus": 2, "duel_rate_bonus": 2},
+    {"name": "秘境行者", "description": "熟悉山川遗府与古道残阵，遇事更懂趋吉避凶。", "color": "#0f766e", "divine_sense_bonus": 3, "fortune_bonus": 3},
+    {"name": "百折不挠", "description": "屡败不乱，道心未折。", "color": "#2563eb", "qi_blood_bonus": 36, "defense_bonus": 4},
+    {"name": "小有机缘", "description": "命数微盛，时常能从险地捡到别人错过的机缘。", "color": "#f59e0b", "fortune_bonus": 4, "true_yuan_bonus": 24},
+    {"name": "炼器熟手", "description": "已经懂得分辨火候与材质，不再轻易炸炉。", "color": "#92400e", "comprehension_bonus": 4, "defense_bonus": 2},
+    {"name": "丹心妙手", "description": "丹火温润，识药识性，对药力流转颇有心得。", "color": "#059669", "comprehension_bonus": 4, "true_yuan_bonus": 30},
+    {"name": "夺宝老手", "description": "见财知势，动手之前总能先找准最值钱的那一件。", "color": "#7c3aed", "attack_bonus": 4, "fortune_bonus": 2, "duel_rate_bonus": 3},
+]
+
+DEFAULT_MATERIALS = [
+    {"name": "寒铁矿", "quality_level": 1, "description": "常见矿料，适合炼制剑胚与基础法器。"},
+    {"name": "灵木芯", "quality_level": 1, "description": "灵木深处凝出的芯材，可稳固器物中的灵纹。"},
+    {"name": "云纹丝", "quality_level": 1, "description": "轻若无物的灵丝，常用于鞋履与轻甲。"},
+    {"name": "归元草", "quality_level": 1, "description": "常用于温养气血与中和药性的低阶灵草。"},
+    {"name": "赤炎晶砂", "quality_level": 2, "description": "带火性的细砂，适合攻伐类法器与符箓。"},
+    {"name": "凝露花", "quality_level": 2, "description": "夜半凝露而生，适合炼制回春与凝元类丹药。"},
+    {"name": "玄龟甲片", "quality_level": 2, "description": "来自妖龟遗骸的厚重甲片，护体效果极好。"},
+    {"name": "雷击木", "quality_level": 2, "description": "遭天雷劈过的灵木，最适合承载雷火符纹。"},
+    {"name": "青罡剑谱残页", "quality_level": 2, "description": "残缺的剑谱拓本，能补足青罡剑的炼制脉络。"},
+    {"name": "回春丹谱残页", "quality_level": 2, "description": "记着几味关键药引顺序的丹谱残页。"},
+    {"name": "雷火符谱残页", "quality_level": 2, "description": "隐约还看得清雷火二纹的落笔顺序。"},
+    {"name": "金钟符谱残页", "quality_level": 2, "description": "记录了金钟护体符纹的几笔转折。"},
+    {"name": "星辉砂", "quality_level": 3, "description": "夜间会微微发亮的细砂，常用于修复古器灵性。"},
+    {"name": "地脉岩芯", "quality_level": 3, "description": "深埋地脉的凝实核心，能稳住法宝结构。"},
+    {"name": "破损青罡剑胚", "quality_level": 3, "description": "从残剑崖捡回的残损剑胚，尚有修复价值。"},
+    {"name": "破损玄龟盾片", "quality_level": 3, "description": "古盾脱落的一角残片，内里灵纹还未彻底断绝。"},
+]
+
+DEFAULT_RECIPES = [
+    {"name": "青罡剑炼制图", "recipe_kind": "artifact", "result_kind": "artifact", "result_name": "青罡剑", "result_quantity": 1, "base_success_rate": 58, "broadcast_on_success": False, "ingredients": [{"material_name": "寒铁矿", "quantity": 3}, {"material_name": "赤炎晶砂", "quantity": 1}, {"material_name": "青罡剑谱残页", "quantity": 1}]},
+    {"name": "玄龟盾炼制图", "recipe_kind": "artifact", "result_kind": "artifact", "result_name": "玄龟盾", "result_quantity": 1, "base_success_rate": 56, "broadcast_on_success": False, "ingredients": [{"material_name": "玄龟甲片", "quantity": 2}, {"material_name": "地脉岩芯", "quantity": 1}, {"material_name": "灵木芯", "quantity": 1}]},
+    {"name": "逐云履炼制图", "recipe_kind": "artifact", "result_kind": "artifact", "result_name": "逐云履", "result_quantity": 1, "base_success_rate": 50, "broadcast_on_success": False, "ingredients": [{"material_name": "云纹丝", "quantity": 3}, {"material_name": "雷击木", "quantity": 1}, {"material_name": "星辉砂", "quantity": 1}]},
+    {"name": "回春丹丹谱", "recipe_kind": "pill", "result_kind": "pill", "result_name": "回春丹", "result_quantity": 1, "base_success_rate": 66, "broadcast_on_success": False, "ingredients": [{"material_name": "归元草", "quantity": 2}, {"material_name": "凝露花", "quantity": 1}, {"material_name": "回春丹谱残页", "quantity": 1}]},
+    {"name": "聚气丹丹谱", "recipe_kind": "pill", "result_kind": "pill", "result_name": "聚气丹", "result_quantity": 1, "base_success_rate": 72, "broadcast_on_success": False, "ingredients": [{"material_name": "归元草", "quantity": 2}, {"material_name": "灵木芯", "quantity": 1}]},
+    {"name": "雷火符符谱", "recipe_kind": "talisman", "result_kind": "talisman", "result_name": "雷火符", "result_quantity": 2, "base_success_rate": 60, "broadcast_on_success": False, "ingredients": [{"material_name": "雷击木", "quantity": 2}, {"material_name": "赤炎晶砂", "quantity": 1}, {"material_name": "雷火符谱残页", "quantity": 1}]},
+    {"name": "金钟符符谱", "recipe_kind": "talisman", "result_kind": "talisman", "result_name": "金钟符", "result_quantity": 2, "base_success_rate": 60, "broadcast_on_success": False, "ingredients": [{"material_name": "玄龟甲片", "quantity": 1}, {"material_name": "地脉岩芯", "quantity": 1}, {"material_name": "金钟符谱残页", "quantity": 1}]},
+    {"name": "古剑残纹修复法", "recipe_kind": "artifact", "result_kind": "artifact", "result_name": "残修青罡古剑", "result_quantity": 1, "base_success_rate": 16, "broadcast_on_success": True, "ingredients": [{"material_name": "破损青罡剑胚", "quantity": 1}, {"material_name": "星辉砂", "quantity": 2}, {"material_name": "地脉岩芯", "quantity": 1}]},
+    {"name": "古盾归铸法", "recipe_kind": "artifact", "result_kind": "artifact", "result_name": "残修玄龟古盾", "result_quantity": 1, "base_success_rate": 18, "broadcast_on_success": True, "ingredients": [{"material_name": "破损玄龟盾片", "quantity": 1}, {"material_name": "地脉岩芯", "quantity": 2}, {"material_name": "凝露花", "quantity": 1}]},
+]
+
+DEFAULT_SCENES = [
+    {
+        "name": "黑风山谷",
+        "description": "山风终年不散，适合初入仙途的修士历练与采集。",
+        "max_minutes": 30,
+        "event_pool": [
+            {"name": "山风异响", "description": "黑风卷石而来，你躲开乱石后在石缝里摸到几块灵石。", "event_type": "danger", "weight": 3, "stone_bonus_min": 8, "stone_bonus_max": 18, "stone_loss_min": 3, "stone_loss_max": 10},
+            {"name": "旧修行囊", "description": "山道边有遗落多时的旧行囊，里头还剩下一页模糊图录。", "event_type": "recipe", "weight": 2, "bonus_reward_kind": "material", "bonus_reward_ref_id_name": "青罡剑谱残页", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 35},
+            {"name": "灵风拂面", "description": "一阵带着药香的山风扫过，脚下多了几株被掩住的灵草。", "event_type": "fortune", "weight": 3},
+        ],
+        "drops": [
+            {"reward_kind": "material", "reward_ref_id_name": "寒铁矿", "quantity_min": 1, "quantity_max": 3, "weight": 6, "stone_reward": 4, "event_text": "你在碎石间刨出几块寒铁矿。"},
+            {"reward_kind": "material", "reward_ref_id_name": "灵木芯", "quantity_min": 1, "quantity_max": 2, "weight": 5, "stone_reward": 3, "event_text": "山谷古木中藏着尚未腐坏的灵木芯。"},
+            {"reward_kind": "material", "reward_ref_id_name": "归元草", "quantity_min": 1, "quantity_max": 3, "weight": 6, "stone_reward": 3, "event_text": "山谷背阴处长着一片归元草。"},
+        ],
+    },
+    {
+        "name": "断剑崖",
+        "description": "崖底堆满断剑残兵，剑修常来此寻觅旧器余辉。",
+        "max_minutes": 45,
+        "event_pool": [
+            {"name": "剑煞回潮", "description": "残剑煞气忽然倒卷，你虽被震退，却也在裂缝里捡到灵石碎袋。", "event_type": "danger", "weight": 3, "stone_bonus_min": 12, "stone_bonus_max": 28, "stone_loss_min": 6, "stone_loss_max": 16},
+            {"name": "残碑拓影", "description": "你在半截石碑上拓出一页残谱。", "event_type": "recipe", "weight": 3, "bonus_reward_kind": "material", "bonus_reward_ref_id_name": "青罡剑谱残页", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 46},
+            {"name": "旧器遗骸", "description": "乱石间压着一截带着余温的破损剑胚。", "event_type": "oddity", "weight": 2, "bonus_reward_kind": "material", "bonus_reward_ref_id_name": "破损青罡剑胚", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 18},
+        ],
+        "drops": [
+            {"reward_kind": "material", "reward_ref_id_name": "寒铁矿", "quantity_min": 2, "quantity_max": 4, "weight": 5, "stone_reward": 6, "event_text": "残剑堆下埋着质地不错的寒铁矿。"},
+            {"reward_kind": "material", "reward_ref_id_name": "赤炎晶砂", "quantity_min": 1, "quantity_max": 2, "weight": 4, "stone_reward": 8, "event_text": "剑痕摩擦地火，凝出了细碎的赤炎晶砂。"},
+            {"reward_kind": "material", "reward_ref_id_name": "星辉砂", "quantity_min": 1, "quantity_max": 2, "weight": 2, "stone_reward": 12, "event_text": "夜色落入崖底，你拾到了闪烁的星辉砂。"},
+        ],
+    },
+    {
+        "name": "迷雾药园",
+        "description": "雾气缭绕的废弃药园，药性温和却不失灵气。",
+        "max_minutes": 40,
+        "event_pool": [
+            {"name": "药灵惊走", "description": "药园深处有药灵窜过，追逐间踩断了几根枯藤，也抖落一些灵石。", "event_type": "danger", "weight": 2, "stone_bonus_min": 10, "stone_bonus_max": 22, "stone_loss_min": 2, "stone_loss_max": 8},
+            {"name": "丹谱旧页", "description": "药架夹层里竟压着一张回春丹残页。", "event_type": "recipe", "weight": 3, "bonus_reward_kind": "material", "bonus_reward_ref_id_name": "回春丹谱残页", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 48},
+            {"name": "露华未散", "description": "清晨雾气还未散尽，草叶上挂着可入丹的灵露。", "event_type": "fortune", "weight": 3},
+        ],
+        "drops": [
+            {"reward_kind": "material", "reward_ref_id_name": "归元草", "quantity_min": 2, "quantity_max": 4, "weight": 6, "stone_reward": 5, "event_text": "你在药园边角采到几株完整的归元草。"},
+            {"reward_kind": "material", "reward_ref_id_name": "凝露花", "quantity_min": 1, "quantity_max": 3, "weight": 5, "stone_reward": 8, "event_text": "花圃中央还活着几朵凝露花。"},
+            {"reward_kind": "material", "reward_ref_id_name": "灵木芯", "quantity_min": 1, "quantity_max": 2, "weight": 3, "stone_reward": 5, "event_text": "旧药架中剥出了仍有药香的灵木芯。"},
+        ],
+    },
+    {
+        "name": "雷火符窟",
+        "description": "窟内常有雷火共振，十分适合寻符材，但稍不留神就会被反噬。",
+        "max_minutes": 50,
+        "event_pool": [
+            {"name": "符火反噬", "description": "残符忽然炸裂，火星烫穿袖口，好在地上散落了些灵石。", "event_type": "danger", "weight": 3, "stone_bonus_min": 14, "stone_bonus_max": 30, "stone_loss_min": 6, "stone_loss_max": 18},
+            {"name": "符谱显痕", "description": "石壁上显出一段旧符纹，你赶紧拓下一页残纸。", "event_type": "recipe", "weight": 3, "bonus_reward_kind": "material", "bonus_reward_ref_id_name": "雷火符谱残页", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 42},
+            {"name": "钟纹残迹", "description": "窟深处的石壁还有半面金钟纹路。", "event_type": "recipe", "weight": 2, "bonus_reward_kind": "material", "bonus_reward_ref_id_name": "金钟符谱残页", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 34},
+        ],
+        "drops": [
+            {"reward_kind": "material", "reward_ref_id_name": "雷击木", "quantity_min": 1, "quantity_max": 3, "weight": 5, "stone_reward": 8, "event_text": "窟顶断木带着焦痕，是上好的雷击木。"},
+            {"reward_kind": "material", "reward_ref_id_name": "赤炎晶砂", "quantity_min": 1, "quantity_max": 3, "weight": 5, "stone_reward": 7, "event_text": "石缝里凝着一层赤红晶砂。"},
+            {"reward_kind": "material", "reward_ref_id_name": "星辉砂", "quantity_min": 1, "quantity_max": 1, "weight": 2, "stone_reward": 10, "event_text": "雷火碰撞后，窟底留下了一抹星辉砂。"},
+        ],
+    },
+    {
+        "name": "玄龟古潭",
+        "description": "潭水极深，潭底不时浮出古盾残片与地脉灵气。",
+        "max_minutes": 50,
+        "event_pool": [
+            {"name": "水压暗涌", "description": "古潭忽起暗流，你被逼得连退几步，腰间灵石也被卷走少许。", "event_type": "danger", "weight": 3, "stone_bonus_min": 16, "stone_bonus_max": 28, "stone_loss_min": 8, "stone_loss_max": 20},
+            {"name": "古盾残片", "description": "潭底泥沙里埋着一块仍有灵纹的盾片。", "event_type": "oddity", "weight": 2, "bonus_reward_kind": "material", "bonus_reward_ref_id_name": "破损玄龟盾片", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 16},
+            {"name": "地脉回响", "description": "潭底有地脉回响，石缝间的岩芯纹理越发清晰。", "event_type": "fortune", "weight": 3},
+        ],
+        "drops": [
+            {"reward_kind": "material", "reward_ref_id_name": "玄龟甲片", "quantity_min": 1, "quantity_max": 3, "weight": 5, "stone_reward": 8, "event_text": "你自潭边剥下几块保存完好的玄龟甲片。"},
+            {"reward_kind": "material", "reward_ref_id_name": "地脉岩芯", "quantity_min": 1, "quantity_max": 2, "weight": 3, "stone_reward": 12, "event_text": "潭底石缝里藏着沉重的地脉岩芯。"},
+            {"reward_kind": "material", "reward_ref_id_name": "凝露花", "quantity_min": 1, "quantity_max": 2, "weight": 3, "stone_reward": 6, "event_text": "古潭边缘竟生着耐寒的凝露花。"},
+        ],
+    },
+]
+
+DEFAULT_ACHIEVEMENTS = [
+    {"achievement_key": "envelope_novice", "name": "福泽初现", "description": "累计发放 1 次灵石红包。", "metric_key": "red_envelope_sent_count", "target_value": 1, "sort_order": 10, "reward_config": {"spiritual_stone": 20}},
+    {"achievement_key": "envelope_generous", "name": "散财有道", "description": "累计通过红包发出 500 灵石。", "metric_key": "red_envelope_sent_stone", "target_value": 500, "sort_order": 11, "reward_config": {"cultivation": 80, "reward_title_names": ["红尘初行者"]}},
+    {"achievement_key": "duel_rookie", "name": "试锋一战", "description": "累计发起 1 场斗法。", "metric_key": "duel_initiated_count", "target_value": 1, "sort_order": 20, "reward_config": {"spiritual_stone": 18}},
+    {"achievement_key": "duel_veteran", "name": "斗法常客", "description": "累计发起 20 场斗法。", "metric_key": "duel_initiated_count", "target_value": 20, "sort_order": 21, "reward_config": {"cultivation": 160, "reward_title_names": ["斗法常客"]}},
+    {"achievement_key": "duel_first_win", "name": "首战告捷", "description": "累计赢下 1 场斗法。", "metric_key": "duel_win_count", "target_value": 1, "sort_order": 22, "reward_config": {"spiritual_stone": 30}},
+    {"achievement_key": "duel_ten_wins", "name": "胜势渐成", "description": "累计赢下 10 场斗法。", "metric_key": "duel_win_count", "target_value": 10, "sort_order": 23, "reward_config": {"cultivation": 180, "reward_title_names": ["小有机缘"]}},
+    {"achievement_key": "duel_hardened", "name": "百折不挠", "description": "累计经历 10 场斗法失利。", "metric_key": "duel_loss_count", "target_value": 10, "sort_order": 24, "reward_config": {"spiritual_stone": 66, "reward_title_names": ["百折不挠"]}},
+    {"achievement_key": "rob_novice", "name": "顺手牵机缘", "description": "累计尝试偷窃 1 次。", "metric_key": "rob_attempt_count", "target_value": 1, "sort_order": 30, "reward_config": {"spiritual_stone": 16}},
+    {"achievement_key": "rob_success", "name": "夺宝老手", "description": "累计偷窃成功 10 次。", "metric_key": "rob_success_count", "target_value": 10, "sort_order": 31, "reward_config": {"cultivation": 180, "reward_title_names": ["夺宝老手"]}},
+    {"achievement_key": "gift_kindness", "name": "同道相助", "description": "累计赠送 300 灵石。", "metric_key": "gift_sent_stone", "target_value": 300, "sort_order": 40, "reward_config": {"cultivation": 100}},
+    {"achievement_key": "craft_first_success", "name": "炉火初明", "description": "累计成功炼制 1 次。", "metric_key": "craft_success_count", "target_value": 1, "sort_order": 50, "reward_config": {"spiritual_stone": 28}},
+    {"achievement_key": "craft_ten_success", "name": "炼器熟手", "description": "累计成功炼制 10 次。", "metric_key": "craft_success_count", "target_value": 10, "sort_order": 51, "reward_config": {"cultivation": 180, "reward_title_names": ["炼器熟手"]}},
+    {"achievement_key": "repair_master", "name": "残器归真", "description": "累计成功修复 1 件破损法宝。", "metric_key": "repair_success_count", "target_value": 1, "sort_order": 52, "reward_config": {"spiritual_stone": 120, "titles": []}},
+    {"achievement_key": "explore_ten", "name": "秘境行者", "description": "累计完成 10 次秘境探索。", "metric_key": "exploration_count", "target_value": 10, "sort_order": 60, "reward_config": {"cultivation": 120, "reward_title_names": ["秘境行者"]}},
+    {"achievement_key": "explore_recipe", "name": "残页搜罗者", "description": "累计获得 5 次配方残页。", "metric_key": "exploration_recipe_drop_count", "target_value": 5, "sort_order": 61, "reward_config": {"spiritual_stone": 88}},
 ]
 
 BREAKTHROUGH_BASE_RATE = {
@@ -359,6 +1003,7 @@ def _coerce_int(value: Any, default: int, minimum: int | None = None) -> int:
 
 
 def _normalize_root_quality_value_rules(raw: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    # 后台可以覆盖灵根档位数值，但必须把缺失字段补齐成完整配置，前端展示和战斗结算才稳定。
     defaults = DEFAULT_SETTINGS["root_quality_value_rules"]
     rules = {}
     raw = raw if isinstance(raw, dict) else {}
@@ -376,6 +1021,7 @@ def _normalize_root_quality_value_rules(raw: dict[str, Any] | None) -> dict[str,
 
 
 def _normalize_item_quality_value_rules(raw: dict[str, Any] | None) -> dict[str, dict[str, float]]:
+    # 物品品质倍率同样按“默认值 + 管理员覆盖”归一化，避免升级后旧配置缺字段。
     defaults = DEFAULT_SETTINGS["item_quality_value_rules"]
     rules = {}
     raw = raw if isinstance(raw, dict) else {}
@@ -513,8 +1159,9 @@ def _effective_stats(
     talisman_effects: dict[str, Any] | None = None,
     sect_effects: dict[str, Any] | None = None,
     technique_effects: dict[str, Any] | None = None,
+    title_effects: dict[str, Any] | None = None,
 ) -> dict[str, float]:
-    totals = _sum_item_stats(artifact_effects, talisman_effects, sect_effects, technique_effects)
+    totals = _sum_item_stats(artifact_effects, talisman_effects, sect_effects, technique_effects, title_effects)
     stats = {
         "bone": float(profile.get("bone", 0) or 0) + totals["bone_bonus"],
         "comprehension": float(profile.get("comprehension", 0) or 0) + totals["comprehension_bonus"],
@@ -566,6 +1213,42 @@ def resolve_technique_effects(
         "duel_rate_bonus": float(technique.get("duel_rate_bonus", 0) or 0),
         "cultivation_bonus": float(technique.get("cultivation_bonus", 0) or 0),
         "breakthrough_bonus": float(technique.get("breakthrough_bonus", 0) or 0),
+    }
+
+
+def resolve_title_effects(
+    profile: dict[str, Any],
+    title: dict[str, Any] | None,
+    opponent_profile: dict[str, Any] | None = None,
+) -> dict[str, float]:
+    if title is None:
+        return {
+            "attack_bonus": 0.0,
+            "defense_bonus": 0.0,
+            "bone_bonus": 0.0,
+            "comprehension_bonus": 0.0,
+            "divine_sense_bonus": 0.0,
+            "fortune_bonus": 0.0,
+            "qi_blood_bonus": 0.0,
+            "true_yuan_bonus": 0.0,
+            "body_movement_bonus": 0.0,
+            "duel_rate_bonus": 0.0,
+            "cultivation_bonus": 0.0,
+            "breakthrough_bonus": 0.0,
+        }
+    return {
+        "attack_bonus": float(title.get("attack_bonus", 0) or 0),
+        "defense_bonus": float(title.get("defense_bonus", 0) or 0),
+        "bone_bonus": float(title.get("bone_bonus", 0) or 0),
+        "comprehension_bonus": float(title.get("comprehension_bonus", 0) or 0),
+        "divine_sense_bonus": float(title.get("divine_sense_bonus", 0) or 0),
+        "fortune_bonus": float(title.get("fortune_bonus", 0) or 0),
+        "qi_blood_bonus": float(title.get("qi_blood_bonus", 0) or 0),
+        "true_yuan_bonus": float(title.get("true_yuan_bonus", 0) or 0),
+        "body_movement_bonus": float(title.get("body_movement_bonus", 0) or 0),
+        "duel_rate_bonus": float(title.get("duel_rate_bonus", 0) or 0),
+        "cultivation_bonus": float(title.get("cultivation_bonus", 0) or 0),
+        "breakthrough_bonus": float(title.get("breakthrough_bonus", 0) or 0),
     }
 
 
@@ -881,19 +1564,143 @@ def _current_technique_payload(profile_data: dict[str, Any]) -> dict[str, Any] |
     return technique
 
 
-def ensure_seed_data() -> None:
-    # 内置资源需要在升级后覆盖到现有记录，而不是仅在首次启动时插入。
+SEED_DATA_VERSION = "2026-04-14-default-content-v2"
+SEED_DATA_READY = False
+
+
+def _resolve_seed_result_ref_id(
+    kind: str,
+    name: str,
+    *,
+    artifact_map: dict[str, dict[str, Any]],
+    pill_map: dict[str, dict[str, Any]],
+    talisman_map: dict[str, dict[str, Any]],
+    material_map: dict[str, dict[str, Any]],
+) -> int:
+    lookup = {
+        "artifact": artifact_map,
+        "pill": pill_map,
+        "talisman": talisman_map,
+        "material": material_map,
+    }.get(kind)
+    if lookup is None or name not in lookup:
+        raise ValueError(f"未找到默认种子引用：{kind}::{name}")
+    return int(lookup[name]["id"])
+
+
+def ensure_seed_data(force: bool = False) -> None:
+    global SEED_DATA_READY
+    if SEED_DATA_READY and not force:
+        return
+
+    title_map: dict[str, dict[str, Any]] = {}
+    for payload in DEFAULT_TITLES:
+        title = sync_title_by_name(**payload, enabled=True)
+        title_map[title["name"]] = title
+
     for payload in DEFAULT_ARTIFACTS:
         sync_artifact_by_name(**payload)
+    artifact_map = {item["name"]: item for item in list_artifacts()}
 
     for payload in DEFAULT_PILLS:
         sync_pill_by_name(**payload)
+    pill_map = {item["name"]: item for item in list_pills()}
 
     for payload in DEFAULT_TALISMANS:
         sync_talisman_by_name(**payload)
+    talisman_map = {item["name"]: item for item in list_talismans()}
 
     for payload in DEFAULT_TECHNIQUES:
         sync_technique_by_name(**payload)
+
+    for payload in DEFAULT_MATERIALS:
+        sync_material_by_name(**payload, enabled=True)
+    material_map = {item["name"]: item for item in list_materials()}
+
+    for recipe in DEFAULT_RECIPES:
+        result_ref_id = _resolve_seed_result_ref_id(
+            str(recipe["result_kind"]),
+            str(recipe["result_name"]),
+            artifact_map=artifact_map,
+            pill_map=pill_map,
+            talisman_map=talisman_map,
+            material_map=material_map,
+        )
+        sync_recipe_with_ingredients_by_name(
+            name=str(recipe["name"]),
+            recipe_kind=str(recipe["recipe_kind"]),
+            result_kind=str(recipe["result_kind"]),
+            result_ref_id=result_ref_id,
+            result_quantity=int(recipe["result_quantity"]),
+            base_success_rate=int(recipe["base_success_rate"]),
+            broadcast_on_success=bool(recipe.get("broadcast_on_success")),
+            ingredients=[
+                {
+                    "material_id": _resolve_seed_result_ref_id(
+                        "material",
+                        str(item["material_name"]),
+                        artifact_map=artifact_map,
+                        pill_map=pill_map,
+                        talisman_map=talisman_map,
+                        material_map=material_map,
+                    ),
+                    "quantity": int(item["quantity"]),
+                }
+                for item in recipe.get("ingredients") or []
+            ],
+        )
+
+    for scene in DEFAULT_SCENES:
+        resolved_events = []
+        for event in scene.get("event_pool") or []:
+            payload = dict(event)
+            if payload.get("bonus_reward_ref_id_name"):
+                payload["bonus_reward_ref_id"] = _resolve_seed_result_ref_id(
+                    str(payload.get("bonus_reward_kind") or "material"),
+                    str(payload.get("bonus_reward_ref_id_name")),
+                    artifact_map=artifact_map,
+                    pill_map=pill_map,
+                    talisman_map=talisman_map,
+                    material_map=material_map,
+                )
+            payload.pop("bonus_reward_ref_id_name", None)
+            resolved_events.append(payload)
+        resolved_drops = []
+        for drop in scene.get("drops") or []:
+            payload = dict(drop)
+            if payload.get("reward_ref_id_name"):
+                payload["reward_ref_id"] = _resolve_seed_result_ref_id(
+                    str(payload.get("reward_kind") or "material"),
+                    str(payload.get("reward_ref_id_name")),
+                    artifact_map=artifact_map,
+                    pill_map=pill_map,
+                    talisman_map=talisman_map,
+                    material_map=material_map,
+                )
+            payload.pop("reward_ref_id_name", None)
+            resolved_drops.append(payload)
+        sync_scene_with_drops_by_name(
+            name=str(scene["name"]),
+            description=str(scene.get("description") or ""),
+            image_url=str(scene.get("image_url") or ""),
+            max_minutes=int(scene.get("max_minutes") or 60),
+            event_pool=resolved_events,
+            drops=resolved_drops,
+        )
+
+    for payload in DEFAULT_ACHIEVEMENTS:
+        achievement_payload = dict(payload)
+        reward_config = dict(achievement_payload.get("reward_config") or {})
+        reward_title_names = [str(name) for name in reward_config.pop("reward_title_names", []) if str(name).strip()]
+        reward_config["titles"] = [
+            int(title_map[name]["id"])
+            for name in reward_title_names
+            if name in title_map
+        ]
+        achievement_payload["reward_config"] = reward_config
+        sync_achievement_by_key(**achievement_payload)
+
+    SEED_DATA_READY = True
 
 
 def china_now():
@@ -1033,10 +1840,12 @@ def _compute_retreat_plan(profile) -> dict[str, int]:
     artifact_effects = merge_artifact_effects(profile_data, collect_equipped_artifacts(profile.tg))
     sect_effects = get_sect_effects(profile_data)
     technique_effects = resolve_technique_effects(profile_data, _current_technique_payload(profile_data))
+    title_effects = resolve_title_effects(profile_data, get_current_title(profile.tg))
     artifact_bonus = (
         int(artifact_effects.get("cultivation_bonus", 0))
         + int(sect_effects.get("cultivation_bonus", 0))
         + int(technique_effects.get("cultivation_bonus", 0))
+        + int(title_effects.get("cultivation_bonus", 0))
         + int(profile_data.get("insight_bonus", 0) or 0)
     )
     poison_penalty = min(int(profile.dan_poison or 0) // 4, 25)
@@ -1262,6 +2071,9 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
     if active_talisman:
         active_talisman["resolved_effects"] = resolve_talisman_effects(profile_data, active_talisman)
     current_technique = _current_technique_payload(profile_data)
+    current_title = get_current_title(tg)
+    if current_title:
+        current_title["resolved_effects"] = resolve_title_effects(profile_data, current_title)
 
     artifacts = build_user_artifact_rows(profile_data, tg, retreating, equip_limit, equipped_ids)
     techniques = _build_user_technique_rows(profile_data)
@@ -1296,6 +2108,18 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         item["bound"] = bound_quantity > 0
         item["bound_quantity"] = bound_quantity
         talismans.append(row)
+
+    titles = []
+    current_title_id = int(profile_data.get("current_title_id") or 0)
+    for row in list_user_titles(tg):
+        title = row.get("title") or {}
+        title["resolved_effects"] = resolve_title_effects(profile_data, title)
+        title["equipped"] = int(title.get("id") or 0) == current_title_id
+        title["action_label"] = "卸下称号" if title["equipped"] else "佩戴称号"
+        row["title"] = title
+        titles.append(row)
+
+    achievement_overview = build_user_achievement_overview(tg)
 
     all_personal_shop = list_shop_items(official_only=False)
     personal_shop = [item for item in all_personal_shop if item["owner_tg"] == tg]
@@ -1336,10 +2160,16 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         "equipped_artifacts": equipped,
         "active_talisman": active_talisman,
         "current_technique": current_technique,
+        "current_title": current_title,
         "artifacts": artifacts,
         "pills": pills,
         "talismans": talismans,
         "techniques": techniques,
+        "titles": titles,
+        "achievements": achievement_overview.get("achievements") or [],
+        "achievement_metric_progress": achievement_overview.get("metric_progress") or {},
+        "achievement_unlocked_count": int(achievement_overview.get("unlocked_count") or 0),
+        "achievement_total_count": int(achievement_overview.get("total_count") or 0),
         "settings": settings,
         "official_shop": list_shop_items(official_only=True),
         "community_shop": community_shop,
@@ -1486,6 +2316,17 @@ def activate_technique_for_user(tg: int, technique_id: int) -> dict[str, Any]:
     set_current_technique(tg, technique_id)
     return {
         "technique": serialize_technique(technique),
+        "profile": serialize_full_profile(tg),
+    }
+
+
+def set_current_title_for_user(tg: int, title_id: int | None) -> dict[str, Any]:
+    profile_obj = get_profile(tg, create=False)
+    if profile_obj is None or not profile_obj.consented:
+        raise ValueError("你还没有踏入仙途。")
+    title = set_current_title(tg, title_id)
+    return {
+        "title": title,
         "profile": serialize_full_profile(tg),
     }
 
@@ -2061,6 +2902,11 @@ def _battle_bundle(bundle_or_profile: dict[str, Any], opponent_profile: dict[str
         talisman = serialize_talisman(get_talisman(int(active_talisman_id))) if active_talisman_id else None
         current_technique_id = profile.get("current_technique_id")
         technique = serialize_technique(get_technique(int(current_technique_id))) if current_technique_id else None
+    title = None
+    if "profile" in bundle_or_profile:
+        title = bundle.get("current_title")
+    elif profile.get("current_title_id"):
+        title = get_current_title(int(profile["tg"]))
 
     quality_name = _normalized_root_quality(profile)
     quality = _root_quality_payload(quality_name)
@@ -2068,7 +2914,8 @@ def _battle_bundle(bundle_or_profile: dict[str, Any], opponent_profile: dict[str
     artifact_effects = merge_artifact_effects(profile, artifacts, opponent_profile)
     talisman_effects = resolve_talisman_effects(profile, talisman, opponent_profile) if talisman else None
     technique_effects = resolve_technique_effects(profile, technique, opponent_profile) if technique else None
-    stats = _effective_stats(profile, artifact_effects, talisman_effects, sect_effects, technique_effects)
+    title_effects = resolve_title_effects(profile, title, opponent_profile) if title else None
+    stats = _effective_stats(profile, artifact_effects, talisman_effects, sect_effects, technique_effects, title_effects)
 
     stage_index = realm_index(profile.get("realm_stage"))
     layer = int(profile.get("realm_layer") or 0)
@@ -2134,6 +2981,7 @@ def _battle_bundle(bundle_or_profile: dict[str, Any], opponent_profile: dict[str
         "talisman_effects": talisman_effects or {},
         "sect_effects": sect_effects,
         "technique_effects": technique_effects or {},
+        "title_effects": title_effects or {},
         "power": float(power),
     }
 
@@ -2431,7 +3279,9 @@ def practice_for_user(tg: int) -> dict[str, Any]:
     talisman_effects = resolve_talisman_effects(profile_data, active_talisman) if active_talisman else None
     current_technique = _current_technique_payload(profile_data)
     technique_effects = resolve_technique_effects(profile_data, current_technique) if current_technique else None
-    stats = _effective_stats(profile_data, artifact_effects, talisman_effects, get_sect_effects(profile_data), technique_effects)
+    current_title = get_current_title(tg)
+    title_effects = resolve_title_effects(profile_data, current_title) if current_title else None
+    stats = _effective_stats(profile_data, artifact_effects, talisman_effects, get_sect_effects(profile_data), technique_effects, title_effects)
     quality = _root_quality_payload(_normalized_root_quality(profile_data))
     poison_penalty = max(float(profile.dan_poison or 0) - stats["bone"] * 0.45, 0.0) / 110
     base_gain = random.randint(18, 36)
@@ -2479,13 +3329,16 @@ def breakthrough_for_user(tg: int, use_pill: bool = False) -> dict[str, Any]:
     talisman_effects = resolve_talisman_effects(profile_data, active_talisman) if active_talisman else None
     current_technique = _current_technique_payload(profile_data)
     technique_effects = resolve_technique_effects(profile_data, current_technique) if current_technique else None
-    stats = _effective_stats(profile_data, artifact_effects, talisman_effects, get_sect_effects(profile_data), technique_effects)
+    current_title = get_current_title(tg)
+    title_effects = resolve_title_effects(profile_data, current_title) if current_title else None
+    stats = _effective_stats(profile_data, artifact_effects, talisman_effects, get_sect_effects(profile_data), technique_effects, title_effects)
     quality = _root_quality_payload(_normalized_root_quality(profile_data))
     success_rate = BREAKTHROUGH_BASE_RATE.get(stage, 12)
     success_rate += int(round((stats["bone"] - 12) * 0.45))
     success_rate += int(round((stats["comprehension"] - 12) * 0.6))
     success_rate += int(quality["breakthrough_bonus"])
     success_rate += int(round((technique_effects or {}).get("breakthrough_bonus", 0)))
+    success_rate += int(round((title_effects or {}).get("breakthrough_bonus", 0)))
     success_rate -= int(max(float(profile.dan_poison or 0) - stats["bone"] * 0.3, 0) // 8)
     if _normalized_root_quality(profile_data) == "天灵根":
         success_rate += 4
@@ -2627,6 +3480,305 @@ def _duel_display_name(profile: dict[str, Any]) -> str:
 def _duel_item_names(items: list[dict[str, Any]] | None, fallback: str) -> str:
     rows = [str(item.get("name") or "").strip() for item in (items or []) if str(item.get("name") or "").strip()]
     return "、".join(rows[:3]) if rows else fallback
+
+
+def _duel_combat_entries(bundle: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    rows = {"skills": [], "passives": [], "openings": []}
+    sources: list[tuple[str, dict[str, Any]]] = []
+    if bundle.get("current_technique"):
+        sources.append(("功法", bundle["current_technique"]))
+    if bundle.get("active_talisman"):
+        sources.append(("符箓", bundle["active_talisman"]))
+    for artifact in bundle.get("equipped_artifacts") or []:
+        sources.append(("法宝", artifact))
+    for source_type, payload in sources:
+        config = payload.get("combat_config") or {}
+        if not isinstance(config, dict):
+            continue
+        opening_text = str(config.get("opening_text") or "").strip()
+        if opening_text:
+            rows["openings"].append(f"{payload.get('name') or source_type}：{opening_text}")
+        for key in ("skills", "passives"):
+            for item in config.get(key) or []:
+                if not isinstance(item, dict) or not str(item.get("kind") or "").strip():
+                    continue
+                rows[key].append(
+                    {
+                        **item,
+                        "source_type": source_type,
+                        "source_name": str(payload.get("name") or source_type),
+                        "display_name": str(item.get("name") or item.get("kind") or source_type),
+                    }
+                )
+    return rows
+
+
+def _create_duel_actor(bundle: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
+    profile = bundle["profile"]
+    stats = state["stats"]
+    return {
+        "tg": int(profile["tg"]),
+        "name": _duel_display_name(profile),
+        "profile": profile,
+        "stats": stats,
+        "power": float(state["power"]),
+        "max_hp": max(int(round(stats["qi_blood"])), 1),
+        "hp": max(int(round(stats["qi_blood"])), 1),
+        "max_mp": max(int(round(stats["true_yuan"])), 1),
+        "mp": max(int(round(stats["true_yuan"])), 1),
+        "combat_entries": _duel_combat_entries(bundle),
+        "effects": {
+            "burn": [],
+            "bleed": [],
+            "shield": [],
+            "guard": [],
+            "dodge": [],
+            "armor_break": [],
+        },
+    }
+
+
+def _append_duel_log(logs: list[dict[str, Any]], round_no: int, text: str, kind: str = "action") -> None:
+    logs.append({"round": round_no, "kind": kind, "text": text})
+
+
+def _active_effect_value(actor: dict[str, Any], effect_kind: str, value_key: str) -> float:
+    total = 0.0
+    for item in actor["effects"].get(effect_kind, []):
+        total += float(item.get(value_key) or 0)
+    return total
+
+
+def _consume_shield(actor: dict[str, Any], damage: int) -> int:
+    remaining = max(int(damage), 0)
+    absorbed = 0
+    updated = []
+    for effect in actor["effects"]["shield"]:
+        pool = max(int(effect.get("pool") or 0), 0)
+        if remaining > 0 and pool > 0:
+            current_absorb = min(pool, remaining)
+            pool -= current_absorb
+            remaining -= current_absorb
+            absorbed += current_absorb
+        if pool > 0:
+            effect["pool"] = pool
+            updated.append(effect)
+    actor["effects"]["shield"] = updated
+    return absorbed
+
+
+def _tick_duel_dot(actor: dict[str, Any], effect_kind: str, round_no: int, logs: list[dict[str, Any]]) -> None:
+    survivors = []
+    for effect in actor["effects"].get(effect_kind, []):
+        damage = max(int(effect.get("damage") or 0), 1)
+        actor["hp"] = max(actor["hp"] - damage, 0)
+        if effect_kind == "burn":
+            _append_duel_log(logs, round_no, f"{actor['name']} 被{effect.get('name') or '灼烧'}反复炙烤，气血 -{damage}。", "dot")
+        else:
+            _append_duel_log(logs, round_no, f"{actor['name']} 伤口被{effect.get('name') or '流血'}牵动，气血 -{damage}。", "dot")
+        effect["remaining"] = max(int(effect.get("remaining") or 1) - 1, 0)
+        if effect["remaining"] > 0:
+            survivors.append(effect)
+    actor["effects"][effect_kind] = survivors
+
+
+def _decay_duel_effects(actor: dict[str, Any]) -> None:
+    for effect_kind in ("guard", "dodge", "armor_break", "shield"):
+        next_rows = []
+        for effect in actor["effects"].get(effect_kind, []):
+            effect["remaining"] = max(int(effect.get("remaining") or 1) - 1, 0)
+            if effect_kind == "shield":
+                if effect["remaining"] > 0 and int(effect.get("pool") or 0) > 0:
+                    next_rows.append(effect)
+            elif effect["remaining"] > 0:
+                next_rows.append(effect)
+        actor["effects"][effect_kind] = next_rows
+
+
+def _apply_duel_effect(
+    source: dict[str, Any],
+    target: dict[str, Any],
+    effect: dict[str, Any],
+    round_no: int,
+    logs: list[dict[str, Any]],
+) -> None:
+    kind = str(effect.get("kind") or "").strip()
+    name = effect.get("display_name") or effect.get("name") or kind
+    duration = max(int(effect.get("duration") or 1), 1)
+    flat_damage = max(int(effect.get("flat_damage") or 0), 0)
+    flat_heal = max(int(effect.get("flat_heal") or 0), 0)
+    ratio_percent = int(effect.get("ratio_percent") or 0)
+    text = str(effect.get("text") or "").strip()
+    if kind == "burn":
+        damage = max(flat_damage + int(source["stats"]["attack_power"] * max(ratio_percent, 0) / 100), 6)
+        target["effects"]["burn"].append({"name": name, "damage": damage, "remaining": duration})
+        _append_duel_log(logs, round_no, text or f"{source['name']} 让 {target['name']} 身上残留离火，后续将持续受创。")
+    elif kind == "bleed":
+        damage = max(flat_damage + int(source["stats"]["attack_power"] * max(ratio_percent, 0) / 100), 5)
+        target["effects"]["bleed"].append({"name": name, "damage": damage, "remaining": duration})
+        _append_duel_log(logs, round_no, text or f"{target['name']} 被撕开伤口，气血开始一点点外泄。")
+    elif kind == "shield":
+        pool = max(flat_damage + flat_heal + max(int(effect.get("flat_shield") or 0), 0) + int(source["stats"]["defense_power"] * max(ratio_percent, 0) / 100), 1)
+        source["effects"]["shield"].append({"name": name, "pool": pool, "remaining": duration})
+        _append_duel_log(logs, round_no, text or f"{source['name']} 身前升起一层护体灵罩，可抵消 {pool} 点伤害。")
+    elif kind == "guard":
+        ratio = max(float(effect.get("defense_ratio_percent") or ratio_percent or 0) / 100.0, 0.0)
+        source["effects"]["guard"].append({"name": name, "ratio": ratio, "remaining": duration})
+        _append_duel_log(logs, round_no, text or f"{source['name']} 沉气护体，接下来承伤将被削弱。")
+    elif kind == "dodge":
+        bonus = max(int(effect.get("dodge_bonus") or 0), 0)
+        source["effects"]["dodge"].append({"name": name, "bonus": bonus, "remaining": duration})
+        _append_duel_log(logs, round_no, text or f"{source['name']} 身法一提，短时间内更难被锁定。")
+    elif kind == "armor_break":
+        ratio = max(float(effect.get("defense_ratio_percent") or ratio_percent or 0) / 100.0, 0.0)
+        target["effects"]["armor_break"].append({"name": name, "ratio": ratio, "remaining": duration})
+        _append_duel_log(logs, round_no, text or f"{target['name']} 的护体灵气被撕开一角，防御出现破绽。")
+    elif kind == "heal":
+        heal_value = max(flat_heal + int(source["stats"]["true_yuan"] * max(ratio_percent, 0) / 100), 1)
+        source["hp"] = min(source["max_hp"], source["hp"] + heal_value)
+        _append_duel_log(logs, round_no, text or f"{source['name']} 调匀气息，气血回升 {heal_value}。")
+
+
+def _choose_duel_skill(actor: dict[str, Any]) -> dict[str, Any] | None:
+    skills = list(actor["combat_entries"].get("skills") or [])
+    random.shuffle(skills)
+    for skill in skills:
+        cost_true_yuan = max(int(skill.get("cost_true_yuan") or 0), 0)
+        if actor["mp"] < cost_true_yuan:
+            continue
+        chance = max(min(int(skill.get("chance") or 0), 100), 0)
+        if chance <= 0:
+            continue
+        if not roll_probability_percent(chance)["success"]:
+            continue
+        actor["mp"] = max(actor["mp"] - cost_true_yuan, 0)
+        return skill
+    return None
+
+
+def _execute_duel_turn(
+    attacker: dict[str, Any],
+    defender: dict[str, Any],
+    round_no: int,
+    logs: list[dict[str, Any]],
+) -> None:
+    if attacker["hp"] <= 0 or defender["hp"] <= 0:
+        return
+    skill = _choose_duel_skill(attacker)
+    move_name = skill.get("display_name") if skill else "寻常一击"
+    hit_bonus = int(skill.get("hit_bonus") or 0) if skill else 0
+    dodge_bonus = _active_effect_value(defender, "dodge", "bonus")
+    dodge_chance = max(min(int(8 + (defender["stats"]["body_movement"] - attacker["stats"]["body_movement"]) * 0.45 + dodge_bonus - hit_bonus), 40), 5)
+    if roll_probability_percent(dodge_chance)["success"]:
+        _append_duel_log(
+            logs,
+            round_no,
+            f"{attacker['name']} 施展 {move_name}，却被 {defender['name']} 凭身法错开，攻势落空。",
+            "dodge",
+        )
+        return
+
+    defense_break_ratio = min(_active_effect_value(defender, "armor_break", "ratio"), 0.45)
+    effective_defense = max(defender["stats"]["defense_power"] * (1 - defense_break_ratio), 1)
+    base_damage = attacker["stats"]["attack_power"] * random.uniform(0.88, 1.18)
+    if skill:
+        base_damage += attacker["stats"]["attack_power"] * max(int(skill.get("ratio_percent") or 0), 0) / 100
+        base_damage += max(int(skill.get("flat_damage") or 0), 0)
+    else:
+        base_damage += attacker["stats"]["attack_power"] * 0.18
+    crit_chance = max(min(int(9 + (attacker["stats"]["divine_sense"] - defender["stats"]["divine_sense"]) * 0.35 + attacker["stats"]["fortune"] * 0.18), 32), 6)
+    critical = roll_probability_percent(crit_chance)["success"]
+    if critical:
+        base_damage *= 1.45
+    damage = max(int(round(base_damage - effective_defense * 0.38)), 1)
+    guard_ratio = min(_active_effect_value(defender, "guard", "ratio"), 0.6)
+    damage = max(int(round(damage * (1 - guard_ratio))), 1)
+    absorbed = _consume_shield(defender, damage)
+    damage_after_shield = max(damage - absorbed, 0)
+    defender["hp"] = max(defender["hp"] - damage_after_shield, 0)
+    crit_text = " 会心一击。" if critical else ""
+    shield_text = f" 其中 {absorbed} 点被护盾挡下。" if absorbed else ""
+    skill_text = ""
+    if skill and skill.get("text"):
+        skill_text = f"{skill.get('text')} "
+    _append_duel_log(
+        logs,
+        round_no,
+        f"{skill_text}{attacker['name']} 以 {move_name} 命中 {defender['name']}，造成 {damage_after_shield} 点伤害。{shield_text}{crit_text}".strip(),
+    )
+    if skill:
+        _apply_duel_effect(attacker, defender, skill, round_no, logs)
+    for passive in attacker["combat_entries"].get("passives") or []:
+        chance = max(min(int(passive.get("chance") or 0), 100), 0)
+        if chance <= 0 or not roll_probability_percent(chance)["success"]:
+            continue
+        _apply_duel_effect(attacker, defender, passive, round_no, logs)
+    if damage_after_shield <= 0 and absorbed > 0:
+        _append_duel_log(logs, round_no, f"{defender['name']} 的护体灵光完全吃下了这波冲击。", "shield")
+
+
+def _simulate_duel_battle(
+    challenger_bundle: dict[str, Any],
+    defender_bundle: dict[str, Any],
+    challenger_state: dict[str, Any],
+    defender_state: dict[str, Any],
+) -> dict[str, Any]:
+    challenger_actor = _create_duel_actor(challenger_bundle, challenger_state)
+    defender_actor = _create_duel_actor(defender_bundle, defender_state)
+    logs: list[dict[str, Any]] = []
+    for opening in challenger_actor["combat_entries"]["openings"]:
+        _append_duel_log(logs, 0, f"{challenger_actor['name']} 起手运转，{opening}", "opening")
+    for opening in defender_actor["combat_entries"]["openings"]:
+        _append_duel_log(logs, 0, f"{defender_actor['name']} 也不示弱，{opening}", "opening")
+
+    max_rounds = 8
+    round_count = 0
+    for round_no in range(1, max_rounds + 1):
+        round_count = round_no
+        _append_duel_log(logs, round_no, f"第 {round_no} 回合，双方气机再度碰撞。", "round")
+        for actor in (challenger_actor, defender_actor):
+            _tick_duel_dot(actor, "burn", round_no, logs)
+            _tick_duel_dot(actor, "bleed", round_no, logs)
+        if challenger_actor["hp"] <= 0 or defender_actor["hp"] <= 0:
+            break
+        challenger_speed = challenger_actor["stats"]["body_movement"] + random.uniform(0, 12)
+        defender_speed = defender_actor["stats"]["body_movement"] + random.uniform(0, 12)
+        order = (
+            [(challenger_actor, defender_actor), (defender_actor, challenger_actor)]
+            if challenger_speed >= defender_speed
+            else [(defender_actor, challenger_actor), (challenger_actor, defender_actor)]
+        )
+        for attacker, defender in order:
+            _execute_duel_turn(attacker, defender, round_no, logs)
+            if defender["hp"] <= 0:
+                _append_duel_log(logs, round_no, f"{defender['name']} 气机溃散，已难再战。", "finish")
+                break
+        _decay_duel_effects(challenger_actor)
+        _decay_duel_effects(defender_actor)
+        if challenger_actor["hp"] <= 0 or defender_actor["hp"] <= 0:
+            break
+
+    if challenger_actor["hp"] == defender_actor["hp"]:
+        challenger_score = challenger_actor["hp"] / challenger_actor["max_hp"] * 100 + challenger_actor["power"] / 30
+        defender_score = defender_actor["hp"] / defender_actor["max_hp"] * 100 + defender_actor["power"] / 30
+        challenger_win = challenger_score >= defender_score
+    else:
+        challenger_win = challenger_actor["hp"] > defender_actor["hp"]
+    winner = challenger_actor if challenger_win else defender_actor
+    loser = defender_actor if challenger_win else challenger_actor
+    summary = (
+        f"{winner['name']} 以剩余气血 {winner['hp']}/{winner['max_hp']} "
+        f"压过 {loser['name']} 的 {loser['hp']}/{loser['max_hp']}，斗法告一段落。"
+    )
+    return {
+        "challenger_actor": challenger_actor,
+        "defender_actor": defender_actor,
+        "winner_tg": winner["tg"],
+        "loser_tg": loser["tg"],
+        "summary": summary,
+        "round_count": round_count,
+        "battle_log": logs,
+    }
 
 
 def _build_duel_snapshot(
@@ -2818,33 +3970,11 @@ def resolve_duel(challenger_tg: int, defender_tg: int, stake: int = 0) -> dict[s
 
     challenger_state = _battle_bundle(duel["challenger"], defender_profile, apply_random=True)
     defender_state = _battle_bundle(duel["defender"], challenger_profile, apply_random=True)
-    total_power = max(challenger_state["power"] + defender_state["power"], 1)
-    dynamic_rate = challenger_state["power"] / total_power
-    stage_diff = realm_index(challenger_profile["realm_stage"]) - realm_index(defender_profile["realm_stage"])
-    if abs(stage_diff) >= 2:
-        dynamic_rate = adjust_probability_rate(
-            dynamic_rate,
-            actor_fortune=challenger_state["stats"]["fortune"],
-            opponent_fortune=defender_state["stats"]["fortune"],
-            actor_weight=0.18,
-            opponent_weight=0.18,
-            minimum=0.001,
-            maximum=0.999,
-        )
-    else:
-        dynamic_rate = adjust_probability_rate(
-            dynamic_rate,
-            actor_fortune=challenger_state["stats"]["fortune"],
-            opponent_fortune=defender_state["stats"]["fortune"],
-            actor_weight=0.18,
-            opponent_weight=0.18,
-            minimum=0.03,
-            maximum=0.97,
-        )
-    roll = random.random()
-    challenger_win = roll <= dynamic_rate
-    winner_tg = challenger_tg if challenger_win else defender_tg
-    loser_tg = defender_tg if challenger_win else challenger_tg
+    dynamic_rate = float(duel["challenger_rate"])
+    simulated_battle = _simulate_duel_battle(duel["challenger"], duel["defender"], challenger_state, defender_state)
+    winner_tg = int(simulated_battle["winner_tg"])
+    loser_tg = int(simulated_battle["loser_tg"])
+    challenger_win = winner_tg == challenger_tg
     winner_state = challenger_state if challenger_win else defender_state
     loser_state = defender_state if challenger_win else challenger_state
     winner_profile = get_profile(winner_tg, create=False)
@@ -2890,8 +4020,10 @@ def resolve_duel(challenger_tg: int, defender_tg: int, stake: int = 0) -> dict[s
         loser_tg=loser_tg,
         challenger_rate=int(round(dynamic_rate * 1000)),
         defender_rate=int(round((1 - dynamic_rate) * 1000)),
-        summary=f"战力对比 {challenger_state['power']:.1f} vs {defender_state['power']:.1f}",
+        summary=str(simulated_battle["summary"]),
+        battle_log=simulated_battle["battle_log"],
     )
+    achievement_unlocks = record_duel_metrics(challenger_tg, defender_tg, winner_tg, loser_tg)
     return {
         "challenger": serialize_full_profile(challenger_tg),
         "defender": serialize_full_profile(defender_tg),
@@ -2899,7 +4031,7 @@ def resolve_duel(challenger_tg: int, defender_tg: int, stake: int = 0) -> dict[s
         "loser_tg": loser_tg,
         "challenger_rate": dynamic_rate,
         "defender_rate": 1 - dynamic_rate,
-        "roll": roll,
+        "roll": None,
         "winner_power": round(max(challenger_state["power"], defender_state["power"]), 2),
         "loser_power": round(min(challenger_state["power"], defender_state["power"]), 2),
         "stake": stake_amount,
@@ -2911,7 +4043,10 @@ def resolve_duel(challenger_tg: int, defender_tg: int, stake: int = 0) -> dict[s
             "artifact": None if artifact_plunder is None else artifact_plunder.get("artifact"),
             "was_equipped": bool(artifact_plunder and artifact_plunder.get("was_equipped")),
         },
-        "summary": f"战力对比 {challenger_state['power']:.1f} vs {defender_state['power']:.1f}",
+        "summary": str(simulated_battle["summary"]),
+        "battle_log": simulated_battle["battle_log"],
+        "round_count": int(simulated_battle["round_count"]),
+        "achievement_unlocks": achievement_unlocks,
     }
 
 
@@ -2937,6 +4072,21 @@ def format_duel_settlement_text(
         f"败者：{loser_name}",
         f"{result['summary']}",
     ]
+
+    battle_log = list(result.get("battle_log") or [])
+    if battle_log:
+        lines.extend(
+            [
+                "",
+                f"斗法过程：共 {int(result.get('round_count') or 0)} 回合",
+            ]
+        )
+        preview_rows = battle_log[:12]
+        for row in preview_rows:
+            prefix = f"[第{row.get('round')}回合] " if int(row.get("round") or 0) > 0 else ""
+            lines.append(f"{prefix}{row.get('text')}")
+        if len(battle_log) > len(preview_rows):
+            lines.append(f"...后续尚有 {len(battle_log) - len(preview_rows)} 条斗法细节未展开。")
 
     stake = int(result.get("stake") or 0)
     if stake > 0:

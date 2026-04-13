@@ -1,3 +1,8 @@
+"""修仙世界玩法服务。
+
+这里集中处理宗门、任务、炼制、秘境、红包、偷窃与斗法竞猜等跨系统玩法。
+"""
+
 from __future__ import annotations
 
 import random
@@ -81,6 +86,13 @@ from bot.sql_helper.sql_xiuxian import (
     utcnow,
 )
 from bot.plugins.xiuxian_game.probability import roll_probability_percent
+from bot.plugins.xiuxian_game.achievement_service import (
+    record_craft_metrics,
+    record_exploration_metrics,
+    record_gift_metrics,
+    record_red_envelope_metrics,
+    record_robbery_metrics,
+)
 
 
 RARITY_LEVEL_MAP = {
@@ -457,6 +469,7 @@ def create_bounty_task(
 
     with Session() as session:
         if actor_tg is not None:
+            # 发布时对玩家记录加锁，防止并发发任务导致灵石重复扣减或余额穿透。
             publisher = session.query(XiuxianProfile).filter(XiuxianProfile.tg == actor_tg).with_for_update().first()
             if publisher is None or not publisher.consented:
                 raise ValueError("你还没有踏入仙途")
@@ -787,6 +800,260 @@ def build_recipe_catalog() -> list[dict[str, Any]]:
     return rows
 
 
+def sync_recipe_with_ingredients_by_name(
+    *,
+    name: str,
+    recipe_kind: str,
+    result_kind: str,
+    result_ref_id: int,
+    result_quantity: int,
+    base_success_rate: int,
+    broadcast_on_success: bool,
+    ingredients: list[dict[str, Any]],
+) -> dict[str, Any]:
+    payload = {
+        "name": str(name or "").strip(),
+        "recipe_kind": str(recipe_kind or "").strip() or "artifact",
+        "result_kind": str(result_kind or "").strip() or "material",
+        "result_ref_id": max(int(result_ref_id or 0), 1),
+        "result_quantity": max(int(result_quantity or 1), 1),
+        "base_success_rate": max(min(int(base_success_rate or 60), 100), 1),
+        "broadcast_on_success": bool(broadcast_on_success),
+        "enabled": True,
+    }
+    with Session() as session:
+        recipe = session.query(XiuxianRecipe).filter(XiuxianRecipe.name == payload["name"]).first()
+        if recipe is None:
+            recipe = XiuxianRecipe(**payload)
+            session.add(recipe)
+            session.commit()
+            session.refresh(recipe)
+        else:
+            for key, value in payload.items():
+                setattr(recipe, key, value)
+            recipe.updated_at = utcnow()
+            session.commit()
+            session.refresh(recipe)
+        recipe_id = int(recipe.id)
+    recipe_payload = serialize_recipe(get_recipe(recipe_id))
+    recipe_payload["ingredients"] = replace_recipe_ingredients(
+        recipe_id,
+        [
+            {
+                "material_id": int(item.get("material_id") or 0),
+                "quantity": max(int(item.get("quantity") or 1), 1),
+            }
+            for item in ingredients
+            if int(item.get("material_id") or 0) > 0
+        ],
+    )
+    recipe_payload["result_item"] = _get_item_payload(payload["result_kind"], payload["result_ref_id"])
+    return recipe_payload
+
+
+def patch_recipe_with_ingredients(
+    recipe_id: int,
+    *,
+    name: str,
+    recipe_kind: str,
+    result_kind: str,
+    result_ref_id: int,
+    result_quantity: int,
+    base_success_rate: int,
+    broadcast_on_success: bool,
+    ingredients: list[dict[str, Any]],
+) -> dict[str, Any]:
+    with Session() as session:
+        recipe = session.query(XiuxianRecipe).filter(XiuxianRecipe.id == recipe_id).first()
+        if recipe is None:
+            raise ValueError("配方不存在")
+        recipe.name = str(name or "").strip()
+        recipe.recipe_kind = str(recipe_kind or "").strip() or recipe.recipe_kind
+        recipe.result_kind = str(result_kind or "").strip() or recipe.result_kind
+        recipe.result_ref_id = max(int(result_ref_id or 0), 1)
+        recipe.result_quantity = max(int(result_quantity or 1), 1)
+        recipe.base_success_rate = max(min(int(base_success_rate or 60), 100), 1)
+        recipe.broadcast_on_success = bool(broadcast_on_success)
+        recipe.enabled = True
+        recipe.updated_at = utcnow()
+        session.commit()
+    recipe_payload = serialize_recipe(get_recipe(recipe_id))
+    recipe_payload["ingredients"] = replace_recipe_ingredients(
+        recipe_id,
+        [
+            {
+                "material_id": int(item.get("material_id") or 0),
+                "quantity": max(int(item.get("quantity") or 1), 1),
+            }
+            for item in ingredients
+            if int(item.get("material_id") or 0) > 0
+        ],
+    )
+    recipe_payload["result_item"] = _get_item_payload(recipe_payload["result_kind"], int(recipe_payload["result_ref_id"]))
+    return recipe_payload
+
+
+def sync_scene_with_drops_by_name(
+    *,
+    name: str,
+    description: str = "",
+    image_url: str = "",
+    max_minutes: int = 60,
+    event_pool: list[dict[str, Any]] | list[str] | None = None,
+    drops: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    payload = {
+        "name": str(name or "").strip(),
+        "description": str(description or "").strip(),
+        "image_url": str(image_url or "").strip(),
+        "max_minutes": max(min(int(max_minutes or 60), 60), 1),
+        "event_pool": event_pool or [],
+        "enabled": True,
+    }
+    with Session() as session:
+        scene = session.query(XiuxianScene).filter(XiuxianScene.name == payload["name"]).first()
+        if scene is None:
+            scene = XiuxianScene(**payload)
+            session.add(scene)
+            session.commit()
+            session.refresh(scene)
+        else:
+            scene.description = payload["description"]
+            scene.image_url = payload["image_url"] or None
+            scene.max_minutes = payload["max_minutes"]
+            scene.event_pool = payload["event_pool"]
+            scene.enabled = True
+            scene.updated_at = utcnow()
+            session.commit()
+            session.refresh(scene)
+        session.query(XiuxianSceneDrop).filter(XiuxianSceneDrop.scene_id == scene.id).delete()
+        for drop in drops or []:
+            session.add(
+                XiuxianSceneDrop(
+                    scene_id=scene.id,
+                    reward_kind=str(drop.get("reward_kind") or "material"),
+                    reward_ref_id=drop.get("reward_ref_id"),
+                    quantity_min=max(int(drop.get("quantity_min", 1) or 1), 1),
+                    quantity_max=max(int(drop.get("quantity_max", drop.get("quantity_min", 1)) or 1), 1),
+                    weight=max(int(drop.get("weight", 1) or 1), 1),
+                    stone_reward=max(int(drop.get("stone_reward", 0) or 0), 0),
+                    event_text=str(drop.get("event_text") or "").strip() or None,
+                )
+            )
+        session.commit()
+    scene_payload = serialize_scene(get_scene(scene.id))
+    scene_payload["drops"] = list_scene_drops(scene.id)
+    return scene_payload
+
+
+def patch_scene_with_drops(
+    scene_id: int,
+    *,
+    name: str,
+    description: str = "",
+    image_url: str = "",
+    max_minutes: int = 60,
+    event_pool: list[dict[str, Any]] | list[str] | None = None,
+    drops: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    with Session() as session:
+        scene = session.query(XiuxianScene).filter(XiuxianScene.id == scene_id).first()
+        if scene is None:
+            raise ValueError("场景不存在")
+        scene.name = str(name or "").strip()
+        scene.description = str(description or "").strip()
+        scene.image_url = str(image_url or "").strip() or None
+        scene.max_minutes = max(min(int(max_minutes or 60), 60), 1)
+        scene.event_pool = event_pool or []
+        scene.enabled = True
+        scene.updated_at = utcnow()
+        session.query(XiuxianSceneDrop).filter(XiuxianSceneDrop.scene_id == scene.id).delete()
+        for drop in drops or []:
+            session.add(
+                XiuxianSceneDrop(
+                    scene_id=scene.id,
+                    reward_kind=str(drop.get("reward_kind") or "material"),
+                    reward_ref_id=drop.get("reward_ref_id"),
+                    quantity_min=max(int(drop.get("quantity_min", 1) or 1), 1),
+                    quantity_max=max(int(drop.get("quantity_max", drop.get("quantity_min", 1)) or 1), 1),
+                    weight=max(int(drop.get("weight", 1) or 1), 1),
+                    stone_reward=max(int(drop.get("stone_reward", 0) or 0), 0),
+                    event_text=str(drop.get("event_text") or "").strip() or None,
+                )
+            )
+        session.commit()
+    scene_payload = serialize_scene(get_scene(scene_id))
+    scene_payload["drops"] = list_scene_drops(scene_id)
+    return scene_payload
+
+
+def _weighted_random_choice(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not rows:
+        return None
+    total_weight = sum(max(int(item.get("weight") or 0), 1) for item in rows)
+    cursor = random.randint(1, max(total_weight, 1))
+    current = 0
+    for item in rows:
+        current += max(int(item.get("weight") or 0), 1)
+        if cursor <= current:
+            return item
+    return rows[-1]
+
+
+def _recipe_like_bonus_item(kind: str | None, ref_id: int | None) -> bool:
+    item = _get_item_payload(str(kind or ""), int(ref_id or 0)) if kind and ref_id else None
+    name = str((item or {}).get("name") or "")
+    return "谱" in name or "残页" in name or "图录" in name
+
+
+def _build_exploration_outcome(
+    scene: dict[str, Any],
+    chosen_drop: dict[str, Any],
+    fortune: int,
+    divine_sense: int,
+) -> dict[str, Any]:
+    event = _weighted_random_choice(scene.get("event_pool") or []) or {}
+    stone_bonus = 0
+    stone_loss = 0
+    bonus_reward = None
+    if event:
+        stone_bonus_min = max(int(event.get("stone_bonus_min") or 0), 0)
+        stone_bonus_max = max(int(event.get("stone_bonus_max") or stone_bonus_min), stone_bonus_min)
+        if stone_bonus_max > 0:
+            stone_bonus = random.randint(stone_bonus_min, stone_bonus_max)
+        stone_loss_min = max(int(event.get("stone_loss_min") or 0), 0)
+        stone_loss_max = max(int(event.get("stone_loss_max") or stone_loss_min), stone_loss_min)
+        if stone_loss_max > 0:
+            mitigation = max(fortune // 4 + divine_sense // 6, 0)
+            stone_loss = max(random.randint(stone_loss_min, stone_loss_max) - mitigation, 0)
+        bonus_reward_kind = event.get("bonus_reward_kind")
+        bonus_reward_ref_id = int(event.get("bonus_reward_ref_id") or 0)
+        bonus_chance = max(min(int(event.get("bonus_chance") or 0), 100), 0)
+        if bonus_reward_kind and bonus_reward_ref_id > 0 and roll_probability_percent(bonus_chance)["success"]:
+            bonus_quantity_min = max(int(event.get("bonus_quantity_min") or 1), 1)
+            bonus_quantity_max = max(int(event.get("bonus_quantity_max") or bonus_quantity_min), bonus_quantity_min)
+            bonus_reward = {
+                "kind": bonus_reward_kind,
+                "ref_id": bonus_reward_ref_id,
+                "quantity": random.randint(bonus_quantity_min, bonus_quantity_max),
+                "is_recipe_like": _recipe_like_bonus_item(bonus_reward_kind, bonus_reward_ref_id),
+            }
+    parts = []
+    if event.get("name"):
+        parts.append(str(event.get("name")))
+    if chosen_drop.get("event_text"):
+        parts.append(str(chosen_drop.get("event_text")))
+    if event.get("description"):
+        parts.append(str(event.get("description")))
+    return {
+        "event": event,
+        "stone_bonus": stone_bonus,
+        "stone_loss": stone_loss,
+        "bonus_reward": bonus_reward,
+        "event_text": "，".join([part for part in parts if part]).strip("，"),
+    }
+
+
 def craft_recipe_for_user(tg: int, recipe_id: int) -> dict[str, Any]:
     recipe = serialize_recipe(get_recipe(recipe_id))
     if recipe is None or not recipe.get("enabled"):
@@ -857,6 +1124,9 @@ def craft_recipe_for_user(tg: int, recipe_id: int) -> dict[str, Any]:
         create_journal(tg, "craft", "炼制成功", f"成功炼制【{(result_item or {}).get('name', '成品')}】")
     else:
         create_journal(tg, "craft", "炼制失败", f"尝试炼制【{(result_item or {}).get('name', '成品')}】但失败了")
+    ingredient_names = {str((item.get("material") or {}).get("name") or "") for item in ingredients}
+    is_repair_recipe = any("破损" in name or "残片" in name for name in ingredient_names) or "修复" in str(recipe.get("name") or "")
+    achievement_unlocks = record_craft_metrics(tg, success=success, repair_success=bool(success and is_repair_recipe))
     return {
         "success": success,
         "roll": roll,
@@ -867,6 +1137,7 @@ def craft_recipe_for_user(tg: int, recipe_id: int) -> dict[str, Any]:
         "reward": reward,
         "should_broadcast": bool(success and recipe.get("broadcast_on_success") and result_quality >= int(get_xiuxian_settings().get("high_quality_broadcast_level", DEFAULT_SETTINGS["high_quality_broadcast_level"]) or 4)),
         "profile": serialize_profile(get_profile(tg, create=False)),
+        "achievement_unlocks": achievement_unlocks,
     }
 
 
@@ -949,8 +1220,8 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
         weighted.extend([drop] * max(int(drop.get("weight") or 1) + extra_weight, 1))
     chosen = random.choice(weighted)
     quantity = random.randint(int(chosen.get("quantity_min") or 1), int(chosen.get("quantity_max") or chosen.get("quantity_min") or 1))
-    events = scene.get("event_pool") or []
-    event_text = chosen.get("event_text") or (random.choice(events) if events else "")
+    outcome = _build_exploration_outcome(scene, chosen, fortune, divine_sense)
+    event_text = outcome.get("event_text") or chosen.get("event_text") or ""
     with Session() as session:
         exploration = XiuxianExploration(
             tg=tg,
@@ -963,6 +1234,7 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
             reward_quantity=quantity,
             stone_reward=int(chosen.get("stone_reward", 0) or 0),
             event_text=event_text or None,
+            outcome_payload=outcome,
         )
         session.add(exploration)
         session.commit()
@@ -991,18 +1263,55 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
     reward_item = None
     if exploration.reward_kind and exploration.reward_ref_id and int(exploration.reward_quantity or 0) > 0:
         reward_item = _grant_item_by_kind(tg, exploration.reward_kind, int(exploration.reward_ref_id), int(exploration.reward_quantity))
+    outcome = dict(exploration.outcome_payload or {})
+    bonus_payload = outcome.get("bonus_reward") if isinstance(outcome.get("bonus_reward"), dict) else None
+    bonus_reward = None
+    if bonus_payload and bonus_payload.get("kind") and int(bonus_payload.get("ref_id") or 0) > 0 and int(bonus_payload.get("quantity") or 0) > 0:
+        bonus_reward = _grant_item_by_kind(
+            tg,
+            str(bonus_payload.get("kind")),
+            int(bonus_payload.get("ref_id")),
+            int(bonus_payload.get("quantity")),
+        )
     profile = get_profile(tg, create=False)
+    event_stone_bonus = max(int(outcome.get("stone_bonus") or 0), 0)
+    event_stone_loss = max(int(outcome.get("stone_loss") or 0), 0)
+    current_stone = int(profile.spiritual_stone or 0) if profile else 0
+    actual_stone_loss = min(current_stone, event_stone_loss)
+    total_stone_delta = int(exploration.stone_reward or 0) + event_stone_bonus - actual_stone_loss
     updated = upsert_profile(
         tg,
-        spiritual_stone=int(profile.spiritual_stone or 0) + int(exploration.stone_reward or 0),
+        spiritual_stone=max(current_stone + total_stone_delta, 0),
+    )
+    event_type = str((outcome.get("event") or {}).get("event_type") or "").strip()
+    recipe_like_drop = bool(bonus_payload and bonus_payload.get("is_recipe_like")) or _recipe_like_bonus_item(
+        exploration.reward_kind,
+        exploration.reward_ref_id,
+    )
+    achievement_unlocks = record_exploration_metrics(
+        tg,
+        event_type=event_type,
+        recipe_drop=recipe_like_drop,
     )
     create_journal(
         tg,
         "explore",
         "探索结算",
-        f"完成探索并获得 {int(exploration.stone_reward or 0)} 灵石",
+        (
+            f"完成探索，灵石变化 {total_stone_delta:+d}。"
+            f"{' 另得机缘之物。' if bonus_reward else ''}"
+        ),
     )
-    return {"exploration": serialize_exploration(exploration), "reward_item": reward_item, "profile": serialize_profile(updated)}
+    return {
+        "exploration": serialize_exploration(exploration),
+        "reward_item": reward_item,
+        "bonus_reward": bonus_reward,
+        "stone_gain": int(exploration.stone_reward or 0) + event_stone_bonus,
+        "stone_loss": actual_stone_loss,
+        "stone_delta": total_stone_delta,
+        "profile": serialize_profile(updated),
+        "achievement_unlocks": achievement_unlocks,
+    }
 
 
 def create_red_envelope_for_user(
@@ -1049,6 +1358,7 @@ def create_red_envelope_for_user(
     return {
         "envelope": serialized,
         "profile": serialize_profile(updated),
+        "achievement_unlocks": record_red_envelope_metrics(tg, amount_total),
     }
 
 
@@ -1122,6 +1432,7 @@ def gift_spirit_stone(sender_tg: int, target_tg: int, amount: int) -> dict[str, 
         "amount": amount,
         "sender": serialize_profile(get_profile(sender_tg, create=False)),
         "receiver": serialize_profile(get_profile(target_tg, create=False)),
+        "achievement_unlocks": record_gift_metrics(sender_tg, amount),
     }
 
 
@@ -1204,6 +1515,7 @@ def rob_player(attacker_tg: int, defender_tg: int, success_hint: float = 0.5) ->
         "attacker": serialize_profile(attacker_updated),
         "defender": serialize_profile(defender_updated),
         "artifact_plunder": artifact_plunder,
+        "achievement_unlocks": record_robbery_metrics(attacker_tg, success=success, amount=max(amount, 0)),
     }
 
 
@@ -1525,13 +1837,16 @@ def create_duel_bet_pool_for_duel(
 
 
 def build_world_bundle(tg: int) -> dict[str, Any]:
+    scenes = list_scenes(enabled_only=True)
+    for scene in scenes:
+        scene["drops"] = list_scene_drops(scene["id"])
     return {
         "sects": list_sects_for_user(tg),
         "current_sect": get_current_sect_bundle(tg),
         "tasks": list_tasks_for_user(tg),
         "materials": list_user_materials(tg),
         "recipes": build_recipe_catalog(),
-        "scenes": list_scenes(enabled_only=True),
+        "scenes": scenes,
         "active_exploration": _get_active_exploration(tg),
         "journal": list_recent_journals(tg),
         "settings": {

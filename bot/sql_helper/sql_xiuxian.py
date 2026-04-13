@@ -1,7 +1,13 @@
+"""修仙插件 ORM 模型与数据库读写封装。
+
+定义表结构、序列化器，以及后台和玩法层会直接调用的增删改查函数。
+"""
+
 from __future__ import annotations
 
 import copy
 import random
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -83,7 +89,10 @@ TECHNIQUE_TYPE_LABELS = {
     "balanced": "均衡功法",
     "cultivation": "吐纳功法",
     "combat": "斗战功法",
+    "attack": "攻伐功法",
+    "movement": "身法秘术",
     "defense": "护体功法",
+    "divine": "神识秘法",
     "support": "辅修功法",
 }
 RECIPE_KIND_LABELS = {
@@ -388,6 +397,7 @@ class XiuxianProfile(Base):
     current_artifact_id = Column(Integer, nullable=True)
     active_talisman_id = Column(Integer, nullable=True)
     current_technique_id = Column(Integer, nullable=True)
+    current_title_id = Column(Integer, nullable=True)
     shop_name = Column(String(64), nullable=True)
     shop_broadcast = Column(Boolean, default=False, nullable=False)
     last_train_at = Column(DateTime, nullable=True)
@@ -410,6 +420,89 @@ class XiuxianJournal(Base):
     title = Column(String(128), nullable=False)
     detail = Column(Text, nullable=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+class XiuxianTitle(Base):
+    __tablename__ = "xiuxian_titles"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(64), nullable=False, unique=True)
+    description = Column(Text, nullable=True)
+    color = Column(String(32), nullable=True)
+    image_url = Column(String(512), nullable=True)
+    attack_bonus = Column(Integer, default=0, nullable=False)
+    defense_bonus = Column(Integer, default=0, nullable=False)
+    bone_bonus = Column(Integer, default=0, nullable=False)
+    comprehension_bonus = Column(Integer, default=0, nullable=False)
+    divine_sense_bonus = Column(Integer, default=0, nullable=False)
+    fortune_bonus = Column(Integer, default=0, nullable=False)
+    qi_blood_bonus = Column(Integer, default=0, nullable=False)
+    true_yuan_bonus = Column(Integer, default=0, nullable=False)
+    body_movement_bonus = Column(Integer, default=0, nullable=False)
+    duel_rate_bonus = Column(Integer, default=0, nullable=False)
+    cultivation_bonus = Column(Integer, default=0, nullable=False)
+    breakthrough_bonus = Column(Integer, default=0, nullable=False)
+    extra_effects = Column(JSON, nullable=True)
+    enabled = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianUserTitle(Base):
+    __tablename__ = "xiuxian_user_titles"
+    __table_args__ = (UniqueConstraint("tg", "title_id", name="uq_xiuxian_user_title"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tg = Column(BigInteger, nullable=False)
+    title_id = Column(Integer, ForeignKey("xiuxian_titles.id", ondelete="CASCADE"), nullable=False)
+    source = Column(String(32), nullable=True)
+    obtained_note = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianAchievement(Base):
+    __tablename__ = "xiuxian_achievements"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    achievement_key = Column(String(64), nullable=False, unique=True)
+    name = Column(String(64), nullable=False)
+    description = Column(Text, nullable=True)
+    metric_key = Column(String(64), nullable=False)
+    target_value = Column(BigInteger, default=1, nullable=False)
+    reward_config = Column(JSON, nullable=True)
+    notify_group = Column(Boolean, default=True, nullable=False)
+    notify_private = Column(Boolean, default=True, nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
+    sort_order = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianAchievementProgress(Base):
+    __tablename__ = "xiuxian_achievement_progress"
+    __table_args__ = (UniqueConstraint("tg", "metric_key", name="uq_xiuxian_achievement_progress"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tg = Column(BigInteger, nullable=False)
+    metric_key = Column(String(64), nullable=False)
+    current_value = Column(BigInteger, default=0, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianUserAchievement(Base):
+    __tablename__ = "xiuxian_user_achievements"
+    __table_args__ = (UniqueConstraint("tg", "achievement_id", name="uq_xiuxian_user_achievement"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tg = Column(BigInteger, nullable=False)
+    achievement_id = Column(Integer, ForeignKey("xiuxian_achievements.id", ondelete="CASCADE"), nullable=False)
+    reward_snapshot = Column(JSON, nullable=True)
+    unlocked_at = Column(DateTime, default=utcnow, nullable=False)
+    private_notified_at = Column(DateTime, nullable=True)
+    group_notified_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
 
 class XiuxianSect(Base):
@@ -542,6 +635,7 @@ class XiuxianExploration(Base):
     reward_quantity = Column(Integer, default=0, nullable=False)
     stone_reward = Column(Integer, default=0, nullable=False)
     event_text = Column(Text, nullable=True)
+    outcome_payload = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
@@ -673,6 +767,7 @@ class XiuxianTechnique(Base):
     duel_rate_bonus = Column(Integer, default=0, nullable=False)
     cultivation_bonus = Column(Integer, default=0, nullable=False)
     breakthrough_bonus = Column(Integer, default=0, nullable=False)
+    combat_config = Column(JSON, nullable=True)
     min_realm_stage = Column(String(32), nullable=True)
     min_realm_layer = Column(Integer, default=1, nullable=False)
     enabled = Column(Boolean, default=True, nullable=False)
@@ -700,6 +795,7 @@ class XiuxianArtifact(Base):
     artifact_type = Column(String(16), default="battle", nullable=False)
     duel_rate_bonus = Column(Integer, default=0, nullable=False)
     cultivation_bonus = Column(Integer, default=0, nullable=False)
+    combat_config = Column(JSON, nullable=True)
     min_realm_stage = Column(String(32), nullable=True)
     min_realm_layer = Column(Integer, default=1, nullable=False)
     enabled = Column(Boolean, default=True, nullable=False)
@@ -752,6 +848,7 @@ class XiuxianTalisman(Base):
     true_yuan_bonus = Column(Integer, default=0, nullable=False)
     body_movement_bonus = Column(Integer, default=0, nullable=False)
     duel_rate_bonus = Column(Integer, default=0, nullable=False)
+    combat_config = Column(JSON, nullable=True)
     min_realm_stage = Column(String(32), nullable=True)
     min_realm_layer = Column(Integer, default=1, nullable=False)
     enabled = Column(Boolean, default=True, nullable=False)
@@ -840,6 +937,7 @@ class XiuxianDuelRecord(Base):
     challenger_rate = Column(Integer, default=500, nullable=False)
     defender_rate = Column(Integer, default=500, nullable=False)
     summary = Column(Text, nullable=True)
+    battle_log = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
 
 
@@ -895,6 +993,7 @@ def serialize_profile(profile: XiuxianProfile | None) -> dict[str, Any] | None:
         "current_artifact_id": profile.current_artifact_id,
         "active_talisman_id": profile.active_talisman_id,
         "current_technique_id": profile.current_technique_id,
+        "current_title_id": profile.current_title_id,
         "shop_name": profile.shop_name,
         "shop_broadcast": profile.shop_broadcast,
         "last_train_at": serialize_datetime(profile.last_train_at),
@@ -919,6 +1018,101 @@ def serialize_journal(row: XiuxianJournal | None) -> dict[str, Any] | None:
         "title": row.title,
         "detail": row.detail,
         "created_at": serialize_datetime(row.created_at),
+    }
+
+
+def serialize_title(title: XiuxianTitle | None) -> dict[str, Any] | None:
+    if title is None:
+        return None
+    return {
+        "id": title.id,
+        "name": title.name,
+        "description": title.description,
+        "color": title.color,
+        "image_url": title.image_url,
+        "attack_bonus": title.attack_bonus,
+        "defense_bonus": title.defense_bonus,
+        "bone_bonus": title.bone_bonus,
+        "comprehension_bonus": title.comprehension_bonus,
+        "divine_sense_bonus": title.divine_sense_bonus,
+        "fortune_bonus": title.fortune_bonus,
+        "qi_blood_bonus": title.qi_blood_bonus,
+        "true_yuan_bonus": title.true_yuan_bonus,
+        "body_movement_bonus": title.body_movement_bonus,
+        "duel_rate_bonus": title.duel_rate_bonus,
+        "cultivation_bonus": title.cultivation_bonus,
+        "breakthrough_bonus": title.breakthrough_bonus,
+        "extra_effects": title.extra_effects or {},
+        "enabled": title.enabled,
+        "created_at": serialize_datetime(title.created_at),
+        "updated_at": serialize_datetime(title.updated_at),
+    }
+
+
+def serialize_user_title(row: XiuxianUserTitle | None, title: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "id": row.id,
+        "tg": row.tg,
+        "title_id": row.title_id,
+        "source": row.source,
+        "obtained_note": row.obtained_note,
+        "title": title,
+        "created_at": serialize_datetime(row.created_at),
+        "updated_at": serialize_datetime(row.updated_at),
+    }
+
+
+def serialize_achievement(achievement: XiuxianAchievement | None) -> dict[str, Any] | None:
+    if achievement is None:
+        return None
+    return {
+        "id": achievement.id,
+        "achievement_key": achievement.achievement_key,
+        "name": achievement.name,
+        "description": achievement.description,
+        "metric_key": achievement.metric_key,
+        "target_value": int(achievement.target_value or 0),
+        "reward_config": achievement.reward_config or {},
+        "notify_group": achievement.notify_group,
+        "notify_private": achievement.notify_private,
+        "enabled": achievement.enabled,
+        "sort_order": achievement.sort_order,
+        "created_at": serialize_datetime(achievement.created_at),
+        "updated_at": serialize_datetime(achievement.updated_at),
+    }
+
+
+def serialize_achievement_progress(progress: XiuxianAchievementProgress | None) -> dict[str, Any] | None:
+    if progress is None:
+        return None
+    return {
+        "id": progress.id,
+        "tg": progress.tg,
+        "metric_key": progress.metric_key,
+        "value": int(progress.current_value or 0),
+        "created_at": serialize_datetime(progress.created_at),
+        "updated_at": serialize_datetime(progress.updated_at),
+    }
+
+
+def serialize_user_achievement(
+    row: XiuxianUserAchievement | None,
+    achievement: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "id": row.id,
+        "tg": row.tg,
+        "achievement_id": row.achievement_id,
+        "achievement": achievement,
+        "reward_snapshot": row.reward_snapshot or {},
+        "unlocked_at": serialize_datetime(row.unlocked_at),
+        "private_notified_at": serialize_datetime(row.private_notified_at),
+        "group_notified_at": serialize_datetime(row.group_notified_at),
+        "updated_at": serialize_datetime(row.updated_at),
     }
 
 
@@ -1000,7 +1194,7 @@ def serialize_scene(scene: XiuxianScene | None) -> dict[str, Any] | None:
         "description": scene.description,
         "image_url": scene.image_url,
         "max_minutes": scene.max_minutes,
-        "event_pool": scene.event_pool or [],
+        "event_pool": _normalize_scene_event_pool(scene.event_pool),
         "enabled": scene.enabled,
     }
 
@@ -1038,6 +1232,7 @@ def serialize_exploration(exploration: XiuxianExploration | None) -> dict[str, A
         "reward_quantity": exploration.reward_quantity,
         "stone_reward": exploration.stone_reward,
         "event_text": exploration.event_text,
+        "outcome_payload": _sanitize_json_value(exploration.outcome_payload) or {},
     }
 
 
@@ -1128,6 +1323,7 @@ def serialize_artifact(artifact: XiuxianArtifact | None) -> dict[str, Any] | Non
         "body_movement_bonus": artifact.body_movement_bonus,
         "duel_rate_bonus": artifact.duel_rate_bonus,
         "cultivation_bonus": artifact.cultivation_bonus,
+        "combat_config": _normalize_combat_config(artifact.combat_config),
         "min_realm_stage": artifact.min_realm_stage,
         "min_realm_layer": artifact.min_realm_layer,
         "enabled": artifact.enabled,
@@ -1195,6 +1391,7 @@ def serialize_talisman(talisman: XiuxianTalisman | None) -> dict[str, Any] | Non
         "true_yuan_bonus": talisman.true_yuan_bonus,
         "body_movement_bonus": talisman.body_movement_bonus,
         "duel_rate_bonus": talisman.duel_rate_bonus,
+        "combat_config": _normalize_combat_config(talisman.combat_config),
         "min_realm_stage": talisman.min_realm_stage,
         "min_realm_layer": talisman.min_realm_layer,
         "enabled": talisman.enabled,
@@ -1229,6 +1426,7 @@ def serialize_technique(technique: XiuxianTechnique | None) -> dict[str, Any] | 
         "duel_rate_bonus": technique.duel_rate_bonus,
         "cultivation_bonus": technique.cultivation_bonus,
         "breakthrough_bonus": technique.breakthrough_bonus,
+        "combat_config": _normalize_combat_config(technique.combat_config),
         "min_realm_stage": normalize_realm_stage(technique.min_realm_stage),
         "min_realm_layer": technique.min_realm_layer,
         "enabled": technique.enabled,
@@ -1448,6 +1646,101 @@ def _coerce_bool(value: Any, default: bool = True) -> bool:
     return bool(value)
 
 
+def _sanitize_json_value(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(key): _sanitize_json_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_sanitize_json_value(item) for item in value]
+    return str(value)
+
+
+def _normalize_combat_config(raw: Any) -> dict[str, Any]:
+    # 战斗配置来自后台 JSON 表单，入库前统一裁剪字段和数值范围，避免前端传脏数据。
+    payload = _sanitize_json_value(copy.deepcopy(raw)) if isinstance(raw, dict) else {}
+    if not isinstance(payload, dict):
+        payload = {}
+    payload["opening_text"] = str(payload.get("opening_text") or "").strip()
+    for key in ("skills", "passives"):
+        normalized_rows: list[dict[str, Any]] = []
+        for item in payload.get(key) or []:
+            if not isinstance(item, dict):
+                continue
+            entry = {str(k): _sanitize_json_value(v) for k, v in item.items()}
+            entry["name"] = str(entry.get("name") or entry.get("label") or "").strip()
+            entry["kind"] = str(entry.get("kind") or "").strip()
+            entry["chance"] = max(min(_coerce_int(entry.get("chance"), 0), 100), 0)
+            entry["duration"] = max(_coerce_int(entry.get("duration"), 0), 0)
+            entry["flat_damage"] = _coerce_int(entry.get("flat_damage"), 0)
+            entry["flat_shield"] = max(_coerce_int(entry.get("flat_shield"), 0), 0)
+            entry["flat_heal"] = max(_coerce_int(entry.get("flat_heal"), 0), 0)
+            entry["cost_true_yuan"] = max(_coerce_int(entry.get("cost_true_yuan"), 0), 0)
+            entry["ratio_percent"] = _coerce_int(entry.get("ratio_percent"), 0)
+            entry["dodge_bonus"] = _coerce_int(entry.get("dodge_bonus"), 0)
+            entry["hit_bonus"] = _coerce_int(entry.get("hit_bonus"), 0)
+            entry["defense_ratio_percent"] = _coerce_int(entry.get("defense_ratio_percent"), 0)
+            entry["attack_ratio_percent"] = _coerce_int(entry.get("attack_ratio_percent"), 0)
+            entry["trigger"] = str(entry.get("trigger") or "attack").strip() or "attack"
+            entry["text"] = str(entry.get("text") or "").strip()
+            if entry["kind"]:
+                normalized_rows.append(entry)
+        payload[key] = normalized_rows
+    return payload
+
+
+def _normalize_scene_event_pool(raw: Any) -> list[dict[str, Any]]:
+    # 兼容旧字符串写法与新结构化写法，升级后旧秘境配置也能继续读取。
+    rows: list[dict[str, Any]] = []
+    for item in raw or []:
+        if isinstance(item, str):
+            text = item.strip()
+            if not text:
+                continue
+            rows.append(
+                {
+                    "name": "",
+                    "description": text,
+                    "event_type": "encounter",
+                    "weight": 1,
+                    "stone_bonus_min": 0,
+                    "stone_bonus_max": 0,
+                    "stone_loss_min": 0,
+                    "stone_loss_max": 0,
+                    "bonus_reward_kind": None,
+                    "bonus_reward_ref_id": None,
+                    "bonus_quantity_min": 1,
+                    "bonus_quantity_max": 1,
+                    "bonus_chance": 0,
+                }
+            )
+            continue
+        if not isinstance(item, dict):
+            continue
+        payload = _sanitize_json_value(item)
+        bonus_kind = str(payload.get("bonus_reward_kind") or "").strip() or None
+        if bonus_kind and bonus_kind not in ITEM_KIND_LABELS:
+            bonus_kind = None
+        rows.append(
+            {
+                "name": str(payload.get("name") or "").strip(),
+                "description": str(payload.get("description") or payload.get("text") or "").strip(),
+                "event_type": str(payload.get("event_type") or "encounter").strip() or "encounter",
+                "weight": max(_coerce_int(payload.get("weight"), 1), 1),
+                "stone_bonus_min": max(_coerce_int(payload.get("stone_bonus_min"), 0), 0),
+                "stone_bonus_max": max(_coerce_int(payload.get("stone_bonus_max"), payload.get("stone_bonus_min") or 0), 0),
+                "stone_loss_min": max(_coerce_int(payload.get("stone_loss_min"), 0), 0),
+                "stone_loss_max": max(_coerce_int(payload.get("stone_loss_max"), payload.get("stone_loss_min") or 0), 0),
+                "bonus_reward_kind": bonus_kind,
+                "bonus_reward_ref_id": _coerce_int(payload.get("bonus_reward_ref_id"), 0) or None,
+                "bonus_quantity_min": max(_coerce_int(payload.get("bonus_quantity_min"), 1), 1),
+                "bonus_quantity_max": max(_coerce_int(payload.get("bonus_quantity_max"), payload.get("bonus_quantity_min") or 1), 1),
+                "bonus_chance": max(min(_coerce_int(payload.get("bonus_chance"), 0), 100), 0),
+            }
+        )
+    return rows
+
+
 def _normalize_common_bonus_fields(fields: dict[str, Any]) -> dict[str, int]:
     return {
         "attack_bonus": _coerce_int(fields.get("attack_bonus"), 0),
@@ -1459,6 +1752,89 @@ def _normalize_common_bonus_fields(fields: dict[str, Any]) -> dict[str, int]:
         "qi_blood_bonus": _coerce_int(fields.get("qi_blood_bonus"), 0),
         "true_yuan_bonus": _coerce_int(fields.get("true_yuan_bonus"), 0),
         "body_movement_bonus": _coerce_int(fields.get("body_movement_bonus"), 0),
+    }
+
+
+def _normalize_title_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    name = str(fields.get("name") or "").strip()
+    if not name:
+        raise ValueError("title name is required")
+    payload = {
+        "name": name,
+        "description": str(fields.get("description") or "").strip(),
+        "color": str(fields.get("color") or "").strip(),
+        "image_url": str(fields.get("image_url") or "").strip(),
+        "enabled": _coerce_bool(fields.get("enabled"), True),
+        "extra_effects": fields.get("extra_effects") if isinstance(fields.get("extra_effects"), dict) else {},
+    }
+    payload.update(_normalize_common_bonus_fields(fields))
+    payload["duel_rate_bonus"] = _coerce_int(fields.get("duel_rate_bonus"), 0)
+    payload["cultivation_bonus"] = _coerce_int(fields.get("cultivation_bonus"), 0)
+    payload["breakthrough_bonus"] = _coerce_int(fields.get("breakthrough_bonus"), 0)
+    return payload
+
+
+def _slugify_achievement_key(raw: str | None, fallback: str) -> str:
+    source = str(raw or fallback or "").strip().lower()
+    source = re.sub(r"[^a-z0-9_-]+", "_", source)
+    source = re.sub(r"_+", "_", source).strip("_")
+    return source or "achievement"
+
+
+def _normalize_reward_config(raw: Any) -> dict[str, Any]:
+    # 成就奖励允许后台自由编辑，但这里只保留可识别且安全的奖励字段。
+    payload = dict(raw) if isinstance(raw, dict) else {}
+    payload["spiritual_stone"] = max(_coerce_int(payload.get("spiritual_stone"), 0), 0)
+    payload["cultivation"] = max(_coerce_int(payload.get("cultivation"), 0), 0)
+    payload["titles"] = [
+        int(item)
+        for item in (payload.get("titles") or payload.get("title_ids") or [])
+        if str(item).strip().isdigit() and int(item) > 0
+    ]
+    items: list[dict[str, Any]] = []
+    for item in payload.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("kind") or item.get("item_kind") or "").strip()
+        ref_id = _coerce_int(item.get("ref_id") or item.get("item_ref_id"), 0)
+        quantity = max(_coerce_int(item.get("quantity"), 0), 0)
+        if kind not in ITEM_KIND_LABELS or ref_id <= 0 or quantity <= 0:
+            continue
+        items.append(
+            {
+                "kind": kind,
+                "ref_id": ref_id,
+                "quantity": quantity,
+            }
+        )
+    payload["items"] = items
+    payload["message"] = str(payload.get("message") or "").strip()
+    return payload
+
+
+def _normalize_achievement_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    metric_key = str(fields.get("metric_key") or "").strip()
+    if not metric_key:
+        raise ValueError("achievement metric_key is required")
+    target_value = max(int(fields.get("target_value") or 0), 1)
+    name = str(fields.get("name") or "").strip()
+    if not name:
+        raise ValueError("achievement name is required")
+    achievement_key = _slugify_achievement_key(
+        fields.get("achievement_key") or fields.get("key"),
+        f"{metric_key}_{target_value}",
+    )
+    return {
+        "achievement_key": achievement_key,
+        "name": name,
+        "description": str(fields.get("description") or "").strip(),
+        "metric_key": metric_key,
+        "target_value": target_value,
+        "reward_config": _normalize_reward_config(fields.get("reward_config")),
+        "notify_group": _coerce_bool(fields.get("notify_group"), True),
+        "notify_private": _coerce_bool(fields.get("notify_private"), True),
+        "enabled": _coerce_bool(fields.get("enabled"), True),
+        "sort_order": max(_coerce_int(fields.get("sort_order"), 0), 0),
     }
 
 
@@ -1484,6 +1860,7 @@ def _normalize_artifact_fields(fields: dict[str, Any]) -> dict[str, Any]:
     payload["artifact_type"] = str(fields.get("artifact_type") or "battle").strip() or "battle"
     payload["duel_rate_bonus"] = _coerce_int(fields.get("duel_rate_bonus"), 0)
     payload["cultivation_bonus"] = _coerce_int(fields.get("cultivation_bonus"), 0)
+    payload["combat_config"] = _normalize_combat_config(fields.get("combat_config"))
     return payload
 
 
@@ -1500,6 +1877,7 @@ def _normalize_talisman_fields(fields: dict[str, Any]) -> dict[str, Any]:
     payload = _normalize_common_item_fields(fields)
     payload.update(_normalize_common_bonus_fields(fields))
     payload["duel_rate_bonus"] = _coerce_int(fields.get("duel_rate_bonus"), 0)
+    payload["combat_config"] = _normalize_combat_config(fields.get("combat_config"))
     return payload
 
 
@@ -1510,6 +1888,7 @@ def _normalize_technique_fields(fields: dict[str, Any]) -> dict[str, Any]:
     payload["duel_rate_bonus"] = _coerce_int(fields.get("duel_rate_bonus"), 0)
     payload["cultivation_bonus"] = _coerce_int(fields.get("cultivation_bonus"), 0)
     payload["breakthrough_bonus"] = _coerce_int(fields.get("breakthrough_bonus"), 0)
+    payload["combat_config"] = _normalize_combat_config(fields.get("combat_config"))
     return payload
 
 
@@ -1573,6 +1952,74 @@ def create_technique(**fields) -> dict[str, Any]:
         session.commit()
         session.refresh(technique)
         return serialize_technique(technique)
+
+
+def patch_artifact(artifact_id: int, **fields) -> dict[str, Any] | None:
+    patch = dict(fields)
+    with Session() as session:
+        row = session.query(XiuxianArtifact).filter(XiuxianArtifact.id == artifact_id).first()
+        if row is None:
+            return None
+        current = serialize_artifact(row) or {}
+        current.update(patch)
+        payload = _normalize_artifact_fields(current)
+        for key, value in payload.items():
+            setattr(row, key, value)
+        row.updated_at = utcnow()
+        session.commit()
+        session.refresh(row)
+        return serialize_artifact(row)
+
+
+def patch_pill(pill_id: int, **fields) -> dict[str, Any] | None:
+    patch = dict(fields)
+    with Session() as session:
+        row = session.query(XiuxianPill).filter(XiuxianPill.id == pill_id).first()
+        if row is None:
+            return None
+        current = serialize_pill(row) or {}
+        current.update(patch)
+        payload = _normalize_pill_fields(current)
+        for key, value in payload.items():
+            setattr(row, key, value)
+        row.updated_at = utcnow()
+        session.commit()
+        session.refresh(row)
+        return serialize_pill(row)
+
+
+def patch_talisman(talisman_id: int, **fields) -> dict[str, Any] | None:
+    patch = dict(fields)
+    with Session() as session:
+        row = session.query(XiuxianTalisman).filter(XiuxianTalisman.id == talisman_id).first()
+        if row is None:
+            return None
+        current = serialize_talisman(row) or {}
+        current.update(patch)
+        payload = _normalize_talisman_fields(current)
+        for key, value in payload.items():
+            setattr(row, key, value)
+        row.updated_at = utcnow()
+        session.commit()
+        session.refresh(row)
+        return serialize_talisman(row)
+
+
+def patch_technique(technique_id: int, **fields) -> dict[str, Any] | None:
+    patch = dict(fields)
+    with Session() as session:
+        row = session.query(XiuxianTechnique).filter(XiuxianTechnique.id == technique_id).first()
+        if row is None:
+            return None
+        current = serialize_technique(row) or {}
+        current.update(patch)
+        payload = _normalize_technique_fields(current)
+        for key, value in payload.items():
+            setattr(row, key, value)
+        row.updated_at = utcnow()
+        session.commit()
+        session.refresh(row)
+        return serialize_technique(row)
 
 
 def sync_artifact_by_name(**fields) -> dict[str, Any]:
@@ -2401,6 +2848,7 @@ def create_duel_record(
     challenger_rate: int,
     defender_rate: int,
     summary: str,
+    battle_log: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     with Session() as session:
         record = XiuxianDuelRecord(
@@ -2411,6 +2859,7 @@ def create_duel_record(
             challenger_rate=challenger_rate,
             defender_rate=defender_rate,
             summary=summary,
+            battle_log=_sanitize_json_value(battle_log) if battle_log else [],
         )
         session.add(record)
         session.commit()
@@ -2424,6 +2873,7 @@ def create_duel_record(
             "challenger_rate": record.challenger_rate,
             "defender_rate": record.defender_rate,
             "summary": record.summary,
+            "battle_log": _sanitize_json_value(record.battle_log) or [],
             "created_at": serialize_datetime(record.created_at),
         }
 
@@ -2634,6 +3084,42 @@ def create_material(**fields) -> dict[str, Any]:
         return serialize_material(material)
 
 
+def sync_material_by_name(**fields) -> dict[str, Any]:
+    payload = {
+        "name": str(fields.get("name") or "").strip(),
+        "quality_level": normalize_quality_level(fields.get("quality_level")),
+        "image_url": str(fields.get("image_url") or "").strip(),
+        "description": str(fields.get("description") or "").strip(),
+        "enabled": _coerce_bool(fields.get("enabled"), True),
+    }
+    if not payload["name"]:
+        raise ValueError("material name is required")
+    return _sync_named_entity(XiuxianMaterial, serialize_material, payload)
+
+
+def patch_material(material_id: int, **fields) -> dict[str, Any] | None:
+    patch = dict(fields)
+    with Session() as session:
+        row = session.query(XiuxianMaterial).filter(XiuxianMaterial.id == material_id).first()
+        if row is None:
+            return None
+        current = serialize_material(row) or {}
+        current.update(patch)
+        payload = {
+            "name": str(current.get("name") or "").strip(),
+            "quality_level": normalize_quality_level(current.get("quality_level")),
+            "image_url": str(current.get("image_url") or "").strip(),
+            "description": str(current.get("description") or "").strip(),
+            "enabled": _coerce_bool(current.get("enabled"), True),
+        }
+        for key, value in payload.items():
+            setattr(row, key, value)
+        row.updated_at = utcnow()
+        session.commit()
+        session.refresh(row)
+        return serialize_material(row)
+
+
 def delete_material(material_id: int) -> bool:
     with Session() as session:
         row = session.query(XiuxianMaterial).filter(XiuxianMaterial.id == material_id).first()
@@ -2793,6 +3279,13 @@ def list_scenes(enabled_only: bool = False) -> list[dict[str, Any]]:
 
 
 def create_scene(**fields) -> dict[str, Any]:
+    fields = dict(fields)
+    fields["name"] = str(fields.get("name") or "").strip()
+    fields["description"] = str(fields.get("description") or "").strip()
+    fields["image_url"] = str(fields.get("image_url") or "").strip()
+    fields["max_minutes"] = max(_coerce_int(fields.get("max_minutes"), 60), 1)
+    fields["event_pool"] = _normalize_scene_event_pool(fields.get("event_pool"))
+    fields["enabled"] = _coerce_bool(fields.get("enabled"), True)
     with Session() as session:
         scene = XiuxianScene(**fields)
         session.add(scene)
@@ -2916,6 +3409,422 @@ def list_recent_journals(tg: int, hours: int = 24) -> list[dict[str, Any]]:
             .all()
         )
         return [serialize_journal(row) for row in rows]
+
+
+def create_title(**fields) -> dict[str, Any]:
+    payload = _normalize_title_fields(dict(fields))
+    with Session() as session:
+        row = XiuxianTitle(**payload)
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return serialize_title(row)
+
+
+def sync_title_by_name(**fields) -> dict[str, Any]:
+    return _sync_named_entity(XiuxianTitle, serialize_title, _normalize_title_fields(dict(fields)))
+
+
+def get_title(title_id: int) -> XiuxianTitle | None:
+    with Session() as session:
+        return session.query(XiuxianTitle).filter(XiuxianTitle.id == title_id).first()
+
+
+def list_titles(enabled_only: bool = False) -> list[dict[str, Any]]:
+    with Session() as session:
+        query = session.query(XiuxianTitle)
+        if enabled_only:
+            query = query.filter(XiuxianTitle.enabled.is_(True))
+        rows = query.order_by(XiuxianTitle.id.desc()).all()
+        return [serialize_title(row) for row in rows]
+
+
+def patch_title(title_id: int, **fields) -> dict[str, Any] | None:
+    patch = dict(fields)
+    with Session() as session:
+        row = session.query(XiuxianTitle).filter(XiuxianTitle.id == title_id).first()
+        if row is None:
+            return None
+        current = serialize_title(row) or {}
+        current.update(patch)
+        payload = _normalize_title_fields(current)
+        for key, value in payload.items():
+            setattr(row, key, value)
+        row.updated_at = utcnow()
+        session.commit()
+        session.refresh(row)
+        return serialize_title(row)
+
+
+def delete_title(title_id: int) -> bool:
+    with Session() as session:
+        row = session.query(XiuxianTitle).filter(XiuxianTitle.id == title_id).first()
+        if row is None:
+            return False
+        session.query(XiuxianProfile).filter(XiuxianProfile.current_title_id == title_id).update(
+            {"current_title_id": None, "updated_at": utcnow()},
+            synchronize_session=False,
+        )
+        session.delete(row)
+        session.commit()
+        return True
+
+
+def list_user_titles(tg: int, enabled_only: bool = False) -> list[dict[str, Any]]:
+    with Session() as session:
+        rows = (
+            session.query(XiuxianUserTitle)
+            .filter(XiuxianUserTitle.tg == tg)
+            .order_by(XiuxianUserTitle.created_at.asc(), XiuxianUserTitle.id.asc())
+            .all()
+        )
+        titles = {
+            row.id: row
+            for row in session.query(XiuxianTitle)
+            .filter(XiuxianTitle.id.in_([item.title_id for item in rows] or [-1]))
+            .all()
+        }
+        serialized: list[dict[str, Any]] = []
+        for row in rows:
+            title = serialize_title(titles.get(row.title_id))
+            if enabled_only and not (title or {}).get("enabled"):
+                continue
+            serialized.append(serialize_user_title(row, title))
+        return serialized
+
+
+def get_current_title(tg: int, enabled_only: bool = False) -> dict[str, Any] | None:
+    with Session() as session:
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).first()
+        if profile is None or not profile.current_title_id:
+            return None
+        row = session.query(XiuxianTitle).filter(XiuxianTitle.id == profile.current_title_id).first()
+        if row is None or (enabled_only and not row.enabled):
+            return None
+        return serialize_title(row)
+
+
+def grant_title_to_user(
+    tg: int,
+    title_id: int,
+    *,
+    source: str | None = None,
+    obtained_note: str | None = None,
+    equip: bool = False,
+    auto_equip_if_empty: bool = False,
+) -> dict[str, Any]:
+    with Session() as session:
+        title = session.query(XiuxianTitle).filter(XiuxianTitle.id == title_id).first()
+        if title is None:
+            raise ValueError("title not found")
+        row = (
+            session.query(XiuxianUserTitle)
+            .filter(XiuxianUserTitle.tg == tg, XiuxianUserTitle.title_id == title_id)
+            .first()
+        )
+        if row is None:
+            row = XiuxianUserTitle(
+                tg=tg,
+                title_id=title_id,
+                source=(source or "").strip() or None,
+                obtained_note=(obtained_note or "").strip() or None,
+            )
+            session.add(row)
+        else:
+            if source is not None:
+                row.source = (source or "").strip() or None
+            if obtained_note is not None:
+                row.obtained_note = (obtained_note or "").strip() or None
+            row.updated_at = utcnow()
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).first()
+        if profile is None:
+            profile = XiuxianProfile(tg=tg)
+            session.add(profile)
+        if equip or (auto_equip_if_empty and not profile.current_title_id):
+            profile.current_title_id = title_id
+            profile.updated_at = utcnow()
+        session.commit()
+        session.refresh(row)
+        return serialize_user_title(row, serialize_title(title))
+
+
+def set_current_title(tg: int, title_id: int | None) -> dict[str, Any] | None:
+    with Session() as session:
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).first()
+        if profile is None:
+            profile = XiuxianProfile(tg=tg)
+            session.add(profile)
+        if title_id in {None, 0}:
+            profile.current_title_id = None
+            profile.updated_at = utcnow()
+            session.commit()
+            return None
+        owned = (
+            session.query(XiuxianUserTitle)
+            .filter(XiuxianUserTitle.tg == tg, XiuxianUserTitle.title_id == int(title_id))
+            .first()
+        )
+        if owned is None:
+            raise ValueError("user does not own this title")
+        title = session.query(XiuxianTitle).filter(XiuxianTitle.id == int(title_id)).first()
+        if title is None:
+            raise ValueError("title not found")
+        profile.current_title_id = int(title_id)
+        profile.updated_at = utcnow()
+        session.commit()
+        return serialize_title(title)
+
+
+def create_achievement(**fields) -> dict[str, Any]:
+    payload = _normalize_achievement_fields(dict(fields))
+    with Session() as session:
+        row = XiuxianAchievement(**payload)
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return serialize_achievement(row)
+
+
+def sync_achievement_by_key(**fields) -> dict[str, Any]:
+    payload = _normalize_achievement_fields(dict(fields))
+    with Session() as session:
+        row = (
+            session.query(XiuxianAchievement)
+            .filter(XiuxianAchievement.achievement_key == payload["achievement_key"])
+            .first()
+        )
+        if row is None:
+            row = XiuxianAchievement(**payload)
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            return serialize_achievement(row)
+        changed = False
+        for key, value in payload.items():
+            if getattr(row, key) != value:
+                setattr(row, key, value)
+                changed = True
+        if changed:
+            row.updated_at = utcnow()
+            session.commit()
+            session.refresh(row)
+        return serialize_achievement(row)
+
+
+def get_achievement(achievement_id: int) -> XiuxianAchievement | None:
+    with Session() as session:
+        return session.query(XiuxianAchievement).filter(XiuxianAchievement.id == achievement_id).first()
+
+
+def list_achievements(enabled_only: bool = False) -> list[dict[str, Any]]:
+    with Session() as session:
+        query = session.query(XiuxianAchievement)
+        if enabled_only:
+            query = query.filter(XiuxianAchievement.enabled.is_(True))
+        rows = (
+            query.order_by(
+                XiuxianAchievement.sort_order.asc(),
+                XiuxianAchievement.target_value.asc(),
+                XiuxianAchievement.id.asc(),
+            )
+            .all()
+        )
+        return [serialize_achievement(row) for row in rows]
+
+
+def list_achievements_by_metric(metric_keys: list[str], enabled_only: bool = True) -> list[dict[str, Any]]:
+    metric_keys = [str(item).strip() for item in metric_keys if str(item).strip()]
+    if not metric_keys:
+        return []
+    with Session() as session:
+        query = session.query(XiuxianAchievement).filter(XiuxianAchievement.metric_key.in_(metric_keys))
+        if enabled_only:
+            query = query.filter(XiuxianAchievement.enabled.is_(True))
+        rows = (
+            query.order_by(
+                XiuxianAchievement.sort_order.asc(),
+                XiuxianAchievement.target_value.asc(),
+                XiuxianAchievement.id.asc(),
+            )
+            .all()
+        )
+        return [serialize_achievement(row) for row in rows]
+
+
+def patch_achievement(achievement_id: int, **fields) -> dict[str, Any] | None:
+    patch = dict(fields)
+    with Session() as session:
+        row = session.query(XiuxianAchievement).filter(XiuxianAchievement.id == achievement_id).first()
+        if row is None:
+            return None
+        current = serialize_achievement(row) or {}
+        current.update(patch)
+        payload = _normalize_achievement_fields(current)
+        for key, value in payload.items():
+            setattr(row, key, value)
+        row.updated_at = utcnow()
+        session.commit()
+        session.refresh(row)
+        return serialize_achievement(row)
+
+
+def delete_achievement(achievement_id: int) -> bool:
+    with Session() as session:
+        row = session.query(XiuxianAchievement).filter(XiuxianAchievement.id == achievement_id).first()
+        if row is None:
+            return False
+        session.delete(row)
+        session.commit()
+        return True
+
+
+def list_user_achievement_progress(tg: int) -> list[dict[str, Any]]:
+    with Session() as session:
+        rows = (
+            session.query(XiuxianAchievementProgress)
+            .filter(XiuxianAchievementProgress.tg == tg)
+            .order_by(XiuxianAchievementProgress.metric_key.asc())
+            .all()
+        )
+        return [serialize_achievement_progress(row) for row in rows]
+
+
+def get_user_achievement_progress_map(tg: int) -> dict[str, int]:
+    with Session() as session:
+        rows = session.query(XiuxianAchievementProgress).filter(XiuxianAchievementProgress.tg == tg).all()
+        return {row.metric_key: int(row.current_value or 0) for row in rows}
+
+
+def apply_achievement_progress_deltas(tg: int, deltas: dict[str, int | float]) -> dict[str, int]:
+    sanitized: dict[str, int] = {}
+    for key, value in (deltas or {}).items():
+        metric_key = str(key or "").strip()
+        if not metric_key:
+            continue
+        amount = int(value or 0)
+        if amount == 0:
+            continue
+        sanitized[metric_key] = sanitized.get(metric_key, 0) + amount
+    if not sanitized:
+        return {}
+    with Session() as session:
+        result: dict[str, int] = {}
+        for metric_key, amount in sanitized.items():
+            row = (
+                session.query(XiuxianAchievementProgress)
+                .filter(
+                    XiuxianAchievementProgress.tg == tg,
+                    XiuxianAchievementProgress.metric_key == metric_key,
+                )
+                .first()
+            )
+            if row is None:
+                row = XiuxianAchievementProgress(tg=tg, metric_key=metric_key, current_value=0)
+                session.add(row)
+            row.current_value = max(int(row.current_value or 0) + amount, 0)
+            row.updated_at = utcnow()
+            result[metric_key] = int(row.current_value or 0)
+        session.commit()
+        return result
+
+
+def list_user_achievements(tg: int) -> list[dict[str, Any]]:
+    with Session() as session:
+        rows = (
+            session.query(XiuxianUserAchievement)
+            .filter(XiuxianUserAchievement.tg == tg)
+            .order_by(XiuxianUserAchievement.unlocked_at.asc(), XiuxianUserAchievement.id.asc())
+            .all()
+        )
+        achievements = {
+            row.id: row
+            for row in session.query(XiuxianAchievement)
+            .filter(XiuxianAchievement.id.in_([item.achievement_id for item in rows] or [-1]))
+            .all()
+        }
+        return [
+            serialize_user_achievement(row, serialize_achievement(achievements.get(row.achievement_id)))
+            for row in rows
+        ]
+
+
+def unlock_user_achievement(
+    tg: int,
+    achievement_id: int,
+    *,
+    reward_snapshot: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    with Session() as session:
+        existing = (
+            session.query(XiuxianUserAchievement)
+            .filter(
+                XiuxianUserAchievement.tg == tg,
+                XiuxianUserAchievement.achievement_id == achievement_id,
+            )
+            .first()
+        )
+        if existing is not None:
+            achievement = session.query(XiuxianAchievement).filter(XiuxianAchievement.id == achievement_id).first()
+            payload = serialize_user_achievement(existing, serialize_achievement(achievement))
+            if payload is not None:
+                payload["created"] = False
+            return payload
+        achievement = session.query(XiuxianAchievement).filter(XiuxianAchievement.id == achievement_id).first()
+        if achievement is None:
+            return None
+        row = XiuxianUserAchievement(
+            tg=tg,
+            achievement_id=achievement_id,
+            reward_snapshot=reward_snapshot or {},
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        payload = serialize_user_achievement(row, serialize_achievement(achievement))
+        if payload is not None:
+            payload["created"] = True
+        return payload
+
+
+def get_user_achievement(tg: int, achievement_id: int) -> dict[str, Any] | None:
+    with Session() as session:
+        row = (
+            session.query(XiuxianUserAchievement)
+            .filter(
+                XiuxianUserAchievement.tg == tg,
+                XiuxianUserAchievement.achievement_id == achievement_id,
+            )
+            .first()
+        )
+        if row is None:
+            return None
+        achievement = session.query(XiuxianAchievement).filter(XiuxianAchievement.id == achievement_id).first()
+        return serialize_user_achievement(row, serialize_achievement(achievement))
+
+
+def mark_user_achievement_notification(tg: int, achievement_id: int, channel: str) -> dict[str, Any] | None:
+    channel = str(channel or "").strip().lower()
+    if channel not in {"private", "group"}:
+        raise ValueError("unsupported achievement notify channel")
+    with Session() as session:
+        row = (
+            session.query(XiuxianUserAchievement)
+            .filter(
+                XiuxianUserAchievement.tg == tg,
+                XiuxianUserAchievement.achievement_id == achievement_id,
+            )
+            .first()
+        )
+        if row is None:
+            return None
+        if channel == "private":
+            row.private_notified_at = utcnow()
+        else:
+            row.group_notified_at = utcnow()
+        row.updated_at = utcnow()
+        session.commit()
+        achievement = session.query(XiuxianAchievement).filter(XiuxianAchievement.id == achievement_id).first()
+        return serialize_user_achievement(row, serialize_achievement(achievement))
 
 
 def create_red_envelope(**fields) -> dict[str, Any]:

@@ -3,7 +3,7 @@ const tgBackButton = tg?.BackButton || null;
 const DEFAULT_BACK_PATH = "/admin";
 
 const REALM_OPTIONS = ["凡人", "炼气", "筑基", "结丹", "元婴", "化神", "须弥", "芥子", "混元一体"];
-const QUALITY_OPTIONS = ["凡品", "黄品", "玄品", "地品", "天品", "仙品"];
+const QUALITY_OPTIONS = ["凡品", "下品", "中品", "上品", "极品", "仙品", "先天至宝"];
 const PILL_TYPES = [
   { value: "foundation", label: "突破加成", effect: "突破助力值" },
   { value: "clear_poison", label: "解毒", effect: "减少丹毒值" },
@@ -25,6 +25,13 @@ const PILL_TYPES = [
   { value: "root_earth", label: "洗成地灵根", effect: "效果值未用" },
   { value: "root_heaven", label: "洗成天灵根", effect: "效果值未用" },
   { value: "root_variant", label: "洗成变异灵根", effect: "效果值未用" },
+];
+const SCENE_EVENT_TYPES = [
+  ["encounter", "普通遭遇"],
+  ["fortune", "机缘"],
+  ["danger", "危险"],
+  ["recipe", "配方残页"],
+  ["oddity", "奇遇"],
 ];
 const ROLE_PRESETS = [
   ["leader", "掌门"],
@@ -203,6 +210,16 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function parseJsonInput(raw, fallback = {}) {
+  const text = String(raw ?? "").trim();
+  if (!text) return fallback;
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`JSON 解析失败: ${error.message}`);
+  }
 }
 
 function parseShanghaiDate(value) {
@@ -722,14 +739,63 @@ function addRecipeIngredientRow(data = {}) {
   `));
 }
 
-function addSceneEventRow(value = "") {
+function addSceneEventRow(data = {}) {
   const rows = $("scene-event-rows");
   if (!rows) return;
-  rows.appendChild(createBuilderRow(`
-    <label class="wide-field">事件描述
-      <input data-scene-event type="text" value="${escapeHtml(value)}" placeholder="例如：山风呼啸，灵气暗涌">
+  const typeOptions = SCENE_EVENT_TYPES.map(([value, label]) => `<option value="${value}" ${(data.event_type || "encounter") === value ? "selected" : ""}>${escapeHtml(label)}</option>`).join("");
+  const wrapper = createBuilderRow(`
+    <label>事件名称
+      <input data-scene-event-name type="text" value="${escapeHtml(data.name || "")}" placeholder="例如：残碑拓影">
     </label>
-  `));
+    <label>事件类型
+      <select data-scene-event-type>${typeOptions}</select>
+    </label>
+    <label>权重
+      <input data-scene-event-weight type="number" min="1" value="${escapeHtml(data.weight || 1)}">
+    </label>
+    <label>灵石奖励最小值
+      <input data-scene-stone-bonus-min type="number" min="0" value="${escapeHtml(data.stone_bonus_min || 0)}">
+    </label>
+    <label>灵石奖励最大值
+      <input data-scene-stone-bonus-max type="number" min="0" value="${escapeHtml(data.stone_bonus_max || 0)}">
+    </label>
+    <label>灵石损失最小值
+      <input data-scene-stone-loss-min type="number" min="0" value="${escapeHtml(data.stone_loss_min || 0)}">
+    </label>
+    <label>灵石损失最大值
+      <input data-scene-stone-loss-max type="number" min="0" value="${escapeHtml(data.stone_loss_max || 0)}">
+    </label>
+    <label>额外奖励类型
+      <select data-scene-bonus-kind>
+        <option value="" ${(data.bonus_reward_kind || "") === "" ? "selected" : ""}>无</option>
+        <option value="material" ${(data.bonus_reward_kind || "") === "material" ? "selected" : ""}>材料</option>
+        <option value="artifact" ${(data.bonus_reward_kind || "") === "artifact" ? "selected" : ""}>法宝</option>
+        <option value="pill" ${(data.bonus_reward_kind || "") === "pill" ? "selected" : ""}>丹药</option>
+        <option value="talisman" ${(data.bonus_reward_kind || "") === "talisman" ? "selected" : ""}>符箓</option>
+      </select>
+    </label>
+    <label>额外奖励
+      <select data-scene-bonus-ref></select>
+    </label>
+    <label>额外奖励最小数量
+      <input data-scene-bonus-min type="number" min="1" value="${escapeHtml(data.bonus_quantity_min || 1)}">
+    </label>
+    <label>额外奖励最大数量
+      <input data-scene-bonus-max type="number" min="1" value="${escapeHtml(data.bonus_quantity_max || 1)}">
+    </label>
+    <label>额外奖励触发率（%）
+      <input data-scene-bonus-chance type="number" min="0" max="100" value="${escapeHtml(data.bonus_chance || 0)}">
+    </label>
+    <label class="wide-field">事件描述
+      <textarea data-scene-event-description rows="2" placeholder="例如：石壁上浮现旧日符纹，你急忙拓下一页残纸。">${escapeHtml(data.description || "")}</textarea>
+    </label>
+  `);
+  const kindNode = wrapper.querySelector("[data-scene-bonus-kind]");
+  const refNode = wrapper.querySelector("[data-scene-bonus-ref]");
+  const sync = () => setOptions(refNode, itemRows(kindNode.value || "material"), data.bonus_reward_ref_id, "无");
+  kindNode.addEventListener("change", sync);
+  sync();
+  rows.appendChild(wrapper);
 }
 
 function addSceneDropRow(data = {}) {
@@ -922,9 +988,23 @@ function collectRecipeIngredients() {
 }
 
 function collectSceneEvents() {
-  return [...document.querySelectorAll("#scene-event-rows [data-scene-event]")]
-    .map((node) => node.value.trim())
-    .filter(Boolean);
+  return [...document.querySelectorAll("#scene-event-rows .builder-row")]
+    .map((row) => ({
+      name: row.querySelector("[data-scene-event-name]")?.value.trim() || "",
+      description: row.querySelector("[data-scene-event-description]")?.value.trim() || "",
+      event_type: row.querySelector("[data-scene-event-type]")?.value || "encounter",
+      weight: Number(row.querySelector("[data-scene-event-weight]")?.value || 1),
+      stone_bonus_min: Number(row.querySelector("[data-scene-stone-bonus-min]")?.value || 0),
+      stone_bonus_max: Number(row.querySelector("[data-scene-stone-bonus-max]")?.value || 0),
+      stone_loss_min: Number(row.querySelector("[data-scene-stone-loss-min]")?.value || 0),
+      stone_loss_max: Number(row.querySelector("[data-scene-stone-loss-max]")?.value || 0),
+      bonus_reward_kind: row.querySelector("[data-scene-bonus-kind]")?.value || null,
+      bonus_reward_ref_id: Number(row.querySelector("[data-scene-bonus-ref]")?.value || 0) || null,
+      bonus_quantity_min: Number(row.querySelector("[data-scene-bonus-min]")?.value || 1),
+      bonus_quantity_max: Number(row.querySelector("[data-scene-bonus-max]")?.value || 1),
+      bonus_chance: Number(row.querySelector("[data-scene-bonus-chance]")?.value || 0),
+    }))
+    .filter((row) => row.name || row.description);
 }
 
 function collectSceneDrops() {
@@ -954,6 +1034,16 @@ function deleteButton(entity, id) {
   return `<button type="button" class="ghost" data-delete="${entity}" data-id="${id}">删除</button>`;
 }
 
+function combatConfigSummary(config = {}) {
+  const skills = Array.isArray(config.skills) ? config.skills : [];
+  const passives = Array.isArray(config.passives) ? config.passives : [];
+  const parts = [];
+  if (config.opening_text) parts.push(`起手: ${config.opening_text}`);
+  if (skills.length) parts.push(`主动 ${skills.map((item) => item.name || item.kind).filter(Boolean).join("、")}`);
+  if (passives.length) parts.push(`被动 ${passives.map((item) => item.name || item.kind).filter(Boolean).join("、")}`);
+  return parts.join(" · ") || "无战斗特效";
+}
+
 function renderWorld() {
   const bundle = state.bundle;
   if (!bundle) return;
@@ -963,12 +1053,13 @@ function renderWorld() {
   renderStack("artifact-list", (bundle.artifacts || []).map((item) => `
     <article class="stack-item"><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml(item.artifact_type_label || item.artifact_type)}</span></div>
     <p>品质 ${escapeHtml(item.rarity)} · 攻击 ${escapeHtml(item.attack_bonus)} · 防御 ${escapeHtml(item.defense_bonus)} · 斗法 ${escapeHtml(item.duel_rate_bonus)}% · 修炼 ${escapeHtml(item.cultivation_bonus)}</p>
+    <p>${escapeHtml(combatConfigSummary(item.combat_config || {}))}</p>
     <p>境界限制：${escapeHtml(item.min_realm_stage || "无限制")} ${escapeHtml(item.min_realm_layer || 1)} 层</p>
     <div class="inline-action-buttons">${deleteButton("artifact", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无法宝</strong></article>`);
 
   renderStack("talisman-list", (bundle.talismans || []).map((item) => `
     <article class="stack-item"><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml(item.rarity)}</span></div>
-    <p>攻击 ${escapeHtml(item.attack_bonus)} · 防御 ${escapeHtml(item.defense_bonus)} · 斗法 ${escapeHtml(item.duel_rate_bonus)}%</p>
+    <p>攻击 ${escapeHtml(item.attack_bonus)} · 防御 ${escapeHtml(item.defense_bonus)} · 斗法 ${escapeHtml(item.duel_rate_bonus)}%</p><p>${escapeHtml(combatConfigSummary(item.combat_config || {}))}</p>
     <div class="inline-action-buttons">${deleteButton("talisman", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无符箓</strong></article>`);
 
   renderStack("pill-list", (bundle.pills || []).map((item) => `
@@ -988,7 +1079,7 @@ function renderWorld() {
 
   renderStack("scene-list", (bundle.scenes || []).map((item) => `
     <article class="stack-item"><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">最多 ${escapeHtml(item.max_minutes)} 分钟</span></div>
-    <p>${escapeHtml(item.description || "暂无描述")}</p><p>掉落 ${escapeHtml((item.drops || []).length)} 项 · 事件 ${escapeHtml((item.event_pool || []).length)} 条</p>
+    <p>${escapeHtml(item.description || "暂无描述")}</p><p>掉落 ${escapeHtml((item.drops || []).length)} 项 · 事件 ${escapeHtml((item.event_pool || []).length)} 条</p><p>${escapeHtml((item.event_pool || []).map((event) => `${event.name || "未命名事件"}(${event.event_type || "encounter"})`).slice(0, 3).join("、") || "暂无事件详情")}</p>
     <div class="inline-action-buttons">${deleteButton("scene", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无场景</strong></article>`);
 
   renderStack("sect-list", (bundle.sects || []).map((item) => `
@@ -1029,6 +1120,10 @@ function syncSelects() {
   document.querySelectorAll("#scene-drop-rows .builder-row").forEach((row) => {
     const kind = row.querySelector("[data-drop-kind]")?.value || "material";
     setOptions(row.querySelector("[data-drop-ref]"), itemRows(kind), row.querySelector("[data-drop-ref]")?.value, "无");
+  });
+  document.querySelectorAll("#scene-event-rows .builder-row").forEach((row) => {
+    const kind = row.querySelector("[data-scene-bonus-kind]")?.value || "";
+    setOptions(row.querySelector("[data-scene-bonus-ref]"), itemRows(kind || "material"), row.querySelector("[data-scene-bonus-ref]")?.value, "无");
   });
 }
 
@@ -1399,38 +1494,48 @@ function bindAttributeAwareSubmitters() {
     event.preventDefault();
     event.stopImmediatePropagation();
     const form = event.currentTarget;
-    await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/artifact", {
-      name: $("artifact-name").value.trim(),
-      rarity: $("artifact-rarity")?.value || "凡品",
-      artifact_type: $("artifact-type")?.value || "battle",
-      image_url: $("artifact-image")?.value.trim() || "",
-      description: $("artifact-description")?.value.trim() || "",
-      ...affixPayload("artifact"),
-      duel_rate_bonus: Number($("artifact-duel")?.value || 0),
-      cultivation_bonus: Number($("artifact-cultivation")?.value || 0),
-      min_realm_stage: $("artifact-stage")?.value || null,
-      min_realm_layer: Number($("artifact-layer")?.value || 1),
-    }), "创建成功", "法宝已经录入修仙体系。");
-    form?.reset?.();
-    syncSelects();
+    try {
+      await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/artifact", {
+        name: $("artifact-name").value.trim(),
+        rarity: $("artifact-rarity")?.value || "凡品",
+        artifact_type: $("artifact-type")?.value || "battle",
+        image_url: $("artifact-image")?.value.trim() || "",
+        description: $("artifact-description")?.value.trim() || "",
+        ...affixPayload("artifact"),
+        duel_rate_bonus: Number($("artifact-duel")?.value || 0),
+        cultivation_bonus: Number($("artifact-cultivation")?.value || 0),
+        combat_config: parseJsonInput($("artifact-combat-config")?.value || "{}", {}),
+        min_realm_stage: $("artifact-stage")?.value || null,
+        min_realm_layer: Number($("artifact-layer")?.value || 1),
+      }), "创建成功", "法宝已经录入修仙体系。");
+      form?.reset?.();
+      syncSelects();
+    } catch (error) {
+      await popup("提交失败", String(error.message || error), "error");
+    }
   }, true);
 
   $("talisman-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     event.stopImmediatePropagation();
     const form = event.currentTarget;
-    await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/talisman", {
-      name: $("talisman-name").value.trim(),
-      rarity: $("talisman-rarity")?.value || "凡品",
-      image_url: $("talisman-image")?.value.trim() || "",
-      description: $("talisman-description")?.value.trim() || "",
-      ...affixPayload("talisman"),
-      duel_rate_bonus: Number($("talisman-duel")?.value || 0),
-      min_realm_stage: $("talisman-stage")?.value || null,
-      min_realm_layer: Number($("talisman-layer")?.value || 1),
-    }), "创建成功", "符箓已经录入修仙体系。");
-    form?.reset?.();
-    syncSelects();
+    try {
+      await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/talisman", {
+        name: $("talisman-name").value.trim(),
+        rarity: $("talisman-rarity")?.value || "凡品",
+        image_url: $("talisman-image")?.value.trim() || "",
+        description: $("talisman-description")?.value.trim() || "",
+        ...affixPayload("talisman"),
+        duel_rate_bonus: Number($("talisman-duel")?.value || 0),
+        combat_config: parseJsonInput($("talisman-combat-config")?.value || "{}", {}),
+        min_realm_stage: $("talisman-stage")?.value || null,
+        min_realm_layer: Number($("talisman-layer")?.value || 1),
+      }), "创建成功", "符箓已经录入修仙体系。");
+      form?.reset?.();
+      syncSelects();
+    } catch (error) {
+      await popup("提交失败", String(error.message || error), "error");
+    }
   }, true);
 
   $("pill-form")?.addEventListener("submit", async (event) => {
@@ -1458,21 +1563,26 @@ function bindAttributeAwareSubmitters() {
     event.preventDefault();
     event.stopImmediatePropagation();
     const form = event.currentTarget;
-    await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/technique", {
-      name: $("technique-name").value.trim(),
-      rarity: $("technique-rarity")?.value || "凡品",
-      technique_type: $("technique-type")?.value || "balanced",
-      image_url: $("technique-image")?.value.trim() || "",
-      description: $("technique-description")?.value.trim() || "",
-      ...affixPayload("technique"),
-      duel_rate_bonus: Number($("technique-duel")?.value || 0),
-      cultivation_bonus: Number($("technique-cultivation")?.value || 0),
-      breakthrough_bonus: Number($("technique-breakthrough")?.value || 0),
-      min_realm_stage: $("technique-stage")?.value || null,
-      min_realm_layer: Number($("technique-layer")?.value || 1),
-    }), "创建成功", "功法已经录入修仙体系。");
-    form?.reset?.();
-    syncSelects();
+    try {
+      await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/technique", {
+        name: $("technique-name").value.trim(),
+        rarity: $("technique-rarity")?.value || "凡品",
+        technique_type: $("technique-type")?.value || "balanced",
+        image_url: $("technique-image")?.value.trim() || "",
+        description: $("technique-description")?.value.trim() || "",
+        ...affixPayload("technique"),
+        duel_rate_bonus: Number($("technique-duel")?.value || 0),
+        cultivation_bonus: Number($("technique-cultivation")?.value || 0),
+        breakthrough_bonus: Number($("technique-breakthrough")?.value || 0),
+        combat_config: parseJsonInput($("technique-combat-config")?.value || "{}", {}),
+        min_realm_stage: $("technique-stage")?.value || null,
+        min_realm_layer: Number($("technique-layer")?.value || 1),
+      }), "创建成功", "功法已经录入修仙体系。");
+      form?.reset?.();
+      syncSelects();
+    } catch (error) {
+      await popup("提交失败", String(error.message || error), "error");
+    }
   }, true);
 
   $("task-admin-form")?.addEventListener("submit", async (event) => {
@@ -1551,6 +1661,7 @@ renderWorld = function renderWorldEnhanced() {
         <span class="badge badge--normal">${escapeHtml(item.artifact_type_label || item.artifact_type)}</span>
       </div>
       <p>${qualityBadgeHtml(item.rarity || "凡品", item.quality_color)} · ${escapeHtml(affixSummary(item))}</p>
+      <p>${escapeHtml(combatConfigSummary(item.combat_config || {}))}</p>
       <p>境界限制：${escapeHtml(item.min_realm_stage || "无限制")} ${escapeHtml(item.min_realm_layer || 1)} 层</p>
       <div class="inline-action-buttons">${deleteButton("artifact", item.id)}</div>
     </article>`).join("") || `<article class="stack-item"><strong>暂无法宝</strong></article>`);
@@ -1562,6 +1673,7 @@ renderWorld = function renderWorldEnhanced() {
         ${qualityBadgeHtml(item.rarity || "凡品", item.quality_color)}
       </div>
       <p>${escapeHtml(affixSummary(item))}</p>
+      <p>${escapeHtml(combatConfigSummary(item.combat_config || {}))}</p>
       <div class="inline-action-buttons">${deleteButton("talisman", item.id)}</div>
     </article>`).join("") || `<article class="stack-item"><strong>暂无符箓</strong></article>`);
 
@@ -1593,6 +1705,7 @@ renderWorld = function renderWorldEnhanced() {
         ${qualityBadgeHtml(item.rarity || "凡品", item.quality_color)}
       </div>
       <p>${escapeHtml(item.technique_type_label || item.technique_type)} · ${escapeHtml(affixSummary(item))}</p>
+      <p>${escapeHtml(combatConfigSummary(item.combat_config || {}))}</p>
       <p>境界限制：${escapeHtml(item.min_realm_stage || "无限制")} ${escapeHtml(item.min_realm_layer || 1)} 层</p>
       <div class="inline-action-buttons">${deleteButton("technique", item.id)}</div>
     </article>`).join("") || `<article class="stack-item"><strong>暂无功法</strong></article>`);
@@ -1811,6 +1924,174 @@ document.getElementById("player-edit-cancel")?.addEventListener("click", () => {
 document.getElementById("jump-player-editor")?.addEventListener("click", () => {
   if (!state.selectedPlayerTg) return;
   revealPlayerEditor();
+});
+
+ADMIN_SECTION_LABELS.titles = "称号";
+ADMIN_SECTION_LABELS.achievements = "成就";
+
+function adminTitleEffectSummary(item = {}) {
+  const rows = [];
+  if (Number(item.attack_bonus || 0)) rows.push(`攻击 ${item.attack_bonus}`);
+  if (Number(item.defense_bonus || 0)) rows.push(`防御 ${item.defense_bonus}`);
+  if (Number(item.bone_bonus || 0)) rows.push(`根骨 ${item.bone_bonus}`);
+  if (Number(item.comprehension_bonus || 0)) rows.push(`悟性 ${item.comprehension_bonus}`);
+  if (Number(item.divine_sense_bonus || 0)) rows.push(`神识 ${item.divine_sense_bonus}`);
+  if (Number(item.fortune_bonus || 0)) rows.push(`机缘 ${item.fortune_bonus}`);
+  if (Number(item.qi_blood_bonus || 0)) rows.push(`气血 ${item.qi_blood_bonus}`);
+  if (Number(item.true_yuan_bonus || 0)) rows.push(`真元 ${item.true_yuan_bonus}`);
+  if (Number(item.body_movement_bonus || 0)) rows.push(`身法 ${item.body_movement_bonus}`);
+  if (Number(item.duel_rate_bonus || 0)) rows.push(`斗法 ${item.duel_rate_bonus}%`);
+  if (Number(item.cultivation_bonus || 0)) rows.push(`修炼 ${item.cultivation_bonus}`);
+  if (Number(item.breakthrough_bonus || 0)) rows.push(`突破 ${item.breakthrough_bonus}`);
+  return rows.join(" · ") || "暂无额外效果";
+}
+
+function adminRewardSummary(config = {}) {
+  const rows = [];
+  if (Number(config.spiritual_stone || 0)) rows.push(`灵石 ${config.spiritual_stone}`);
+  if (Number(config.cultivation || 0)) rows.push(`修为 ${config.cultivation}`);
+  if (Array.isArray(config.titles) && config.titles.length) rows.push(`称号 ${config.titles.join(", ")}`);
+  if (Array.isArray(config.items) && config.items.length) {
+    rows.push(config.items.map((item) => `${item.kind || "item"}#${item.ref_id || item.item_ref_id} x${item.quantity || 0}`).join("、"));
+  }
+  if (config.message) rows.push(String(config.message));
+  return rows.join(" · ") || "无额外奖励";
+}
+
+function renderAchievementMetricOptions() {
+  const root = $("achievement-metric-options");
+  if (!root) return;
+  const rows = state.bundle?.achievement_metric_presets || [];
+  root.innerHTML = rows.map((item) => `<option value="${escapeHtml(item.key)}">${escapeHtml(item.label || item.key)}</option>`).join("");
+}
+
+function titleRows() {
+  return (state.bundle?.titles || []).map((item) => ({ value: item.id, label: `${item.id} · ${item.name}` }));
+}
+
+const baseSyncSelectsWithTitles = syncSelects;
+syncSelects = function syncSelectsWithAchievementTitle() {
+  baseSyncSelectsWithTitles();
+  setOptions($("title-grant-id"), titleRows(), $("title-grant-id")?.value);
+  renderAchievementMetricOptions();
+};
+
+function renderTitleAdminList() {
+  renderStack("title-list", (state.bundle?.titles || []).map((item) => `
+    <article class="stack-item">
+      <div class="stack-item-head">
+        <strong>${escapeHtml(item.name)}</strong>
+        <span class="badge badge--normal">${item.enabled ? "启用中" : "已停用"}</span>
+      </div>
+      <p>${escapeHtml(item.description || "暂无称号描述")}</p>
+      <p>${escapeHtml(adminTitleEffectSummary(item))}</p>
+      <p>颜色 ${escapeHtml(item.color || "默认")} · ID ${escapeHtml(item.id)}</p>
+      <div class="inline-action-buttons">${deleteButton("title", item.id)}</div>
+    </article>
+  `).join("") || `<article class="stack-item"><strong>暂无称号</strong></article>`);
+}
+
+function renderAchievementAdminList() {
+  renderStack("achievement-list", (state.bundle?.achievements || []).map((item) => `
+    <article class="stack-item">
+      <div class="stack-item-head">
+        <strong>${escapeHtml(item.name)}</strong>
+        <span class="badge badge--normal">${item.enabled ? "启用中" : "已停用"}</span>
+      </div>
+      <p>Key ${escapeHtml(item.achievement_key || "auto")} · 统计项 ${escapeHtml(item.metric_key)} · 目标 ${escapeHtml(item.target_value)}</p>
+      <p>${escapeHtml(item.description || "暂无成就描述")}</p>
+      <p>奖励：${escapeHtml(adminRewardSummary(item.reward_config || {}))}</p>
+      <p>通知：群 ${item.notify_group ? "开" : "关"} / 私 ${item.notify_private ? "开" : "关"}</p>
+      <div class="inline-action-buttons">${deleteButton("achievement", item.id)}</div>
+    </article>
+  `).join("") || `<article class="stack-item"><strong>暂无成就</strong></article>`);
+}
+
+const baseRenderWorldWithAchievementTitle = renderWorld;
+renderWorld = function renderWorldWithAchievementTitle() {
+  baseRenderWorldWithAchievementTitle();
+  renderTitleAdminList();
+  renderAchievementAdminList();
+};
+
+function parseRewardConfigInput() {
+  const raw = $("achievement-reward-config")?.value?.trim() || "";
+  if (!raw) return {};
+  return JSON.parse(raw);
+}
+
+document.getElementById("title-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/title", {
+    name: $("title-name").value.trim(),
+    description: $("title-description").value.trim(),
+    color: $("title-color").value.trim(),
+    image_url: $("title-image").value.trim(),
+    attack_bonus: Number($("title-attack").value || 0),
+    defense_bonus: Number($("title-defense").value || 0),
+    bone_bonus: Number($("title-bone").value || 0),
+    comprehension_bonus: Number($("title-comprehension").value || 0),
+    divine_sense_bonus: Number($("title-divine-sense").value || 0),
+    fortune_bonus: Number($("title-fortune").value || 0),
+    qi_blood_bonus: Number($("title-qi-blood").value || 0),
+    true_yuan_bonus: Number($("title-true-yuan").value || 0),
+    body_movement_bonus: Number($("title-body-movement").value || 0),
+    duel_rate_bonus: Number($("title-duel").value || 0),
+    cultivation_bonus: Number($("title-cultivation").value || 0),
+    breakthrough_bonus: Number($("title-breakthrough").value || 0),
+    enabled: $("title-enabled").checked,
+  }), "创建成功", "称号已加入修仙系统。");
+});
+
+document.getElementById("title-grant-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/title/grant", {
+    tg: Number($("title-grant-tg").value || 0),
+    title_id: Number($("title-grant-id").value || 0),
+    equip: $("title-grant-equip").checked,
+  }), "发放成功", "称号已经发放给目标用户。");
+});
+
+document.getElementById("achievement-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  let rewardConfig = {};
+  try {
+    rewardConfig = parseRewardConfigInput();
+  } catch (error) {
+    await popup("奖励配置错误", "奖励 JSON 不是合法格式。", "error");
+    return;
+  }
+  await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/achievement", {
+    achievement_key: $("achievement-key").value.trim() || null,
+    name: $("achievement-name").value.trim(),
+    description: $("achievement-description").value.trim(),
+    metric_key: $("achievement-metric-key").value.trim(),
+    target_value: Number($("achievement-target").value || 1),
+    reward_config: rewardConfig,
+    notify_group: $("achievement-notify-group").checked,
+    notify_private: $("achievement-notify-private").checked,
+    enabled: $("achievement-enabled").checked,
+    sort_order: Number($("achievement-sort").value || 0),
+  }), "创建成功", "成就规则已经保存。");
+});
+
+document.getElementById("achievement-progress-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const metricKey = $("achievement-progress-key").value.trim();
+  const amount = Number($("achievement-progress-amount").value || 0);
+  const result = await request("POST", "/plugins/xiuxian/admin-api/achievement/progress", {
+    tg: Number($("achievement-progress-tg").value || 0),
+    increments: metricKey ? { [metricKey]: amount } : {},
+    source: $("achievement-progress-source").value.trim() || null,
+  });
+  await bootstrapAdmin();
+  const unlocked = result?.unlocks || [];
+  await popup(
+    "补录完成",
+    unlocked.length
+      ? `进度已补录，并触发 ${unlocked.length} 个成就：${unlocked.map((item) => item.achievement?.name || "未命名成就").join("、")}`
+      : "进度已补录，当前没有新成就达成。",
+  );
 });
 
 ROLE_PRESETS.forEach(([role_key, role_name]) => addSectRoleRow({ role_key, role_name }));

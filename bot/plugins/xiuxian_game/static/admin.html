@@ -320,6 +320,10 @@
             修炼加成
             <input id="artifact-cultivation" type="number" value="0">
           </label>
+          <label class="wide-field">
+            战斗配置 JSON
+            <textarea id="artifact-combat-config" rows="6" placeholder='{"opening_text":"法宝起势描述","passives":[{"name":"剑罡斩","kind":"extra_damage","chance":25,"flat_damage":12,"ratio_percent":18,"text":"法宝发动时显示的战斗文本"}]}'></textarea>
+          </label>
           <label>
             最低境界
             <select id="artifact-stage"></select>
@@ -377,6 +381,10 @@
           <label>
             斗法胜率加成（%）
             <input id="talisman-duel" type="number" value="0">
+          </label>
+          <label class="wide-field">
+            战斗配置 JSON
+            <textarea id="talisman-combat-config" rows="6" placeholder='{"skills":[{"name":"金钟护体","kind":"shield","chance":40,"flat_shield":24,"ratio_percent":18,"duration":1,"text":"护体时显示的战斗文本"}]}'></textarea>
           </label>
           <label>
             最低境界
@@ -567,7 +575,10 @@
               <option value="balanced">均衡功法</option>
               <option value="cultivation">吐纳功法</option>
               <option value="combat">斗战功法</option>
+              <option value="attack">攻伐功法</option>
+              <option value="movement">身法秘术</option>
               <option value="defense">护体功法</option>
+              <option value="divine">神识秘法</option>
               <option value="support">辅修功法</option>
             </select>
           </label>
@@ -595,6 +606,10 @@
             突破加成
             <input id="technique-breakthrough" type="number" value="0">
           </label>
+          <label class="wide-field">
+            战斗配置 JSON
+            <textarea id="technique-combat-config" rows="6" placeholder='{"opening_text":"功法起势描述","skills":[{"name":"离火斩","kind":"burn","chance":30,"flat_damage":12,"ratio_percent":18,"duration":2,"cost_true_yuan":16,"text":"功法发动时显示的战斗文本"}]}'></textarea>
+          </label>
           <label>
             最低境界
             <select id="technique-stage"></select>
@@ -608,6 +623,157 @@
           </div>
         </form>
         <div id="technique-list" class="stack-list"></div>
+      </div>
+    </details>
+
+    <details class="card fold-card">
+      <summary class="fold-summary">
+        <div>
+          <p class="eyebrow" data-section-key="titles">称号</p>
+          <h2>称号管理</h2>
+        </div>
+        <span class="summary-tip">创建称号、配置效果并发放给用户</span>
+      </summary>
+      <div class="fold-body">
+        <form id="title-form" class="grid-form">
+          <label>
+            称号名称
+            <input id="title-name" type="text" placeholder="例如：斗战真君">
+          </label>
+          <label>
+            展示颜色
+            <input id="title-color" type="text" placeholder="#0f766e">
+          </label>
+          <label>
+            图片地址
+            <input id="title-image" type="url" placeholder="https://...">
+            <div class="upload-inline">
+              <input id="title-image-file" type="file" accept="image/*">
+              <button type="button" data-upload-file="title-image-file" data-upload-target="title-image" data-upload-folder="titles">上传图片</button>
+            </div>
+          </label>
+          <label class="inline-check">
+            <input id="title-enabled" type="checkbox" checked>
+            启用称号
+          </label>
+          <label class="wide-field">
+            描述
+            <textarea id="title-description" rows="2" placeholder="填写称号来源或展示文案"></textarea>
+          </label>
+          <label>攻击加成 <input id="title-attack" type="number" value="0"></label>
+          <label>防御加成 <input id="title-defense" type="number" value="0"></label>
+          <label>根骨加成 <input id="title-bone" type="number" value="0"></label>
+          <label>悟性加成 <input id="title-comprehension" type="number" value="0"></label>
+          <label>神识加成 <input id="title-divine-sense" type="number" value="0"></label>
+          <label>机缘加成 <input id="title-fortune" type="number" value="0"></label>
+          <label>气血加成 <input id="title-qi-blood" type="number" value="0"></label>
+          <label>真元加成 <input id="title-true-yuan" type="number" value="0"></label>
+          <label>身法加成 <input id="title-body-movement" type="number" value="0"></label>
+          <label>斗法加成（%） <input id="title-duel" type="number" value="0"></label>
+          <label>修炼加成 <input id="title-cultivation" type="number" value="0"></label>
+          <label>突破加成 <input id="title-breakthrough" type="number" value="0"></label>
+          <div class="form-actions">
+            <button type="submit">创建称号</button>
+          </div>
+        </form>
+        <form id="title-grant-form" class="grid-form">
+          <label>
+            目标 TG ID
+            <input id="title-grant-tg" type="number" min="1" placeholder="输入目标用户 TG ID">
+          </label>
+          <label>
+            发放称号
+            <select id="title-grant-id"></select>
+          </label>
+          <label class="inline-check">
+            <input id="title-grant-equip" type="checkbox">
+            发放后立即佩戴
+          </label>
+          <div class="form-actions">
+            <button type="submit">发放称号</button>
+          </div>
+        </form>
+        <div id="title-list" class="stack-list"></div>
+      </div>
+    </details>
+
+    <details class="card fold-card">
+      <summary class="fold-summary">
+        <div>
+          <p class="eyebrow" data-section-key="achievements">成就</p>
+          <h2>成就管理</h2>
+        </div>
+        <span class="summary-tip">配置统计项、数量目标、奖励和自动通知</span>
+      </summary>
+      <div class="fold-body">
+        <datalist id="achievement-metric-options"></datalist>
+        <form id="achievement-form" class="grid-form">
+          <label>
+            成就 Key
+            <input id="achievement-key" type="text" placeholder="可留空，系统自动生成">
+          </label>
+          <label>
+            成就名称
+            <input id="achievement-name" type="text" placeholder="例如：百战百胜">
+          </label>
+          <label>
+            统计项
+            <input id="achievement-metric-key" type="text" list="achievement-metric-options" placeholder="例如：duel_win_count">
+          </label>
+          <label>
+            达成数量
+            <input id="achievement-target" type="number" min="1" value="1">
+          </label>
+          <label>
+            排序值
+            <input id="achievement-sort" type="number" min="0" value="0">
+          </label>
+          <label class="inline-check">
+            <input id="achievement-notify-group" type="checkbox" checked>
+            群内通知
+          </label>
+          <label class="inline-check">
+            <input id="achievement-notify-private" type="checkbox" checked>
+            私聊通知
+          </label>
+          <label class="inline-check">
+            <input id="achievement-enabled" type="checkbox" checked>
+            启用成就
+          </label>
+          <label class="wide-field">
+            成就描述
+            <textarea id="achievement-description" rows="2" placeholder="描述成就含义或展示文案"></textarea>
+          </label>
+          <label class="wide-field">
+            奖励配置 JSON
+            <textarea id="achievement-reward-config" rows="6" placeholder='{"spiritual_stone":100,"cultivation":50,"titles":[1],"items":[{"kind":"pill","ref_id":1,"quantity":2}]}'></textarea>
+          </label>
+          <div class="form-actions">
+            <button type="submit">创建成就</button>
+          </div>
+        </form>
+        <form id="achievement-progress-form" class="grid-form">
+          <label>
+            目标 TG ID
+            <input id="achievement-progress-tg" type="number" min="1" placeholder="输入目标用户 TG ID">
+          </label>
+          <label>
+            统计项
+            <input id="achievement-progress-key" type="text" list="achievement-metric-options" placeholder="例如：duel_win_count">
+          </label>
+          <label>
+            增量
+            <input id="achievement-progress-amount" type="number" value="1">
+          </label>
+          <label>
+            来源标记
+            <input id="achievement-progress-source" type="text" placeholder="例如：admin_fix">
+          </label>
+          <div class="form-actions">
+            <button type="submit">补录进度</button>
+          </div>
+        </form>
+        <div id="achievement-list" class="stack-list"></div>
       </div>
     </details>
 
@@ -745,6 +911,7 @@
               <strong>事件池</strong>
               <button id="scene-event-add" type="button" class="secondary">新增事件</button>
             </div>
+            <p class="muted">事件支持危险、机缘、残页、破损法宝等配置，奖励与损失都会在探索开始时固化，避免重复刷取。</p>
             <div id="scene-event-rows" class="builder-list"></div>
           </div>
           <div class="wide-field builder-section">

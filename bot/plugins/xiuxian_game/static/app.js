@@ -16,6 +16,16 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+function grantedItemName(payload) {
+  if (!payload || typeof payload !== "object") return "";
+  return payload.artifact?.name
+    || payload.pill?.name
+    || payload.talisman?.name
+    || payload.material?.name
+    || payload.item_name
+    || "";
+}
+
 function setStatus(text, tone = "info") {
   document.querySelector("#status-text").textContent = text;
   const chip = document.querySelector("#feedback-chip");
@@ -1845,7 +1855,10 @@ document.querySelector("#recipe-list")?.addEventListener("click", async (event) 
     const tone = result.success ? "success" : "warning";
     const message = result.success ? "炼制成功，成品已发放。" : "炼制失败，材料已消耗。";
     setStatus(message, tone);
-    await popup(result.success ? "炼制成功" : "炼制失败", `${message}\n成功率 ${result.success_rate}%`);
+    const detailRows = [`${message}`, `成功率 ${result.success_rate}%`];
+    if (result.result_item?.name) detailRows.push(`目标成品：${result.result_item.name}`);
+    if (result.reward) detailRows.push(`获得：${grantedItemName(result.reward) || "成品已入库"}`);
+    await popup(result.success ? "炼制成功" : "炼制失败", detailRows.join("\n"), tone);
     await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "炼制失败。");
@@ -1882,7 +1895,13 @@ document.querySelector("#exploration-active")?.addEventListener("click", async (
       exploration_id: Number(button.dataset.exploreClaim)
     }));
     setStatus("探索奖励已领取。", "success");
-    await popup("领取成功", "探索奖励已发放到你的背包与档案。");
+    const result = payload.result || {};
+    const lines = [];
+    if (result.exploration?.event_text) lines.push(result.exploration.event_text);
+    if (typeof result.stone_delta === "number") lines.push(`灵石变化 ${result.stone_delta >= 0 ? "+" : ""}${result.stone_delta}`);
+    if (result.reward_item) lines.push(`基础掉落：${grantedItemName(result.reward_item) || "已发放"}`);
+    if (result.bonus_reward) lines.push(`奇遇额外：${grantedItemName(result.bonus_reward) || "已发放"}`);
+    await popup("领取成功", lines.join("\n") || "探索奖励已发放到你的背包与档案。");
     await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "领取探索奖励失败。");
@@ -2639,6 +2658,134 @@ renderProfile = function renderProfileRedesigned(bundle) {
   syncAdminEntry(bundle);
   syncUserTaskComposer();
 };
+
+function titleEffectSummary(effects = {}) {
+  const rows = [];
+  if (Number(effects.attack_bonus || 0)) rows.push(`攻击 ${effects.attack_bonus}`);
+  if (Number(effects.defense_bonus || 0)) rows.push(`防御 ${effects.defense_bonus}`);
+  if (Number(effects.bone_bonus || 0)) rows.push(`根骨 ${effects.bone_bonus}`);
+  if (Number(effects.comprehension_bonus || 0)) rows.push(`悟性 ${effects.comprehension_bonus}`);
+  if (Number(effects.divine_sense_bonus || 0)) rows.push(`神识 ${effects.divine_sense_bonus}`);
+  if (Number(effects.fortune_bonus || 0)) rows.push(`机缘 ${effects.fortune_bonus}`);
+  if (Number(effects.qi_blood_bonus || 0)) rows.push(`气血 ${effects.qi_blood_bonus}`);
+  if (Number(effects.true_yuan_bonus || 0)) rows.push(`真元 ${effects.true_yuan_bonus}`);
+  if (Number(effects.body_movement_bonus || 0)) rows.push(`身法 ${effects.body_movement_bonus}`);
+  if (Number(effects.duel_rate_bonus || 0)) rows.push(`斗法 ${effects.duel_rate_bonus}%`);
+  if (Number(effects.cultivation_bonus || 0)) rows.push(`修炼 ${effects.cultivation_bonus}`);
+  if (Number(effects.breakthrough_bonus || 0)) rows.push(`突破 ${effects.breakthrough_bonus}`);
+  return rows.join(" · ") || "暂无额外效果";
+}
+
+function renderTitleAchievementArea(bundle) {
+  const currentRoot = document.querySelector("#current-title-summary");
+  const titleRoot = document.querySelector("#title-list");
+  const achievementRoot = document.querySelector("#achievement-list");
+  if (!currentRoot || !titleRoot || !achievementRoot) return;
+
+  const currentTitle = bundle.current_title || null;
+  currentRoot.innerHTML = currentTitle ? `
+    <article class="stack-item">
+      <div class="stack-item-head">
+        <strong>${escapeHtml(currentTitle.name)}</strong>
+        <span class="badge badge--normal">已佩戴</span>
+      </div>
+      <p>${escapeHtml(currentTitle.description || "这道名帖已经烙印在你的修仙名帖上。")}</p>
+      <p>${escapeHtml(titleEffectSummary(currentTitle.resolved_effects || currentTitle))}</p>
+      <div class="inline-action-buttons">
+        <button type="button" class="ghost" data-title-clear="1">暂不佩戴</button>
+      </div>
+    </article>
+  ` : `<article class="stack-item"><strong>当前未佩戴称号</strong><p>获得称号后可在这里切换展示与效果。</p></article>`;
+
+  const titles = bundle.titles || [];
+  if (!titles.length) {
+    titleRoot.innerHTML = `<article class="stack-item"><strong>尚未获得称号</strong><p>后续可通过管理员发放或成就奖励获得新称号。</p></article>`;
+  } else {
+    titleRoot.innerHTML = titles.map((row) => {
+      const title = row.title || {};
+      return `
+        <article class="stack-item">
+          <div class="stack-item-head">
+            <strong>${escapeHtml(title.name || "未命名称号")}</strong>
+            <span class="badge badge--normal">${title.equipped ? "佩戴中" : "已拥有"}</span>
+          </div>
+          <p>${escapeHtml(title.description || "暂无称号描述")}</p>
+          <p>${escapeHtml(titleEffectSummary(title.resolved_effects || title))}</p>
+          <div class="inline-action-buttons">
+            <button type="button" data-title-equip="${title.id}" ${title.equipped ? "disabled" : ""}>${title.equipped ? "当前佩戴" : "佩戴称号"}</button>
+          </div>
+        </article>
+      `;
+    }).join("");
+  }
+
+  const achievements = bundle.achievements || [];
+  if (!achievements.length) {
+    achievementRoot.innerHTML = `<article class="stack-item"><strong>当前没有已配置成就</strong><p>管理员在后台创建成就后，这里会展示你的进度。</p></article>`;
+    return;
+  }
+  achievementRoot.innerHTML = achievements.map((row) => `
+    <article class="stack-item">
+      <div class="stack-item-head">
+        <strong>${escapeHtml(row.name || "未命名成就")}</strong>
+        <span class="badge badge--normal">${row.unlocked ? "已达成" : `${escapeHtml(row.current_value || 0)} / ${escapeHtml(row.target_value || 0)}`}</span>
+      </div>
+      <p>${escapeHtml(row.description || (row.metric_label ? `追踪 ${row.metric_label}` : "暂无成就描述"))}</p>
+      <p>条件：${escapeHtml(row.metric_label || row.metric_key)} 达到 ${escapeHtml(row.target_value || 0)}，当前进度 ${escapeHtml(row.current_value || 0)}。</p>
+      <p>奖励：${escapeHtml(row.reward_summary || "无额外奖励")}</p>
+    </article>
+  `).join("");
+}
+
+const baseRenderProfileWithTitles = renderProfile;
+renderProfile = function renderProfileWithTitles(bundle) {
+  baseRenderProfileWithTitles(bundle);
+  const consented = Boolean(bundle?.profile?.consented);
+  ensureSectionState("#title-card", consented);
+  if (!consented) {
+    syncFoldToolbar();
+    return;
+  }
+  const currentTitleName = bundle.current_title?.name || "未佩戴称号";
+  const heroRootPill = document.querySelector("#hero-root-pill");
+  if (heroRootPill) {
+    heroRootPill.textContent = `称号 · ${currentTitleName}`;
+  }
+  const rootText = document.querySelector("#root-text");
+  if (rootText) {
+    const profile = bundle.profile || {};
+    const rootLabel = profile.root_text || profileRootText(profile);
+    const rootBonus = Number(profile.root_bonus || 0);
+    rootText.textContent = `称号：${currentTitleName} · 灵根：${rootLabel}，五行修正 ${rootBonus >= 0 ? "+" : ""}${rootBonus}%`;
+  }
+  const profileGrid = document.querySelector("#profile-grid");
+  if (profileGrid) {
+    profileGrid.insertAdjacentHTML(
+      "beforeend",
+      `<article class="profile-item"><span>当前称号</span><strong>${escapeHtml(currentTitleName)}</strong></article>`
+      + `<article class="profile-item"><span>成就解锁</span><strong>${escapeHtml(bundle.achievement_unlocked_count || 0)} / ${escapeHtml(bundle.achievement_total_count || 0)}</strong></article>`
+    );
+  }
+  renderTitleAchievementArea(bundle);
+  syncFoldToolbar();
+};
+
+document.addEventListener("click", async (event) => {
+  const equipButton = event.target.closest("[data-title-equip]");
+  const clearButton = event.target.closest("[data-title-clear]");
+  if (!equipButton && !clearButton) return;
+  const button = equipButton || clearButton;
+  try {
+    await runButtonAction(button, clearButton ? "卸下中..." : "佩戴中...", async () => {
+      const titleId = clearButton ? null : Number(equipButton.dataset.titleEquip || 0) || null;
+      await postJson("/plugins/xiuxian/api/title/equip", { title_id: titleId });
+      await refreshBundle();
+      await popup("称号已更新", clearButton ? "你已经暂时卸下当前称号。" : "修仙名帖上的称号已经切换。");
+    });
+  } catch (error) {
+    await popup("操作失败", normalizeError(error, "称号切换失败。"), "error");
+  }
+});
 
 setupFoldToolbar();
 
