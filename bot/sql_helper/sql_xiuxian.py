@@ -1402,12 +1402,114 @@ def list_techniques(enabled_only: bool = False) -> list[dict[str, Any]]:
         return [serialize_technique(item) for item in query.order_by(XiuxianTechnique.id.desc()).all()]
 
 
+def _coerce_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value if value is not None else default)
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _coerce_bool(value: Any, default: bool = True) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"", "0", "false", "no", "off"}:
+            return False
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+    return bool(value)
+
+
+def _normalize_common_bonus_fields(fields: dict[str, Any]) -> dict[str, int]:
+    return {
+        "attack_bonus": _coerce_int(fields.get("attack_bonus"), 0),
+        "defense_bonus": _coerce_int(fields.get("defense_bonus"), 0),
+        "bone_bonus": _coerce_int(fields.get("bone_bonus"), 0),
+        "comprehension_bonus": _coerce_int(fields.get("comprehension_bonus"), 0),
+        "divine_sense_bonus": _coerce_int(fields.get("divine_sense_bonus"), 0),
+        "fortune_bonus": _coerce_int(fields.get("fortune_bonus"), 0),
+        "qi_blood_bonus": _coerce_int(fields.get("qi_blood_bonus"), 0),
+        "true_yuan_bonus": _coerce_int(fields.get("true_yuan_bonus"), 0),
+        "body_movement_bonus": _coerce_int(fields.get("body_movement_bonus"), 0),
+    }
+
+
+def _normalize_common_item_fields(fields: dict[str, Any], *, rarity_default: str = "凡品") -> dict[str, Any]:
+    name = str(fields.get("name") or "").strip()
+    if not name:
+        raise ValueError("name is required")
+    min_realm_stage = fields.get("min_realm_stage")
+    return {
+        "name": name,
+        "rarity": normalize_quality_label(fields.get("rarity") or rarity_default),
+        "image_url": str(fields.get("image_url") or "").strip(),
+        "description": str(fields.get("description") or "").strip(),
+        "min_realm_stage": normalize_realm_stage(min_realm_stage) if min_realm_stage else None,
+        "min_realm_layer": max(_coerce_int(fields.get("min_realm_layer"), 1), 1),
+        "enabled": _coerce_bool(fields.get("enabled"), True),
+    }
+
+
+def _normalize_artifact_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    payload = _normalize_common_item_fields(fields)
+    payload.update(_normalize_common_bonus_fields(fields))
+    payload["artifact_type"] = str(fields.get("artifact_type") or "battle").strip() or "battle"
+    payload["duel_rate_bonus"] = _coerce_int(fields.get("duel_rate_bonus"), 0)
+    payload["cultivation_bonus"] = _coerce_int(fields.get("cultivation_bonus"), 0)
+    return payload
+
+
+def _normalize_pill_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    payload = _normalize_common_item_fields(fields)
+    payload.update(_normalize_common_bonus_fields(fields))
+    payload["pill_type"] = str(fields.get("pill_type") or "foundation").strip() or "foundation"
+    payload["effect_value"] = _coerce_int(fields.get("effect_value"), 0)
+    payload["poison_delta"] = _coerce_int(fields.get("poison_delta"), 0)
+    return payload
+
+
+def _normalize_talisman_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    payload = _normalize_common_item_fields(fields)
+    payload.update(_normalize_common_bonus_fields(fields))
+    payload["duel_rate_bonus"] = _coerce_int(fields.get("duel_rate_bonus"), 0)
+    return payload
+
+
+def _normalize_technique_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    payload = _normalize_common_item_fields(fields)
+    payload.update(_normalize_common_bonus_fields(fields))
+    payload["technique_type"] = str(fields.get("technique_type") or "balanced").strip() or "balanced"
+    payload["duel_rate_bonus"] = _coerce_int(fields.get("duel_rate_bonus"), 0)
+    payload["cultivation_bonus"] = _coerce_int(fields.get("cultivation_bonus"), 0)
+    payload["breakthrough_bonus"] = _coerce_int(fields.get("breakthrough_bonus"), 0)
+    return payload
+
+
+def _sync_named_entity(model_cls, serializer, fields: dict[str, Any]) -> dict[str, Any]:
+    # 默认种子按名称原地同步，避免镜像升级后后台仍显示旧数据。
+    with Session() as session:
+        row = session.query(model_cls).filter(model_cls.name == fields["name"]).first()
+        if row is None:
+            row = model_cls(**fields)
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            return serializer(row)
+
+        changed = False
+        for key, value in fields.items():
+            if getattr(row, key) != value:
+                setattr(row, key, value)
+                changed = True
+        if changed:
+            session.commit()
+            session.refresh(row)
+        return serializer(row)
+
+
 def create_artifact(**fields) -> dict[str, Any]:
-    fields = dict(fields)
-    artifact_type = str(fields.get("artifact_type") or "battle").strip() or "battle"
-    fields["artifact_type"] = artifact_type
-    fields["rarity"] = normalize_quality_label(fields.get("rarity"))
-    fields["min_realm_stage"] = normalize_realm_stage(fields.get("min_realm_stage")) if fields.get("min_realm_stage") else None
+    fields = _normalize_artifact_fields(dict(fields))
     with Session() as session:
         artifact = XiuxianArtifact(**fields)
         session.add(artifact)
@@ -1417,10 +1519,7 @@ def create_artifact(**fields) -> dict[str, Any]:
 
 
 def create_pill(**fields) -> dict[str, Any]:
-    fields = dict(fields)
-    fields["rarity"] = normalize_quality_label(fields.get("rarity"))
-    fields["pill_type"] = str(fields.get("pill_type") or "foundation").strip() or "foundation"
-    fields["min_realm_stage"] = normalize_realm_stage(fields.get("min_realm_stage")) if fields.get("min_realm_stage") else None
+    fields = _normalize_pill_fields(dict(fields))
     with Session() as session:
         pill = XiuxianPill(**fields)
         session.add(pill)
@@ -1430,9 +1529,7 @@ def create_pill(**fields) -> dict[str, Any]:
 
 
 def create_talisman(**fields) -> dict[str, Any]:
-    fields = dict(fields)
-    fields["rarity"] = normalize_quality_label(fields.get("rarity"))
-    fields["min_realm_stage"] = normalize_realm_stage(fields.get("min_realm_stage")) if fields.get("min_realm_stage") else None
+    fields = _normalize_talisman_fields(dict(fields))
     with Session() as session:
         talisman = XiuxianTalisman(**fields)
         session.add(talisman)
@@ -1442,16 +1539,29 @@ def create_talisman(**fields) -> dict[str, Any]:
 
 
 def create_technique(**fields) -> dict[str, Any]:
-    fields = dict(fields)
-    fields["rarity"] = normalize_quality_label(fields.get("rarity"))
-    fields["technique_type"] = str(fields.get("technique_type") or "balanced").strip() or "balanced"
-    fields["min_realm_stage"] = normalize_realm_stage(fields.get("min_realm_stage")) if fields.get("min_realm_stage") else None
+    fields = _normalize_technique_fields(dict(fields))
     with Session() as session:
         technique = XiuxianTechnique(**fields)
         session.add(technique)
         session.commit()
         session.refresh(technique)
         return serialize_technique(technique)
+
+
+def sync_artifact_by_name(**fields) -> dict[str, Any]:
+    return _sync_named_entity(XiuxianArtifact, serialize_artifact, _normalize_artifact_fields(dict(fields)))
+
+
+def sync_pill_by_name(**fields) -> dict[str, Any]:
+    return _sync_named_entity(XiuxianPill, serialize_pill, _normalize_pill_fields(dict(fields)))
+
+
+def sync_talisman_by_name(**fields) -> dict[str, Any]:
+    return _sync_named_entity(XiuxianTalisman, serialize_talisman, _normalize_talisman_fields(dict(fields)))
+
+
+def sync_technique_by_name(**fields) -> dict[str, Any]:
+    return _sync_named_entity(XiuxianTechnique, serialize_technique, _normalize_technique_fields(dict(fields)))
 
 
 def delete_artifact(artifact_id: int) -> bool:

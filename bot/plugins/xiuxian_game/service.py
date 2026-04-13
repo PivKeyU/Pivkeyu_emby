@@ -73,6 +73,10 @@ from bot.sql_helper.sql_xiuxian import (
     set_equipped_artifact,
     set_xiuxian_settings,
     sync_official_shop_name,
+    sync_artifact_by_name,
+    sync_pill_by_name,
+    sync_talisman_by_name,
+    sync_technique_by_name,
     unbind_user_artifact,
     unbind_user_talisman,
     update_shop_item,
@@ -874,25 +878,18 @@ def _current_technique_payload(profile_data: dict[str, Any]) -> dict[str, Any] |
 
 
 def ensure_seed_data() -> None:
-    existing_artifact_names = {item["name"] for item in list_artifacts()}
+    # 内置资源需要在升级后覆盖到现有记录，而不是仅在首次启动时插入。
     for payload in DEFAULT_ARTIFACTS:
-        if payload["name"] not in existing_artifact_names:
-            create_artifact(**payload)
+        sync_artifact_by_name(**payload)
 
-    existing_pill_names = {item["name"] for item in list_pills()}
     for payload in DEFAULT_PILLS:
-        if payload["name"] not in existing_pill_names:
-            create_pill(**payload)
+        sync_pill_by_name(**payload)
 
-    existing_talisman_names = {item["name"] for item in list_talismans()}
     for payload in DEFAULT_TALISMANS:
-        if payload["name"] not in existing_talisman_names:
-            create_talisman(**payload)
+        sync_talisman_by_name(**payload)
 
-    existing_technique_names = {item["name"] for item in list_techniques()}
     for payload in DEFAULT_TECHNIQUES:
-        if payload["name"] not in existing_technique_names:
-            create_technique(**payload)
+        sync_technique_by_name(**payload)
 
 
 def china_now():

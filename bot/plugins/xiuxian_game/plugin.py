@@ -46,6 +46,7 @@ from bot.plugins.xiuxian_game.service import (
     create_talisman,
     duel_keyboard,
     equip_artifact_for_user,
+    ensure_seed_data,
     finish_retreat_for_user,
     format_leaderboard_text,
     format_root,
@@ -2342,6 +2343,8 @@ def register_web(app) -> None:
     @admin_router.post("/bootstrap")
     async def xiuxian_admin_bootstrap(payload: AdminBootstrapPayload):
         admin_user = _verify_admin_credential(payload.token, payload.init_data)
+        # 管理页启动时先同步一次默认种子，确保拉新镜像后能立即看到最新配置。
+        ensure_seed_data()
         world = _admin_world_snapshot()
         return {
             "code": 200,
