@@ -219,6 +219,18 @@ PILL_EFFECT_VALUE_LABELS = {
     "root_refine": "淬灵阶数",
     "root_remold": "保底品阶",
 }
+
+
+def list_pill_type_options() -> list[dict[str, str]]:
+    # 管理页丹药类型统一以后端定义为准，避免前端写死后升级不生效。
+    return [
+        {
+            "value": key,
+            "label": label,
+            "effect": PILL_EFFECT_VALUE_LABELS.get(key, "主效果"),
+        }
+        for key, label in PILL_TYPE_LABELS.items()
+    ]
 ATTRIBUTE_LABELS = {
     "bone_bonus": "根骨",
     "comprehension_bonus": "悟性",

@@ -127,6 +127,7 @@ from bot.sql_helper.sql_xiuxian import (
     grant_image_upload_permission,
     has_image_upload_permission,
     list_materials,
+    list_pill_type_options,
     list_image_upload_permissions,
     list_recent_journals,
     list_recipes,
@@ -2351,6 +2352,7 @@ def register_web(app) -> None:
             "data": {
                 "admin_user": admin_user,
                 "settings": update_xiuxian_settings({}),
+                "pill_type_options": list_pill_type_options(),
                 "artifacts": list_artifacts(),
                 "pills": list_pills(),
                 "talismans": list_talismans(),

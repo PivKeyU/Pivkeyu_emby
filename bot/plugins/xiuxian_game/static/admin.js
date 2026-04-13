@@ -1062,6 +1062,14 @@ async function bootstrapAdmin(forceToken = false) {
     return;
   }
   const data = await request("POST", "/plugins/xiuxian/admin-api/bootstrap", payload);
+  if (Array.isArray(data.pill_type_options) && data.pill_type_options.length) {
+    // 后台下拉选项以后端定义为准，镜像更新后管理页可立即看到最新类型与文案。
+    PILL_TYPES.splice(0, PILL_TYPES.length, ...data.pill_type_options.map((item) => ({
+      value: String(item.value || ""),
+      label: String(item.label || item.value || ""),
+      effect: String(item.effect || "主效果"),
+    })));
+  }
   state.bundle = data;
   applySettings(data.settings || {});
   syncSelects();
