@@ -16,6 +16,7 @@ from bot.func_helper.emby_currency import (
     get_exchange_settings,
 )
 from bot.sql_helper.sql_xiuxian import (
+    ATTRIBUTE_LABELS,
     DEFAULT_SETTINGS,
     ELEMENT_CONTROLS,
     ELEMENT_GENERATES,
@@ -71,6 +72,7 @@ from bot.sql_helper.sql_xiuxian import (
     set_active_talisman,
     set_equipped_artifact,
     set_xiuxian_settings,
+    sync_official_shop_name,
     unbind_user_artifact,
     unbind_user_talisman,
     update_shop_item,
@@ -93,6 +95,8 @@ ROOT_SPECIAL_BONUS = {
     "天灵根": 15,
     "地灵根": 10,
 }
+ROOT_COMMON_QUALITY_ORDER = ["废灵根", "下品灵根", "中品灵根", "上品灵根", "极品灵根"]
+ROOT_SPECIAL_QUALITIES = {"天灵根", "变异灵根"}
 
 PERSONAL_SHOP_NAME = "游仙小铺"
 
@@ -128,6 +132,114 @@ DEFAULT_PILLS = [
         "effect_value": 50,
         "poison_delta": 0,
         "image_url": "",
+        "enabled": True,
+    },
+    {
+        "name": "洗髓丹",
+        "rarity": "下品",
+        "pill_type": "bone",
+        "description": "淬炼筋骨，永久提升 4 点根骨。",
+        "effect_value": 4,
+        "poison_delta": 6,
+        "image_url": "",
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 3,
+        "enabled": True,
+    },
+    {
+        "name": "悟道丹",
+        "rarity": "下品",
+        "pill_type": "comprehension",
+        "description": "澄明灵台，永久提升 4 点悟性。",
+        "effect_value": 4,
+        "poison_delta": 8,
+        "image_url": "",
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 5,
+        "enabled": True,
+    },
+    {
+        "name": "凝神丹",
+        "rarity": "下品",
+        "pill_type": "divine_sense",
+        "description": "凝练识海，永久提升 4 点神识。",
+        "effect_value": 4,
+        "poison_delta": 6,
+        "image_url": "",
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 4,
+        "enabled": True,
+    },
+    {
+        "name": "天运丹",
+        "rarity": "中品",
+        "pill_type": "fortune",
+        "description": "温养命数，永久提升 3 点机缘。",
+        "effect_value": 3,
+        "poison_delta": 5,
+        "image_url": "",
+        "min_realm_stage": "筑基",
+        "min_realm_layer": 1,
+        "enabled": True,
+    },
+    {
+        "name": "血魄丹",
+        "rarity": "下品",
+        "pill_type": "qi_blood",
+        "description": "淬炼气血，永久提升 60 点气血。",
+        "effect_value": 60,
+        "poison_delta": 10,
+        "image_url": "",
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 6,
+        "enabled": True,
+    },
+    {
+        "name": "蕴元丹",
+        "rarity": "下品",
+        "pill_type": "true_yuan",
+        "description": "温养丹田，永久提升 50 点真元。",
+        "effect_value": 50,
+        "poison_delta": 9,
+        "image_url": "",
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 6,
+        "enabled": True,
+    },
+    {
+        "name": "轻灵丹",
+        "rarity": "下品",
+        "pill_type": "body_movement",
+        "description": "轻身活脉，永久提升 4 点身法。",
+        "effect_value": 4,
+        "poison_delta": 6,
+        "image_url": "",
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 4,
+        "enabled": True,
+    },
+    {
+        "name": "补天丹",
+        "rarity": "极品",
+        "pill_type": "root_refine",
+        "description": "淬炼灵根，灵根品质提升 1 阶，最高提升至极品灵根。",
+        "effect_value": 1,
+        "poison_delta": 14,
+        "image_url": "",
+        "min_realm_stage": "筑基",
+        "min_realm_layer": 5,
+        "enabled": True,
+    },
+    {
+        "name": "洗灵丹",
+        "rarity": "极品",
+        "pill_type": "root_remold",
+        "description": "重塑灵根，重新洗炼灵根属性，结果至少为中品灵根。",
+        "effect_value": 3,
+        "poison_delta": 18,
+        "image_url": "",
+        "min_realm_stage": "筑基",
+        "min_realm_layer": 9,
         "enabled": True,
     },
 ]
@@ -559,6 +671,8 @@ def resolve_pill_effects(
             "qi_blood_bonus": 0.0,
             "true_yuan_bonus": 0.0,
             "body_movement_bonus": 0.0,
+            "root_quality_gain": 0.0,
+            "root_quality_floor": 0.0,
         }
     pill_type = pill.get("pill_type")
     multiplier = _item_quality_multiplier(pill, "pill")
@@ -580,11 +694,19 @@ def resolve_pill_effects(
         "qi_blood_bonus": float(pill.get("qi_blood_bonus", 0) or 0) * multiplier,
         "true_yuan_bonus": float(pill.get("true_yuan_bonus", 0) or 0) * multiplier,
         "body_movement_bonus": float(pill.get("body_movement_bonus", 0) or 0) * multiplier,
+        "root_quality_gain": 0.0,
+        "root_quality_floor": 0.0,
     }
     if pill_type == "foundation":
         payload["success_rate_bonus"] = base_effect_value
+    elif pill_type == "bone":
+        payload["bone_bonus"] += base_effect_value
     elif pill_type == "comprehension":
         payload["comprehension_bonus"] += base_effect_value
+    elif pill_type == "divine_sense":
+        payload["divine_sense_bonus"] += base_effect_value
+    elif pill_type == "fortune":
+        payload["fortune_bonus"] += base_effect_value
     elif pill_type == "qi_blood":
         payload["qi_blood_bonus"] += base_effect_value
     elif pill_type == "true_yuan":
@@ -595,7 +717,64 @@ def resolve_pill_effects(
         payload["attack_bonus"] += base_effect_value
     elif pill_type == "defense":
         payload["defense_bonus"] += base_effect_value
+    elif pill_type == "root_refine":
+        payload["root_quality_gain"] = max(base_effect_value, 0.0)
+    elif pill_type == "root_remold":
+        payload["root_quality_floor"] = max(base_effect_value, 0.0)
     return payload
+
+
+def _pill_usage_reason(profile_data: dict[str, Any], pill: dict[str, Any]) -> str:
+    if not realm_requirement_met(profile_data, pill.get("min_realm_stage"), pill.get("min_realm_layer")):
+        return f"需要达到 {format_realm_requirement(pill.get('min_realm_stage'), pill.get('min_realm_layer'))} 才能服用这枚丹药。"
+    pill_type = str(pill.get("pill_type") or "").strip()
+    if pill_type == "foundation":
+        return "筑基丹只能在突破时配合使用。"
+    if pill_type == "root_refine":
+        effects = resolve_pill_effects(profile_data, pill)
+        steps = max(int(round(float(effects.get("root_quality_gain", 0) or 0))), 0)
+        current_quality = _normalized_root_quality(profile_data)
+        if current_quality in ROOT_SPECIAL_QUALITIES:
+            return "当前已是特殊灵根，无法再用此丹淬炼。"
+        if steps <= 0:
+            return "这枚淬灵丹没有可生效的品阶。"
+        if _refined_root_payload(profile_data, steps) is None:
+            return "当前灵根品质已达可淬炼上限。"
+    return ""
+
+
+def _pill_effect_summary(before_profile: dict[str, Any], after_profile: dict[str, Any]) -> str:
+    parts: list[str] = []
+    before_root = format_root(before_profile)
+    after_root = format_root(after_profile)
+    if before_root != after_root:
+        parts.append(f"灵根：{before_root} -> {after_root}")
+    for key in (
+        "cultivation",
+        "spiritual_stone",
+        "bone",
+        "comprehension",
+        "divine_sense",
+        "fortune",
+        "qi_blood",
+        "true_yuan",
+        "body_movement",
+        "attack_power",
+        "defense_power",
+        "dan_poison",
+    ):
+        delta = int(after_profile.get(key) or 0) - int(before_profile.get(key) or 0)
+        if not delta:
+            continue
+        label = {
+            "cultivation": "修为",
+            "spiritual_stone": "灵石",
+            "attack_power": "攻击",
+            "defense_power": "防御",
+            "dan_poison": "丹毒",
+        }.get(key, ATTRIBUTE_LABELS.get(f"{key}_bonus", key))
+        parts.append(f"{label} {'+' if delta > 0 else ''}{delta}")
+    return "；".join(parts) if parts else "药力已经化开。"
 
 
 def collect_equipped_artifacts(tg: int) -> list[dict[str, Any]]:
@@ -899,8 +1078,39 @@ def _settle_retreat_progress(tg: int) -> dict[str, Any] | None:
             )
         return None
 
-    gain = delta_minutes * int(profile.retreat_gain_per_minute or 0)
-    cost = delta_minutes * int(profile.retreat_cost_per_minute or 0)
+    gain_per_minute = max(int(profile.retreat_gain_per_minute or 0), 0)
+    cost_per_minute = max(int(profile.retreat_cost_per_minute or 0), 0)
+    affordable_minutes = delta_minutes
+    insufficient_stone = False
+    if cost_per_minute > 0:
+        # 灵石不足时只结算当前能支付的分钟数，避免把剩余闭关进度直接跳过。
+        affordable_minutes = min(delta_minutes, max(int(profile.spiritual_stone or 0), 0) // cost_per_minute)
+        insufficient_stone = affordable_minutes < delta_minutes
+
+    if affordable_minutes <= 0:
+        if insufficient_stone or now >= end_at:
+            updated = upsert_profile(
+                tg,
+                retreat_started_at=None,
+                retreat_end_at=None,
+                retreat_gain_per_minute=0,
+                retreat_cost_per_minute=0,
+                retreat_minutes_total=0,
+                retreat_minutes_resolved=0,
+            )
+            return {
+                "gain": 0,
+                "cost": 0,
+                "upgraded_layers": [],
+                "remaining": 0,
+                "finished": True,
+                "insufficient_stone": True,
+                "profile": serialize_profile(updated),
+            }
+        return None
+
+    gain = affordable_minutes * gain_per_minute
+    cost = affordable_minutes * cost_per_minute
     layer, cultivation, upgraded_layers, remaining = apply_cultivation_gain(
         profile.realm_stage or "炼气",
         int(profile.realm_layer or 1),
@@ -908,24 +1118,20 @@ def _settle_retreat_progress(tg: int) -> dict[str, Any] | None:
         gain,
     )
 
-    finished = target_minutes >= total_minutes or now >= end_at
+    settled_minutes = min(resolved_minutes + affordable_minutes, total_minutes)
+    finished = insufficient_stone or settled_minutes >= total_minutes or now >= end_at
     updated = upsert_profile(
         tg,
         cultivation=cultivation,
         realm_layer=layer,
         spiritual_stone=max(int(profile.spiritual_stone or 0) - cost, 0),
-        retreat_minutes_resolved=target_minutes if not finished else total_minutes,
+        retreat_minutes_resolved=0 if finished else settled_minutes,
         retreat_started_at=None if finished else profile.retreat_started_at,
         retreat_end_at=None if finished else profile.retreat_end_at,
         retreat_gain_per_minute=0 if finished else int(profile.retreat_gain_per_minute or 0),
         retreat_cost_per_minute=0 if finished else int(profile.retreat_cost_per_minute or 0),
         retreat_minutes_total=0 if finished else total_minutes,
     )
-    if finished:
-        updated = upsert_profile(
-            tg,
-            retreat_minutes_resolved=0,
-        )
 
     return {
         "gain": gain,
@@ -933,6 +1139,7 @@ def _settle_retreat_progress(tg: int) -> dict[str, Any] | None:
         "upgraded_layers": upgraded_layers,
         "remaining": remaining,
         "finished": finished,
+        "insufficient_stone": insufficient_stone,
         "profile": serialize_profile(updated),
     }
 
@@ -1061,11 +1268,8 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
     for row in list_user_pills(tg):
         item = row["pill"]
         item["resolved_effects"] = resolve_pill_effects(profile_data, item)
-        usable = realm_requirement_met(profile_data, item.get("min_realm_stage"), item.get("min_realm_layer"))
-        reason = "" if usable else f"需要达到 {format_realm_requirement(item.get('min_realm_stage'), item.get('min_realm_layer'))}"
-        if item.get("pill_type") == "foundation":
-            usable = False
-            reason = "筑基丹只能在突破时配合使用"
+        reason = _pill_usage_reason(profile_data, item)
+        usable = not reason
         row["pill"]["usable"] = usable and not retreating
         row["pill"]["unusable_reason"] = "闭关期间无法使用丹药" if usable and retreating else reason
         pills.append(row)
@@ -1105,6 +1309,9 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         "duel_winner_steal_percent": int(
             xiuxian_settings.get("duel_winner_steal_percent", DEFAULT_SETTINGS["duel_winner_steal_percent"]) or 0
         ),
+        "official_shop_name": str(xiuxian_settings.get("official_shop_name", DEFAULT_SETTINGS["official_shop_name"]) or DEFAULT_SETTINGS["official_shop_name"]),
+        "allow_user_task_publish": bool(xiuxian_settings.get("allow_user_task_publish", DEFAULT_SETTINGS["allow_user_task_publish"])),
+        "task_publish_cost": max(int(xiuxian_settings.get("task_publish_cost", DEFAULT_SETTINGS["task_publish_cost"]) or 0), 0),
     }
 
     capabilities = {
@@ -1419,7 +1626,7 @@ def create_official_shop_listing(
     shop_name: str | None = None,
 ) -> dict[str, Any]:
     settings = get_xiuxian_settings()
-    official_name = shop_name or settings.get("official_shop_name", DEFAULT_SETTINGS["official_shop_name"])
+    official_name = str(settings.get("official_shop_name", DEFAULT_SETTINGS["official_shop_name"]) or DEFAULT_SETTINGS["official_shop_name"]).strip() or DEFAULT_SETTINGS["official_shop_name"]
     if item_kind == "artifact":
         artifact = get_artifact(item_ref_id)
         if artifact is None:
@@ -1456,6 +1663,28 @@ def patch_shop_listing(item_id: int, **fields) -> dict[str, Any] | None:
 
 def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
     patch = dict(payload)
+    if "shop_broadcast_cost" in patch and patch["shop_broadcast_cost"] is not None:
+        patch["shop_broadcast_cost"] = min(
+            _coerce_int(
+                patch["shop_broadcast_cost"],
+                DEFAULT_SETTINGS["shop_broadcast_cost"],
+                0,
+            ),
+            1000000,
+        )
+    if "official_shop_name" in patch and patch["official_shop_name"] is not None:
+        patch["official_shop_name"] = str(patch["official_shop_name"]).strip() or DEFAULT_SETTINGS["official_shop_name"]
+    if "allow_user_task_publish" in patch:
+        patch["allow_user_task_publish"] = bool(patch["allow_user_task_publish"])
+    if "task_publish_cost" in patch and patch["task_publish_cost"] is not None:
+        patch["task_publish_cost"] = min(
+            _coerce_int(
+                patch["task_publish_cost"],
+                DEFAULT_SETTINGS["task_publish_cost"],
+                0,
+            ),
+            1000000,
+        )
     if "equipment_unbind_cost" in patch and patch["equipment_unbind_cost"] is not None:
         patch["equipment_unbind_cost"] = min(
             _coerce_int(
@@ -1522,7 +1751,10 @@ def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
             ),
             9,
         )
-    return set_xiuxian_settings(patch)
+    settings = set_xiuxian_settings(patch)
+    if "official_shop_name" in patch:
+        sync_official_shop_name(settings["official_shop_name"])
+    return settings
 
 
 def grant_item_to_user(tg: int, item_kind: str, item_ref_id: int, quantity: int) -> dict[str, Any]:
@@ -1748,10 +1980,12 @@ def broadcast_shop_copy(seller_name: str, shop_name: str, item_name: str, price_
 
 
 def convert_emby_coin_to_stone(tg: int, amount: int) -> dict[str, Any]:
+    ensure_not_in_retreat(tg)
     return convert_coin_to_stone(tg, amount)
 
 
 def convert_stone_to_emby_coin(tg: int, amount: int) -> dict[str, Any]:
+    ensure_not_in_retreat(tg)
     return convert_stone_to_coin(tg, amount)
 
 
@@ -1980,6 +2214,46 @@ def generate_root_payload() -> dict[str, Any]:
     }
 
 
+def _refined_root_payload(profile: dict[str, Any], steps: int) -> dict[str, Any] | None:
+    quality_name = _normalized_root_quality(profile)
+    if quality_name in ROOT_SPECIAL_QUALITIES:
+        return None
+    current_quality = quality_name if quality_name in ROOT_COMMON_QUALITY_ORDER else "中品灵根"
+    current_index = ROOT_COMMON_QUALITY_ORDER.index(current_quality)
+    target_index = min(current_index + max(int(steps or 0), 0), len(ROOT_COMMON_QUALITY_ORDER) - 1)
+    if target_index <= current_index:
+        return None
+    target_quality = ROOT_COMMON_QUALITY_ORDER[target_index]
+    quality = _root_quality_payload(target_quality)
+    return {
+        "root_type": profile.get("root_type"),
+        "root_primary": profile.get("root_primary"),
+        "root_secondary": profile.get("root_secondary"),
+        "root_relation": profile.get("root_relation"),
+        "root_bonus": int(profile.get("root_bonus") or 0),
+        "root_quality": target_quality,
+        "root_quality_level": int(quality["level"]),
+        "root_quality_color": quality["color"],
+    }
+
+
+def _generate_root_payload_with_floor(floor_level: int) -> dict[str, Any]:
+    minimum = max(min(int(floor_level or 0), ROOT_QUALITY_LEVELS["极品灵根"]), 0)
+    best = generate_root_payload()
+    best_level = int(best.get("root_quality_level") or 0)
+    if minimum <= 0 or best_level >= minimum:
+        return best
+    for _ in range(31):
+        candidate = generate_root_payload()
+        candidate_level = int(candidate.get("root_quality_level") or 0)
+        if candidate_level >= minimum:
+            return candidate
+        if candidate_level > best_level:
+            best = candidate
+            best_level = candidate_level
+    return best
+
+
 def format_root(payload: dict[str, Any]) -> str:
     root_type = str(payload.get("root_type") or "").strip()
     if not root_type:
@@ -2167,14 +2441,13 @@ def consume_pill_for_user(tg: int, pill_id: int) -> dict[str, Any]:
     if pill is None or not pill.enabled:
         raise ValueError("未找到可用的丹药。")
     profile_data = serialize_profile(profile)
-    if not realm_requirement_met(profile_data, pill.min_realm_stage, pill.min_realm_layer):
-        raise ValueError(f"需要达到 {format_realm_requirement(pill.min_realm_stage, pill.min_realm_layer)} 才能服用这枚丹药。")
-    if pill.pill_type == "foundation":
-        raise ValueError("筑基丹只能在突破时使用。")
+    pill_data = serialize_pill(pill)
+    usage_reason = _pill_usage_reason(profile_data, pill_data)
+    if usage_reason:
+        raise ValueError(usage_reason)
     if not consume_user_pill(tg, pill_id, 1):
         raise ValueError("你的背包里没有这枚丹药。")
 
-    pill_data = serialize_pill(pill)
     effects = resolve_pill_effects(profile_data, pill_data)
     bone_resistance = min((float(profile.bone or 0) / 200), 0.45)
     dan_poison = min(int(profile.dan_poison or 0) + int(round(float(effects.get("poison_delta", 0) or 0) * (1 - bone_resistance))), 100)
@@ -2189,6 +2462,7 @@ def consume_pill_for_user(tg: int, pill_id: int) -> dict[str, Any]:
     body_movement = int(profile.body_movement or 0) + int(round(effects.get("body_movement_bonus", 0)))
     attack_power = int(profile.attack_power or 0) + int(round(effects.get("attack_bonus", 0)))
     defense_power = int(profile.defense_power or 0) + int(round(effects.get("defense_bonus", 0)))
+    root_patch: dict[str, Any] | None = None
 
     if pill.pill_type == "clear_poison":
         dan_poison = max(dan_poison - int(round(effects.get("clear_poison", effects.get("effect_value", 50)))), 0)
@@ -2196,6 +2470,12 @@ def consume_pill_for_user(tg: int, pill_id: int) -> dict[str, Any]:
         cultivation += int(round(effects.get("cultivation_gain", effects.get("effect_value", 0))))
     elif pill.pill_type == "stone":
         spiritual_stone += int(round(effects.get("stone_gain", effects.get("effect_value", 0))))
+    elif pill.pill_type == "root_refine":
+        steps = max(int(round(float(effects.get("root_quality_gain", 0) or 0))), 0)
+        root_patch = _refined_root_payload(profile_data, steps)
+    elif pill.pill_type == "root_remold":
+        floor_level = max(int(round(float(effects.get("root_quality_floor", 0) or 0))), 0)
+        root_patch = _generate_root_payload_with_floor(floor_level)
 
     layer, cultivation, _, _ = apply_cultivation_gain(normalize_realm_stage(profile.realm_stage or "炼气"), int(profile.realm_layer or 1), cultivation, 0)
     updated = upsert_profile(
@@ -2213,8 +2493,14 @@ def consume_pill_for_user(tg: int, pill_id: int) -> dict[str, Any]:
         attack_power=attack_power,
         defense_power=defense_power,
         realm_layer=layer,
+        **(root_patch or {}),
     )
-    return {"pill": {**pill_data, "resolved_effects": effects}, "profile": serialize_full_profile(updated.tg)}
+    bundle = serialize_full_profile(updated.tg)
+    return {
+        "pill": {**pill_data, "resolved_effects": effects},
+        "profile": bundle,
+        "summary": _pill_effect_summary(profile_data, bundle["profile"]),
+    }
 
 
 def _duel_display_name(profile: dict[str, Any]) -> str:

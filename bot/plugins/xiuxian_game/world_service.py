@@ -337,6 +337,14 @@ def _normalize_quiz_answer_text(answer_text: str | None) -> str:
     return re.sub(r"\s+", "", raw)
 
 
+def _meaningful_text_length(value: str | None) -> int:
+    raw = str(value or "").strip()
+    if not raw:
+        return 0
+    normalized = re.sub(r"[^\w\u4e00-\u9fff]+", "", raw, flags=re.UNICODE)
+    return len(normalized or re.sub(r"\s+", "", raw))
+
+
 def create_bounty_task(
     *,
     actor_tg: int | None,
@@ -359,14 +367,35 @@ def create_bounty_task(
     active_in_group: bool = False,
     group_chat_id: int | None = None,
 ) -> dict[str, Any]:
+    title_value = str(title or "").strip()
+    description_value = str(description or "").strip()
+    question_value = str(question_text or "").strip()
+    image_value = str(image_url or "").strip()
+    task_scope_value = str(task_scope or "personal").strip() or "personal"
     task_type_value = str(task_type or "custom").strip() or "custom"
     normalized_answer = _normalize_quiz_answer_text(answer_text)
     should_push_group = bool(active_in_group)
     required_kind = str(required_item_kind or "").strip() or None
     required_ref = int(required_item_ref_id or 0) or None
     required_qty = max(int(required_item_quantity or 0), 0)
+    reward_kind = str(reward_item_kind or "").strip() or None
+    reward_ref = int(reward_item_ref_id or 0) or None
+    reward_qty = max(int(reward_item_quantity or 0), 0)
+    reward_stone_value = max(int(reward_stone or 0), 0)
+    publish_cost = 0
+
+    if task_scope_value not in {"official", "sect", "personal"}:
+        raise ValueError("任务范围不支持")
+    if task_type_value not in {"quiz", "custom"}:
+        raise ValueError("任务类型不支持")
+    if actor_tg is not None and task_scope_value == "official":
+        raise ValueError("玩家不能发布官方任务")
+    if _meaningful_text_length(title_value) < 2:
+        raise ValueError("任务标题至少填写 2 个字")
 
     if task_type_value == "quiz":
+        if _meaningful_text_length(question_value) < 4:
+            raise ValueError("答题任务必须填写清晰的题目内容")
         if not normalized_answer:
             raise ValueError("答题任务必须填写标准答案")
         if not group_chat_id:
@@ -375,6 +404,8 @@ def create_bounty_task(
             raise ValueError("答题任务暂不支持提交物品")
         should_push_group = True
         max_claimants = 1
+    elif _meaningful_text_length(description_value) < 6:
+        raise ValueError("普通任务必须填写至少 6 个字的任务说明")
 
     if required_kind:
         if required_kind not in {"artifact", "pill", "talisman", "material"}:
@@ -389,40 +420,83 @@ def create_bounty_task(
         required_ref = None
         required_qty = 0
 
-    if task_scope == "sect":
+    if reward_kind:
+        if reward_kind not in {"artifact", "pill", "talisman", "material"}:
+            raise ValueError("任务奖励物类型不支持")
+        if reward_ref is None:
+            raise ValueError("请选择任务奖励物")
+        if reward_qty <= 0:
+            raise ValueError("任务奖励物数量必须大于 0")
+        if _get_item_payload(reward_kind, reward_ref) is None:
+            raise ValueError("任务奖励物不存在")
+    else:
+        reward_ref = None
+        reward_qty = 0
+
+    actor_profile = None
+    settings = get_xiuxian_settings()
+    if actor_tg is not None:
+        # 玩家发布任务先过开关、身份与灵石扣费三道校验。
+        if not bool(settings.get("allow_user_task_publish", DEFAULT_SETTINGS.get("allow_user_task_publish", True))):
+            raise ValueError("当前未开放玩家发布任务")
+        actor_profile = serialize_profile(get_profile(actor_tg, create=False))
+        if not actor_profile or not actor_profile.get("consented"):
+            raise ValueError("你还没有踏入仙途")
+        publish_cost = max(int(settings.get("task_publish_cost", DEFAULT_SETTINGS.get("task_publish_cost", 0)) or 0), 0)
+
+    if task_scope_value == "sect":
         if actor_tg is None:
             if not sect_id:
                 raise ValueError("宗门任务必须指定宗门")
         else:
             if not _can_publish_sect_task(actor_tg):
                 raise ValueError("当前身份无法发布宗门任务")
-            actor_profile = serialize_profile(get_profile(actor_tg, create=False))
             sect_id = int(actor_profile.get("sect_id") or 0)
             if not sect_id:
                 raise ValueError("你尚未加入宗门")
-    return _decorate_task_payload(create_task(
-        title=title,
-        description=description,
-        task_scope=task_scope,
-        task_type=task_type_value,
-        owner_tg=actor_tg,
-        sect_id=sect_id,
-        question_text=question_text or None,
-        answer_text=normalized_answer or None,
-        image_url=image_url or None,
-        required_item_kind=required_kind,
-        required_item_ref_id=required_ref,
-        required_item_quantity=required_qty,
-        reward_stone=max(int(reward_stone or 0), 0),
-        reward_item_kind=reward_item_kind or None,
-        reward_item_ref_id=reward_item_ref_id,
-        reward_item_quantity=max(int(reward_item_quantity or 0), 0),
-        max_claimants=max(int(max_claimants or 1), 1),
-        active_in_group=should_push_group,
-        group_chat_id=group_chat_id,
-        status="open",
-        enabled=True,
-    ))
+
+    with Session() as session:
+        if actor_tg is not None:
+            publisher = session.query(XiuxianProfile).filter(XiuxianProfile.tg == actor_tg).with_for_update().first()
+            if publisher is None or not publisher.consented:
+                raise ValueError("你还没有踏入仙途")
+            if int(publisher.spiritual_stone or 0) < publish_cost:
+                raise ValueError(f"灵石不足，发布任务需要 {publish_cost} 灵石")
+            if publish_cost > 0:
+                publisher.spiritual_stone -= publish_cost
+                publisher.updated_at = utcnow()
+
+        task_row = XiuxianTask(
+            title=title_value,
+            description=description_value or None,
+            task_scope=task_scope_value,
+            task_type=task_type_value,
+            owner_tg=actor_tg,
+            sect_id=sect_id,
+            question_text=question_value or None,
+            answer_text=normalized_answer or None,
+            image_url=image_value or None,
+            required_item_kind=required_kind,
+            required_item_ref_id=required_ref,
+            required_item_quantity=required_qty,
+            reward_stone=reward_stone_value,
+            reward_item_kind=reward_kind,
+            reward_item_ref_id=reward_ref,
+            reward_item_quantity=reward_qty,
+            max_claimants=max(int(max_claimants or 1), 1),
+            active_in_group=should_push_group,
+            group_chat_id=group_chat_id,
+            status="open",
+            enabled=True,
+        )
+        session.add(task_row)
+        session.commit()
+        session.refresh(task_row)
+        payload = _decorate_task_payload(serialize_task(task_row))
+
+    if payload is not None and actor_tg is not None:
+        payload["publish_cost"] = publish_cost
+    return payload
 
 
 def list_task_claims_for_user(tg: int) -> list[dict[str, Any]]:

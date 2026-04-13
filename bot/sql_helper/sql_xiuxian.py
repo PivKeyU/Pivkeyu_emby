@@ -39,10 +39,21 @@ ARTIFACT_TYPE_LABELS = {
     "support": "辅助法宝",
 }
 PILL_TYPE_LABELS = {
-    "foundation": "筑基突破",
-    "clear_poison": "清心解毒",
-    "cultivation": "修为提升",
-    "stone": "灵石补给",
+    "foundation": "突破加成",
+    "clear_poison": "解毒",
+    "cultivation": "提升修为",
+    "stone": "补给灵石",
+    "bone": "提升根骨",
+    "comprehension": "提升悟性",
+    "divine_sense": "提升神识",
+    "fortune": "提升机缘",
+    "qi_blood": "提升气血",
+    "true_yuan": "提升真元",
+    "body_movement": "提升身法",
+    "attack": "提升攻击",
+    "defense": "提升防御",
+    "root_refine": "淬炼灵根",
+    "root_remold": "重塑灵根",
 }
 SECT_ROLE_PRESETS = [
     ("leader", "掌门", 1),
@@ -119,6 +130,8 @@ DEFAULT_SETTINGS = {
     "artifact_plunder_chance": 20,
     "shop_broadcast_cost": 20,
     "official_shop_name": "风月阁",
+    "allow_user_task_publish": True,
+    "task_publish_cost": 20,
     "artifact_equip_limit": 3,
     "duel_winner_steal_percent": 25,
     "allow_non_admin_image_upload": False,
@@ -177,12 +190,34 @@ PILL_TYPE_LABELS = {
     "clear_poison": "解毒",
     "cultivation": "提升修为",
     "stone": "补给灵石",
+    "bone": "提升根骨",
     "comprehension": "提升悟性",
+    "divine_sense": "提升神识",
+    "fortune": "提升机缘",
     "qi_blood": "提升气血",
     "true_yuan": "提升真元",
     "body_movement": "提升身法",
     "attack": "提升攻击",
     "defense": "提升防御",
+    "root_refine": "淬炼灵根",
+    "root_remold": "重塑灵根",
+}
+PILL_EFFECT_VALUE_LABELS = {
+    "foundation": "突破增幅",
+    "clear_poison": "解毒值",
+    "cultivation": "修为增量",
+    "stone": "灵石增量",
+    "bone": "根骨增量",
+    "comprehension": "悟性增量",
+    "divine_sense": "神识增量",
+    "fortune": "机缘增量",
+    "qi_blood": "气血增量",
+    "true_yuan": "真元增量",
+    "body_movement": "身法增量",
+    "attack": "攻击增量",
+    "defense": "防御增量",
+    "root_refine": "淬灵阶数",
+    "root_remold": "保底品阶",
 }
 ATTRIBUTE_LABELS = {
     "bone_bonus": "根骨",
@@ -1088,6 +1123,7 @@ def serialize_pill(pill: XiuxianPill | None) -> dict[str, Any] | None:
         "pill_type": pill.pill_type,
         "pill_type_label": PILL_TYPE_LABELS.get(pill.pill_type, pill.pill_type),
         "effect_label": PILL_TYPE_LABELS.get(pill.pill_type, pill.pill_type),
+        "effect_value_label": PILL_EFFECT_VALUE_LABELS.get(pill.pill_type, "主效果"),
         "image_url": pill.image_url,
         "description": pill.description,
         "effect_value": pill.effect_value,
@@ -2079,6 +2115,21 @@ def create_shop_item(
         return serialize_shop_item(item)
 
 
+def sync_official_shop_name(shop_name: str) -> int:
+    resolved_name = str(shop_name or "").strip() or DEFAULT_SETTINGS["official_shop_name"]
+    with Session() as session:
+        rows = session.query(XiuxianShopItem).filter(XiuxianShopItem.is_official.is_(True)).all()
+        changed = 0
+        for row in rows:
+            if row.shop_name == resolved_name:
+                continue
+            row.shop_name = resolved_name
+            row.updated_at = utcnow()
+            changed += 1
+        session.commit()
+        return changed
+
+
 def update_shop_item(item_id: int, **fields) -> dict[str, Any] | None:
     with Session() as session:
         item = session.query(XiuxianShopItem).filter(XiuxianShopItem.id == item_id).first()
@@ -2186,18 +2237,23 @@ def purchase_shop_item(buyer_tg: int, item_id: int, quantity: int = 1) -> dict[s
         else:
             raise ValueError("不支持的商品类型")
 
+        session.flush()
+        serialized_item = serialize_shop_item(item)
+        buyer_balance = int(buyer.spiritual_stone or 0)
+        seller_balance = None if seller is None else int(seller.spiritual_stone or 0)
         session.commit()
-        name_map = get_emby_name_map([buyer_tg] + ([seller_tg] if seller_tg else []))
-        return {
-            "item": serialize_shop_item(item),
-            "buyer_balance": buyer.spiritual_stone,
-            "seller_balance": None if seller is None else seller.spiritual_stone,
-            "total_cost": total_cost,
-            "buyer_tg": buyer_tg,
-            "buyer_name": name_map.get(buyer_tg, f"TG {buyer_tg}"),
-            "seller_tg": seller_tg,
-            "seller_name": name_map.get(seller_tg, f"TG {seller_tg}") if seller_tg else None,
-        }
+
+    name_map = get_emby_name_map([buyer_tg] + ([seller_tg] if seller_tg else []))
+    return {
+        "item": serialized_item,
+        "buyer_balance": buyer_balance,
+        "seller_balance": seller_balance,
+        "total_cost": total_cost,
+        "buyer_tg": buyer_tg,
+        "buyer_name": name_map.get(buyer_tg, f"TG {buyer_tg}"),
+        "seller_tg": seller_tg,
+        "seller_name": name_map.get(seller_tg, f"TG {seller_tg}") if seller_tg else None,
+    }
 
 
 def create_duel_record(

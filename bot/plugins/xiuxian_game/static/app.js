@@ -195,6 +195,11 @@ function formatDate(value) {
   return date ? date.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }) : "未知";
 }
 
+function officialShopName(bundle = state.profileBundle) {
+  const raw = bundle?.settings?.official_shop_name;
+  return String(raw || "").trim() || "官方商店";
+}
+
 function profileRootText(profile) {
   if (!profile.root_type) return "尚未踏入仙途";
   if (profile.root_type === "双灵根") {
@@ -218,6 +223,18 @@ function visibleFoldCards() {
   return [...document.querySelectorAll(".fold-card")].filter((card) => !card.classList.contains("hidden"));
 }
 
+function foldCardLabel(card) {
+  return card?.querySelector(".fold-summary h2")?.textContent?.trim() || "未命名模块";
+}
+
+function jumpToFoldCard(cardId) {
+  const card = document.getElementById(cardId);
+  if (!card || card.classList.contains("hidden")) return;
+  card.open = true;
+  card.scrollIntoView({ behavior: "smooth", block: "start" });
+  syncFoldToolbar();
+}
+
 function syncFoldToolbar() {
   const toolbar = document.querySelector("#fold-toolbar");
   if (!toolbar) return;
@@ -238,6 +255,20 @@ function syncFoldToolbar() {
   if (closeAllButton) {
     closeAllButton.disabled = !cards.some((card) => card.open);
   }
+
+  const shortcuts = document.querySelector("#fold-shortcuts");
+  if (shortcuts) {
+    shortcuts.innerHTML = "";
+    for (const card of cards) {
+      if (!card.id) continue;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `ghost fold-shortcut${card.open ? " is-active" : ""}`;
+      button.textContent = foldCardLabel(card);
+      button.dataset.foldTarget = card.id;
+      shortcuts.appendChild(button);
+    }
+  }
 }
 
 function toggleFoldCards(open) {
@@ -250,6 +281,11 @@ function toggleFoldCards(open) {
 function setupFoldToolbar() {
   document.querySelector("[data-fold-open-all]")?.addEventListener("click", () => toggleFoldCards(true));
   document.querySelector("[data-fold-close-all]")?.addEventListener("click", () => toggleFoldCards(false));
+  document.querySelector("#fold-shortcuts")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-fold-target]");
+    if (!button) return;
+    jumpToFoldCard(button.dataset.foldTarget);
+  });
   document.querySelectorAll(".fold-card").forEach((card) => {
     card.addEventListener("toggle", syncFoldToolbar);
   });
@@ -538,12 +574,21 @@ function renderProfile(bundle) {
   if (exchangeHint) {
     exchangeHint.textContent = `当前比例：1 片刻碎片 = ${rate} 灵石，手续费 ${fee}%，灵石兑换碎片最低 ${minExchange} 灵石。`;
   }
+  const officialShopTitle = document.querySelector("#official-shop-title");
+  if (officialShopTitle) {
+    officialShopTitle.textContent = officialShopName(bundle);
+  }
 
   setDisabled(document.querySelector("#train-btn"), !bundle.capabilities?.can_train, "当前无法吐纳修炼");
   setDisabled(document.querySelector("#break-btn"), !bundle.capabilities?.can_breakthrough, "当前无法尝试突破");
   setDisabled(document.querySelector("#break-pill-btn"), !bundle.capabilities?.can_breakthrough, "当前无法使用筑基丹突破");
   setDisabled(document.querySelector("#retreat-start-btn"), !bundle.capabilities?.can_retreat, "当前无法开始闭关");
   setDisabled(document.querySelector("#retreat-finish-btn"), !retreating, "当前没有进行中的闭关");
+  const exchangeDisabledReason = retreating ? "闭关期间无法兑换灵石和片刻碎片。" : "";
+  ["#coin-to-stone-amount", "#stone-to-coin-amount"]
+    .forEach((selector) => setDisabled(document.querySelector(selector), retreating, exchangeDisabledReason));
+  setDisabled(document.querySelector("#coin-to-stone-form button[type='submit']"), retreating, exchangeDisabledReason);
+  setDisabled(document.querySelector("#stone-to-coin-form button[type='submit']"), retreating, exchangeDisabledReason);
 
   const shopDisabledReason = retreating ? "闭关期间无法经营店铺。" : "";
   ["#shop-item-kind", "#shop-item-ref", "#shop-quantity", "#shop-price", "#shop-name", "#shop-broadcast"]
@@ -564,7 +609,7 @@ function renderArtifactList(items, retreating, equipLimit, equippedCount) {
   const root = document.querySelector("#artifact-list");
   root.innerHTML = "";
   if (!items.length) {
-    root.innerHTML = `<article class="stack-item"><strong>暂无法宝</strong><p>管理后台发放或在风月阁购买后会出现在这里。</p></article>`;
+    root.innerHTML = `<article class="stack-item"><strong>暂无法宝</strong><p>管理后台发放或在${escapeHtml(officialShopName())}购买后会出现在这里。</p></article>`;
     return;
   }
 
@@ -608,7 +653,7 @@ function renderPillList(items, retreating) {
   const root = document.querySelector("#pill-list");
   root.innerHTML = "";
   if (!items.length) {
-    root.innerHTML = `<article class="stack-item"><strong>暂无丹药</strong><p>风月阁购买或主人发放后会出现在这里。</p></article>`;
+    root.innerHTML = `<article class="stack-item"><strong>暂无丹药</strong><p>${escapeHtml(officialShopName())}购买或主人发放后会出现在这里。</p></article>`;
     return;
   }
 
@@ -628,7 +673,7 @@ function renderPillList(items, retreating) {
       <p>${escapeHtml(item.description || "暂无描述")}</p>
       <div class="item-tags">
         <span class="tag">${escapeHtml(item.pill_type_label)}</span>
-        <span class="tag">效果值 ${escapeHtml(effects.effect_value ?? item.effect_value)}</span>
+        <span class="tag">${escapeHtml(item.effect_value_label || "效果值")} ${escapeHtml(effects.effect_value ?? item.effect_value)}</span>
         <span class="tag">丹毒 +${escapeHtml(effects.poison_delta ?? item.poison_delta)}</span>
       </div>
       <p>境界要求：${escapeHtml(item.min_realm_stage ? `${item.min_realm_stage}${item.min_realm_layer}层` : "无限制")}</p>
@@ -680,7 +725,7 @@ function renderOfficialShop(items, retreating) {
   const root = document.querySelector("#official-shop-list");
   root.innerHTML = "";
   if (!items.length) {
-    root.innerHTML = `<article class="stack-item"><strong>风月阁暂无商品</strong><p>等主人上架后，这里会自动显示。</p></article>`;
+    root.innerHTML = `<article class="stack-item"><strong>${escapeHtml(officialShopName())}暂无商品</strong><p>等主人上架后，这里会自动显示。</p></article>`;
     return;
   }
 
@@ -806,6 +851,12 @@ function renderTaskArea(bundle) {
   const root = document.querySelector("#task-list");
   if (!root) return;
   root.innerHTML = "";
+  const settings = bundle.settings || {};
+  const publishAllowed = settings.allow_user_task_publish ?? true;
+  const publishCost = Number(settings.task_publish_cost || 0);
+  const currentStone = Number(bundle.profile?.spiritual_stone || 0);
+  const publishNote = document.querySelector("#task-compose-note");
+  const publishButton = document.querySelector("#task-form button[type='submit']");
   const uploadAllowed = Boolean(bundle.capabilities?.can_upload_images);
   const uploadReason = fallbackReason(bundle.capabilities?.upload_image_reason, "当前无法上传图片");
   const uploadButton = document.querySelector("#task-image-upload");
@@ -817,6 +868,18 @@ function renderTaskArea(bundle) {
     uploadHelp.textContent = uploadAllowed
       ? "如需带图答题，可先上传图片再发布任务。"
       : uploadReason;
+  }
+  let publishReason = "";
+  if (!publishAllowed) {
+    publishReason = "当前未开放玩家发布任务。";
+  } else if (currentStone < publishCost) {
+    publishReason = `发布任务需要 ${publishCost} 灵石，当前灵石不足。`;
+  }
+  setDisabled(publishButton, Boolean(publishReason), publishReason);
+  if (publishNote) {
+    publishNote.textContent = publishReason || (publishCost > 0
+      ? `当前发布一次任务需要消耗 ${publishCost} 灵石，信息不足会被拦截。`
+      : "发布前请补充清晰信息，信息不足会被拦截。");
   }
   renderTaskRequirementSelect();
   const tasks = bundle.tasks || [];
@@ -1042,7 +1105,7 @@ function renderArtifactList(items, retreating, equipLimit, equippedCount) {
   const root = document.querySelector("#artifact-list");
   root.innerHTML = "";
   if (!items.length) {
-    root.innerHTML = `<article class="stack-item"><strong>暂无法宝</strong><p>去风月阁挑几件趁手的宝贝，再来装配吧。</p></article>`;
+    root.innerHTML = `<article class="stack-item"><strong>暂无法宝</strong><p>去${escapeHtml(officialShopName())}挑几件趁手的宝贝，再来装配吧。</p></article>`;
     return;
   }
 
@@ -1381,9 +1444,12 @@ document.querySelector("#retreat-finish-btn").addEventListener("click", async (e
   try {
     const payload = await runButtonAction(button, "出关中…", () => postJson("/plugins/xiuxian/api/retreat/finish"));
     const settled = payload.settled || { gain: 0, cost: 0 };
-    const message = `本次闭关获得修为 ${settled.gain}，消耗灵石 ${settled.cost}。`;
-    setStatus(message, "success");
-    await popup("闭关结算完成", message);
+    const baseMessage = `本次闭关获得修为 ${settled.gain}，消耗灵石 ${settled.cost}。`;
+    const message = settled.insufficient_stone
+      ? `${baseMessage}由于中途灵石不足，剩余闭关进度未继续结算。`
+      : baseMessage;
+    setStatus(message, settled.insufficient_stone ? "warning" : "success");
+    await popup("闭关结算完成", message, settled.insufficient_stone ? "warning" : "success");
     await refreshBundle();
     await refreshLeaderboard("realm", 1);
   } catch (error) {
@@ -1526,8 +1592,9 @@ document.querySelector("#pill-list").addEventListener("click", async (event) => 
     const payload = await runButtonAction(button, "服用中…", () => postJson("/plugins/xiuxian/api/pill/use", {
       pill_id: Number(button.dataset.pillId)
     }));
-    const message = `已服用 ${payload.pill.name}。`;
-    setStatus(message, "success");
+    const statusMessage = `已服用 ${payload.pill.name}。`;
+    const message = payload.summary ? `${statusMessage}\n${payload.summary}` : statusMessage;
+    setStatus(statusMessage, "success");
     await popup("服用成功", message);
     await refreshBundle();
   } catch (error) {
@@ -2112,7 +2179,7 @@ renderArtifactList = function renderArtifactList(items, retreating, equipLimit, 
   if (!root) return;
   root.innerHTML = "";
   if (!items.length) {
-    root.innerHTML = `<article class="stack-item"><strong>暂无法宝</strong><p>管理后台发放或在风月阁购买后会出现在这里。</p></article>`;
+    root.innerHTML = `<article class="stack-item"><strong>暂无法宝</strong><p>管理后台发放或在${escapeHtml(officialShopName())}购买后会出现在这里。</p></article>`;
     return;
   }
   for (const row of items) {
@@ -2214,7 +2281,7 @@ renderPillList = function renderPillList(items, retreating) {
   if (!root) return;
   root.innerHTML = "";
   if (!items.length) {
-    root.innerHTML = `<article class="stack-item"><strong>暂无丹药</strong><p>风月阁购买或主人发放后会出现在这里。</p></article>`;
+    root.innerHTML = `<article class="stack-item"><strong>暂无丹药</strong><p>${escapeHtml(officialShopName())}购买或主人发放后会出现在这里。</p></article>`;
     return;
   }
   for (const row of items) {
@@ -2233,7 +2300,7 @@ renderPillList = function renderPillList(items, retreating) {
       <div class="item-tags">
         ${qualityBadgeHtml(item.rarity || "凡品", item.quality_color, "tag")}
         <span class="tag">${escapeHtml(item.pill_type_label || item.pill_type)}</span>
-        <span class="tag">主效果 ${escapeHtml(effects.effect_value ?? item.effect_value)}</span>
+        <span class="tag">${escapeHtml(item.effect_value_label || "主效果")} ${escapeHtml(effects.effect_value ?? item.effect_value)}</span>
         <span class="tag">丹毒 ${escapeHtml(effects.poison_delta ?? item.poison_delta)}</span>
         ${itemAffixTags(item, effects)}
       </div>
@@ -2262,6 +2329,8 @@ function syncAdminEntry(bundle = state.profileBundle) {
 function syncUserTaskComposer() {
   const taskType = document.querySelector("#task-type")?.value || "custom";
   const isQuiz = taskType === "quiz";
+  const title = document.querySelector("#task-title");
+  const description = document.querySelector("#task-description");
   const pushGroup = document.querySelector("#task-push-group");
   const maxClaimants = document.querySelector("#task-max-claimants");
   const question = document.querySelector("#task-question");
@@ -2277,6 +2346,8 @@ function syncUserTaskComposer() {
     if (isQuiz) maxClaimants.value = "1";
     maxClaimants.disabled = isQuiz;
   }
+  if (title) title.required = true;
+  if (description) description.required = !isQuiz;
   if (question) question.required = isQuiz;
   if (answer) answer.required = isQuiz;
   if (requiredKind) {
@@ -2326,9 +2397,11 @@ document.querySelector("#task-form")?.addEventListener("submit", async (event) =
       active_in_group: document.querySelector("#task-push-group").checked
     }));
     const pushWarning = payload.push_warning;
+    const publishCost = Number(state.profileBundle?.settings?.task_publish_cost || 0);
+    const costText = publishCost > 0 ? `，消耗 ${publishCost} 灵石` : "";
     const message = pushWarning
-      ? `任务《${payload.task.title}》已创建，但群内推送失败。\n${pushWarning}`
-      : `任务《${payload.task.title}》已发布。`;
+      ? `任务《${payload.task.title}》已创建${costText}，但群内推送失败。\n${pushWarning}`
+      : `任务《${payload.task.title}》已发布${costText}。`;
     setStatus(message, pushWarning ? "warning" : "success");
     await popup(pushWarning ? "创建已完成，但推送失败" : "发布成功", message, pushWarning ? "warning" : "success");
     form?.reset?.();

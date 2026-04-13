@@ -71,6 +71,7 @@ const refs = {
   authStatus: document.querySelector("#auth-status"),
   authModePill: document.querySelector("#auth-mode-pill"),
   selectedUserPill: document.querySelector("#selected-user-pill"),
+  jumpEditorButton: document.querySelector("#jump-editor-button"),
   pageBackButton: document.querySelector("#page-back-button"),
   tokenPanel: document.querySelector("#token-panel"),
   tokenForm: document.querySelector("#token-form"),
@@ -354,6 +355,23 @@ function setSelectedUserPill(text = "未选中用户") {
   refs.selectedUserPill.textContent = text;
 }
 
+function syncEditorShortcut() {
+  if (!refs.jumpEditorButton) return;
+  const hasSelection = Boolean(state.selectedTg);
+  refs.jumpEditorButton.disabled = !hasSelection;
+  refs.jumpEditorButton.textContent = hasSelection ? "回到当前编辑" : "跳到用户编辑";
+}
+
+function pulseTarget(node) {
+  if (!node) return;
+  node.classList.remove("jump-highlight");
+  void node.offsetWidth;
+  node.classList.add("jump-highlight");
+  window.setTimeout(() => {
+    node.classList.remove("jump-highlight");
+  }, 1500);
+}
+
 function setAuthCopy(title, status) {
   refs.authTitle.textContent = title;
   refs.authStatus.textContent = status;
@@ -371,6 +389,7 @@ function focusSection(sectionId, smooth = true) {
   section.open = true;
   setActiveNav(sectionId);
   section.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" });
+  pulseTarget(section);
 }
 
 function toggleSections(open) {
@@ -841,6 +860,7 @@ function fillEditor(item) {
 
   refs.editorStatus.textContent = `当前正在编辑账号 ${item.tg} · ${item.lv_text || level.text}`;
   setSelectedUserPill(`正在编辑 ${item.tg_display_label || item.name || item.embyid || `TG ${item.tg}`}`);
+  syncEditorShortcut();
 }
 
 async function loadSummary() {
@@ -906,11 +926,7 @@ async function loadUser(tg) {
     fillEditor(result.data);
     renderUsers(state.visibleUsers);
     setAdminStatus(`已载入账号 ${tg} 的资料，可以开始编辑。`);
-    setActiveNav("editor-section");
-
-    if (isNarrowScreen()) {
-      focusSection("editor-section");
-    }
+    focusSection("editor-section");
   } catch (error) {
     const message = normalizeError(error);
     setAdminStatus(`载入用户资料失败：${message}`, "error");
@@ -1149,6 +1165,10 @@ function syncSuffixField() {
 refs.codeCreateForm?.addEventListener("submit", createCodes);
 refs.autoUpdateForm?.addEventListener("submit", saveAutoUpdate);
 refs.codeCreateSuffixMode?.addEventListener("change", syncSuffixField);
+refs.jumpEditorButton?.addEventListener("click", () => {
+  if (!state.selectedTg) return;
+  focusSection("editor-section");
+});
 refs.codeCreateCopy?.addEventListener("click", async () => {
   const value = refs.codeOutput.value.trim();
   if (!value) {
@@ -1489,6 +1509,7 @@ refs.pluginList.addEventListener("click", async (event) => {
   bindNavigation();
   setAuthMode(null);
   setSelectedUserPill();
+  syncEditorShortcut();
   syncSuffixField();
   syncCodeSelectionActions();
 

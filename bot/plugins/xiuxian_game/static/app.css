@@ -207,6 +207,29 @@ h3 {
   width: 100%;
 }
 
+.fold-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fold-shortcut {
+  width: auto;
+  min-width: auto;
+  padding: 8px 12px;
+  border-radius: 999px;
+  color: var(--accent-strong);
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid var(--line);
+  box-shadow: none;
+}
+
+.fold-shortcut.is-active {
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent-strong), var(--warm));
+  border-color: transparent;
+}
+
 .hero-admin-label {
   font-size: 11px;
   line-height: 1;

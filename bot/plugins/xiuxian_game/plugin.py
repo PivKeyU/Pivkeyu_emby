@@ -353,6 +353,8 @@ class AdminSettingPayload(BaseModel):
     equipment_unbind_cost: int | None = None
     shop_broadcast_cost: int | None = None
     official_shop_name: str | None = None
+    allow_user_task_publish: bool | None = None
+    task_publish_cost: int | None = None
     artifact_equip_limit: int | None = None
     allow_non_admin_image_upload: bool | None = None
     chat_cultivation_chance: int | None = None

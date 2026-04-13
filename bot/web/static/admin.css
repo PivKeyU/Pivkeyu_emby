@@ -144,6 +144,12 @@ h2 {
   gap: 8px;
 }
 
+.hero-inline-action {
+  width: auto;
+  min-width: 132px;
+  padding-inline: 16px;
+}
+
 .info-card,
 .token-panel,
 .metric-card,
@@ -325,6 +331,25 @@ h2 {
 .user-card.is-selected {
   border-color: rgba(15, 118, 110, 0.24);
   box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.08);
+}
+
+.jump-highlight {
+  animation: jumpPulse 1.2s ease;
+}
+
+@keyframes jumpPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(15, 118, 110, 0.18);
+    border-color: rgba(15, 118, 110, 0.14);
+  }
+  35% {
+    box-shadow: 0 0 0 10px rgba(15, 118, 110, 0.06);
+    border-color: rgba(15, 118, 110, 0.28);
+  }
+  100% {
+    box-shadow: var(--shadow);
+    border-color: var(--line);
+  }
 }
 
 .stack-empty {
@@ -679,6 +704,11 @@ button:disabled,
 
 .hidden {
   display: none !important;
+}
+
+#editor-section,
+#users-section {
+  scroll-margin-top: 92px;
 }
 
 @media (min-width: 760px) {

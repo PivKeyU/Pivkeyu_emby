@@ -9,7 +9,17 @@ const PILL_TYPES = [
   { value: "clear_poison", label: "解毒", effect: "减少丹毒值" },
   { value: "cultivation", label: "提升修为", effect: "增加修为值" },
   { value: "stone", label: "补给灵石", effect: "增加灵石值" },
-  { value: "insight", label: "提高悟性", effect: "提高修炼速度" },
+  { value: "bone", label: "提升根骨", effect: "根骨增量" },
+  { value: "comprehension", label: "提升悟性", effect: "悟性增量" },
+  { value: "divine_sense", label: "提升神识", effect: "神识增量" },
+  { value: "fortune", label: "提升机缘", effect: "机缘增量" },
+  { value: "qi_blood", label: "提升气血", effect: "气血增量" },
+  { value: "true_yuan", label: "提升真元", effect: "真元增量" },
+  { value: "body_movement", label: "提升身法", effect: "身法增量" },
+  { value: "attack", label: "提升攻击", effect: "攻击增量" },
+  { value: "defense", label: "提升防御", effect: "防御增量" },
+  { value: "root_refine", label: "淬炼灵根", effect: "淬灵阶数" },
+  { value: "root_remold", label: "重塑灵根", effect: "保底品阶" },
 ];
 const ROLE_PRESETS = [
   ["leader", "掌门"],
@@ -26,6 +36,7 @@ const state = {
   token: localStorage.getItem("xiuxian_admin_token") || "",
   initData: tg?.initData || "",
   bundle: null,
+  selectedPlayerTg: null,
   playerSearch: {
     query: "",
     page: 1,
@@ -138,12 +149,17 @@ PILL_TYPES.splice(0, PILL_TYPES.length, ...[
   { value: "clear_poison", label: "解毒", effect: "减少丹毒" },
   { value: "cultivation", label: "提升修为", effect: "增加修为" },
   { value: "stone", label: "补给灵石", effect: "增加灵石" },
+  { value: "bone", label: "提升根骨", effect: "根骨增量" },
   { value: "comprehension", label: "提升悟性", effect: "提升悟性" },
+  { value: "divine_sense", label: "提升神识", effect: "神识增量" },
+  { value: "fortune", label: "提升机缘", effect: "机缘增量" },
   { value: "qi_blood", label: "提升气血", effect: "提升气血" },
   { value: "true_yuan", label: "提升真元", effect: "提升真元" },
   { value: "body_movement", label: "提升身法", effect: "提升身法" },
   { value: "attack", label: "提升攻击", effect: "提升攻击" },
   { value: "defense", label: "提升防御", effect: "提升防御" },
+  { value: "root_refine", label: "淬炼灵根", effect: "淬灵阶数" },
+  { value: "root_remold", label: "重塑灵根", effect: "保底品阶" },
 ]);
 ROLE_PRESETS.splice(0, ROLE_PRESETS.length, ...[
   ["leader", "掌门"],
@@ -402,6 +418,55 @@ function focusAdminSection(key) {
     button.classList.toggle("is-active", button.dataset.adminSection === key);
   });
   target.card.scrollIntoView({ behavior: "smooth", block: "start" });
+  pulseTarget(target.card);
+}
+
+function pulseTarget(node) {
+  if (!node) return;
+  node.classList.remove("jump-highlight");
+  void node.offsetWidth;
+  node.classList.add("jump-highlight");
+  window.setTimeout(() => {
+    node.classList.remove("jump-highlight");
+  }, 1500);
+}
+
+function syncSelectedPlayerUI(text = null) {
+  const pill = $("selected-player-pill");
+  const button = $("jump-player-editor");
+  const hasSelection = Boolean(state.selectedPlayerTg);
+  if (pill) {
+    pill.textContent = text || (hasSelection ? `正在编辑 TG ${state.selectedPlayerTg}` : "未选中角色");
+  }
+  if (button) {
+    button.disabled = !hasSelection;
+    button.textContent = hasSelection ? "回到角色编辑" : "跳到角色编辑";
+  }
+}
+
+function highlightSelectedPlayerResult() {
+  document.querySelectorAll("#player-search-results [data-tg]").forEach((el) => {
+    el.classList.toggle("is-selected", Number(el.dataset.tg) === Number(state.selectedPlayerTg || 0));
+  });
+}
+
+function revealPlayerEditor(smooth = true) {
+  const panel = $("player-edit-panel");
+  if (!panel) return;
+  const playerCard = adminSectionCards()
+    .map((card, index) => adminSectionMeta(card, index))
+    .find((section) => section.key === "players");
+  if (playerCard?.card?.classList.contains("is-hidden-filter")) {
+    const input = $("admin-section-search");
+    if (input) input.value = "";
+    applyAdminSectionFilter("");
+  }
+  focusAdminSection("players");
+  panel.classList.remove("hidden");
+  window.requestAnimationFrame(() => {
+    panel.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" });
+    pulseTarget(panel);
+  });
 }
 
 function touch(tone = "success") {
@@ -898,7 +963,7 @@ function renderWorld() {
 
   renderStack("pill-list", (bundle.pills || []).map((item) => `
     <article class="stack-item"><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml(item.pill_type_label || item.pill_type)}</span></div>
-    <p>效果值 ${escapeHtml(item.effect_value)} · 丹毒 ${escapeHtml(item.poison_delta)}</p>
+    <p>${escapeHtml(item.effect_value_label || "效果值")} ${escapeHtml(item.effect_value)} · 丹毒 ${escapeHtml(item.poison_delta)}</p>
     <div class="inline-action-buttons">${deleteButton("pill", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无丹药</strong></article>`);
 
   renderStack("material-list", (bundle.materials || []).map((item) => `
@@ -969,6 +1034,9 @@ function applySettings(settings = {}) {
   $("setting-unbind-cost").value = settings.equipment_unbind_cost ?? 100;
   $("setting-broadcast").value = settings.shop_broadcast_cost ?? 20;
   $("setting-shop-name").value = settings.official_shop_name ?? "风月阁";
+  $("setting-task-publish-cost").value = settings.task_publish_cost ?? 20;
+  $("setting-allow-user-task-publish").checked = settings.allow_user_task_publish ?? true;
+  if ($("official-shop-name")) $("official-shop-name").value = settings.official_shop_name ?? "风月阁";
   $("setting-artifact-limit").value = settings.artifact_equip_limit ?? 3;
   $("setting-user-upload").checked = Boolean(settings.allow_non_admin_image_upload);
   $("setting-chat-chance").value = settings.chat_cultivation_chance ?? 8;
@@ -1042,6 +1110,8 @@ function bindEvents() {
       message_auto_delete_seconds: Number($("setting-message-auto-delete").value || 0),
       shop_broadcast_cost: Number($("setting-broadcast").value || 20),
       official_shop_name: $("setting-shop-name").value.trim(),
+      task_publish_cost: Number($("setting-task-publish-cost").value || 0),
+      allow_user_task_publish: $("setting-allow-user-task-publish").checked,
       allow_non_admin_image_upload: $("setting-user-upload").checked,
       chat_cultivation_chance: Number($("setting-chat-chance").value || 8),
       chat_cultivation_min_gain: Number($("setting-chat-min").value || 1),
@@ -1053,6 +1123,12 @@ function bindEvents() {
       item_quality_value_rules: collectItemQualityRules(),
       exploration_drop_weight_rules: collectDropWeightRules(),
     }), "保存成功", "基础规则已更新。");
+  });
+
+  $("setting-shop-name")?.addEventListener("input", (event) => {
+    if ($("official-shop-name")) {
+      $("official-shop-name").value = event.currentTarget?.value?.trim?.() || "";
+    }
   });
 
   $("duel-settings-form")?.addEventListener("submit", async (event) => {
@@ -1198,7 +1274,7 @@ function bindEvents() {
     event.preventDefault();
     await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/shop/official", {
       item_kind: $("official-kind").value, item_ref_id: Number($("official-ref-id").value || 0),
-      quantity: Number($("official-quantity").value || 1), price_stone: Number($("official-price").value || 0), shop_name: $("official-shop-name").value.trim() || null,
+      quantity: Number($("official-quantity").value || 1), price_stone: Number($("official-price").value || 0),
     }), "上架成功", "官方商店已更新。");
   });
 
@@ -1251,6 +1327,8 @@ syncSelects = function syncSelectsEnhanced() {
 function syncAdminTaskFormState() {
   const taskType = $("admin-task-type")?.value || "custom";
   const isQuiz = taskType === "quiz";
+  const title = $("admin-task-title");
+  const description = $("admin-task-description");
   const pushGroup = $("admin-task-push-group");
   const maxClaimants = $("admin-task-max-claimants");
   const question = $("admin-task-question");
@@ -1263,6 +1341,8 @@ function syncAdminTaskFormState() {
     if (isQuiz) maxClaimants.value = "1";
     maxClaimants.disabled = isQuiz;
   }
+  if (title) title.required = true;
+  if (description) description.required = !isQuiz;
   if (question) question.required = isQuiz;
   if (answer) answer.required = isQuiz;
 }
@@ -1473,7 +1553,7 @@ renderWorld = function renderWorldEnhanced() {
         <strong>${escapeHtml(item.name)}</strong>
         ${qualityBadgeHtml(item.rarity || "凡品", item.quality_color)}
       </div>
-      <p>${escapeHtml(item.pill_type_label || item.pill_type)} · 主效果 ${escapeHtml(item.effect_value)} · 丹毒 ${escapeHtml(item.poison_delta)}</p>
+      <p>${escapeHtml(item.pill_type_label || item.pill_type)} · ${escapeHtml(item.effect_value_label || "主效果")} ${escapeHtml(item.effect_value)} · 丹毒 ${escapeHtml(item.poison_delta)}</p>
       <p>${escapeHtml(affixSummary(item))}</p>
       <div class="inline-action-buttons">${deleteButton("pill", item.id)}</div>
     </article>`).join("") || `<article class="stack-item"><strong>暂无丹药</strong></article>`);
@@ -1617,7 +1697,7 @@ async function searchPlayers(options = {}) {
     return;
   }
   container.innerHTML = items.map((p) => `
-    <article class="stack-item" style="cursor:pointer" data-tg="${p.tg}">
+    <article class="stack-item is-clickable${Number(state.selectedPlayerTg || 0) === Number(p.tg) ? " is-selected" : ""}" data-tg="${p.tg}">
       <div class="stack-item-head">
         <strong>${escapeHtml(p.display_label || p.display_name || (p.username ? "@" + p.username : "TG " + p.tg))}</strong>
         <span class="badge">${escapeHtml(p.realm_stage || "凡人")} ${p.realm_layer || 0}层</span>
@@ -1627,12 +1707,14 @@ async function searchPlayers(options = {}) {
     </article>
   `).join("");
   bindPlayerSearchResultClicks(container);
+  highlightSelectedPlayerResult();
 }
 
 async function openPlayerEdit(tg) {
   const data = await request("GET", `/plugins/xiuxian/admin-api/players/${tg}`);
   const profile = data?.profile || data || {};
-  $("player-edit-panel").style.display = "";
+  state.selectedPlayerTg = Number(tg);
+  syncSelectedPlayerUI(profile?.display_label || profile?.display_name || (profile?.username ? "@" + profile.username : `TG ${tg}`));
   $("player-edit-tg").value = tg;
   document.getElementById("player-edit-title").textContent = `编辑: ${profile?.display_label || profile?.display_name || (profile?.username ? "@" + profile.username : "TG " + tg)}`;
   renderPlayerAccount(data?.emby_account || profile?.emby_account || null);
@@ -1640,6 +1722,8 @@ async function openPlayerEdit(tg) {
     const el = $("pe-" + key);
     if (el) el.value = profile?.[key] ?? "";
   });
+  highlightSelectedPlayerResult();
+  revealPlayerEditor();
 }
 
 async function submitPlayerEdit(e) {
@@ -1657,11 +1741,12 @@ async function submitPlayerEdit(e) {
   try {
     await request("PATCH", `/plugins/xiuxian/admin-api/players/${tg}`, payload);
     await popup("操作成功", "角色属性已保存", "success");
-    $("player-edit-panel").style.display = "none";
     await searchPlayers({
       query: $("player-search-q")?.value || "",
       page: state.playerSearch?.page || 1,
     });
+    highlightSelectedPlayerResult();
+    revealPlayerEditor(false);
   } catch (err) {
     await popup("保存失败", String(err.message || err), "error");
   }
@@ -1699,7 +1784,15 @@ document.getElementById("player-page-jump-form")?.addEventListener("submit", (e)
 });
 document.getElementById("player-edit-form")?.addEventListener("submit", submitPlayerEdit);
 document.getElementById("player-edit-cancel")?.addEventListener("click", () => {
-  $("player-edit-panel").style.display = "none";
+  state.selectedPlayerTg = null;
+  $("player-edit-tg").value = "";
+  $("player-edit-panel").classList.add("hidden");
+  syncSelectedPlayerUI();
+  highlightSelectedPlayerResult();
+});
+document.getElementById("jump-player-editor")?.addEventListener("click", () => {
+  if (!state.selectedPlayerTg) return;
+  revealPlayerEditor();
 });
 
 ROLE_PRESETS.forEach(([role_key, role_name]) => addSectRoleRow({ role_key, role_name }));
@@ -1711,6 +1804,7 @@ bindEvents();
 bindAttributeAwareSubmitters();
 hydrateAdminForms();
 renderAdminNavigator();
+syncSelectedPlayerUI();
 tg?.ready?.();
 tg?.expand?.();
 tg?.setHeaderColor?.("#f8f9fa");

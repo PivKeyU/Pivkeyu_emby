@@ -58,6 +58,7 @@
         <button type="button" class="ghost" data-fold-open-all>全部展开</button>
         <button type="button" class="ghost" data-fold-close-all>全部收起</button>
       </div>
+      <div id="fold-shortcuts" class="fold-shortcuts" aria-label="模块快捷跳转"></div>
     </section>
 
     <details id="enter-card" class="card fold-card hidden" open>
@@ -192,7 +193,7 @@
         <summary class="fold-summary">
           <div>
             <p class="eyebrow">官方供给</p>
-            <h2>风月阁</h2>
+            <h2 id="official-shop-title">风月阁</h2>
           </div>
           <span class="summary-tip">官方上架区</span>
         </summary>
@@ -294,7 +295,7 @@
         <div class="fold-body">
           <form id="task-form" class="mini-form">
             <div class="compact-grid">
-              <label>任务标题<input id="task-title" type="text" placeholder="例如：寻药、问答、求符"></label>
+              <label>任务标题<input id="task-title" type="text" minlength="2" placeholder="例如：寻药、问答、求符"></label>
               <label>任务范围
                 <select id="task-scope">
                   <option value="personal">个人悬赏</option>
@@ -322,8 +323,8 @@
                 <select id="task-required-ref"></select>
               </label>
               <label>需提交数量<input id="task-required-quantity" type="number" min="0" value="0"></label>
-              <label class="wide-field">任务描述<textarea id="task-description" rows="3" placeholder="写明目标、要求与额外说明"></textarea></label>
-              <label class="wide-field">题目内容<textarea id="task-question" rows="3" placeholder="答题任务可在这里填写题目"></textarea></label>
+              <label class="wide-field">任务描述<textarea id="task-description" rows="3" placeholder="请至少写明 6 个字的目标、要求与额外说明"></textarea></label>
+              <label class="wide-field">题目内容<textarea id="task-question" rows="3" placeholder="答题任务请写清题目内容"></textarea></label>
               <label>标准答案<input id="task-answer" type="text" placeholder="仅答题任务使用"></label>
               <label class="wide-field">
                 题图地址
@@ -337,6 +338,7 @@
               <label class="inline-check"><input id="task-push-group" type="checkbox"> 推送到群内</label>
             </div>
             <button type="submit">发布悬赏</button>
+            <p id="task-compose-note" class="section-copy">发布前请补充清晰信息，信息不足会被拦截。</p>
           </form>
           <div id="task-list" class="stack-list"></div>
         </div>
