@@ -1179,8 +1179,6 @@ function applySettings(settings = {}) {
   $("setting-quality-broadcast").value = settings.high_quality_broadcast_level ?? 4;
   $("setting-slave-tribute").value = settings.slave_tribute_percent ?? 20;
   $("setting-slave-cooldown").value = settings.slave_challenge_cooldown_hours ?? 24;
-  const immortalTouchNode = $("setting-immortal-touch-layers");
-  if (immortalTouchNode) immortalTouchNode.value = settings.immortal_touch_infusion_layers ?? 1;
   applyRootQualityRules(settings);
   applyItemQualityRules(settings);
   applyDropWeightRules(settings);
@@ -1261,7 +1259,6 @@ function bindEvents() {
       chat_cultivation_max_gain: Number($("setting-chat-max").value || 3),
       robbery_daily_limit: Number($("setting-robbery-limit").value || 3),
       robbery_max_steal: Number($("setting-robbery-max").value || 180),
-      immortal_touch_infusion_layers: Number($("setting-immortal-touch-layers")?.value || 1),
       root_quality_value_rules: collectRootQualityRules(),
       item_quality_value_rules: collectItemQualityRules(),
       exploration_drop_weight_rules: collectDropWeightRules(),

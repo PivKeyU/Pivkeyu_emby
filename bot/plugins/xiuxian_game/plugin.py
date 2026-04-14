@@ -124,7 +124,6 @@ from bot.plugins.xiuxian_game.features.growth import (
     create_foundation_pill_for_user_if_missing,
     ensure_seed_data,
     format_root,
-    immortal_touch_infuse_cultivation,
     init_path_for_user,
     maybe_gain_cultivation_from_chat,
     practice_for_user,
@@ -273,7 +272,6 @@ PLUGIN_NAME = str(PLUGIN_MANIFEST.get("name") or "修仙玩法")
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 ALLOWED_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
-IMMORTAL_TOUCH_PATTERN = re.compile(r"^仙人抚我顶(?:[\s，,]*结发授长生)?[\s。！!？?~～]*$")
 MARKDOWN_ESCAPE_PATTERN = re.compile(r"([_*\[`])")
 SHANGHAI_TZ = timezone(timedelta(hours=8))
 DUEL_MESSAGE_REFRESH_CACHE: dict[int, float] = {}
@@ -1756,11 +1754,9 @@ def register_bot(bot_instance) -> None:
                 "/servitudeduel [赌注] - 回复某位道友发起奴役斗\n"
                 "/seek - 回复某位道友探查信息\n"
                 "/rob - 回复某位道友发起抢劫\n"
-                "/fuding - 回复某位道友灌注修为（群主）\n"
                 "/gift <TGID> <灵石数量> - 赠送灵石给其他玩家\n"
                 "/allow_upload - 主人回复用户后授予上传权限\n"
                 "/remove_upload - 主人回复用户后移除上传权限\n"
-                "回复群友并发送“仙人抚我顶 结发授长生” - 群主人灌注修为\n"
                 f"\n{_xiuxian_basic_guide_text(True)}\n"
                 "其余修仙操作、任务、探索、红包、宗门与店铺功能请直接从 Mini App 进入。"
             )
@@ -1949,8 +1945,6 @@ def register_bot(bot_instance) -> None:
             return
         if not getattr(msg, "text", None):
             return
-        if IMMORTAL_TOUCH_PATTERN.fullmatch(msg.text.strip()):
-            return
         try:
             result = resolve_quiz_answer(msg.chat.id, msg.from_user.id, msg.text)
         except Exception as exc:
@@ -2021,8 +2015,6 @@ def register_bot(bot_instance) -> None:
             return
         text = str(msg.text or "").strip()
         if not text or text.startswith(("/", "!", ".")):
-            return
-        if IMMORTAL_TOUCH_PATTERN.fullmatch(text):
             return
         try:
             payload = maybe_spawn_group_encounter(msg.chat.id)
@@ -2137,58 +2129,6 @@ def register_bot(bot_instance) -> None:
                 await _reply_text(msg, "这个用户当前没有额外的上传权限记录。")
         finally:
             await _delete_user_command_message(msg)
-
-    async def _handle_immortal_touch_request(client, msg, *, command_mode: bool = False):
-        if not getattr(msg, "text", None):
-            return
-        raw_text = str(msg.text or "").strip()
-        if not command_mode and not IMMORTAL_TOUCH_PATTERN.fullmatch(raw_text):
-            return
-        actor = await _require_message_user(msg, action_text="施展仙人抚顶")
-        if actor is None:
-            return
-        if not is_admin_user_id(actor.id) and not await _is_group_admin(client, msg.chat.id, actor.id):
-            return await _reply_text(msg, "只有本群主人才能施展仙人抚顶。", quote=True)
-
-        target_user = getattr(getattr(msg, "reply_to_message", None), "from_user", None)
-        if target_user is None or getattr(target_user, "is_bot", False):
-            return await _reply_text(msg, "请先回复一位真实用户，再施展仙人抚顶。", quote=True)
-
-        try:
-            result = immortal_touch_infuse_cultivation(actor.id, target_user.id)
-        except Exception as exc:
-            return await _reply_text(msg, str(exc), quote=True)
-
-        profile = result.get("profile") or {}
-        actor_name = actor.first_name or f"TG {actor.id}"
-        target_name = target_user.first_name or f"TG {target_user.id}"
-        stage = profile.get("realm_stage") or "炼气"
-        layer = int(profile.get("realm_layer") or 1)
-        lines = [
-            "【长生喜报】",
-            f"🎉 恭喜 {target_name} 被 {actor_name} 赋予长生，仙途再添一缕祥光。",
-            f"✨ {actor_name} 以“仙人抚我顶，结发授长生”为 {target_name} 灌注了 {result['gain']} 点修为。",
-        ]
-        if result.get("upgraded_layers"):
-            lines.append(f"🌟 {target_name} 连破 {len(result['upgraded_layers'])} 层，当前已至 {stage}{layer}层。")
-        else:
-            lines.append(f"🌿 {target_name} 当前境界为 {stage}{layer}层，距离下一层还差 {result['remaining']} 修为。")
-        if result.get("breakthrough_ready"):
-            lines.append("🏵️ 九层圆满，道基已稳，可尝试突破。")
-        await _send_message(client, msg.chat.id, "\n".join(lines))
-
-    @bot_instance.on_message(filters.command(["fuding", "immortal_touch"], prefixes) & filters.chat(group))
-    async def xiuxian_immortal_touch_command(client, msg):
-        try:
-            if msg.reply_to_message is None or msg.reply_to_message.from_user is None:
-                return await _reply_text(msg, "请先回复一位真实用户，再施展仙人抚顶。", quote=True)
-            return await _handle_immortal_touch_request(client, msg, command_mode=True)
-        finally:
-            await _delete_user_command_message(msg)
-
-    @bot_instance.on_message(filters.text & filters.chat(group))
-    async def xiuxian_immortal_touch_reply(client, msg):
-        return await _handle_immortal_touch_request(client, msg, command_mode=False)
 
     @bot_instance.on_message(filters.command(["rob"], prefixes) & filters.chat(group))
     async def xiuxian_rob_command(_, msg):
