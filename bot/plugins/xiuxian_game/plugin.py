@@ -286,10 +286,20 @@ XIUXIAN_BOT_COMMANDS = (
     BotCommand("xiuxian_me", "展示修仙名帖 [群聊]"),
     BotCommand("xiuxian_rank", "查看修仙排行榜 [群聊]"),
     BotCommand("duel", "回复目标发起斗法 [群聊]"),
+    BotCommand("deathduel", "回复目标发起生死斗 [群聊]"),
+    BotCommand("servitudeduel", "回复目标发起奴役斗 [群聊]"),
     BotCommand("seek", "回复目标探查对方信息 [群聊]"),
     BotCommand("rob", "回复目标发起抢劫 [群聊]"),
     BotCommand("gift", "赠送灵石给其他玩家"),
 )
+DUEL_COMMAND_MODES = {
+    "duel": "standard",
+    "deathduel": "death",
+    "lifedeathduel": "death",
+    "servitudeduel": "master",
+    "masterduel": "master",
+    "slaveduel": "master",
+}
 
 
 def _ensure_xiuxian_bot_commands() -> None:
@@ -307,6 +317,23 @@ def _schedule_command_refresh(bot_instance) -> None:
         loop.call_later(5, lambda: loop.create_task(BotCommands.set_commands(client=bot_instance)))
     except Exception as exc:
         LOGGER.debug(f"xiuxian command refresh skipped: {exc}")
+
+
+def _extract_prefixed_command(message) -> tuple[str, list[str]] | None:
+    raw_text = str(getattr(message, "text", "") or "").strip()
+    if not raw_text:
+        return None
+    active_prefixes = prefixes if isinstance(prefixes, (list, tuple, set)) else [prefixes]
+    prefix_set = {str(item) for item in active_prefixes if str(item)}
+    if not prefix_set or raw_text[0] not in prefix_set:
+        return None
+    tokens = raw_text[1:].split()
+    if not tokens:
+        return None
+    command_name = str(tokens[0]).split("@", 1)[0].strip().lower()
+    if not command_name:
+        return None
+    return command_name, [str(item) for item in tokens[1:]]
 
 
 def _xiuxian_basic_guide_text(consented: bool) -> str:
@@ -1742,6 +1769,8 @@ def register_bot(bot_instance) -> None:
                 "/xiuxian_me - 在群里展示自己的修仙信息\n"
                 "/xiuxian_rank [stone|realm|artifact] [页码] - 查看修仙排行榜\n"
                 "/duel [赌注] - 回复某位道友发起斗法\n"
+                "/deathduel [赌注] - 回复某位道友发起生死斗\n"
+                "/servitudeduel [赌注] - 回复某位道友发起奴役斗\n"
                 "/seek - 回复某位道友探查信息\n"
                 "/rob - 回复某位道友发起抢劫\n"
                 "/fuding - 回复某位道友灌注修为（群主）\n"
@@ -1802,24 +1831,35 @@ def register_bot(bot_instance) -> None:
         finally:
             await _delete_user_command_message(msg)
 
-    @bot_instance.on_message(filters.command(["duel"], prefixes) & filters.chat(group))
+    @bot_instance.on_message(filters.text & filters.chat(group))
     async def xiuxian_duel_command(_, msg):
         try:
+            parsed = _extract_prefixed_command(msg)
+            if parsed is None:
+                return
+            command_name, command_args = parsed
+            duel_mode = DUEL_COMMAND_MODES.get(command_name)
+            if duel_mode is None:
+                return
             actor = await _require_message_user(msg, action_text="发起斗法")
             if actor is None:
                 return
             settings = get_xiuxian_settings()
             bet_minutes = int(settings.get("duel_bet_minutes", 2) or 2)
             stake = 0
-            duel_mode = "standard"
             numeric_args: list[str] = []
-            for arg in msg.command[1:]:
+            for arg in command_args:
                 raw = str(arg or "").strip()
                 if not raw:
                     continue
-                if not numeric_args and not re.fullmatch(r"-?\d+", raw):
-                    duel_mode = _normalize_duel_mode_arg(raw)
-                    continue
+                if not re.fullmatch(r"-?\d+", raw):
+                    if command_name == "duel":
+                        return await _reply_text(
+                            msg,
+                            "普通斗法请使用 /duel [赌注] [下注分钟]；生死斗请用 /deathduel，奴役斗请用 /servitudeduel。",
+                            quote=True,
+                        )
+                    return await _reply_text(msg, "赌注和下注时长必须填写整数。", quote=True)
                 numeric_args.append(raw)
             if numeric_args:
                 try:
@@ -1827,11 +1867,11 @@ def register_bot(bot_instance) -> None:
                     if len(numeric_args) > 1:
                         bet_minutes = max(min(int(numeric_args[1]), 15), 1)
                 except ValueError:
-                    return await _reply_text(msg, "赌注和下注时长必须填写整数。")
+                    return await _reply_text(msg, "赌注和下注时长必须填写整数。", quote=True)
             if msg.reply_to_message is None or msg.reply_to_message.from_user is None:
-                return await _reply_text(msg, "请先回复一位目标道友，再发起斗法邀请。")
+                return await _reply_text(msg, "请先回复一位目标道友，再发起斗法邀请。", quote=True)
             if msg.reply_to_message.from_user.id == actor.id:
-                return await _reply_text(msg, "你不能自己和自己斗法。")
+                return await _reply_text(msg, "你不能自己和自己斗法。", quote=True)
 
             try:
                 duel = compute_duel_odds(actor.id, msg.reply_to_message.from_user.id, duel_mode=duel_mode)
@@ -1845,7 +1885,7 @@ def register_bot(bot_instance) -> None:
                     parse_mode=RICH_TEXT_MODE,
                 )
             except Exception as exc:
-                await _reply_text(msg, str(exc))
+                await _reply_text(msg, str(exc), quote=True)
         finally:
             await _delete_user_command_message(msg)
 
@@ -2164,9 +2204,12 @@ def register_bot(bot_instance) -> None:
     async def xiuxian_immortal_touch_reply(client, msg):
         return await _handle_immortal_touch_request(client, msg, command_mode=False)
 
-    @bot_instance.on_message(filters.command(["rob"], prefixes) & filters.chat(group))
+    @bot_instance.on_message(filters.text & filters.chat(group))
     async def xiuxian_rob_command(_, msg):
         try:
+            parsed = _extract_prefixed_command(msg)
+            if parsed is None or parsed[0] != "rob":
+                return
             actor = await _require_message_user(msg, action_text="发起抢劫")
             if actor is None:
                 return
@@ -2193,9 +2236,12 @@ def register_bot(bot_instance) -> None:
         finally:
             await _delete_user_command_message(msg)
 
-    @bot_instance.on_message(filters.command(["seek"], prefixes) & filters.chat(group))
+    @bot_instance.on_message(filters.text & filters.chat(group))
     async def xiuxian_seek_command(_, msg):
         try:
+            parsed = _extract_prefixed_command(msg)
+            if parsed is None or parsed[0] != "seek":
+                return
             try:
                 actor = await _require_message_user(msg, action_text="探查对方信息")
                 if actor is None:
