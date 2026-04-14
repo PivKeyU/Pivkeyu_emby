@@ -67,13 +67,14 @@ const ADMIN_SECTION_LABELS = {
   settings: "\u57fa\u7840\u8bbe\u5b9a",
   "duel-settings": "\u6597\u6cd5\u8bbe\u5b9a",
   artifacts: "\u6cd5\u5b9d",
-  talismans: "\u7b26\u7bab",
+  talismans: "符箓",
   pills: "\u4e39\u836f",
   techniques: "\u529f\u6cd5",
   sects: "\u5b97\u95e8",
   materials: "\u6750\u6599",
   recipes: "\u914d\u65b9",
   scenes: "\u573a\u666f",
+  encounters: "奇遇",
   tasks: "\u4efb\u52a1",
   grant: "\u624b\u52a8\u53d1\u653e",
   "official shop": "\u5b98\u65b9\u5546\u5e97",
@@ -331,6 +332,7 @@ function adminSectionCount(key) {
   if (key === "materials") return bundle.materials?.length || 0;
   if (key === "recipes") return bundle.recipes?.length || 0;
   if (key === "scenes") return bundle.scenes?.length || 0;
+  if (key === "encounters") return bundle.encounters?.length || 0;
   if (key === "tasks") return bundle.tasks?.length || 0;
   if (key === "official shop") return bundle.official_shop?.length || 0;
   if (key === "grant") return bundle.upload_permissions?.length || 0;
@@ -1092,8 +1094,15 @@ function renderWorld() {
 
   renderStack("scene-list", (bundle.scenes || []).map((item) => `
     <article class="stack-item"><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">最多 ${escapeHtml(item.max_minutes)} 分钟</span></div>
-    <p>${escapeHtml(item.description || "暂无描述")}</p><p>掉落 ${escapeHtml((item.drops || []).length)} 项 · 事件 ${escapeHtml((item.event_pool || []).length)} 条</p><p>${escapeHtml((item.event_pool || []).map((event) => `${event.name || "未命名事件"}(${event.event_type || "encounter"})`).slice(0, 3).join("、") || "暂无事件详情")}</p>
+    <p>${escapeHtml(item.description || "暂无描述")}</p><p>门槛：${escapeHtml(item.min_realm_stage ? `${item.min_realm_stage}${item.min_realm_layer || 1}层` : "无限制")} · 战力 ${escapeHtml(item.min_combat_power || 0)}</p><p>掉落 ${escapeHtml((item.drops || []).length)} 项 · 事件 ${escapeHtml((item.event_pool || []).length)} 条</p><p>${escapeHtml((item.event_pool || []).map((event) => `${event.name || "未命名事件"}(${event.event_type || "encounter"})`).slice(0, 3).join("、") || "暂无事件详情")}</p>
     <div class="inline-action-buttons">${deleteButton("scene", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无场景</strong></article>`);
+
+  renderStack("encounter-list", (bundle.encounters || []).map((item) => `
+    <article class="stack-item"><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml(item.weight || 1)} 权重</span></div>
+    <p>${escapeHtml(item.description || "暂无描述")}</p>
+    <p>门槛：${escapeHtml(item.min_realm_stage ? `${item.min_realm_stage}${item.min_realm_layer || 1}层` : "无限制")} · 战力 ${escapeHtml(item.min_combat_power || 0)} · 持续 ${escapeHtml(item.active_seconds || 90)} 秒</p>
+    <p>奖励：灵石 ${escapeHtml(item.reward_stone_min || 0)}-${escapeHtml(item.reward_stone_max || 0)} · 修为 ${escapeHtml(item.reward_cultivation_min || 0)}-${escapeHtml(item.reward_cultivation_max || 0)} · 心志 ${escapeHtml(item.reward_willpower || 0)} · 魅力 ${escapeHtml(item.reward_charisma || 0)} · 因果 ${escapeHtml(item.reward_karma || 0)}</p>
+    <div class="inline-action-buttons">${deleteButton("encounter", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无奇遇</strong></article>`);
 
   renderStack("sect-list", (bundle.sects || []).map((item) => `
     <article class="stack-item"><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml((item.roles || []).length)} 个职位</span></div>
@@ -1120,12 +1129,13 @@ function syncSelects() {
   setOptions($("technique-rarity"), qualityRows(), $("technique-rarity")?.value);
   setOptions($("talisman-rarity"), qualityRows(), $("talisman-rarity")?.value);
   setOptions($("material-quality"), qualityRows(), $("material-quality")?.value);
-  ["artifact-stage", "talisman-stage", "pill-stage", "sect-stage", "technique-stage"].forEach((id) => setOptions($(id), realmRows(), $(id)?.value, "无限制"));
+  ["artifact-stage", "talisman-stage", "pill-stage", "sect-stage", "technique-stage", "scene-stage", "encounter-stage"].forEach((id) => setOptions($(id), realmRows(), $(id)?.value, "无限制"));
   setOptions($("sect-assign-id"), sectRows(), $("sect-assign-id")?.value);
   setOptions($("admin-task-sect-id"), [{ value: "", label: "无" }, ...sectRows()], $("admin-task-sect-id")?.value);
   setOptions($("recipe-result-id"), itemRows($("recipe-result-kind")?.value || "pill"), $("recipe-result-id")?.value);
   setOptions($("grant-ref-id"), itemRows($("grant-kind")?.value || "artifact"), $("grant-ref-id")?.value);
   setOptions($("official-ref-id"), itemRows($("official-kind")?.value || "artifact"), $("official-ref-id")?.value);
+  setOptions($("encounter-item-id"), [{ value: "", label: "无" }, ...itemRows($("encounter-item-kind")?.value || "")], $("encounter-item-id")?.value);
   setOptions($("admin-task-item-id"), [{ value: "", label: "无" }, ...itemRows($("admin-task-item-kind")?.value || "")], $("admin-task-item-id")?.value);
   setOptions($("admin-task-required-id"), [{ value: "", label: "无" }, ...itemRows($("admin-task-required-kind")?.value || "")], $("admin-task-required-id")?.value);
   const roles = (($("sect-assign-id")?.value && state.bundle?.sects) ? (state.bundle.sects.find((item) => String(item.id) === String($("sect-assign-id").value))?.roles || []) : []);
@@ -1151,10 +1161,10 @@ function applySettings(settings = {}) {
   $("setting-message-auto-delete").value = settings.message_auto_delete_seconds ?? 180;
   $("setting-unbind-cost").value = settings.equipment_unbind_cost ?? 100;
   $("setting-broadcast").value = settings.shop_broadcast_cost ?? 20;
-  $("setting-shop-name").value = settings.official_shop_name ?? "风月阁";
+  $("setting-shop-name").value = settings.official_shop_name ?? "官方商店";
   $("setting-task-publish-cost").value = settings.task_publish_cost ?? 20;
   $("setting-allow-user-task-publish").checked = settings.allow_user_task_publish ?? true;
-  if ($("official-shop-name")) $("official-shop-name").value = settings.official_shop_name ?? "风月阁";
+  if ($("official-shop-name")) $("official-shop-name").value = settings.official_shop_name ?? "官方商店";
   $("setting-artifact-limit").value = settings.artifact_equip_limit ?? 3;
   $("setting-user-upload").checked = Boolean(settings.allow_non_admin_image_upload);
   $("setting-chat-chance").value = settings.chat_cultivation_chance ?? 8;
@@ -1211,6 +1221,7 @@ function bindEvents() {
   $("recipe-result-kind")?.addEventListener("change", syncSelects);
   $("grant-kind")?.addEventListener("change", syncSelects);
   $("official-kind")?.addEventListener("change", syncSelects);
+  $("encounter-item-kind")?.addEventListener("change", syncSelects);
   $("admin-task-item-kind")?.addEventListener("change", syncSelects);
   $("admin-task-required-kind")?.addEventListener("change", syncSelects);
   $("admin-task-type")?.addEventListener("change", syncAdminTaskFormState);
@@ -1366,13 +1377,50 @@ function bindEvents() {
     const form = event.currentTarget;
     await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/scene", {
       name: $("scene-name").value.trim(), description: $("scene-description").value.trim(), image_url: $("scene-image").value.trim(),
-      max_minutes: Number($("scene-max-minutes").value || 60), event_pool: collectSceneEvents(), drops: collectSceneDrops(),
+      max_minutes: Number($("scene-max-minutes").value || 60),
+      min_realm_stage: $("scene-stage").value || null,
+      min_realm_layer: Number($("scene-layer").value || 1),
+      min_combat_power: Number($("scene-power").value || 0),
+      event_pool: collectSceneEvents(),
+      drops: collectSceneDrops(),
     }), "创建成功", "探索场景已保存。");
     form?.reset?.();
     $("scene-event-rows").innerHTML = "";
     $("scene-drop-rows").innerHTML = "";
     addSceneEventRow();
     addSceneDropRow();
+  });
+
+  $("encounter-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/encounter", {
+      name: $("encounter-name").value.trim(),
+      description: $("encounter-description").value.trim(),
+      image_url: $("encounter-image").value.trim(),
+      button_text: $("encounter-button-text").value.trim() || "争抢机缘",
+      success_text: $("encounter-success-text").value.trim(),
+      broadcast_text: $("encounter-broadcast-text").value.trim(),
+      weight: Number($("encounter-weight").value || 1),
+      active_seconds: Number($("encounter-active-seconds").value || 90),
+      min_realm_stage: $("encounter-stage").value || null,
+      min_realm_layer: Number($("encounter-layer").value || 1),
+      min_combat_power: Number($("encounter-power").value || 0),
+      reward_stone_min: Number($("encounter-stone-min").value || 0),
+      reward_stone_max: Number($("encounter-stone-max").value || 0),
+      reward_cultivation_min: Number($("encounter-cultivation-min").value || 0),
+      reward_cultivation_max: Number($("encounter-cultivation-max").value || 0),
+      reward_item_kind: $("encounter-item-kind").value || null,
+      reward_item_ref_id: Number($("encounter-item-id").value || 0) || null,
+      reward_item_quantity_min: Number($("encounter-item-quantity-min").value || 1),
+      reward_item_quantity_max: Number($("encounter-item-quantity-max").value || 1),
+      reward_willpower: Number($("encounter-willpower").value || 0),
+      reward_charisma: Number($("encounter-charisma").value || 0),
+      reward_karma: Number($("encounter-karma").value || 0),
+      enabled: $("encounter-enabled").checked,
+    }), "创建成功", "群内奇遇已保存。");
+    form?.reset?.();
+    syncSelects();
   });
 
   $("task-admin-form")?.addEventListener("submit", async (event) => {
@@ -1745,7 +1793,7 @@ renderWorld = function renderWorldEnhanced() {
 const PLAYER_EDIT_FIELDS = [
   "spiritual_stone", "cultivation", "realm_stage", "realm_layer",
   "root_type", "root_primary", "root_secondary", "root_relation", "root_bonus", "root_quality",
-  "bone", "comprehension", "divine_sense", "fortune",
+  "bone", "comprehension", "divine_sense", "fortune", "willpower", "charisma", "karma",
   "qi_blood", "true_yuan", "body_movement", "attack_power", "defense_power",
   "dan_poison", "sect_contribution", "technique_capacity",
 ];

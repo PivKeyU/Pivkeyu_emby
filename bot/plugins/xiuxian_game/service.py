@@ -1,6 +1,7 @@
 """修仙核心数值与成长服务。
 
-这里负责灵根、属性、战斗、突破、闭关、商城等核心结算逻辑。
+这里保留历史兼容出口。
+后续新增或维护优先落到 `features/` 下的对应领域文件，再由这里兼容导出。
 """
 
 from __future__ import annotations
@@ -45,6 +46,7 @@ from bot.sql_helper.sql_xiuxian import (
     get_artifact,
     get_current_title,
     get_emby_name_map,
+    get_material,
     get_pill,
     get_profile,
     get_technique,
@@ -92,6 +94,7 @@ from bot.sql_helper.sql_xiuxian import (
     sync_official_shop_name,
     sync_artifact_by_name,
     sync_artifact_set_by_name,
+    sync_encounter_template_by_name,
     sync_material_by_name,
     sync_pill_by_name,
     sync_talisman_by_name,
@@ -109,6 +112,7 @@ from bot.sql_helper.sql_xiuxian import (
     update_shop_item,
     upsert_profile,
     use_user_artifact_listing_stock,
+    use_user_material_listing_stock,
     use_user_pill_listing_stock,
     use_user_talisman_listing_stock,
     consume_user_pill,
@@ -128,6 +132,15 @@ from bot.plugins.xiuxian_game.world_service import (
     sync_recipe_with_ingredients_by_name,
     sync_scene_with_drops_by_name,
     sync_sect_with_roles_by_name,
+)
+from bot.plugins.xiuxian_game.features.content_catalog import (
+    DEFAULT_ENCOUNTER_TEMPLATES,
+    EXTRA_ARTIFACTS,
+    EXTRA_MATERIALS,
+    EXTRA_PILLS,
+    EXTRA_RECIPES,
+    EXTRA_SCENES,
+    EXTRA_TALISMANS,
 )
 
 
@@ -873,6 +886,7 @@ DEFAULT_SCENES = [
         "name": "黑风山谷",
         "description": "山风终年不散，适合初入仙途的修士历练与采集。",
         "max_minutes": 30,
+        "min_combat_power": 0,
         "event_pool": [
             {"name": "山风异响", "description": "黑风卷石而来，你躲开乱石后在石缝里摸到几块灵石。", "event_type": "danger", "weight": 3, "stone_bonus_min": 8, "stone_bonus_max": 18, "stone_loss_min": 3, "stone_loss_max": 10},
             {"name": "旧修行囊", "description": "山道边有遗落多时的旧行囊，里头还剩下一页模糊图录。", "event_type": "recipe", "weight": 2, "bonus_reward_kind": "material", "bonus_reward_ref_id_name": "青罡剑谱残页", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 35},
@@ -888,6 +902,9 @@ DEFAULT_SCENES = [
         "name": "断剑崖",
         "description": "崖底堆满断剑残兵，剑修常来此寻觅旧器余辉。",
         "max_minutes": 45,
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 5,
+        "min_combat_power": 850,
         "event_pool": [
             {"name": "剑煞回潮", "description": "残剑煞气忽然倒卷，你虽被震退，却也在裂缝里捡到灵石碎袋。", "event_type": "danger", "weight": 3, "stone_bonus_min": 12, "stone_bonus_max": 28, "stone_loss_min": 6, "stone_loss_max": 16},
             {"name": "残碑拓影", "description": "你在半截石碑上拓出一页残谱。", "event_type": "recipe", "weight": 3, "bonus_reward_kind": "material", "bonus_reward_ref_id_name": "青罡剑谱残页", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 46},
@@ -903,6 +920,9 @@ DEFAULT_SCENES = [
         "name": "迷雾药园",
         "description": "雾气缭绕的废弃药园，药性温和却不失灵气。",
         "max_minutes": 40,
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 3,
+        "min_combat_power": 720,
         "event_pool": [
             {"name": "药灵惊走", "description": "药园深处有药灵窜过，追逐间踩断了几根枯藤，也抖落一些灵石。", "event_type": "danger", "weight": 2, "stone_bonus_min": 10, "stone_bonus_max": 22, "stone_loss_min": 2, "stone_loss_max": 8},
             {"name": "丹谱旧页", "description": "药架夹层里竟压着一张回春丹残页。", "event_type": "recipe", "weight": 3, "bonus_reward_kind": "material", "bonus_reward_ref_id_name": "回春丹谱残页", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 48},
@@ -918,6 +938,9 @@ DEFAULT_SCENES = [
         "name": "雷火符窟",
         "description": "窟内常有雷火共振，十分适合寻符材，但稍不留神就会被反噬。",
         "max_minutes": 50,
+        "min_realm_stage": "筑基",
+        "min_realm_layer": 1,
+        "min_combat_power": 1500,
         "event_pool": [
             {"name": "符火反噬", "description": "残符忽然炸裂，火星烫穿袖口，好在地上散落了些灵石。", "event_type": "danger", "weight": 3, "stone_bonus_min": 14, "stone_bonus_max": 30, "stone_loss_min": 6, "stone_loss_max": 18},
             {"name": "符谱显痕", "description": "石壁上显出一段旧符纹，你赶紧拓下一页残纸。", "event_type": "recipe", "weight": 3, "bonus_reward_kind": "material", "bonus_reward_ref_id_name": "雷火符谱残页", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 42},
@@ -933,6 +956,9 @@ DEFAULT_SCENES = [
         "name": "玄龟古潭",
         "description": "潭水极深，潭底不时浮出古盾残片与地脉灵气。",
         "max_minutes": 50,
+        "min_realm_stage": "筑基",
+        "min_realm_layer": 2,
+        "min_combat_power": 1800,
         "event_pool": [
             {"name": "水压暗涌", "description": "古潭忽起暗流，你被逼得连退几步，腰间灵石也被卷走少许。", "event_type": "danger", "weight": 3, "stone_bonus_min": 16, "stone_bonus_max": 28, "stone_loss_min": 8, "stone_loss_max": 20},
             {"name": "古盾残片", "description": "潭底泥沙里埋着一块仍有灵纹的盾片。", "event_type": "oddity", "weight": 2, "bonus_reward_kind": "material", "bonus_reward_ref_id_name": "破损玄龟盾片", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 16},
@@ -1690,6 +1716,44 @@ DEFAULT_SCENES.extend(
     ]
 )
 
+DEFAULT_MATERIALS.extend(EXTRA_MATERIALS)
+DEFAULT_ARTIFACTS.extend(EXTRA_ARTIFACTS)
+DEFAULT_PILLS.extend(
+    {
+        "name": pill["name"],
+        "rarity": pill["rarity"],
+        "pill_type": pill["pill_type"],
+        "description": pill["description"],
+        "effect_value": pill["effect_value"],
+        "poison_delta": pill["poison_delta"],
+        "enabled": True,
+    }
+    for pill in EXTRA_PILLS
+)
+DEFAULT_TALISMANS.extend(
+    {
+        "name": talisman["name"],
+        "rarity": talisman["rarity"],
+        "description": talisman["description"],
+        "attack_bonus": talisman.get("attack_bonus", 0),
+        "defense_bonus": talisman.get("defense_bonus", 0),
+        "bone_bonus": talisman.get("bone_bonus", 0),
+        "comprehension_bonus": talisman.get("comprehension_bonus", 0),
+        "divine_sense_bonus": talisman.get("divine_sense_bonus", 0),
+        "fortune_bonus": talisman.get("fortune_bonus", 0),
+        "qi_blood_bonus": talisman.get("qi_blood_bonus", 0),
+        "true_yuan_bonus": talisman.get("true_yuan_bonus", 0),
+        "body_movement_bonus": talisman.get("body_movement_bonus", 0),
+        "duel_rate_bonus": talisman.get("duel_rate_bonus", 0),
+        "effect_uses": talisman.get("effect_uses", 1),
+        "combat_config": talisman.get("combat_config", {}),
+        "enabled": True,
+    }
+    for talisman in EXTRA_TALISMANS
+)
+DEFAULT_RECIPES.extend(EXTRA_RECIPES)
+DEFAULT_SCENES.extend(EXTRA_SCENES)
+
 BREAKTHROUGH_BASE_RATE = {
     "炼气": 45,
     "筑基": 38,
@@ -1877,6 +1941,9 @@ def _build_opening_stats(root_payload: dict[str, Any]) -> dict[str, int]:
     comprehension = random.randint(10, 18) + quality_level + (2 if root_payload.get("root_type") in {"天灵根", "变异灵根"} else 0)
     divine_sense = random.randint(9, 17) + quality_level + (2 if root_payload.get("root_primary") in {"水", "雷", "风"} else 0)
     fortune = random.randint(8, 16) + quality_level + (2 if root_payload.get("root_quality") in {"极品灵根", "天灵根", "变异灵根"} else 0)
+    willpower = random.randint(8, 15) + quality_level + (2 if root_payload.get("root_type") in {"地灵根", "天灵根"} else 0)
+    charisma = random.randint(8, 15) + quality_level + (2 if root_payload.get("root_primary") in {"木", "水", "风"} else 0)
+    karma = random.randint(8, 15) + quality_level + (2 if root_payload.get("root_quality") in {"上品灵根", "极品灵根", "天灵根", "变异灵根"} else 0)
     body_movement = random.randint(8, 15) + quality_level + (2 if root_payload.get("root_primary") in {"风", "火", "雷"} else 0)
     attack_power = random.randint(10, 18) + quality_level * 2 + (3 if root_payload.get("root_primary") in {"火", "金", "雷"} else 0)
     defense_power = random.randint(10, 18) + quality_level * 2 + (3 if root_payload.get("root_primary") in {"土", "金", "水"} else 0)
@@ -1887,12 +1954,73 @@ def _build_opening_stats(root_payload: dict[str, Any]) -> dict[str, int]:
         "comprehension": comprehension,
         "divine_sense": divine_sense,
         "fortune": fortune,
+        "willpower": willpower,
+        "charisma": charisma,
+        "karma": karma,
         "qi_blood": qi_blood,
         "true_yuan": true_yuan,
         "body_movement": body_movement,
         "attack_power": attack_power,
         "defense_power": defense_power,
     }
+
+
+def _realm_progress_score(stage: str | None, layer: int | None) -> int:
+    return max(realm_index(stage), 0) * 9 + max(int(layer or 1), 1) - 1
+
+
+def _profile_growth_floor(profile: dict[str, Any]) -> dict[str, int]:
+    quality = _root_quality_payload(_normalized_root_quality(profile))
+    quality_level = int(quality["level"])
+    quality_name = _normalized_root_quality(profile)
+    root_type = str(profile.get("root_type") or "").strip()
+    primary = str(profile.get("root_primary") or "").strip()
+    progress = _realm_progress_score(profile.get("realm_stage"), profile.get("realm_layer"))
+    special_bonus = 2 if root_type == "天灵根" else 1 if root_type == "变异灵根" else 0
+    bone = 10 + quality_level + progress // 3 + (2 if primary in {"土", "金"} else 0) + special_bonus
+    comprehension = 10 + quality_level + progress // 3 + (2 if primary in {"木", "水"} else 0) + special_bonus
+    divine_sense = 9 + quality_level + progress // 4 + (2 if primary in {"雷", "风", "水"} else 0) + special_bonus
+    fortune = 8 + quality_level + progress // 5 + (2 if root_type in {"地灵根", "天灵根", "变异灵根"} else 0)
+    willpower = 8 + quality_level + progress // 4 + (2 if root_type in {"地灵根", "天灵根"} else 0)
+    charisma = 8 + quality_level + progress // 5 + (2 if primary in {"木", "水", "风"} else 0)
+    karma = 8 + quality_level + progress // 4 + (2 if quality_name in {"上品灵根", "极品灵根", "天灵根", "变异灵根"} else 0)
+    attack_power = 10 + quality_level * 2 + progress // 2 + (3 if primary in {"火", "金", "雷"} else 0)
+    defense_power = 10 + quality_level * 2 + progress // 2 + (3 if primary in {"土", "金", "水"} else 0)
+    body_movement = 8 + quality_level + progress // 3 + (2 if primary in {"风", "火", "雷"} else 0)
+    qi_blood = 160 + bone * 12 + defense_power * 4 + quality_level * 20 + progress * 18
+    true_yuan = 140 + comprehension * 9 + divine_sense * 6 + quality_level * 18 + progress * 16
+    return {
+        "bone": bone,
+        "comprehension": comprehension,
+        "divine_sense": divine_sense,
+        "fortune": fortune,
+        "willpower": willpower,
+        "charisma": charisma,
+        "karma": karma,
+        "qi_blood": qi_blood,
+        "true_yuan": true_yuan,
+        "body_movement": body_movement,
+        "attack_power": attack_power,
+        "defense_power": defense_power,
+    }
+
+
+def _apply_profile_growth_floor(tg: int, explicit_fields: set[str] | None = None) -> dict[str, Any]:
+    profile = serialize_profile(get_profile(tg, create=False))
+    if profile is None or not profile.get("consented"):
+        raise ValueError("玩家不存在")
+    explicit = set(explicit_fields or set())
+    patch = {}
+    for key, minimum in _profile_growth_floor(profile).items():
+        if key in explicit:
+            continue
+        current = int(profile.get(key) or 0)
+        if current < minimum:
+            patch[key] = minimum
+    if not patch:
+        return profile
+    updated = upsert_profile(tg, **patch)
+    return serialize_profile(updated)
 
 
 def _effective_stats(
@@ -1909,6 +2037,9 @@ def _effective_stats(
         "comprehension": float(profile.get("comprehension", 0) or 0) + totals["comprehension_bonus"],
         "divine_sense": float(profile.get("divine_sense", 0) or 0) + totals["divine_sense_bonus"],
         "fortune": float(profile.get("fortune", 0) or 0) + totals["fortune_bonus"],
+        "willpower": float(profile.get("willpower", 0) or 0),
+        "charisma": float(profile.get("charisma", 0) or 0),
+        "karma": float(profile.get("karma", 0) or 0),
         "qi_blood": float(profile.get("qi_blood", 0) or 0) + totals["qi_blood_bonus"],
         "true_yuan": float(profile.get("true_yuan", 0) or 0) + totals["true_yuan_bonus"],
         "body_movement": float(profile.get("body_movement", 0) or 0) + totals["body_movement_bonus"],
@@ -2098,6 +2229,9 @@ def resolve_pill_effects(
             "comprehension_bonus": 0.0,
             "divine_sense_bonus": 0.0,
             "fortune_bonus": 0.0,
+            "willpower_bonus": 0.0,
+            "charisma_bonus": 0.0,
+            "karma_bonus": 0.0,
             "qi_blood_bonus": 0.0,
             "true_yuan_bonus": 0.0,
             "body_movement_bonus": 0.0,
@@ -2106,7 +2240,7 @@ def resolve_pill_effects(
         }
     pill_type = pill.get("pill_type")
     multiplier = _item_quality_multiplier(pill, "pill")
-    base_effect_value = float(pill.get("effect_value", 0) or 0) * multiplier
+    base_effect_value = max(float(pill.get("effect_value", 0) or 0) * multiplier, 0.0)
     payload = {
         "effect_value": base_effect_value,
         "poison_delta": float(pill.get("poison_delta", 0) or 0),
@@ -2121,6 +2255,9 @@ def resolve_pill_effects(
         "comprehension_bonus": float(pill.get("comprehension_bonus", 0) or 0) * multiplier,
         "divine_sense_bonus": float(pill.get("divine_sense_bonus", 0) or 0) * multiplier,
         "fortune_bonus": float(pill.get("fortune_bonus", 0) or 0) * multiplier,
+        "willpower_bonus": 0.0,
+        "charisma_bonus": 0.0,
+        "karma_bonus": 0.0,
         "qi_blood_bonus": float(pill.get("qi_blood_bonus", 0) or 0) * multiplier,
         "true_yuan_bonus": float(pill.get("true_yuan_bonus", 0) or 0) * multiplier,
         "body_movement_bonus": float(pill.get("body_movement_bonus", 0) or 0) * multiplier,
@@ -2137,6 +2274,12 @@ def resolve_pill_effects(
         payload["divine_sense_bonus"] += base_effect_value
     elif pill_type == "fortune":
         payload["fortune_bonus"] += base_effect_value
+    elif pill_type == "willpower":
+        payload["willpower_bonus"] += base_effect_value
+    elif pill_type == "charisma":
+        payload["charisma_bonus"] += base_effect_value
+    elif pill_type == "karma":
+        payload["karma_bonus"] += base_effect_value
     elif pill_type == "qi_blood":
         payload["qi_blood_bonus"] += base_effect_value
     elif pill_type == "true_yuan":
@@ -2211,6 +2354,9 @@ def _pill_effect_summary(before_profile: dict[str, Any], after_profile: dict[str
         "comprehension",
         "divine_sense",
         "fortune",
+        "willpower",
+        "charisma",
+        "karma",
         "qi_blood",
         "true_yuan",
         "body_movement",
@@ -2501,6 +2647,10 @@ def ensure_seed_data(force: bool = False) -> None:
     for payload in DEFAULT_MATERIALS:
         sync_material_by_name(**payload, enabled=True)
     material_map = {item["name"]: item for item in list_materials()}
+    settings = get_xiuxian_settings()
+    sync_official_shop_name(
+        str(settings.get("official_shop_name", DEFAULT_SETTINGS["official_shop_name"]) or DEFAULT_SETTINGS["official_shop_name"])
+    )
 
     for recipe in DEFAULT_RECIPES:
         result_ref_id = _resolve_seed_result_ref_id(
@@ -2579,9 +2729,28 @@ def ensure_seed_data(force: bool = False) -> None:
             description=str(scene.get("description") or ""),
             image_url=str(scene.get("image_url") or ""),
             max_minutes=int(scene.get("max_minutes") or 60),
+            min_realm_stage=scene.get("min_realm_stage"),
+            min_realm_layer=int(scene.get("min_realm_layer") or 1),
+            min_combat_power=int(scene.get("min_combat_power") or 0),
             event_pool=resolved_events,
             drops=resolved_drops,
         )
+
+    for encounter in DEFAULT_ENCOUNTER_TEMPLATES:
+        encounter_payload = dict(encounter)
+        reward_item_name = str(encounter_payload.pop("reward_item_ref_name", "") or "").strip()
+        if reward_item_name:
+            encounter_payload["reward_item_ref_id"] = _resolve_seed_result_ref_id(
+                str(encounter_payload.get("reward_item_kind") or "material"),
+                reward_item_name,
+                artifact_map=artifact_map,
+                pill_map=pill_map,
+                talisman_map=talisman_map,
+                material_map=material_map,
+                technique_map=technique_map,
+                recipe_map=recipe_map,
+            )
+        sync_encounter_template_by_name(**encounter_payload)
 
     for payload in DEFAULT_ACHIEVEMENTS:
         achievement_payload = dict(payload)
@@ -3328,6 +3497,13 @@ def create_personal_shop_listing(
         if not use_user_pill_listing_stock(tg, item_ref_id, quantity):
             raise ValueError("背包里的丹药数量不足。")
         item_name = pill.name
+    elif item_kind == "material":
+        material = get_material(item_ref_id)
+        if material is None:
+            raise ValueError("未找到目标材料。")
+        if not use_user_material_listing_stock(tg, item_ref_id, quantity):
+            raise ValueError("背包里的材料数量不足。")
+        item_name = material.name
     elif item_kind == "talisman":
         talisman = get_talisman(item_ref_id)
         if talisman is None:
@@ -3340,7 +3516,9 @@ def create_personal_shop_listing(
 
     settings = get_xiuxian_settings()
     broadcast_cost = int(settings.get("shop_broadcast_cost", DEFAULT_SETTINGS["shop_broadcast_cost"]) or 0)
-    if broadcast and int(profile.spiritual_stone or 0) < broadcast_cost:
+    charisma_discount = min(max(int(profile.charisma or 0) - 10, 0) // 4, broadcast_cost)
+    final_broadcast_cost = max(broadcast_cost - charisma_discount, 0)
+    if broadcast and int(profile.spiritual_stone or 0) < final_broadcast_cost:
         raise ValueError("灵石不足，无法支付全群播报费用。")
 
     resolved_shop_name = str(shop_name or profile.shop_name or PERSONAL_SHOP_NAME).strip() or PERSONAL_SHOP_NAME
@@ -3360,12 +3538,13 @@ def create_personal_shop_listing(
         tg,
         shop_name=resolved_shop_name,
         shop_broadcast=bool(broadcast),
-        spiritual_stone=int(profile.spiritual_stone or 0) - (broadcast_cost if broadcast else 0),
+        spiritual_stone=int(profile.spiritual_stone or 0) - (final_broadcast_cost if broadcast else 0),
     )
 
     return {
         "listing": listing,
-        "broadcast_cost": broadcast_cost if broadcast else 0,
+        "broadcast_cost": final_broadcast_cost if broadcast else 0,
+        "broadcast_discount": charisma_discount if broadcast else 0,
         "profile": serialize_profile(updated),
     }
 
@@ -3395,6 +3574,11 @@ def create_official_shop_listing(
         if talisman is None:
             raise ValueError("未找到目标符箓。")
         item_name = talisman.name
+    elif item_kind == "material":
+        material = get_material(item_ref_id)
+        if material is None:
+            raise ValueError("未找到目标材料。")
+        item_name = material.name
     else:
         raise ValueError("不支持的官方商店物品类型。")
 
@@ -3726,11 +3910,12 @@ def maybe_gain_cultivation_from_chat(tg: int) -> dict[str, Any] | None:
         cultivation=cultivation,
         realm_layer=layer,
     )
+    _apply_profile_growth_floor(tg)
     return {
         "gain": gain,
         "upgraded_layers": upgraded_layers,
         "remaining": remaining,
-        "profile": serialize_profile(updated),
+        "profile": serialize_profile(get_profile(updated.tg, create=False)),
     }
 
 
@@ -3807,7 +3992,10 @@ def admin_patch_player(tg: int, **fields) -> dict[str, Any] | None:
             patch["root_quality"] = None
             patch["root_quality_level"] = 1
             patch["root_quality_color"] = None
-    return admin_patch_profile(tg, **patch)
+    result = admin_patch_profile(tg, **patch)
+    if result is None:
+        return None
+    return _apply_profile_growth_floor(tg, explicit_fields=set(patch.keys()))
 
 
 def build_admin_player_detail(tg: int) -> dict[str, Any] | None:
@@ -3964,7 +4152,16 @@ def _battle_bundle(bundle_or_profile: dict[str, Any], opponent_profile: dict[str
     stage_index = realm_index(profile.get("realm_stage"))
     layer = int(profile.get("realm_layer") or 0)
     realm_base = 180 + stage_index * 220 + max(layer, 1) * 34
-    attribute_factor = 1 + stats["bone"] / 240 + stats["comprehension"] / 260 + stats["divine_sense"] / 280 + stats["fortune"] / 320
+    attribute_factor = (
+        1
+        + stats["bone"] / 240
+        + stats["comprehension"] / 260
+        + stats["divine_sense"] / 280
+        + stats["fortune"] / 320
+        + stats["willpower"] / 340
+        + stats["charisma"] / 420
+        + stats["karma"] / 360
+    )
     offense_factor = 1 + stats["attack_power"] / 200
     defense_factor = 1 + stats["defense_power"] / 220
     vitality_factor = 1 + stats["qi_blood"] / 2200
@@ -4341,6 +4538,7 @@ def practice_for_user(tg: int) -> dict[str, Any]:
         realm_layer=layer,
         last_train_at=utcnow(),
     )
+    _apply_profile_growth_floor(tg)
     return {
         "gain": gain,
         "stone_gain": stone_gain,
@@ -4384,6 +4582,8 @@ def breakthrough_for_user(tg: int, use_pill: bool = False) -> dict[str, Any]:
     success_rate += int(round((artifact_effects or {}).get("breakthrough_bonus", 0)))
     success_rate += int(round((technique_effects or {}).get("breakthrough_bonus", 0)))
     success_rate += int(round((title_effects or {}).get("breakthrough_bonus", 0)))
+    success_rate += int(round((stats["willpower"] - 10) * 0.35))
+    success_rate += int(round((stats["karma"] - 10) * 0.2))
     success_rate -= int(max(float(profile.dan_poison or 0) - stats["bone"] * 0.3, 0) // 8)
     if _normalized_root_quality(profile_data) == "天灵根":
         success_rate += 4
@@ -4427,12 +4627,16 @@ def breakthrough_for_user(tg: int, use_pill: bool = False) -> dict[str, Any]:
             true_yuan=int(profile.true_yuan or 0) + 20 + int(stats["comprehension"] // 2),
             attack_power=int(profile.attack_power or 0) + 3,
             defense_power=int(profile.defense_power or 0) + 3,
+            willpower=int(profile.willpower or 0) + 1,
+            karma=int(profile.karma or 0) + (1 if success_rate >= 60 else 0),
         )
+        _apply_profile_growth_floor(tg)
     else:
         updated = upsert_profile(
             tg,
             cultivation=max(int(profile.cultivation or 0) - required_cultivation // 2, 0),
             breakthrough_pill_uses=int(profile.breakthrough_pill_uses or 0) + (1 if use_pill else 0),
+            willpower=int(profile.willpower or 0) + 1,
         )
     return {
         "success": success,
@@ -4470,6 +4674,9 @@ def consume_pill_for_user(tg: int, pill_id: int) -> dict[str, Any]:
     comprehension = int(profile.comprehension or 0) + int(round(effects.get("comprehension_bonus", 0)))
     divine_sense = int(profile.divine_sense or 0) + int(round(effects.get("divine_sense_bonus", 0)))
     fortune = int(profile.fortune or 0) + int(round(effects.get("fortune_bonus", 0)))
+    willpower = int(profile.willpower or 0) + int(round(effects.get("willpower_bonus", 0)))
+    charisma = int(profile.charisma or 0) + int(round(effects.get("charisma_bonus", 0)))
+    karma = int(profile.karma or 0) + int(round(effects.get("karma_bonus", 0)))
     qi_blood = int(profile.qi_blood or 0) + int(round(effects.get("qi_blood_bonus", 0)))
     true_yuan = int(profile.true_yuan or 0) + int(round(effects.get("true_yuan_bonus", 0)))
     body_movement = int(profile.body_movement or 0) + int(round(effects.get("body_movement_bonus", 0)))
@@ -4502,6 +4709,9 @@ def consume_pill_for_user(tg: int, pill_id: int) -> dict[str, Any]:
         comprehension=comprehension,
         divine_sense=divine_sense,
         fortune=fortune,
+        willpower=willpower,
+        charisma=charisma,
+        karma=karma,
         qi_blood=qi_blood,
         true_yuan=true_yuan,
         body_movement=body_movement,
@@ -5318,3 +5528,18 @@ def format_duel_settlement_text(
 
 def generate_duel_preview_text(duel: dict[str, Any], stake: int = 0) -> str:
     return format_duel_matchup_text(duel, stake=stake)
+
+
+from bot.plugins.xiuxian_game.features.pills import (  # noqa: E402
+    consume_pill_for_user as consume_pill_for_user,
+    pill_effect_summary as _pill_effect_summary,
+    pill_usage_reason as _pill_usage_reason,
+    resolve_pill_effects as resolve_pill_effects,
+)
+from bot.plugins.xiuxian_game.features.retreat import (  # noqa: E402
+    ensure_not_in_retreat as ensure_not_in_retreat,
+    finish_retreat_for_user as finish_retreat_for_user,
+    is_retreating as _is_retreating,
+    settle_retreat_progress as _settle_retreat_progress,
+    start_retreat_for_user as start_retreat_for_user,
+)

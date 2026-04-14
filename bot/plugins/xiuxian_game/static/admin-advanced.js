@@ -50,6 +50,7 @@
     "material-form": { idField: "material-id", label: "材料" },
     "recipe-form": { idField: "recipe-id", label: "配方" },
     "scene-form": { idField: "scene-id", label: "场景" },
+    "encounter-form": { idField: "encounter-id", label: "奇遇" },
   };
 
   ADMIN_SECTION_LABELS["artifact-sets"] = "套装";
@@ -693,6 +694,7 @@
     if (suffix === "material") return { method: "PATCH", path: `/plugins/xiuxian/admin-api/material/${id}` };
     if (suffix === "recipe") return { method: "PATCH", path: `/plugins/xiuxian/admin-api/recipe/${id}` };
     if (suffix === "scene") return { method: "PATCH", path: `/plugins/xiuxian/admin-api/scene/${id}` };
+    if (suffix === "encounter") return { method: "PATCH", path: `/plugins/xiuxian/admin-api/encounter/${id}` };
     return { method: "POST", path };
   }
 
@@ -738,6 +740,9 @@
     } else if (path === "/plugins/xiuxian/admin-api/scene" && body) {
       window.__xiuxianAdvancedForm = "scene-form";
       ({ method: nextMethod, path: nextPath } = routeByEditId(path, "scene-form"));
+    } else if (path === "/plugins/xiuxian/admin-api/encounter" && body) {
+      window.__xiuxianAdvancedForm = "encounter-form";
+      ({ method: nextMethod, path: nextPath } = routeByEditId(path, "encounter-form"));
     }
     return _baseRequest(nextMethod, nextPath, nextBody);
   };
@@ -825,6 +830,14 @@
     resetSceneBuilders();
   }
 
+  function resetEncounterForm() {
+    $("encounter-form")?.reset();
+    clearFormEditMode("encounter-form");
+    if ($("encounter-enabled")) $("encounter-enabled").checked = true;
+    if ($("encounter-button-text")) $("encounter-button-text").value = "争抢机缘";
+    syncSelects();
+  }
+
   const FORM_RESETTERS = {
     "artifact-form": resetArtifactForm,
     "artifact-set-form": resetArtifactSetForm,
@@ -837,6 +850,7 @@
     "material-form": resetMaterialForm,
     "recipe-form": resetRecipeForm,
     "scene-form": resetSceneForm,
+    "encounter-form": resetEncounterForm,
   };
 
   const _baseSubmitAndRefresh = submitAndRefresh;
@@ -1021,6 +1035,18 @@
         <div class="inline-action-buttons">${editButton("scene", item.id)}${deleteButton("scene", item.id)}</div>
       </article>
     `).join("") || `<article class="stack-item"><strong>暂无场景</strong></article>`);
+
+    renderStack("encounter-list", safeRows("encounters").map((item) => `
+      <article class="stack-item">
+        <div class="stack-item-head">
+          <strong>${escapeHtml(item.name)}</strong>
+          <span class="badge badge--normal">${escapeHtml(item.weight || 1)} 权重</span>
+        </div>
+        <p>${escapeHtml(item.description || "暂无描述")}</p>
+        <p>奖励：灵石 ${escapeHtml(item.reward_stone_min || 0)}-${escapeHtml(item.reward_stone_max || 0)} · 修为 ${escapeHtml(item.reward_cultivation_min || 0)}-${escapeHtml(item.reward_cultivation_max || 0)}</p>
+        <div class="inline-action-buttons">${editButton("encounter", item.id)}${deleteButton("encounter", item.id)}</div>
+      </article>
+    `).join("") || `<article class="stack-item"><strong>暂无奇遇</strong></article>`);
   };
 
   function loadArtifactEdit(id) {
@@ -1257,6 +1283,37 @@
     focusForm("scene-form");
   }
 
+  function loadEncounterEdit(id) {
+    const item = findById(safeRows("encounters"), id);
+    if (!item) return;
+    $("encounter-name").value = item.name || "";
+    $("encounter-description").value = item.description || "";
+    $("encounter-image").value = item.image_url || "";
+    $("encounter-button-text").value = item.button_text || "争抢机缘";
+    $("encounter-success-text").value = item.success_text || "";
+    $("encounter-broadcast-text").value = item.broadcast_text || "";
+    $("encounter-weight").value = item.weight || 1;
+    $("encounter-active-seconds").value = item.active_seconds || 90;
+    $("encounter-stage").value = item.min_realm_stage || "";
+    $("encounter-layer").value = item.min_realm_layer || 1;
+    $("encounter-power").value = item.min_combat_power || 0;
+    $("encounter-stone-min").value = item.reward_stone_min || 0;
+    $("encounter-stone-max").value = item.reward_stone_max || 0;
+    $("encounter-cultivation-min").value = item.reward_cultivation_min || 0;
+    $("encounter-cultivation-max").value = item.reward_cultivation_max || 0;
+    $("encounter-item-kind").value = item.reward_item_kind || "";
+    syncSelects();
+    $("encounter-item-id").value = item.reward_item_ref_id || "";
+    $("encounter-item-quantity-min").value = item.reward_item_quantity_min || 1;
+    $("encounter-item-quantity-max").value = item.reward_item_quantity_max || 1;
+    $("encounter-willpower").value = item.reward_willpower || 0;
+    $("encounter-charisma").value = item.reward_charisma || 0;
+    $("encounter-karma").value = item.reward_karma || 0;
+    $("encounter-enabled").checked = item.enabled !== false;
+    setFormEditMode("encounter-form", item);
+    focusForm("encounter-form");
+  }
+
   const EDIT_LOADERS = {
     artifact: loadArtifactEdit,
     "artifact-set": loadArtifactSetEdit,
@@ -1269,6 +1326,7 @@
     material: loadMaterialEdit,
     recipe: loadRecipeEdit,
     scene: loadSceneEdit,
+    encounter: loadEncounterEdit,
   };
 
   function bindArtifactSetSubmit() {

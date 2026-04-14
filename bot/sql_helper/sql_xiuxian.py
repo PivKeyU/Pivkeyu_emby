@@ -74,6 +74,9 @@ PILL_TYPE_LABELS = {
     "comprehension": "提升悟性",
     "divine_sense": "提升神识",
     "fortune": "提升机缘",
+    "willpower": "提升心志",
+    "charisma": "提升魅力",
+    "karma": "提升因果",
     "qi_blood": "提升气血",
     "true_yuan": "提升真元",
     "body_movement": "提升身法",
@@ -164,7 +167,7 @@ DEFAULT_SETTINGS = {
     "equipment_unbind_cost": 100,
     "artifact_plunder_chance": 20,
     "shop_broadcast_cost": 20,
-    "official_shop_name": "风月阁",
+    "official_shop_name": "官方商店",
     "allow_user_task_publish": True,
     "task_publish_cost": 20,
     "artifact_equip_limit": 3,
@@ -180,6 +183,9 @@ DEFAULT_SETTINGS = {
     "exploration_drop_weight_rules": DEFAULT_EXPLORATION_DROP_WEIGHT_RULES,
     "item_quality_value_rules": DEFAULT_ITEM_QUALITY_VALUE_RULES,
     "immortal_touch_infusion_layers": 1,
+    "encounter_spawn_chance": 5,
+    "encounter_group_cooldown_minutes": 12,
+    "encounter_active_seconds": 90,
 }
 DEFAULT_SETTINGS["duel_bet_minutes"] = 2
 
@@ -229,6 +235,9 @@ PILL_TYPE_LABELS = {
     "comprehension": "提升悟性",
     "divine_sense": "提升神识",
     "fortune": "提升机缘",
+    "willpower": "提升心志",
+    "charisma": "提升魅力",
+    "karma": "提升因果",
     "qi_blood": "提升气血",
     "true_yuan": "提升真元",
     "body_movement": "提升身法",
@@ -251,6 +260,9 @@ PILL_EFFECT_VALUE_LABELS = {
     "comprehension": "悟性增量",
     "divine_sense": "神识增量",
     "fortune": "机缘增量",
+    "willpower": "心志增量",
+    "charisma": "魅力增量",
+    "karma": "因果增量",
     "qi_blood": "气血增量",
     "true_yuan": "真元增量",
     "body_movement": "身法增量",
@@ -281,6 +293,9 @@ ATTRIBUTE_LABELS = {
     "comprehension_bonus": "悟性",
     "divine_sense_bonus": "神识",
     "fortune_bonus": "机缘",
+    "willpower_bonus": "心志",
+    "charisma_bonus": "魅力",
+    "karma_bonus": "因果",
     "qi_blood_bonus": "气血",
     "true_yuan_bonus": "真元",
     "body_movement_bonus": "身法",
@@ -401,6 +416,9 @@ class XiuxianProfile(Base):
     comprehension = Column(Integer, default=12, nullable=False)
     divine_sense = Column(Integer, default=12, nullable=False)
     fortune = Column(Integer, default=12, nullable=False)
+    willpower = Column(Integer, default=10, nullable=False)
+    charisma = Column(Integer, default=10, nullable=False)
+    karma = Column(Integer, default=10, nullable=False)
     qi_blood = Column(Integer, default=120, nullable=False)
     true_yuan = Column(Integer, default=120, nullable=False)
     body_movement = Column(Integer, default=12, nullable=False)
@@ -646,6 +664,9 @@ class XiuxianScene(Base):
     description = Column(Text, nullable=True)
     image_url = Column(String(512), nullable=True)
     max_minutes = Column(Integer, default=60, nullable=False)
+    min_realm_stage = Column(String(32), nullable=True)
+    min_realm_layer = Column(Integer, default=1, nullable=False)
+    min_combat_power = Column(Integer, default=0, nullable=False)
     event_pool = Column(JSON, nullable=True)
     enabled = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=utcnow, nullable=False)
@@ -729,6 +750,55 @@ class XiuxianTaskClaim(Base):
     tg = Column(BigInteger, nullable=False)
     status = Column(String(16), default="accepted", nullable=False)
     submitted_answer = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianEncounterTemplate(Base):
+    __tablename__ = "xiuxian_encounter_templates"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False, unique=True)
+    description = Column(Text, nullable=True)
+    image_url = Column(String(512), nullable=True)
+    button_text = Column(String(64), nullable=True)
+    success_text = Column(Text, nullable=True)
+    broadcast_text = Column(Text, nullable=True)
+    weight = Column(Integer, default=1, nullable=False)
+    active_seconds = Column(Integer, default=90, nullable=False)
+    min_realm_stage = Column(String(32), nullable=True)
+    min_realm_layer = Column(Integer, default=1, nullable=False)
+    min_combat_power = Column(Integer, default=0, nullable=False)
+    reward_stone_min = Column(Integer, default=0, nullable=False)
+    reward_stone_max = Column(Integer, default=0, nullable=False)
+    reward_cultivation_min = Column(Integer, default=0, nullable=False)
+    reward_cultivation_max = Column(Integer, default=0, nullable=False)
+    reward_item_kind = Column(String(16), nullable=True)
+    reward_item_ref_id = Column(Integer, nullable=True)
+    reward_item_quantity_min = Column(Integer, default=1, nullable=False)
+    reward_item_quantity_max = Column(Integer, default=1, nullable=False)
+    reward_willpower = Column(Integer, default=0, nullable=False)
+    reward_charisma = Column(Integer, default=0, nullable=False)
+    reward_karma = Column(Integer, default=0, nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianEncounterInstance(Base):
+    __tablename__ = "xiuxian_encounter_instances"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    template_id = Column(Integer, ForeignKey("xiuxian_encounter_templates.id", ondelete="SET NULL"), nullable=True)
+    template_name = Column(String(128), nullable=False)
+    group_chat_id = Column(BigInteger, nullable=False)
+    message_id = Column(Integer, nullable=True)
+    button_text = Column(String(64), nullable=True)
+    status = Column(String(16), default="active", nullable=False)
+    reward_payload = Column(JSON, nullable=True)
+    expires_at = Column(DateTime, nullable=False)
+    claimer_tg = Column(BigInteger, nullable=True)
+    claimed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
@@ -1063,6 +1133,9 @@ def serialize_profile(profile: XiuxianProfile | None) -> dict[str, Any] | None:
         "comprehension": profile.comprehension,
         "divine_sense": profile.divine_sense,
         "fortune": profile.fortune,
+        "willpower": profile.willpower,
+        "charisma": profile.charisma,
+        "karma": profile.karma,
         "qi_blood": profile.qi_blood,
         "true_yuan": profile.true_yuan,
         "body_movement": profile.body_movement,
@@ -1314,6 +1387,9 @@ def serialize_scene(scene: XiuxianScene | None) -> dict[str, Any] | None:
         "description": scene.description,
         "image_url": scene.image_url,
         "max_minutes": scene.max_minutes,
+        "min_realm_stage": normalize_realm_stage(scene.min_realm_stage) if scene.min_realm_stage else None,
+        "min_realm_layer": scene.min_realm_layer,
+        "min_combat_power": int(scene.min_combat_power or 0),
         "event_pool": _normalize_scene_event_pool(scene.event_pool),
         "enabled": scene.enabled,
     }
@@ -1390,6 +1466,60 @@ def serialize_task(task: XiuxianTask | None) -> dict[str, Any] | None:
         "status": task.status,
         "deadline_at": serialize_datetime(task.deadline_at),
         "created_at": serialize_datetime(task.created_at),
+    }
+
+
+def serialize_encounter_template(template: XiuxianEncounterTemplate | None) -> dict[str, Any] | None:
+    if template is None:
+        return None
+    return {
+        "id": template.id,
+        "name": template.name,
+        "description": template.description,
+        "image_url": template.image_url,
+        "button_text": template.button_text,
+        "success_text": template.success_text,
+        "broadcast_text": template.broadcast_text,
+        "weight": template.weight,
+        "active_seconds": template.active_seconds,
+        "min_realm_stage": normalize_realm_stage(template.min_realm_stage) if template.min_realm_stage else None,
+        "min_realm_layer": template.min_realm_layer,
+        "min_combat_power": template.min_combat_power,
+        "reward_stone_min": template.reward_stone_min,
+        "reward_stone_max": template.reward_stone_max,
+        "reward_cultivation_min": template.reward_cultivation_min,
+        "reward_cultivation_max": template.reward_cultivation_max,
+        "reward_item_kind": template.reward_item_kind,
+        "reward_item_kind_label": ITEM_KIND_LABELS.get(template.reward_item_kind or "", template.reward_item_kind),
+        "reward_item_ref_id": template.reward_item_ref_id,
+        "reward_item_quantity_min": template.reward_item_quantity_min,
+        "reward_item_quantity_max": template.reward_item_quantity_max,
+        "reward_willpower": template.reward_willpower,
+        "reward_charisma": template.reward_charisma,
+        "reward_karma": template.reward_karma,
+        "enabled": template.enabled,
+        "created_at": serialize_datetime(template.created_at),
+        "updated_at": serialize_datetime(template.updated_at),
+    }
+
+
+def serialize_encounter_instance(instance: XiuxianEncounterInstance | None) -> dict[str, Any] | None:
+    if instance is None:
+        return None
+    return {
+        "id": instance.id,
+        "template_id": instance.template_id,
+        "template_name": instance.template_name,
+        "group_chat_id": instance.group_chat_id,
+        "message_id": instance.message_id,
+        "button_text": instance.button_text,
+        "status": instance.status,
+        "reward_payload": _sanitize_json_value(instance.reward_payload) or {},
+        "expires_at": serialize_datetime(instance.expires_at),
+        "claimer_tg": instance.claimer_tg,
+        "claimed_at": serialize_datetime(instance.claimed_at),
+        "created_at": serialize_datetime(instance.created_at),
+        "updated_at": serialize_datetime(instance.updated_at),
     }
 
 
@@ -2978,6 +3108,28 @@ def use_user_pill_listing_stock(tg: int, pill_id: int, quantity: int = 1) -> boo
         return True
 
 
+def use_user_material_listing_stock(tg: int, material_id: int, quantity: int = 1) -> bool:
+    with Session() as session:
+        row = (
+            session.query(XiuxianMaterialInventory)
+            .filter(
+                XiuxianMaterialInventory.tg == tg,
+                XiuxianMaterialInventory.material_id == material_id,
+            )
+            .with_for_update()
+            .first()
+        )
+        if row is None or row.quantity < quantity:
+            return False
+
+        row.quantity -= quantity
+        row.updated_at = utcnow()
+        if row.quantity <= 0:
+            session.delete(row)
+        session.commit()
+        return True
+
+
 def use_user_talisman_listing_stock(tg: int, talisman_id: int, quantity: int = 1) -> bool:
     with Session() as session:
         row = (
@@ -3388,6 +3540,20 @@ def purchase_shop_item(buyer_tg: int, item_id: int, quantity: int = 1) -> dict[s
                 session.add(row)
             row.quantity += amount
             row.updated_at = utcnow()
+        elif item.item_kind == "material":
+            row = (
+                session.query(XiuxianMaterialInventory)
+                .filter(
+                    XiuxianMaterialInventory.tg == buyer_tg,
+                    XiuxianMaterialInventory.material_id == item.item_ref_id,
+                )
+                .first()
+            )
+            if row is None:
+                row = XiuxianMaterialInventory(tg=buyer_tg, material_id=item.item_ref_id, quantity=0)
+                session.add(row)
+            row.quantity += amount
+            row.updated_at = utcnow()
         else:
             raise ValueError("不支持的商品类型")
 
@@ -3532,7 +3698,7 @@ def search_profiles(
 
 ADMIN_EDITABLE_PROFILE_FIELDS = {
     "spiritual_stone", "cultivation", "realm_stage", "realm_layer",
-    "bone", "comprehension", "divine_sense", "fortune",
+    "bone", "comprehension", "divine_sense", "fortune", "willpower", "charisma", "karma",
     "qi_blood", "true_yuan", "body_movement", "attack_power", "defense_power",
     "insight_bonus", "dan_poison", "sect_contribution",
     "technique_capacity",
@@ -3953,6 +4119,10 @@ def create_scene(**fields) -> dict[str, Any]:
     fields["description"] = str(fields.get("description") or "").strip()
     fields["image_url"] = str(fields.get("image_url") or "").strip()
     fields["max_minutes"] = max(_coerce_int(fields.get("max_minutes"), 60), 1)
+    min_realm_stage = fields.get("min_realm_stage")
+    fields["min_realm_stage"] = normalize_realm_stage(min_realm_stage) if min_realm_stage else None
+    fields["min_realm_layer"] = max(_coerce_int(fields.get("min_realm_layer"), 1), 1)
+    fields["min_combat_power"] = max(_coerce_int(fields.get("min_combat_power"), 0), 0)
     fields["event_pool"] = _normalize_scene_event_pool(fields.get("event_pool"))
     fields["enabled"] = _coerce_bool(fields.get("enabled"), True)
     with Session() as session:
@@ -3991,6 +4161,178 @@ def list_scene_drops(scene_id: int) -> list[dict[str, Any]]:
             .all()
         )
         return [serialize_scene_drop(row) for row in rows]
+
+
+def get_encounter_template(template_id: int) -> XiuxianEncounterTemplate | None:
+    with Session() as session:
+        return session.query(XiuxianEncounterTemplate).filter(XiuxianEncounterTemplate.id == template_id).first()
+
+
+def list_encounter_templates(enabled_only: bool = False) -> list[dict[str, Any]]:
+    with Session() as session:
+        query = session.query(XiuxianEncounterTemplate)
+        if enabled_only:
+            query = query.filter(XiuxianEncounterTemplate.enabled.is_(True))
+        return [serialize_encounter_template(row) for row in query.order_by(XiuxianEncounterTemplate.id.desc()).all()]
+
+
+def _normalize_encounter_template_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(fields)
+    payload["name"] = str(payload.get("name") or "").strip()
+    payload["description"] = str(payload.get("description") or "").strip() or None
+    payload["image_url"] = str(payload.get("image_url") or "").strip() or None
+    payload["button_text"] = str(payload.get("button_text") or "").strip() or "抢夺机缘"
+    payload["success_text"] = str(payload.get("success_text") or "").strip() or None
+    payload["broadcast_text"] = str(payload.get("broadcast_text") or "").strip() or None
+    payload["weight"] = max(_coerce_int(payload.get("weight"), 1), 1)
+    payload["active_seconds"] = max(_coerce_int(payload.get("active_seconds"), 90), 15)
+    min_realm_stage = payload.get("min_realm_stage")
+    payload["min_realm_stage"] = normalize_realm_stage(min_realm_stage) if min_realm_stage else None
+    payload["min_realm_layer"] = max(_coerce_int(payload.get("min_realm_layer"), 1), 1)
+    payload["min_combat_power"] = max(_coerce_int(payload.get("min_combat_power"), 0), 0)
+    payload["reward_stone_min"] = max(_coerce_int(payload.get("reward_stone_min"), 0), 0)
+    payload["reward_stone_max"] = max(_coerce_int(payload.get("reward_stone_max"), payload["reward_stone_min"]), payload["reward_stone_min"])
+    payload["reward_cultivation_min"] = max(_coerce_int(payload.get("reward_cultivation_min"), 0), 0)
+    payload["reward_cultivation_max"] = max(_coerce_int(payload.get("reward_cultivation_max"), payload["reward_cultivation_min"]), payload["reward_cultivation_min"])
+    reward_item_kind = str(payload.get("reward_item_kind") or "").strip() or None
+    if reward_item_kind and reward_item_kind not in {"artifact", "pill", "talisman", "material", "recipe", "technique"}:
+        raise ValueError("奇遇奖励物类型不支持")
+    payload["reward_item_kind"] = reward_item_kind
+    payload["reward_item_ref_id"] = _coerce_int(payload.get("reward_item_ref_id"), 0) or None
+    payload["reward_item_quantity_min"] = max(_coerce_int(payload.get("reward_item_quantity_min"), 1), 1)
+    payload["reward_item_quantity_max"] = max(_coerce_int(payload.get("reward_item_quantity_max"), payload["reward_item_quantity_min"]), payload["reward_item_quantity_min"])
+    payload["reward_willpower"] = _coerce_int(payload.get("reward_willpower"), 0)
+    payload["reward_charisma"] = _coerce_int(payload.get("reward_charisma"), 0)
+    payload["reward_karma"] = _coerce_int(payload.get("reward_karma"), 0)
+    payload["enabled"] = _coerce_bool(payload.get("enabled"), True)
+    if not payload["name"]:
+        raise ValueError("奇遇名称不能为空")
+    if payload["reward_item_kind"] and not payload["reward_item_ref_id"]:
+        raise ValueError("奇遇奖励物已选择类型，但没有指定具体物品")
+    return payload
+
+
+def create_encounter_template(**fields) -> dict[str, Any]:
+    payload = _normalize_encounter_template_fields(fields)
+    with Session() as session:
+        row = XiuxianEncounterTemplate(**payload)
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return serialize_encounter_template(row)
+
+
+def sync_encounter_template_by_name(**fields) -> dict[str, Any]:
+    payload = _normalize_encounter_template_fields(fields)
+    with Session() as session:
+        row = session.query(XiuxianEncounterTemplate).filter(XiuxianEncounterTemplate.name == payload["name"]).first()
+        if row is None:
+            row = XiuxianEncounterTemplate(**payload)
+            session.add(row)
+        else:
+            for key, value in payload.items():
+                setattr(row, key, value)
+            row.updated_at = utcnow()
+        session.commit()
+        session.refresh(row)
+        return serialize_encounter_template(row)
+
+
+def patch_encounter_template(template_id: int, **fields) -> dict[str, Any] | None:
+    with Session() as session:
+        row = session.query(XiuxianEncounterTemplate).filter(XiuxianEncounterTemplate.id == template_id).first()
+        if row is None:
+            return None
+        current = serialize_encounter_template(row) or {}
+        current.update({key: value for key, value in fields.items() if value is not None})
+        payload = _normalize_encounter_template_fields(current)
+        for key, value in payload.items():
+            setattr(row, key, value)
+        row.updated_at = utcnow()
+        session.commit()
+        session.refresh(row)
+        return serialize_encounter_template(row)
+
+
+def delete_encounter_template(template_id: int) -> bool:
+    with Session() as session:
+        row = session.query(XiuxianEncounterTemplate).filter(XiuxianEncounterTemplate.id == template_id).first()
+        if row is None:
+            return False
+        session.delete(row)
+        session.commit()
+        return True
+
+
+def create_encounter_instance(
+    *,
+    template_id: int | None,
+    template_name: str,
+    group_chat_id: int,
+    button_text: str,
+    reward_payload: dict[str, Any],
+    expires_at,
+) -> dict[str, Any]:
+    with Session() as session:
+        row = XiuxianEncounterInstance(
+            template_id=template_id,
+            template_name=template_name,
+            group_chat_id=group_chat_id,
+            button_text=button_text,
+            reward_payload=_sanitize_json_value(reward_payload),
+            expires_at=expires_at,
+            status="active",
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return serialize_encounter_instance(row)
+
+
+def get_encounter_instance(instance_id: int) -> XiuxianEncounterInstance | None:
+    with Session() as session:
+        return session.query(XiuxianEncounterInstance).filter(XiuxianEncounterInstance.id == instance_id).first()
+
+
+def patch_encounter_instance(instance_id: int, **fields) -> dict[str, Any] | None:
+    with Session() as session:
+        row = session.query(XiuxianEncounterInstance).filter(XiuxianEncounterInstance.id == instance_id).first()
+        if row is None:
+            return None
+        for key, value in fields.items():
+            if key == "reward_payload":
+                value = _sanitize_json_value(value)
+            setattr(row, key, value)
+        row.updated_at = utcnow()
+        session.commit()
+        session.refresh(row)
+        return serialize_encounter_instance(row)
+
+
+def find_active_group_encounter(group_chat_id: int) -> dict[str, Any] | None:
+    with Session() as session:
+        row = (
+            session.query(XiuxianEncounterInstance)
+            .filter(
+                XiuxianEncounterInstance.group_chat_id == group_chat_id,
+                XiuxianEncounterInstance.status == "active",
+                XiuxianEncounterInstance.expires_at > utcnow(),
+            )
+            .order_by(XiuxianEncounterInstance.id.desc())
+            .first()
+        )
+        return serialize_encounter_instance(row)
+
+
+def get_latest_group_encounter_time(group_chat_id: int):
+    with Session() as session:
+        row = (
+            session.query(XiuxianEncounterInstance)
+            .filter(XiuxianEncounterInstance.group_chat_id == group_chat_id)
+            .order_by(XiuxianEncounterInstance.id.desc())
+            .first()
+        )
+        return row.created_at if row is not None else None
 
 
 def get_task(task_id: int) -> XiuxianTask | None:

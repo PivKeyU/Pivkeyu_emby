@@ -75,7 +75,7 @@
               </label>
               <label>
                 官方商店名称
-                <input id="setting-shop-name" type="text" value="风月阁">
+                <input id="setting-shop-name" type="text" value="官方商店">
               </label>
               <label>
                 玩家发布任务消耗
@@ -1035,6 +1035,18 @@
             <input id="scene-max-minutes" type="number" min="1" max="60" value="60">
           </label>
           <label>
+            最低境界
+            <select id="scene-stage"></select>
+          </label>
+          <label>
+            最低层数
+            <input id="scene-layer" type="number" min="1" max="9" value="1">
+          </label>
+          <label>
+            最低战力
+            <input id="scene-power" type="number" min="0" value="0">
+          </label>
+          <label>
             图片地址
             <input id="scene-image" type="url" placeholder="https://...">
             <div class="upload-inline">
@@ -1183,6 +1195,71 @@
     <details class="card fold-card">
       <summary class="fold-summary">
         <div>
+          <p class="eyebrow" data-section-key="encounters">奇遇</p>
+          <h2>群内奇遇</h2>
+        </div>
+        <span class="summary-tip">群消息触发随机机缘，谁抢到就直接结算</span>
+      </summary>
+      <div class="fold-body">
+        <form id="encounter-form" class="grid-form">
+          <input id="encounter-id" type="hidden">
+          <label>奇遇名称 <input id="encounter-name" type="text" placeholder="例如：天降残页"></label>
+          <label>按钮文案 <input id="encounter-button-text" type="text" value="争抢机缘"></label>
+          <label>权重 <input id="encounter-weight" type="number" min="1" value="1"></label>
+          <label>持续秒数 <input id="encounter-active-seconds" type="number" min="15" value="90"></label>
+          <label>
+            最低境界
+            <select id="encounter-stage"></select>
+          </label>
+          <label>最低层数 <input id="encounter-layer" type="number" min="1" max="9" value="1"></label>
+          <label>最低战力 <input id="encounter-power" type="number" min="0" value="0"></label>
+          <label>
+            图片地址
+            <input id="encounter-image" type="url" placeholder="https://...">
+            <div class="upload-inline">
+              <input id="encounter-image-file" type="file" accept="image/*">
+              <button type="button" data-upload-file="encounter-image-file" data-upload-target="encounter-image" data-upload-folder="encounters">上传图片</button>
+            </div>
+          </label>
+          <label class="wide-field">奇遇描述 <textarea id="encounter-description" rows="2" placeholder="群内看到的奇遇说明"></textarea></label>
+          <label class="wide-field">群内播报 <textarea id="encounter-broadcast-text" rows="2" placeholder="例如：天边忽有金霞坠地，一页残卷落在众人面前。"></textarea></label>
+          <label class="wide-field">成功播报 <textarea id="encounter-success-text" rows="2" placeholder="支持 {user} {encounter} {reward} 变量"></textarea></label>
+          <label>灵石最小奖励 <input id="encounter-stone-min" type="number" min="0" value="0"></label>
+          <label>灵石最大奖励 <input id="encounter-stone-max" type="number" min="0" value="0"></label>
+          <label>修为最小奖励 <input id="encounter-cultivation-min" type="number" min="0" value="0"></label>
+          <label>修为最大奖励 <input id="encounter-cultivation-max" type="number" min="0" value="0"></label>
+          <label>奖励物类型
+            <select id="encounter-item-kind">
+              <option value="">无</option>
+              <option value="artifact">法宝</option>
+              <option value="pill">丹药</option>
+              <option value="talisman">符箓</option>
+              <option value="material">材料</option>
+              <option value="recipe">配方</option>
+              <option value="technique">功法</option>
+            </select>
+          </label>
+          <label>奖励物品 <select id="encounter-item-id"></select></label>
+          <label>物品最小数量 <input id="encounter-item-quantity-min" type="number" min="1" value="1"></label>
+          <label>物品最大数量 <input id="encounter-item-quantity-max" type="number" min="1" value="1"></label>
+          <label>心志奖励 <input id="encounter-willpower" type="number" value="0"></label>
+          <label>魅力奖励 <input id="encounter-charisma" type="number" value="0"></label>
+          <label>因果奖励 <input id="encounter-karma" type="number" value="0"></label>
+          <label class="inline-check">
+            <input id="encounter-enabled" type="checkbox" checked>
+            启用奇遇
+          </label>
+          <div class="form-actions">
+            <button type="submit">新增奇遇</button>
+          </div>
+        </form>
+        <div id="encounter-list" class="stack-list"></div>
+      </div>
+    </details>
+
+    <details class="card fold-card">
+      <summary class="fold-summary">
+        <div>
           <p class="eyebrow" data-section-key="grant">手动发放</p>
           <h2>手动发放</h2>
         </div>
@@ -1236,6 +1313,7 @@
               <option value="artifact">法宝</option>
               <option value="talisman">符箓</option>
               <option value="pill">丹药</option>
+              <option value="material">材料</option>
             </select>
           </label>
           <label>
@@ -1389,6 +1467,9 @@
               <label>悟性 <input id="pe-comprehension" type="number"></label>
               <label>神识 <input id="pe-divine_sense" type="number"></label>
               <label>机缘 <input id="pe-fortune" type="number"></label>
+              <label>心志 <input id="pe-willpower" type="number"></label>
+              <label>魅力 <input id="pe-charisma" type="number"></label>
+              <label>因果 <input id="pe-karma" type="number"></label>
               <label>气血 <input id="pe-qi_blood" type="number"></label>
               <label>真元 <input id="pe-true_yuan" type="number"></label>
               <label>身法 <input id="pe-body_movement" type="number"></label>

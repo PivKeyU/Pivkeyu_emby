@@ -324,6 +324,7 @@ function renderInventorySelect() {
   if (kind === "artifact") rows = bundle.artifacts;
   if (kind === "pill") rows = bundle.pills;
   if (kind === "talisman") rows = bundle.talismans;
+  if (kind === "material") rows = bundle.materials;
 
   select.innerHTML = "";
   const available = rows.filter((row) => Number(row.tradeable_quantity ?? row.quantity ?? 0) > 0);
@@ -761,7 +762,7 @@ function renderPersonalShop(items) {
   const root = document.querySelector("#personal-shop-list");
   root.innerHTML = "";
   if (!items.length) {
-    root.innerHTML = `<article class="stack-item"><strong>你的店铺暂时空空如也</strong><p>可以从背包里选择法宝、符箓或丹药上架。</p></article>`;
+    root.innerHTML = `<article class="stack-item"><strong>你的店铺暂时空空如也</strong><p>可以从背包里选择法宝、符箓、丹药或材料上架。</p></article>`;
     return;
   }
 
@@ -1023,6 +1024,32 @@ function renderExploreArea(bundle) {
   const sceneRoot = document.querySelector("#scene-list");
   const activeRoot = document.querySelector("#exploration-active");
   if (!sceneRoot || !activeRoot) return;
+  const realmOrder = ["凡人", "炼气", "筑基", "结丹", "元婴", "化神", "须弥", "芥子", "混元一体"];
+  const currentStage = bundle.profile?.realm_stage || "凡人";
+  const currentLayer = Number(bundle.profile?.realm_layer || 1);
+  const currentPower = Number(bundle.combat_power || 0);
+
+  const sceneRiskRows = (scene) => {
+    const rows = [];
+    const minStage = scene.min_realm_stage || "";
+    const minLayer = Number(scene.min_realm_layer || 1);
+    const minPower = Number(scene.min_combat_power || 0);
+    if (minStage) {
+      rows.push(`境界要求 ${minStage}${minLayer}层`);
+      const currentStageIndex = realmOrder.indexOf(currentStage);
+      const minStageIndex = realmOrder.indexOf(minStage);
+      if (currentStageIndex < minStageIndex || (currentStageIndex === minStageIndex && currentLayer < minLayer)) {
+        rows.push("当前境界不足，阵亡概率会明显提高");
+      }
+    }
+    if (minPower > 0) {
+      rows.push(`战力要求 ${minPower}`);
+      if (currentPower < minPower) {
+        rows.push("当前战力偏低，阵亡概率会明显提高");
+      }
+    }
+    return rows;
+  };
 
   const active = bundle.active_exploration;
   activeRoot.innerHTML = "";
@@ -1065,6 +1092,8 @@ function renderExploreArea(bundle) {
       .join("");
   };
   for (const scene of scenes) {
+    const riskRows = sceneRiskRows(scene);
+    const risky = riskRows.some((row) => row.includes("阵亡概率"));
     const card = document.createElement("article");
     card.className = "stack-item";
     card.innerHTML = `
@@ -1073,12 +1102,13 @@ function renderExploreArea(bundle) {
         <span class="badge badge--normal">最多 ${escapeHtml(scene.max_minutes)} 分钟</span>
       </div>
       <p>${escapeHtml(scene.description || "暂无场景描述")}</p>
+      <p>${escapeHtml(riskRows.join(" · ") || "当前秘境无额外门槛")}</p>
       <label>探索时长
         <select data-scene-minutes="${scene.id}">
           ${buildDurationOptions(scene.max_minutes)}
         </select>
       </label>
-      <button type="button" data-scene-id="${scene.id}">开始探索</button>
+      <button type="button" data-scene-id="${scene.id}">${risky ? "冒险进入" : "开始探索"}</button>
     `;
     sceneRoot.appendChild(card);
   }
@@ -1546,7 +1576,8 @@ document.querySelector("#personal-shop-form").addEventListener("submit", async (
       price_stone: Number(document.querySelector("#shop-price").value || 0),
       broadcast: document.querySelector("#shop-broadcast").checked
     }));
-    const message = `已上架 ${payload.listing.item_name}，售价 ${payload.listing.price_stone} 灵石。`;
+    const discountText = payload.broadcast_discount ? `，魅力减免 ${payload.broadcast_discount} 灵石播报费` : "";
+    const message = `已上架 ${payload.listing.item_name}，售价 ${payload.listing.price_stone} 灵石${discountText}。`;
     setStatus(message, "success");
     await popup("上架成功", message);
     await refreshBundle();
@@ -1910,14 +1941,25 @@ document.querySelector("#exploration-active")?.addEventListener("click", async (
     const payload = await runButtonAction(button, "领取中…", () => postJson("/plugins/xiuxian/api/explore/claim", {
       exploration_id: Number(button.dataset.exploreClaim)
     }));
-    setStatus("探索奖励已领取。", "success");
     const result = payload.result || {};
+    const death = result.death || {};
+    setStatus(death.died ? "探索已结算，秘境中遭逢重创。" : "探索奖励已领取。", death.died ? "warning" : "success");
     const lines = [];
     if (result.exploration?.event_text) lines.push(result.exploration.event_text);
-    if (typeof result.stone_delta === "number") lines.push(`灵石变化 ${result.stone_delta >= 0 ? "+" : ""}${result.stone_delta}`);
-    if (result.reward_item) lines.push(`基础掉落：${grantedItemName(result.reward_item) || "已发放"}`);
-    if (result.bonus_reward) lines.push(`奇遇额外：${grantedItemName(result.bonus_reward) || "已发放"}`);
-    await popup("领取成功", lines.join("\n") || "探索奖励已发放到你的背包与档案。");
+    if (result.exploration?.outcome_payload?.risk_note) lines.push(result.exploration.outcome_payload.risk_note);
+    if (death.died) {
+      if (Array.isArray(death.reasons) && death.reasons.length) lines.push(`阵亡原因：${death.reasons.join("；")}`);
+      if (typeof death.stone_loss === "number") lines.push(`灵石损失 -${death.stone_loss}`);
+      if (typeof death.cultivation_loss === "number") lines.push(`修为损失 -${death.cultivation_loss}`);
+      if (Array.isArray(death.artifact_losses) && death.artifact_losses.length) {
+        lines.push(`遗失装备：${death.artifact_losses.map((item) => item.artifact?.name || "未命名法宝").join("、")}`);
+      }
+    } else {
+      if (typeof result.stone_delta === "number") lines.push(`灵石变化 ${result.stone_delta >= 0 ? "+" : ""}${result.stone_delta}`);
+      if (result.reward_item) lines.push(`基础掉落：${grantedItemName(result.reward_item) || "已发放"}`);
+      if (result.bonus_reward) lines.push(`奇遇额外：${grantedItemName(result.bonus_reward) || "已发放"}`);
+    }
+    await popup(death.died ? "探索失败" : "领取成功", lines.join("\n") || "探索奖励已发放到你的背包与档案。", death.died ? "warning" : "success");
     await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "领取探索奖励失败。");
@@ -2624,6 +2666,13 @@ renderProfile = function renderProfileRedesigned(bundle) {
       <article class="profile-item"><span>下一层门槛</span><strong>${escapeHtml(progress.threshold ?? 0)}</strong></article>
       <article class="profile-item"><span>距离突破</span><strong>${escapeHtml(progress.remaining ?? 0)}</strong></article>
       <article class="profile-item"><span>灵石</span><strong>${escapeHtml(profile.spiritual_stone ?? 0)}</strong></article>
+      <article class="profile-item"><span>根骨</span><strong>${escapeHtml(stats.bone ?? profile.bone ?? 0)}</strong></article>
+      <article class="profile-item"><span>悟性</span><strong>${escapeHtml(stats.comprehension ?? profile.comprehension ?? 0)}</strong></article>
+      <article class="profile-item"><span>神识</span><strong>${escapeHtml(stats.divine_sense ?? profile.divine_sense ?? 0)}</strong></article>
+      <article class="profile-item"><span>机缘</span><strong>${escapeHtml(stats.fortune ?? profile.fortune ?? 0)}</strong></article>
+      <article class="profile-item"><span>心志</span><strong>${escapeHtml(stats.willpower ?? profile.willpower ?? 0)}</strong></article>
+      <article class="profile-item"><span>魅力</span><strong>${escapeHtml(stats.charisma ?? profile.charisma ?? 0)}</strong></article>
+      <article class="profile-item"><span>因果</span><strong>${escapeHtml(stats.karma ?? profile.karma ?? 0)}</strong></article>
       <article class="profile-item"><span>丹毒</span><strong>${escapeHtml(profile.dan_poison ?? 0)} / 100</strong></article>
       <article class="profile-item"><span>法宝位</span><strong>${escapeHtml(equippedArtifacts.length)} / ${escapeHtml(equipLimit)}</strong></article>
       <article class="profile-item"><span>已装法宝</span><strong>${escapeHtml(artifactNames)}</strong></article>

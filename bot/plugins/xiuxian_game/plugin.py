@@ -14,7 +14,6 @@ from uuid import uuid4
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
 from pyrogram import enums, filters
 from pyrogram.enums import ChatMemberStatus
 from pyrogram.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
@@ -22,109 +21,182 @@ from pyrogram.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarku
 from bot import LOGGER, admin_p, api as api_config, bot, config, group, owner, owner_p, prefixes, user_p
 from bot.func_helper.msg_utils import callAnswer
 from bot.plugins import list_plugins
-from bot.ranks_helper.ranks_draw import RanksDraw
-from bot.scheduler.bot_commands import BotCommands
-from bot.plugins.xiuxian_game.service import (
+from bot.plugins.xiuxian_game.api_models import (
+    AchievementPayload,
+    AchievementProgressPayload,
+    ActivateTalismanPayload,
+    ActivateTechniquePayload,
+    AdminBootstrapPayload,
+    AdminSettingPayload,
+    AdminTaskPayload,
+    ArtifactBindingPayload,
+    ArtifactPayload,
+    ArtifactSetPayload,
+    BreakthroughPayload,
+    ConsumePillPayload,
+    CraftPayload,
+    EncounterPayload,
+    EquipArtifactPayload,
+    ExchangePayload,
+    ExploreClaimPayload,
+    ExploreStartPayload,
+    GiftPayload,
+    GrantPayload,
+    InitDataPayload,
+    LeaderboardPayload,
+    MaterialPayload,
+    OfficialShopPatchPayload,
+    OfficialShopPayload,
+    PersonalShopPayload,
+    PillPayload,
+    PlayerInventoryPayload,
+    PlayerPatchPayload,
+    PlayerResourceGrantPayload,
+    PlayerRevokePayload,
+    PlayerSelectionPayload,
+    PurchasePayload,
+    RecipePayload,
+    RedEnvelopePayload,
+    RetreatPayload,
+    ScenePayload,
+    SectJoinPayload,
+    SectPayload,
+    SectRoleAssignPayload,
+    ShopCancelPayload,
+    TalismanBindingPayload,
+    TalismanPayload,
+    TaskClaimPayload,
+    TechniquePayload,
+    TitleEquipPayload,
+    TitleGrantPayload,
+    TitleGroupSyncPayload,
+    TitlePayload,
+    UploadPermissionPayload,
+    UserTaskPayload,
+)
+from bot.plugins.xiuxian_game.features.admin_ops import (
     admin_grant_player_resource,
     admin_patch_player,
     admin_revoke_player_resource,
     admin_seed_demo_assets,
     admin_set_player_inventory,
     admin_set_player_selection,
-    activate_technique_for_user,
-    assert_duel_stake_affordable,
     build_admin_player_detail,
-    set_current_title_for_user,
+    update_xiuxian_settings,
+)
+from bot.plugins.xiuxian_game.features.combat import (
+    assert_duel_stake_affordable,
+    build_leaderboard,
+    compute_duel_odds,
+    format_duel_settlement_text,
+    format_leaderboard_text,
+    generate_duel_preview_text,
+    resolve_duel,
+)
+from bot.plugins.xiuxian_game.features.crafting import (
+    build_recipe_catalog,
+    craft_recipe_for_user,
+    create_recipe_with_ingredients,
+    patch_recipe_with_ingredients,
+)
+from bot.plugins.xiuxian_game.features.economy import gift_spirit_stone
+from bot.plugins.xiuxian_game.features.encounters import (
+    claim_group_encounter,
+    create_encounter_template,
+    delete_encounter_template,
+    list_encounter_templates,
+    mark_group_encounter_message,
+    maybe_spawn_group_encounter,
+    patch_encounter_template,
+    render_group_encounter_success_text,
+    render_group_encounter_text,
+)
+from bot.plugins.xiuxian_game.features.exploration import (
+    claim_exploration_for_user,
+    create_scene_with_drops,
+    patch_scene_with_drops,
+    start_exploration_for_user,
+)
+from bot.plugins.xiuxian_game.features.growth import (
+    breakthrough_for_user,
+    create_foundation_pill_for_user_if_missing,
+    ensure_seed_data,
+    format_root,
+    immortal_touch_infuse_cultivation,
+    init_path_for_user,
+    maybe_gain_cultivation_from_chat,
+    practice_for_user,
+    serialize_full_profile,
+)
+from bot.plugins.xiuxian_game.features.inventory import (
     activate_talisman_for_user,
+    activate_technique_for_user,
     bind_artifact_for_user,
     bind_talisman_for_user,
-    breakthrough_for_user,
-    build_leaderboard,
-    build_plugin_url,
-    broadcast_shop_copy,
-    compute_duel_odds,
-    convert_emby_coin_to_stone,
-    convert_stone_to_emby_coin,
-    create_foundation_pill_for_user_if_missing,
-    create_official_shop_listing,
-    create_personal_shop_listing,
-    create_artifact,
-    create_pill,
-    create_talisman,
-    duel_keyboard,
     equip_artifact_for_user,
-    ensure_seed_data,
-    finish_retreat_for_user,
-    format_leaderboard_text,
-    format_root,
-    format_duel_settlement_text,
-    generate_duel_preview_text,
-    generate_shop_name,
-    init_path_for_user,
-    leaderboard_keyboard,
-    list_artifacts,
-    list_shop_items,
-    list_pills,
-    list_public_shop_items,
-    list_talismans,
-    maybe_gain_cultivation_from_chat,
-    immortal_touch_infuse_cultivation,
-    patch_shop_listing,
-    purchase_shop_item,
-    resolve_duel,
-    search_xiuxian_players,
-    serialize_full_profile,
-    start_retreat_for_user,
+    set_current_title_for_user,
     unbind_artifact_for_user,
     unbind_talisman_for_user,
-    update_xiuxian_settings,
-    practice_for_user,
-    consume_pill_for_user,
+)
+from bot.plugins.xiuxian_game.features.pills import consume_pill_for_user
+from bot.plugins.xiuxian_game.features.retreat import finish_retreat_for_user, start_retreat_for_user
+from bot.plugins.xiuxian_game.features.sects import (
+    claim_sect_salary_for_user,
+    create_sect_with_roles,
+    join_sect_for_user,
+    leave_sect_for_user,
+    set_user_sect_role,
+)
+from bot.plugins.xiuxian_game.features.shop import (
+    broadcast_shop_copy,
+    convert_emby_coin_to_stone,
+    convert_stone_to_emby_coin,
+    create_official_shop_listing,
+    create_personal_shop_listing,
+    generate_shop_name,
     grant_item_to_user,
+    list_public_shop_items,
+    patch_shop_listing,
+    purchase_shop_item,
+    search_xiuxian_players,
+)
+from bot.plugins.xiuxian_game.features.social import (
+    cancel_duel_bet_pool,
+    claim_red_envelope_for_user,
+    create_duel_bet_pool_for_duel,
+    create_red_envelope_for_user,
+    format_duel_bet_board,
+    place_duel_bet,
+    rob_player,
+    settle_duel_bet_pool,
+    update_duel_bet_pool_message,
+)
+from bot.plugins.xiuxian_game.features.tasks import (
+    claim_task_for_user,
+    create_bounty_task,
+    mark_task_group_message,
+    resolve_quiz_answer,
+)
+from bot.plugins.xiuxian_game.features.ui import (
+    build_plugin_url,
+    duel_keyboard,
+    leaderboard_keyboard,
     xiuxian_confirm_keyboard,
     xiuxian_profile_keyboard,
 )
-
-PLAIN_TEXT_MODE = enums.ParseMode.DISABLED
-RICH_TEXT_MODE = enums.ParseMode.MARKDOWN
-from bot.plugins.xiuxian_game.world_service import (
-    build_recipe_catalog,
-    build_world_bundle,
-    claim_exploration_for_user,
-    claim_sect_salary_for_user,
-    claim_task_for_user,
-    claim_red_envelope_for_user,
-    cancel_duel_bet_pool,
-    create_bounty_task,
-    create_duel_bet_pool_for_duel,
-    create_recipe_with_ingredients,
-    create_red_envelope_for_user,
-    create_scene_with_drops,
-    create_sect_with_roles,
-    craft_recipe_for_user,
-    format_duel_bet_board,
-    gift_spirit_stone,
-    join_sect_for_user,
-    leave_sect_for_user,
-    list_sect_roles,
-    list_tasks_for_user,
-    place_duel_bet,
-    patch_recipe_with_ingredients,
-    patch_scene_with_drops,
-    resolve_quiz_answer,
-    rob_player,
-    mark_task_group_message,
-    settle_duel_bet_pool,
-    set_user_sect_role,
-    start_exploration_for_user,
-)
+from bot.plugins.xiuxian_game.features.world_bundle import build_world_bundle
+from bot.ranks_helper.ranks_draw import RanksDraw
+from bot.scheduler.bot_commands import BotCommands
 from bot.sql_helper.sql_xiuxian import (
     DEFAULT_SETTINGS,
     cancel_personal_shop_item,
     create_achievement,
+    create_artifact,
     create_artifact_set,
     create_journal,
     create_material,
+    create_pill,
+    create_talisman,
     create_title,
     delete_artifact,
     delete_artifact_set,
@@ -143,18 +215,23 @@ from bot.sql_helper.sql_xiuxian import (
     get_xiuxian_settings,
     grant_image_upload_permission,
     has_image_upload_permission,
+    list_artifacts,
     list_materials,
     list_achievements,
     list_artifact_sets,
     list_pill_type_options,
     list_image_upload_permissions,
+    list_pills,
     list_titles,
     list_recent_journals,
     list_recipes,
     list_recipe_ingredients,
     list_scene_drops,
     list_scenes,
+    list_shop_items,
+    list_sect_roles,
     list_sects,
+    list_talismans,
     list_tasks,
     list_techniques,
     grant_title_to_user,
@@ -178,6 +255,10 @@ from bot.plugins.xiuxian_game.achievement_service import (
     record_achievement_progress,
 )
 from bot.web.api.miniapp import is_admin_user_id, verify_init_data
+
+
+PLAIN_TEXT_MODE = enums.ParseMode.DISABLED
+RICH_TEXT_MODE = enums.ParseMode.MARKDOWN
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parent
@@ -207,133 +288,6 @@ XIUXIAN_BOT_COMMANDS = (
     BotCommand("rob", "回复目标发起抢劫 [群聊]"),
     BotCommand("gift", "赠送灵石给其他玩家"),
 )
-
-
-class InitDataPayload(BaseModel):
-    init_data: str
-
-
-class BreakthroughPayload(InitDataPayload):
-    use_pill: bool = False
-
-
-class ConsumePillPayload(InitDataPayload):
-    pill_id: int
-
-
-class EquipArtifactPayload(InitDataPayload):
-    artifact_id: int
-
-
-class ArtifactBindingPayload(InitDataPayload):
-    artifact_id: int
-
-
-class ActivateTalismanPayload(InitDataPayload):
-    talisman_id: int
-
-
-class TalismanBindingPayload(InitDataPayload):
-    talisman_id: int
-
-
-class ActivateTechniquePayload(InitDataPayload):
-    technique_id: int
-
-
-class TitleEquipPayload(InitDataPayload):
-    title_id: int | None = None
-
-
-class TitleGroupSyncPayload(InitDataPayload):
-    chat_id: int | None = None
-
-
-class ExchangePayload(InitDataPayload):
-    direction: str
-    amount: int
-
-
-class LeaderboardPayload(InitDataPayload):
-    kind: str = "stone"
-    page: int = 1
-
-
-class PersonalShopPayload(InitDataPayload):
-    shop_name: str
-    item_kind: str
-    item_ref_id: int
-    quantity: int
-    price_stone: int
-    broadcast: bool = False
-
-
-class PurchasePayload(InitDataPayload):
-    item_id: int
-    quantity: int = 1
-
-
-class RetreatPayload(InitDataPayload):
-    hours: int = 1
-
-
-class SectJoinPayload(InitDataPayload):
-    sect_id: int
-
-
-class GiftPayload(InitDataPayload):
-    target_tg: int
-    amount: int
-
-
-class TaskClaimPayload(InitDataPayload):
-    task_id: int
-
-
-class CraftPayload(InitDataPayload):
-    recipe_id: int
-
-
-class ExploreStartPayload(InitDataPayload):
-    scene_id: int
-    minutes: int = 60
-
-
-class ExploreClaimPayload(InitDataPayload):
-    exploration_id: int
-
-
-class ShopCancelPayload(InitDataPayload):
-    item_id: int
-
-
-class RedEnvelopePayload(InitDataPayload):
-    cover_text: str = "福运临门"
-    image_url: str = ""
-    mode: str = "normal"
-    amount_total: int
-    count_total: int
-    target_tg: int | None = None
-
-
-class UserTaskPayload(InitDataPayload):
-    title: str
-    description: str = ""
-    task_scope: str = "personal"
-    task_type: str = "custom"
-    question_text: str = ""
-    answer_text: str = ""
-    image_url: str = ""
-    required_item_kind: str | None = None
-    required_item_ref_id: int | None = None
-    required_item_quantity: int = 0
-    reward_stone: int = 0
-    reward_item_kind: str | None = None
-    reward_item_ref_id: int | None = None
-    reward_item_quantity: int = 0
-    max_claimants: int = 1
-    active_in_group: bool = False
-    group_chat_id: int | None = None
 
 
 def _ensure_xiuxian_bot_commands() -> None:
@@ -366,481 +320,6 @@ def _xiuxian_basic_guide_text(consented: bool) -> str:
     if not consented:
         lines.append("现在还未入道，点击下方按钮即可正式踏上仙途。")
     return "\n".join(lines)
-
-
-class AdminBootstrapPayload(BaseModel):
-    token: str | None = None
-    init_data: str | None = None
-
-
-class RootQualityRulePayload(BaseModel):
-    cultivation_rate: float
-    breakthrough_bonus: int
-    combat_factor: float
-
-
-class DropWeightRulePayload(BaseModel):
-    material_divine_sense_divisor: int
-    high_quality_threshold: int
-    high_quality_fortune_divisor: int
-    high_quality_root_level_start: int
-
-
-class ItemQualityValueRulePayload(BaseModel):
-    artifact_multiplier: float
-    pill_multiplier: float
-    talisman_multiplier: float
-
-
-class AdminSettingPayload(BaseModel):
-    coin_exchange_rate: int | None = None
-    exchange_fee_percent: int | None = None
-    min_coin_exchange: int | None = None
-    duel_bet_minutes: int | None = None
-    duel_winner_steal_percent: int | None = None
-    artifact_plunder_chance: int | None = None
-    message_auto_delete_seconds: int | None = None
-    equipment_unbind_cost: int | None = None
-    shop_broadcast_cost: int | None = None
-    official_shop_name: str | None = None
-    allow_user_task_publish: bool | None = None
-    task_publish_cost: int | None = None
-    artifact_equip_limit: int | None = None
-    allow_non_admin_image_upload: bool | None = None
-    chat_cultivation_chance: int | None = None
-    chat_cultivation_min_gain: int | None = None
-    chat_cultivation_max_gain: int | None = None
-    robbery_daily_limit: int | None = None
-    robbery_max_steal: int | None = None
-    high_quality_broadcast_level: int | None = None
-    root_quality_value_rules: dict[str, RootQualityRulePayload] | None = None
-    exploration_drop_weight_rules: DropWeightRulePayload | None = None
-    item_quality_value_rules: dict[str, ItemQualityValueRulePayload] | None = None
-    immortal_touch_infusion_layers: int | None = None
-
-
-class ArtifactPayload(BaseModel):
-    name: str
-    rarity: str = "凡品"
-    artifact_type: str = "battle"
-    image_url: str = ""
-    description: str = ""
-    attack_bonus: int = 0
-    defense_bonus: int = 0
-    bone_bonus: int = 0
-    comprehension_bonus: int = 0
-    divine_sense_bonus: int = 0
-    fortune_bonus: int = 0
-    qi_blood_bonus: int = 0
-    true_yuan_bonus: int = 0
-    body_movement_bonus: int = 0
-    duel_rate_bonus: int = 0
-    cultivation_bonus: int = 0
-    combat_config: dict[str, Any] = Field(default_factory=dict)
-    min_realm_stage: str | None = None
-    min_realm_layer: int = 1
-    enabled: bool = True
-
-
-class PillPayload(BaseModel):
-    name: str
-    rarity: str = "凡品"
-    pill_type: str
-    image_url: str = ""
-    description: str = ""
-    effect_value: int = 0
-    poison_delta: int = 0
-    attack_bonus: int = 0
-    defense_bonus: int = 0
-    bone_bonus: int = 0
-    comprehension_bonus: int = 0
-    divine_sense_bonus: int = 0
-    fortune_bonus: int = 0
-    qi_blood_bonus: int = 0
-    true_yuan_bonus: int = 0
-    body_movement_bonus: int = 0
-    min_realm_stage: str | None = None
-    min_realm_layer: int = 1
-    enabled: bool = True
-
-
-class TalismanPayload(BaseModel):
-    name: str
-    rarity: str = "凡品"
-    image_url: str = ""
-    description: str = ""
-    attack_bonus: int = 0
-    defense_bonus: int = 0
-    bone_bonus: int = 0
-    comprehension_bonus: int = 0
-    divine_sense_bonus: int = 0
-    fortune_bonus: int = 0
-    qi_blood_bonus: int = 0
-    true_yuan_bonus: int = 0
-    body_movement_bonus: int = 0
-    duel_rate_bonus: int = 0
-    effect_uses: int = 1
-    combat_config: dict[str, Any] = Field(default_factory=dict)
-    min_realm_stage: str | None = None
-    min_realm_layer: int = 1
-    enabled: bool = True
-
-
-class TechniquePayload(BaseModel):
-    name: str
-    rarity: str = "凡品"
-    technique_type: str = "balanced"
-    image_url: str = ""
-    description: str = ""
-    attack_bonus: int = 0
-    defense_bonus: int = 0
-    bone_bonus: int = 0
-    comprehension_bonus: int = 0
-    divine_sense_bonus: int = 0
-    fortune_bonus: int = 0
-    qi_blood_bonus: int = 0
-    true_yuan_bonus: int = 0
-    body_movement_bonus: int = 0
-    duel_rate_bonus: int = 0
-    cultivation_bonus: int = 0
-    breakthrough_bonus: int = 0
-    combat_config: dict[str, Any] = Field(default_factory=dict)
-    min_realm_stage: str | None = None
-    min_realm_layer: int = 1
-    enabled: bool = True
-
-
-class GrantPayload(BaseModel):
-    tg: int
-    item_kind: str
-    item_ref_id: int
-    quantity: int = 1
-
-
-class TitlePayload(BaseModel):
-    name: str
-    description: str = ""
-    color: str = ""
-    image_url: str = ""
-    attack_bonus: int = 0
-    defense_bonus: int = 0
-    bone_bonus: int = 0
-    comprehension_bonus: int = 0
-    divine_sense_bonus: int = 0
-    fortune_bonus: int = 0
-    qi_blood_bonus: int = 0
-    true_yuan_bonus: int = 0
-    body_movement_bonus: int = 0
-    duel_rate_bonus: int = 0
-    cultivation_bonus: int = 0
-    breakthrough_bonus: int = 0
-    enabled: bool = True
-
-
-class TitleGrantPayload(BaseModel):
-    tg: int
-    title_id: int
-    equip: bool = False
-
-
-class AchievementPayload(BaseModel):
-    achievement_key: str | None = None
-    name: str
-    description: str = ""
-    metric_key: str
-    target_value: int
-    reward_config: dict[str, Any] = Field(default_factory=dict)
-    notify_group: bool = True
-    notify_private: bool = True
-    enabled: bool = True
-    sort_order: int = 0
-
-
-class AchievementProgressPayload(BaseModel):
-    tg: int
-    increments: dict[str, int] = Field(default_factory=dict)
-    source: str | None = None
-
-
-class OfficialShopPayload(BaseModel):
-    item_kind: str
-    item_ref_id: int
-    quantity: int
-    price_stone: int
-    shop_name: str | None = None
-
-
-class OfficialShopPatchPayload(BaseModel):
-    enabled: bool | None = None
-    quantity: int | None = None
-    price_stone: int | None = None
-
-
-class SectRolePayload(BaseModel):
-    role_key: str
-    role_name: str
-    attack_bonus: int = 0
-    defense_bonus: int = 0
-    duel_rate_bonus: int = 0
-    cultivation_bonus: int = 0
-    monthly_salary: int = 0
-    can_publish_tasks: bool = False
-    sort_order: int = 1
-
-
-class SectPayload(BaseModel):
-    name: str
-    description: str = ""
-    image_url: str = ""
-    camp: str = "orthodox"
-    min_realm_stage: str | None = None
-    min_realm_layer: int = 1
-    min_stone: int = 0
-    min_bone: int = 0
-    min_comprehension: int = 0
-    min_divine_sense: int = 0
-    min_fortune: int = 0
-    attack_bonus: int = 0
-    defense_bonus: int = 0
-    duel_rate_bonus: int = 0
-    cultivation_bonus: int = 0
-    fortune_bonus: int = 0
-    body_movement_bonus: int = 0
-    entry_hint: str = ""
-    roles: list[SectRolePayload] = Field(default_factory=list)
-
-
-class ArtifactSetPayload(BaseModel):
-    name: str
-    description: str = ""
-    required_count: int = 2
-    attack_bonus: int = 0
-    defense_bonus: int = 0
-    bone_bonus: int = 0
-    comprehension_bonus: int = 0
-    divine_sense_bonus: int = 0
-    fortune_bonus: int = 0
-    qi_blood_bonus: int = 0
-    true_yuan_bonus: int = 0
-    body_movement_bonus: int = 0
-    duel_rate_bonus: int = 0
-    cultivation_bonus: int = 0
-    breakthrough_bonus: int = 0
-    enabled: bool = True
-
-
-class SectRoleAssignPayload(BaseModel):
-    tg: int
-    sect_id: int
-    role_key: str
-
-
-class MaterialPayload(BaseModel):
-    name: str
-    quality_level: int = 1
-    image_url: str = ""
-    description: str = ""
-    enabled: bool = True
-
-
-class RecipeIngredientPayload(BaseModel):
-    material_id: int
-    quantity: int = 1
-
-
-class RecipePayload(BaseModel):
-    name: str
-    recipe_kind: str
-    result_kind: str
-    result_ref_id: int
-    result_quantity: int = 1
-    base_success_rate: int = 60
-    broadcast_on_success: bool = False
-    ingredients: list[RecipeIngredientPayload] = Field(default_factory=list)
-
-
-class SceneEventPayload(BaseModel):
-    name: str = ""
-    description: str = ""
-    event_type: str = "encounter"
-    weight: int = 1
-    stone_bonus_min: int = 0
-    stone_bonus_max: int = 0
-    stone_loss_min: int = 0
-    stone_loss_max: int = 0
-    bonus_reward_kind: str | None = None
-    bonus_reward_ref_id: int | None = None
-    bonus_quantity_min: int = 1
-    bonus_quantity_max: int = 1
-    bonus_chance: int = 0
-
-
-class SceneDropPayload(BaseModel):
-    reward_kind: str = "material"
-    reward_ref_id: int | None = None
-    quantity_min: int = 1
-    quantity_max: int = 1
-    weight: int = 1
-    stone_reward: int = 0
-    event_text: str = ""
-
-
-class ScenePayload(BaseModel):
-    name: str
-    description: str = ""
-    image_url: str = ""
-    max_minutes: int = 60
-    event_pool: list[SceneEventPayload] = Field(default_factory=list)
-    drops: list[SceneDropPayload] = Field(default_factory=list)
-
-
-class UploadPermissionPayload(BaseModel):
-    tg: int
-
-
-class AdminTaskPayload(BaseModel):
-    title: str
-    description: str = ""
-    task_scope: str = "official"
-    task_type: str = "custom"
-    question_text: str = ""
-    answer_text: str = ""
-    image_url: str = ""
-    required_item_kind: str | None = None
-    required_item_ref_id: int | None = None
-    required_item_quantity: int = 0
-    reward_stone: int = 0
-    reward_item_kind: str | None = None
-    reward_item_ref_id: int | None = None
-    reward_item_quantity: int = 0
-    max_claimants: int = 1
-    sect_id: int | None = None
-    active_in_group: bool = False
-    group_chat_id: int | None = None
-
-
-class PlayerPatchPayload(BaseModel):
-    spiritual_stone: int | None = None
-    cultivation: int | None = None
-    realm_stage: str | None = None
-    realm_layer: int | None = None
-    bone: int | None = None
-    comprehension: int | None = None
-    divine_sense: int | None = None
-    fortune: int | None = None
-    qi_blood: int | None = None
-    true_yuan: int | None = None
-    body_movement: int | None = None
-    attack_power: int | None = None
-    defense_power: int | None = None
-    insight_bonus: int | None = None
-    dan_poison: int | None = None
-    sect_contribution: int | None = None
-    root_type: str | None = None
-    root_primary: str | None = None
-    root_secondary: str | None = None
-    root_relation: str | None = None
-    root_bonus: int | None = None
-    root_quality: str | None = None
-    display_name: str | None = None
-    username: str | None = None
-    technique_capacity: int | None = None
-
-
-class PlayerResourceGrantPayload(BaseModel):
-    item_kind: str
-    item_ref_id: int
-    quantity: int = 1
-    equip: bool = False
-
-
-class PlayerInventoryPayload(BaseModel):
-    item_kind: str
-    item_ref_id: int
-    quantity: int
-    bound_quantity: int | None = None
-
-
-class PlayerSelectionPayload(BaseModel):
-    selection_kind: str
-    item_ref_id: int | None = None
-
-
-class PlayerRevokePayload(BaseModel):
-    item_kind: str
-    item_ref_id: int
-
-
-class ArtifactPayload(BaseModel):
-    name: str
-    rarity: str = "凡品"
-    artifact_type: str = "battle"
-    artifact_role: str = "battle"
-    equip_slot: str = "weapon"
-    artifact_set_id: int | None = None
-    image_url: str = ""
-    description: str = ""
-    attack_bonus: int = 0
-    defense_bonus: int = 0
-    bone_bonus: int = 0
-    comprehension_bonus: int = 0
-    divine_sense_bonus: int = 0
-    fortune_bonus: int = 0
-    qi_blood_bonus: int = 0
-    true_yuan_bonus: int = 0
-    body_movement_bonus: int = 0
-    duel_rate_bonus: int = 0
-    cultivation_bonus: int = 0
-    combat_config: dict[str, Any] = Field(default_factory=dict)
-    min_realm_stage: str | None = None
-    min_realm_layer: int = 1
-    enabled: bool = True
-
-
-class PillPayload(BaseModel):
-    name: str
-    rarity: str = "凡品"
-    pill_type: str
-    image_url: str = ""
-    description: str = ""
-    effect_value: int = 0
-    poison_delta: int = 0
-    attack_bonus: int = 0
-    defense_bonus: int = 0
-    bone_bonus: int = 0
-    comprehension_bonus: int = 0
-    divine_sense_bonus: int = 0
-    fortune_bonus: int = 0
-    qi_blood_bonus: int = 0
-    true_yuan_bonus: int = 0
-    body_movement_bonus: int = 0
-    min_realm_stage: str | None = None
-    min_realm_layer: int = 1
-    enabled: bool = True
-
-
-class TalismanPayload(BaseModel):
-    name: str
-    rarity: str = "凡品"
-    image_url: str = ""
-    description: str = ""
-    attack_bonus: int = 0
-    defense_bonus: int = 0
-    bone_bonus: int = 0
-    comprehension_bonus: int = 0
-    divine_sense_bonus: int = 0
-    fortune_bonus: int = 0
-    qi_blood_bonus: int = 0
-    true_yuan_bonus: int = 0
-    body_movement_bonus: int = 0
-    duel_rate_bonus: int = 0
-    effect_uses: int = 1
-    combat_config: dict[str, Any] = Field(default_factory=dict)
-    min_realm_stage: str | None = None
-    min_realm_layer: int = 1
-    enabled: bool = True
-
-
 
 
 def _telegram_identity_payload(user: Any) -> dict[str, str]:
@@ -1513,6 +992,12 @@ def _red_envelope_keyboard(envelope_id: int) -> InlineKeyboardMarkup:
     )
 
 
+def _encounter_keyboard(instance_id: int, button_text: str | None = None) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton(button_text or "争抢机缘", callback_data=f"xiuxian:encounter:{instance_id}")]]
+    )
+
+
 def _quiz_task_text(task: dict[str, Any]) -> str:
     reward_parts = []
     if int(task.get("reward_stone") or 0):
@@ -1740,6 +1225,52 @@ async def _push_red_envelope_notice(envelope: dict[str, Any]) -> None:
     LOGGER.info(f"xiuxian red envelope sent to group {chat_id}, message={sent.id}")
 
 
+async def _push_group_encounter_notice(payload: dict[str, Any]) -> dict[str, Any] | None:
+    template = payload.get("template") or {}
+    instance = payload.get("instance") or {}
+    chat_id = int(instance.get("group_chat_id") or _main_group_chat_id() or 0)
+    if not chat_id:
+        return None
+    text = render_group_encounter_text(template, instance)
+    image_source = _resolve_group_image_source(template.get("image_url"))
+    if image_source:
+        caption, overflow = _split_photo_caption(text)
+        try:
+            sent = await _send_photo(
+                bot,
+                chat_id,
+                image_source,
+                caption=caption or None,
+                reply_markup=_encounter_keyboard(instance["id"], instance.get("button_text")),
+                parse_mode=RICH_TEXT_MODE,
+                persistent=True,
+            )
+        except Exception as exc:
+            LOGGER.warning(f"xiuxian encounter photo push fallback id={instance.get('id')} chat={chat_id}: {exc}")
+            sent = await _send_photo(bot, chat_id, image_source, persistent=True)
+            overflow = text
+        if overflow:
+            await _send_message(
+                bot,
+                chat_id,
+                overflow,
+                reply_to_message_id=sent.id,
+                reply_markup=_encounter_keyboard(instance["id"], instance.get("button_text")),
+                parse_mode=RICH_TEXT_MODE,
+                persistent=True,
+            )
+    else:
+        sent = await _send_message(
+            bot,
+            chat_id,
+            text,
+            reply_markup=_encounter_keyboard(instance["id"], instance.get("button_text")),
+            parse_mode=RICH_TEXT_MODE,
+            persistent=True,
+        )
+    return mark_group_encounter_message(int(instance["id"]), int(sent.id))
+
+
 async def _maybe_broadcast_craft(actor_tg: int, result: dict[str, Any]) -> None:
     if not result.get("should_broadcast"):
         return
@@ -1775,6 +1306,7 @@ def _admin_world_snapshot() -> dict[str, Any]:
         "materials": list_materials(),
         "recipes": recipes,
         "scenes": scenes,
+        "encounters": list_encounter_templates(),
         "tasks": list_tasks(),
         "techniques": list_techniques(),
         "titles": list_titles(),
@@ -1820,9 +1352,24 @@ def _duel_log_emoji(kind: str | None) -> str:
     }.get(str(kind or "").strip(), "⚔️")
 
 
+def _duel_snapshot_line(label: str, snapshot: dict[str, Any]) -> str:
+    stats = snapshot.get("stats") or {}
+    qi_blood = int(stats.get("qi_blood") or 0)
+    true_yuan = int(stats.get("true_yuan") or 0)
+    return (
+        f"{label} {_md_escape(str(snapshot.get('name') or '道友'))}"
+        f" ｜ 战力 `{int(round(snapshot.get('power') or 0))}`"
+        f" ｜ 气血 `{qi_blood}`"
+        f" ｜ 真元 `{true_yuan}`"
+        f" ｜ 胜率 `{float(snapshot.get('win_rate') or 0):.1f}%`"
+    )
+
+
 def _format_duel_stream_text(result: dict[str, Any], visible_count: int) -> str:
     challenger = (result.get("challenger") or {}).get("profile") or {}
     defender = (result.get("defender") or {}).get("profile") or {}
+    challenger_snapshot = result.get("challenger_snapshot") or {}
+    defender_snapshot = result.get("defender_snapshot") or {}
     battle_log = list(result.get("battle_log") or [])
     total = len(battle_log)
     shown = min(max(int(visible_count or 0), 0), total)
@@ -1830,20 +1377,28 @@ def _format_duel_stream_text(result: dict[str, Any], visible_count: int) -> str:
         "⚔️ **斗法直播**",
         f"对局：{_md_escape(_duel_profile_label(challenger))} vs {_md_escape(_duel_profile_label(defender))}",
         f"进度：`{shown}/{total}` 条战报",
+        "战况：灵压交错，斗法台正在实时回传气机波动。",
     ]
     stake = int(result.get("stake") or 0)
     if stake > 0:
         lines.append(f"赌斗：每人 `{stake}` 灵石")
-    lines.append("")
+    lines.extend(
+        [
+            "",
+            _duel_snapshot_line("🟥", challenger_snapshot),
+            _duel_snapshot_line("🟦", defender_snapshot),
+            "",
+        ]
+    )
     for row in battle_log[:shown]:
         prefix = _duel_log_emoji(row.get("kind"))
         round_no = int(row.get("round") or 0)
         round_text = f"`第{round_no}回合` " if round_no > 0 and row.get("kind") != "round" else ""
         lines.append(f"{prefix} {round_text}{_md_escape(row.get('text') or '')}")
     if shown < total:
-        lines.extend(["", "⏳ 灵力仍在震荡，下一轮斗法画面正在显化……"])
+        lines.extend(["", "⏳ 场中仍有余波翻涌，法宝与符光还在互相撕扯，下一轮战报即将显化……"])
     else:
-        lines.extend(["", f"🏁 {_md_escape(str(result.get('summary') or '斗法结束。'))}"])
+        lines.extend(["", f"🏁 **胜负已分**", _md_escape(str(result.get('summary') or '斗法结束。'))])
     return "\n".join(lines)
 
 
@@ -2116,6 +1671,7 @@ def register_bot(bot_instance) -> None:
                 "/duel [赌注] - 回复某位道友发起斗法\n"
                 "/seek - 回复某位道友探查信息\n"
                 "/rob - 回复某位道友发起抢劫\n"
+                "/fuding - 回复某位道友灌注修为（群主）\n"
                 "/gift <TGID> <灵石数量> - 赠送灵石给其他玩家\n"
                 "/allow_upload - 主人回复用户后授予上传权限\n"
                 "/remove_upload - 主人回复用户后移除上传权限\n"
@@ -2173,14 +1729,9 @@ def register_bot(bot_instance) -> None:
         finally:
             await _delete_user_command_message(msg)
 
-    @bot_instance.on_message(filters.command(["duel"], prefixes) & filters.reply & filters.chat(group))
+    @bot_instance.on_message(filters.command(["duel"], prefixes) & filters.chat(group))
     async def xiuxian_duel_command(_, msg):
         try:
-            if msg.reply_to_message is None or msg.reply_to_message.from_user is None:
-                return await _reply_text(msg, "请先回复一位目标道友，再发起斗法邀请。")
-            if msg.reply_to_message.from_user.id == msg.from_user.id:
-                return await _reply_text(msg, "你不能自己和自己斗法。")
-
             settings = get_xiuxian_settings()
             bet_minutes = int(settings.get("duel_bet_minutes", 2) or 2)
             stake = 0
@@ -2191,6 +1742,10 @@ def register_bot(bot_instance) -> None:
                         bet_minutes = max(min(int(msg.command[2]), 15), 1)
                 except ValueError:
                     return await _reply_text(msg, "赌注必须填写整数。")
+            if msg.reply_to_message is None or msg.reply_to_message.from_user is None:
+                return await _reply_text(msg, "请先回复一位目标道友，再发起斗法邀请。")
+            if msg.reply_to_message.from_user.id == msg.from_user.id:
+                return await _reply_text(msg, "你不能自己和自己斗法。")
 
             try:
                 duel = compute_duel_odds(msg.from_user.id, msg.reply_to_message.from_user.id)
@@ -2241,8 +1796,6 @@ def register_bot(bot_instance) -> None:
             )
             DUEL_MESSAGE_REFRESH_CACHE[pool["id"]] = time.monotonic()
             try:
-                from bot.plugins.xiuxian_game.world_service import update_duel_bet_pool_message
-
                 update_duel_bet_pool_message(pool["id"], getattr(sent, "id", call.message.id))
             except Exception as exc:
                 LOGGER.warning(f"xiuxian duel bet message update failed: {exc}")
@@ -2346,6 +1899,24 @@ def register_bot(bot_instance) -> None:
         except Exception as exc:
             LOGGER.warning(f"xiuxian quiz task message refresh failed: {exc}")
 
+    @bot_instance.on_message(filters.text & filters.chat(group))
+    async def xiuxian_group_encounter_trigger(_, msg):
+        if msg.from_user is None or getattr(msg.from_user, "is_bot", False):
+            return
+        if not getattr(msg, "text", None):
+            return
+        text = str(msg.text or "").strip()
+        if not text or text.startswith(("/", "!", ".")):
+            return
+        if IMMORTAL_TOUCH_PATTERN.fullmatch(text):
+            return
+        try:
+            payload = maybe_spawn_group_encounter(msg.chat.id)
+            if payload:
+                await _push_group_encounter_notice(payload)
+        except Exception as exc:
+            LOGGER.warning(f"xiuxian encounter trigger failed chat={getattr(msg.chat, 'id', None)}: {exc}")
+
     @bot_instance.on_callback_query(filters.regex(r"^xiuxian:red:(\d+)$"))
     async def xiuxian_red_envelope_callback(_, call):
         envelope_id = int(call.matches[0].group(1))
@@ -2372,6 +1943,41 @@ def register_bot(bot_instance) -> None:
                     persistent=is_active,
                 )
             await callAnswer(call, f"成功领取 {result['amount']} 灵石。")
+        except Exception as exc:
+            await callAnswer(call, str(exc), True)
+
+    @bot_instance.on_callback_query(filters.regex(r"^xiuxian:encounter:(\d+)$"))
+    async def xiuxian_group_encounter_callback(_, call):
+        instance_id = int(call.matches[0].group(1))
+        try:
+            result = claim_group_encounter(instance_id, call.from_user.id)
+            winner_name = call.from_user.first_name or f"TG {call.from_user.id}"
+            success_text = render_group_encounter_success_text(result, winner_name)
+            if getattr(call.message, "photo", None):
+                caption, overflow = _split_photo_caption(success_text)
+                await _edit_caption(
+                    call.message,
+                    caption or "奇遇已结算",
+                    parse_mode=RICH_TEXT_MODE,
+                    persistent=True,
+                )
+                if overflow:
+                    await _send_message(
+                        bot,
+                        call.message.chat.id,
+                        overflow,
+                        reply_to_message_id=call.message.id,
+                        parse_mode=RICH_TEXT_MODE,
+                        persistent=True,
+                    )
+            else:
+                await _edit_text(
+                    call.message,
+                    success_text,
+                    parse_mode=RICH_TEXT_MODE,
+                    persistent=True,
+                )
+            await callAnswer(call, "手速惊人，这桩机缘归你了。")
         except Exception as exc:
             await callAnswer(call, str(exc), True)
 
@@ -2418,11 +2024,10 @@ def register_bot(bot_instance) -> None:
         finally:
             await _delete_user_command_message(msg)
 
-    @bot_instance.on_message(filters.text & filters.reply & filters.chat(group))
-    async def xiuxian_immortal_touch_reply(client, msg):
+    async def _handle_immortal_touch_request(client, msg, *, command_mode: bool = False):
         if msg.from_user is None or not getattr(msg, "text", None):
             return
-        if not IMMORTAL_TOUCH_PATTERN.fullmatch(msg.text.strip()):
+        if not command_mode and not IMMORTAL_TOUCH_PATTERN.fullmatch(msg.text.strip()):
             return
         if not is_admin_user_id(msg.from_user.id) and not await _is_group_admin(client, msg.chat.id, msg.from_user.id):
             return await _reply_text(msg, "只有本群主人才能施展仙人抚顶。", quote=True)
@@ -2454,6 +2059,19 @@ def register_bot(bot_instance) -> None:
             lines.append("🏵️ 九层圆满，道基已稳，可尝试突破。")
         await _send_message(client, msg.chat.id, "\n".join(lines))
 
+    @bot_instance.on_message(filters.command(["fuding", "immortal_touch"], prefixes) & filters.chat(group))
+    async def xiuxian_immortal_touch_command(client, msg):
+        try:
+            if msg.reply_to_message is None or msg.reply_to_message.from_user is None:
+                return await _reply_text(msg, "请先回复一位真实用户，再施展仙人抚顶。", quote=True)
+            return await _handle_immortal_touch_request(client, msg, command_mode=True)
+        finally:
+            await _delete_user_command_message(msg)
+
+    @bot_instance.on_message(filters.text & filters.chat(group))
+    async def xiuxian_immortal_touch_reply(client, msg):
+        return await _handle_immortal_touch_request(client, msg, command_mode=False)
+
     @bot_instance.on_message(filters.command(["rob"], prefixes) & filters.reply & filters.chat(group))
     async def xiuxian_rob_command(_, msg):
         try:
@@ -2482,7 +2100,7 @@ def register_bot(bot_instance) -> None:
         finally:
             await _delete_user_command_message(msg)
 
-    @bot_instance.on_message(filters.command(["seek"], prefixes) & filters.reply & filters.chat(group))
+    @bot_instance.on_message(filters.command(["seek"], prefixes) & filters.chat(group))
     async def xiuxian_seek_command(_, msg):
         try:
             try:
@@ -3270,6 +2888,9 @@ def register_web(app) -> None:
             description=payload.description,
             image_url=payload.image_url,
             max_minutes=payload.max_minutes,
+            min_realm_stage=payload.min_realm_stage,
+            min_realm_layer=payload.min_realm_layer,
+            min_combat_power=payload.min_combat_power,
             event_pool=[item.model_dump() for item in payload.event_pool],
             drops=[item.model_dump() for item in payload.drops],
         )
@@ -3286,10 +2907,31 @@ def register_web(app) -> None:
             description=payload.description,
             image_url=payload.image_url,
             max_minutes=payload.max_minutes,
+            min_realm_stage=payload.min_realm_stage,
+            min_realm_layer=payload.min_realm_layer,
+            min_combat_power=payload.min_combat_power,
             event_pool=[item.model_dump() for item in payload.event_pool],
             drops=[item.model_dump() for item in payload.drops],
         )
         return {"code": 200, "data": scene}
+
+    @admin_router.post("/encounter")
+    async def xiuxian_encounter_api(payload: EncounterPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        encounter = create_encounter_template(**payload.model_dump())
+        return {"code": 200, "data": encounter}
+
+    @admin_router.patch("/encounter/{encounter_id}")
+    async def xiuxian_encounter_patch_api(encounter_id: int, payload: EncounterPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        encounter = patch_encounter_template(encounter_id, **payload.model_dump())
+        if encounter is None:
+            raise HTTPException(status_code=404, detail="Encounter not found")
+        return {"code": 200, "data": encounter}
 
     @admin_router.post("/task")
     async def xiuxian_admin_task_api(payload: AdminTaskPayload, request: Request):
@@ -3432,6 +3074,13 @@ def register_web(app) -> None:
         if not delete_scene(scene_id):
             raise HTTPException(status_code=404, detail="Scene not found")
         return {"code": 200, "data": {"deleted": True, "id": scene_id}}
+
+    @admin_router.delete("/encounter/{encounter_id}")
+    async def xiuxian_delete_encounter_api(encounter_id: int, request: Request):
+        _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
+        if not delete_encounter_template(encounter_id):
+            raise HTTPException(status_code=404, detail="Encounter not found")
+        return {"code": 200, "data": {"deleted": True, "id": encounter_id}}
 
     @admin_router.delete("/task/{task_id}")
     async def xiuxian_delete_task_api(task_id: int, request: Request):

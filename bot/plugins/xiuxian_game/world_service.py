@@ -1,6 +1,7 @@
 """修仙世界玩法服务。
 
-这里集中处理宗门、任务、炼制、秘境、红包、偷窃与斗法竞猜等跨系统玩法。
+这里保留历史兼容出口。
+后续新增或维护优先落到 `features/` 下的对应世界玩法文件，再由这里兼容导出。
 """
 
 from __future__ import annotations
@@ -2092,3 +2093,14 @@ def build_world_bundle(tg: int) -> dict[str, Any]:
             "artifact_plunder_chance": int(get_xiuxian_settings().get("artifact_plunder_chance", DEFAULT_SETTINGS["artifact_plunder_chance"]) or 0),
         },
     }
+
+
+from bot.plugins.xiuxian_game.features.economy import gift_spirit_stone as gift_spirit_stone  # noqa: E402
+from bot.plugins.xiuxian_game.features.exploration import (  # noqa: E402
+    _get_active_exploration as _get_active_exploration,
+    claim_exploration_for_user as claim_exploration_for_user,
+    create_scene_with_drops as create_scene_with_drops,
+    patch_scene_with_drops as patch_scene_with_drops,
+    start_exploration_for_user as start_exploration_for_user,
+    sync_scene_with_drops_by_name as sync_scene_with_drops_by_name,
+)
