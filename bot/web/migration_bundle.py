@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import io
 import json
 import shutil
 import stat
@@ -271,67 +270,85 @@ def _resolve_bundle_root(paths: set[PurePosixPath]) -> str | None:
     return top_level
 
 
-def _extract_bundle(archive_source: bytes | BinaryIO) -> tuple[Path, dict[str, Any], Path]:
+def _write_archive_to_temp(archive_source: bytes | BinaryIO, target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
     if isinstance(archive_source, (bytes, bytearray)):
         if not archive_source:
             raise MigrationBundleError("上传的迁移压缩包为空。")
-        source = io.BytesIO(bytes(archive_source))
-    else:
-        source = archive_source
-        if hasattr(source, "seek"):
-            source.seek(0)
+        target.write_bytes(bytes(archive_source))
+        return
+
+    source = archive_source
+    if hasattr(source, "seek"):
+        source.seek(0)
 
     try:
-        zip_file = zipfile.ZipFile(source)
-    except zipfile.BadZipFile as exc:
-        raise MigrationBundleError("上传文件不是有效的 ZIP 压缩包。") from exc
+        with target.open("wb") as destination:
+            shutil.copyfileobj(source, destination, length=1024 * 1024)
     except Exception as exc:
-        raise MigrationBundleError("上传的迁移压缩包无法读取。") from exc
+        raise MigrationBundleError("上传的迁移压缩包无法写入临时目录。") from exc
 
+    if target.stat().st_size <= 0:
+        raise MigrationBundleError("上传的迁移压缩包为空。")
+
+
+def _extract_bundle(archive_source: bytes | BinaryIO) -> tuple[Path, dict[str, Any], Path]:
     temp_root = Path(tempfile.mkdtemp(prefix="pivkeyu-migration-import-"))
     extract_root = temp_root / "bundle"
+    archive_path = temp_root / "upload.zip"
 
-    with zip_file as archive:
-        normalized_members: list[tuple[zipfile.ZipInfo, PurePosixPath]] = []
-        visible_paths: set[PurePosixPath] = set()
+    try:
+        _write_archive_to_temp(archive_source, archive_path)
+        with zipfile.ZipFile(archive_path) as archive:
+            normalized_members: list[tuple[zipfile.ZipInfo, PurePosixPath]] = []
+            visible_paths: set[PurePosixPath] = set()
 
-        for info in archive.infolist():
-            normalized = _normalize_archive_path(info.filename)
-            if normalized is None:
-                continue
-            mode = info.external_attr >> 16
-            if stat.S_ISLNK(mode):
-                raise MigrationBundleError("迁移压缩包中不能包含符号链接。")
-            normalized_members.append((info, normalized))
-            visible_paths.add(normalized)
+            for info in archive.infolist():
+                normalized = _normalize_archive_path(info.filename)
+                if normalized is None:
+                    continue
+                mode = info.external_attr >> 16
+                if stat.S_ISLNK(mode):
+                    raise MigrationBundleError("迁移压缩包中不能包含符号链接。")
+                normalized_members.append((info, normalized))
+                visible_paths.add(normalized)
 
-        if not visible_paths:
-            raise MigrationBundleError("迁移压缩包中没有可导入的内容。")
+            if not visible_paths:
+                raise MigrationBundleError("迁移压缩包中没有可导入的内容。")
 
-        bundle_root_name = _resolve_bundle_root(visible_paths)
+            bundle_root_name = _resolve_bundle_root(visible_paths)
 
-        for info, normalized in normalized_members:
-            relative = normalized.relative_to(bundle_root_name) if bundle_root_name else normalized
-            target = extract_root / relative
-            if info.is_dir():
-                target.mkdir(parents=True, exist_ok=True)
-                continue
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with archive.open(info, "r") as source, target.open("wb") as destination:
-                shutil.copyfileobj(source, destination)
+            for info, normalized in normalized_members:
+                relative = normalized.relative_to(bundle_root_name) if bundle_root_name else normalized
+                target = extract_root / relative
+                if info.is_dir():
+                    target.mkdir(parents=True, exist_ok=True)
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with archive.open(info, "r") as source, target.open("wb") as destination:
+                    shutil.copyfileobj(source, destination)
 
-    manifest_path = extract_root / MANIFEST_FILENAME
-    if not manifest_path.exists():
-        raise MigrationBundleError("迁移压缩包缺少 manifest.json。")
+        manifest_path = extract_root / MANIFEST_FILENAME
+        if not manifest_path.exists():
+            raise MigrationBundleError("迁移压缩包缺少 manifest.json。")
 
-    manifest = _json_load(manifest_path)
-    schema_version = int(manifest.get("schema_version") or 0)
-    if schema_version != BUNDLE_SCHEMA_VERSION:
-        raise MigrationBundleError(
-            f"迁移压缩包版本不兼容：当前仅支持 schema_version={BUNDLE_SCHEMA_VERSION}，实际为 {schema_version}。"
-        )
+        manifest = _json_load(manifest_path)
+        schema_version = int(manifest.get("schema_version") or 0)
+        if schema_version != BUNDLE_SCHEMA_VERSION:
+            raise MigrationBundleError(
+                f"迁移压缩包版本不兼容：当前仅支持 schema_version={BUNDLE_SCHEMA_VERSION}，实际为 {schema_version}。"
+            )
 
-    return extract_root, manifest, temp_root
+        return extract_root, manifest, temp_root
+    except zipfile.BadZipFile as exc:
+        shutil.rmtree(temp_root, ignore_errors=True)
+        raise MigrationBundleError("上传文件不是有效的 ZIP 压缩包。") from exc
+    except MigrationBundleError:
+        shutil.rmtree(temp_root, ignore_errors=True)
+        raise
+    except Exception:
+        shutil.rmtree(temp_root, ignore_errors=True)
+        raise
 
 
 def _coerce_column_value(column, value: Any) -> Any:
