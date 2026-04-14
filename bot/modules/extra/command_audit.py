@@ -33,13 +33,11 @@ async def audit_command_message(_, message):
     raw_text = str(getattr(message, "text", "") or "").strip()
 
     LOGGER.info(
-        "command audit: chat=%s type=%s user=%s sender_chat=%s message=%s reply_to=%s command=%s text=%r",
-        getattr(chat, "id", None),
-        getattr(getattr(chat, "type", None), "value", getattr(chat, "type", None)),
-        getattr(user, "id", None),
-        getattr(sender_chat, "id", None),
-        getattr(message, "id", None),
-        getattr(reply_from_user, "id", None),
-        command_name,
-        raw_text[:200],
+        f"command audit: chat={getattr(chat, 'id', None)} "
+        f"type={getattr(getattr(chat, 'type', None), 'value', getattr(chat, 'type', None))} "
+        f"user={getattr(user, 'id', None)} "
+        f"sender_chat={getattr(sender_chat, 'id', None)} "
+        f"message={getattr(message, 'id', None)} "
+        f"reply_to={getattr(reply_from_user, 'id', None)} "
+        f"command={command_name} text={raw_text[:200]!r}"
     )

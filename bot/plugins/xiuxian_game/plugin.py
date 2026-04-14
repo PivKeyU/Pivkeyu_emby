@@ -277,6 +277,7 @@ SHANGHAI_TZ = timezone(timedelta(hours=8))
 DUEL_MESSAGE_REFRESH_CACHE: dict[int, float] = {}
 DUEL_SETTLEMENT_CACHE: dict[int, dict[str, Any]] = {}
 MESSAGE_AUTO_DELETE_TASKS: dict[tuple[int, int], asyncio.Task] = {}
+COMMAND_DISPATCH_CACHE: dict[tuple[int, int, str], float] = {}
 DUEL_SETTLEMENT_PAGE_SIZE = 10
 STATIC_ASSET_PATTERN = re.compile(r'(/plugins/xiuxian/static/([A-Za-z0-9_.-]+\.(?:css|js)))')
 XIUXIAN_BOT_COMMANDS = (
@@ -315,6 +316,26 @@ def _schedule_command_refresh(bot_instance) -> None:
         loop.call_later(5, lambda: loop.create_task(BotCommands.set_commands(client=bot_instance)))
     except Exception as exc:
         LOGGER.debug(f"xiuxian command refresh skipped: {exc}")
+
+
+def _register_command_dispatch(message, command_name: str, *, ttl_seconds: int = 30) -> bool:
+    chat_id = getattr(getattr(message, "chat", None), "id", None)
+    message_id = getattr(message, "id", None)
+    if chat_id is None or message_id is None:
+        return True
+
+    now = time.monotonic()
+    expire_before = now - max(int(ttl_seconds), 1)
+    stale_keys = [key for key, seen_at in COMMAND_DISPATCH_CACHE.items() if seen_at < expire_before]
+    for key in stale_keys:
+        COMMAND_DISPATCH_CACHE.pop(key, None)
+
+    cache_key = (int(chat_id), int(message_id), str(command_name or "").strip().lower())
+    if cache_key in COMMAND_DISPATCH_CACHE:
+        return False
+
+    COMMAND_DISPATCH_CACHE[cache_key] = now
+    return True
 
 
 def _xiuxian_basic_guide_text(consented: bool) -> str:
@@ -1767,8 +1788,18 @@ def register_bot(bot_instance) -> None:
     @bot_instance.on_message(filters.command(["xiuxian_me", "xiuxian_info"], prefixes) & filters.chat(group))
     async def xiuxian_me_command(_, msg):
         try:
+            if not _register_command_dispatch(msg, "xiuxian_me"):
+                LOGGER.warning(
+                    f"xiuxian command duplicate skipped chat={getattr(getattr(msg, 'chat', None), 'id', None)} "
+                    f"message={getattr(msg, 'id', None)} command=xiuxian_me"
+                )
+                return
             if msg.from_user is None:
                 return
+            LOGGER.info(
+                f"xiuxian me command received chat={getattr(getattr(msg, 'chat', None), 'id', None)} "
+                f"actor={getattr(getattr(msg, 'from_user', None), 'id', None)}"
+            )
             profile = serialize_full_profile(msg.from_user.id)
             if not profile["profile"]["consented"]:
                 return await _reply_text(msg, "你还没有踏入仙途，先私聊机器人点击 /xiuxian 入道。")
@@ -1780,6 +1811,12 @@ def register_bot(bot_instance) -> None:
     @bot_instance.on_message(filters.command(["xiuxian_rank"], prefixes) & filters.chat(group))
     async def xiuxian_rank_command(_, msg):
         try:
+            if not _register_command_dispatch(msg, "xiuxian_rank"):
+                LOGGER.warning(
+                    f"xiuxian command duplicate skipped chat={getattr(getattr(msg, 'chat', None), 'id', None)} "
+                    f"message={getattr(msg, 'id', None)} command=xiuxian_rank"
+                )
+                return
             kind_alias = {
                 "stone": "stone",
                 "stones": "stone",
@@ -1815,6 +1852,12 @@ def register_bot(bot_instance) -> None:
         try:
             command_name = str((msg.command or [""])[0]).split("@", 1)[0].strip().lower()
             command_args = [str(item) for item in (msg.command[1:] if len(msg.command or []) > 1 else [])]
+            if not _register_command_dispatch(msg, command_name):
+                LOGGER.warning(
+                    f"xiuxian command duplicate skipped chat={getattr(getattr(msg, 'chat', None), 'id', None)} "
+                    f"message={getattr(msg, 'id', None)} command={command_name}"
+                )
+                return
             duel_mode = DUEL_COMMAND_MODES.get(command_name)
             if duel_mode is None:
                 return
@@ -1939,7 +1982,7 @@ def register_bot(bot_instance) -> None:
         except Exception as exc:
             await callAnswer(call, str(exc), True)
 
-    @bot_instance.on_message(filters.text & filters.group)
+    @bot_instance.on_message(filters.text & filters.group & ~filters.regex(r"^[\\/!\\.，。]"))
     async def xiuxian_group_quiz_answer(_, msg):
         if msg.from_user is None or getattr(msg.from_user, "is_bot", False):
             return
@@ -2007,7 +2050,7 @@ def register_bot(bot_instance) -> None:
         except Exception as exc:
             LOGGER.warning(f"xiuxian quiz task message refresh failed: {exc}")
 
-    @bot_instance.on_message(filters.text & filters.chat(group))
+    @bot_instance.on_message(filters.text & filters.chat(group) & ~filters.regex(r"^[\\/!\\.，。]"))
     async def xiuxian_group_encounter_trigger(_, msg):
         if msg.from_user is None or getattr(msg.from_user, "is_bot", False):
             return
@@ -2133,6 +2176,12 @@ def register_bot(bot_instance) -> None:
     @bot_instance.on_message(filters.command(["rob"], prefixes) & filters.chat(group))
     async def xiuxian_rob_command(_, msg):
         try:
+            if not _register_command_dispatch(msg, "rob"):
+                LOGGER.warning(
+                    f"xiuxian command duplicate skipped chat={getattr(getattr(msg, 'chat', None), 'id', None)} "
+                    f"message={getattr(msg, 'id', None)} command=rob"
+                )
+                return
             LOGGER.info(
                 f"xiuxian rob command received chat={getattr(getattr(msg, 'chat', None), 'id', None)} "
                 f"actor={getattr(getattr(msg, 'from_user', None), 'id', None)} "
@@ -2171,6 +2220,12 @@ def register_bot(bot_instance) -> None:
     @bot_instance.on_message(filters.command(["seek"], prefixes) & filters.chat(group))
     async def xiuxian_seek_command(_, msg):
         try:
+            if not _register_command_dispatch(msg, "seek"):
+                LOGGER.warning(
+                    f"xiuxian command duplicate skipped chat={getattr(getattr(msg, 'chat', None), 'id', None)} "
+                    f"message={getattr(msg, 'id', None)} command=seek"
+                )
+                return
             LOGGER.info(
                 f"xiuxian seek command received chat={getattr(getattr(msg, 'chat', None), 'id', None)} "
                 f"actor={getattr(getattr(msg, 'from_user', None), 'id', None)} "
@@ -2213,10 +2268,8 @@ def register_bot(bot_instance) -> None:
                 await _reply_text(msg, "\n".join(lines), quote=True, parse_mode=RICH_TEXT_MODE)
             except Exception as exc:
                 LOGGER.warning(
-                    "xiuxian seek failed seeker=%s target=%s: %s",
-                    getattr(actor, "id", None),
-                    getattr(getattr(msg.reply_to_message, "from_user", None), "id", None),
-                    exc,
+                    f"xiuxian seek failed seeker={getattr(actor, 'id', None)} "
+                    f"target={getattr(getattr(msg.reply_to_message, 'from_user', None), 'id', None)}: {exc}"
                 )
                 await _reply_text(msg, f"探查失败：{exc or '请稍后重试。'}", quote=True)
         finally:
