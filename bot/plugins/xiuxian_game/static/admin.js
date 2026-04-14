@@ -49,6 +49,7 @@ const state = {
   initData: tg?.initData || "",
   bundle: null,
   selectedPlayerTg: null,
+  selectedPlayerDetail: null,
   playerSearch: {
     query: "",
     page: 1,
@@ -586,7 +587,19 @@ function realmRows() {
 
 function itemRows(kind) {
   const bundle = state.bundle || {};
-  const key = kind === "artifact" ? "artifacts" : kind === "pill" ? "pills" : kind === "talisman" ? "talismans" : kind === "material" ? "materials" : "";
+  const key = kind === "artifact"
+    ? "artifacts"
+    : kind === "pill"
+      ? "pills"
+      : kind === "talisman"
+        ? "talismans"
+        : kind === "material"
+          ? "materials"
+          : kind === "recipe"
+            ? "recipes"
+            : kind === "technique"
+              ? "techniques"
+              : "";
   const rows = bundle[key] || [];
   return rows.map((item) => {
     const data = item.material || item;
@@ -1734,8 +1747,74 @@ const PLAYER_EDIT_FIELDS = [
   "root_type", "root_primary", "root_secondary", "root_relation", "root_bonus", "root_quality",
   "bone", "comprehension", "divine_sense", "fortune",
   "qi_blood", "true_yuan", "body_movement", "attack_power", "defense_power",
-  "dan_poison", "sect_contribution",
+  "dan_poison", "sect_contribution", "technique_capacity",
 ];
+
+function playerDisplayName(profile = {}, fallbackTg = null) {
+  const tg = Number(profile?.tg || fallbackTg || 0);
+  return profile?.display_label || profile?.display_name || (profile?.username ? `@${profile.username}` : `TG ${tg || "未知"}`);
+}
+
+function techniqueRows() {
+  return (state.bundle?.techniques || []).map((item) => ({ value: item.id, label: `${item.id} · ${item.name}` }));
+}
+
+function recipeRows() {
+  return (state.bundle?.recipes || []).map((item) => ({ value: item.id, label: `${item.id} · ${item.name}` }));
+}
+
+function selectedPlayerAdminPath(path = "") {
+  const tg = Number(state.selectedPlayerTg || $("player-edit-tg")?.value || 0);
+  if (!tg) {
+    throw new Error("请先选择角色");
+  }
+  return `/plugins/xiuxian/admin-api/players/${tg}${path}`;
+}
+
+function playerOwnedMeta(source, note) {
+  const rows = [source, note].map((item) => String(item || "").trim()).filter(Boolean);
+  return rows.length ? rows.join(" · ") : "后台未记录来源";
+}
+
+function playerFillInventoryButton(kind, itemId, quantity, boundQuantity = null) {
+  const boundAttr = boundQuantity == null ? "" : ` data-player-fill-inventory-bound="${escapeHtml(boundQuantity)}"`;
+  return `<button type="button" class="ghost" data-player-fill-inventory-kind="${escapeHtml(kind)}" data-player-fill-inventory-id="${escapeHtml(itemId)}" data-player-fill-inventory-quantity="${escapeHtml(quantity)}"${boundAttr}>载入库存表单</button>`;
+}
+
+function playerSelectionButton(label, selectionKind, itemRefId = null) {
+  const refAttr = itemRefId == null ? "" : ` data-player-select-item-ref-id="${escapeHtml(itemRefId)}"`;
+  return `<button type="button" class="ghost" data-player-select-kind="${escapeHtml(selectionKind)}"${refAttr}>${escapeHtml(label)}</button>`;
+}
+
+function playerRevokeButton(kind, itemRefId) {
+  return `<button type="button" class="ghost" data-player-revoke-kind="${escapeHtml(kind)}" data-player-revoke-item-ref-id="${escapeHtml(itemRefId)}">移除</button>`;
+}
+
+function syncPlayerResourceForms() {
+  const inventoryKindNode = $("player-inventory-kind");
+  const inventoryRefNode = $("player-inventory-ref-id");
+  const boundWrap = $("player-inventory-bound-wrap");
+  const boundNode = $("player-inventory-bound");
+  const inventoryKind = inventoryKindNode?.value || "artifact";
+  const supportsBound = inventoryKind === "artifact" || inventoryKind === "talisman";
+  if (boundWrap) boundWrap.style.display = supportsBound ? "" : "none";
+  if (!supportsBound && boundNode) boundNode.value = "";
+  setOptions(inventoryRefNode, itemRows(inventoryKind), inventoryRefNode?.value);
+
+  const ownedKindNode = $("player-owned-kind");
+  const ownedRefNode = $("player-owned-ref-id");
+  const equipNode = $("player-owned-equip");
+  const equipLabel = equipNode?.closest("label");
+  const ownedKind = ownedKindNode?.value || "title";
+  const ownedRows = ownedKind === "title" ? titleRows() : ownedKind === "technique" ? techniqueRows() : recipeRows();
+  setOptions(ownedRefNode, ownedRows, ownedRefNode?.value);
+  const canEquip = ownedKind !== "recipe";
+  if (equipLabel) equipLabel.style.display = canEquip ? "" : "none";
+  if (equipNode) {
+    if (!canEquip) equipNode.checked = false;
+    equipNode.disabled = !canEquip;
+  }
+}
 
 function renderPlayerAccount(account) {
   const container = $("player-account-info");
@@ -1802,6 +1881,223 @@ function bindPlayerSearchResultClicks(container) {
   });
 }
 
+function renderPlayerInventory(detail = {}) {
+  const root = $("player-inventory-list");
+  if (!root) return;
+  const artifactRows = Array.isArray(detail.artifacts) ? detail.artifacts : [];
+  const pillRows = Array.isArray(detail.pills) ? detail.pills : [];
+  const talismanRows = Array.isArray(detail.talismans) ? detail.talismans : [];
+  const materialRowsList = Array.isArray(detail.materials) ? detail.materials : [];
+  const parts = [];
+
+  const artifactCards = artifactRows.map((row) => {
+    const item = row.artifact || {};
+    const actions = [
+      playerFillInventoryButton("artifact", item.id, row.quantity || 0, row.bound_quantity ?? 0),
+      playerSelectionButton(item.equipped ? "卸下法宝" : (item.action_label || "切换法宝"), "artifact", item.id),
+    ];
+    return `
+      <article class="stack-item">
+        <div class="stack-item-head">
+          <strong>${escapeHtml(item.name || "未命名法宝")}</strong>
+          ${qualityBadgeHtml(item.rarity || "凡品", item.quality_color)}
+        </div>
+        <p>${escapeHtml(item.equip_slot_label || item.equip_slot || "未知槽位")} · ${escapeHtml(item.artifact_role_label || item.artifact_role || "未分类")}</p>
+        <p>总数 ${escapeHtml(row.quantity || 0)} · 绑定 ${escapeHtml(row.bound_quantity || 0)} · 可流通 ${escapeHtml(row.consumable_quantity || 0)} · ${item.equipped ? "已装备" : "未装备"}</p>
+        <p>${escapeHtml(affixSummary(item))}</p>
+        <div class="inline-action-buttons player-inline-actions">${actions.join("")}</div>
+      </article>
+    `;
+  });
+  parts.push(`
+    <section class="stack-list">
+      <article class="stack-item">
+        <strong>法宝背包</strong>
+        <p>${artifactRows.length ? `共 ${artifactRows.length} 类法宝` : "当前没有法宝库存"}</p>
+      </article>
+      ${artifactCards.join("") || `<article class="stack-item"><strong>暂无法宝</strong></article>`}
+    </section>
+  `);
+
+  const pillCards = pillRows.map((row) => {
+    const item = row.pill || {};
+    return `
+      <article class="stack-item">
+        <div class="stack-item-head">
+          <strong>${escapeHtml(item.name || "未命名丹药")}</strong>
+          ${qualityBadgeHtml(item.rarity || "凡品", item.quality_color)}
+        </div>
+        <p>${escapeHtml(item.pill_type_label || item.pill_type || "丹药")} · 数量 ${escapeHtml(row.quantity || 0)}</p>
+        <p>${escapeHtml(item.effect_value_label || "效果")} ${escapeHtml(item.effect_value || 0)} · 丹毒 ${escapeHtml(item.poison_delta || 0)}</p>
+        <div class="inline-action-buttons player-inline-actions">${playerFillInventoryButton("pill", item.id, row.quantity || 0)}</div>
+      </article>
+    `;
+  });
+  parts.push(`
+    <section class="stack-list">
+      <article class="stack-item">
+        <strong>丹药背包</strong>
+        <p>${pillRows.length ? `共 ${pillRows.length} 类丹药` : "当前没有丹药库存"}</p>
+      </article>
+      ${pillCards.join("") || `<article class="stack-item"><strong>暂无丹药</strong></article>`}
+    </section>
+  `);
+
+  const talismanCards = talismanRows.map((row) => {
+    const item = row.talisman || {};
+    const actions = [
+      playerFillInventoryButton("talisman", item.id, row.quantity || 0, row.bound_quantity ?? 0),
+      playerSelectionButton(item.active ? "清除待生效符箓" : "设为待生效符箓", "talisman", item.active ? null : item.id),
+    ];
+    return `
+      <article class="stack-item">
+        <div class="stack-item-head">
+          <strong>${escapeHtml(item.name || "未命名符箓")}</strong>
+          ${qualityBadgeHtml(item.rarity || "凡品", item.quality_color)}
+        </div>
+        <p>总数 ${escapeHtml(row.quantity || 0)} · 绑定 ${escapeHtml(row.bound_quantity || 0)} · 可流通 ${escapeHtml(row.consumable_quantity || 0)} · ${item.active ? "当前待生效" : "未预装"}</p>
+        <p>${escapeHtml(affixSummary(item))}</p>
+        <div class="inline-action-buttons player-inline-actions">${actions.join("")}</div>
+      </article>
+    `;
+  });
+  parts.push(`
+    <section class="stack-list">
+      <article class="stack-item">
+        <strong>符箓背包</strong>
+        <p>${talismanRows.length ? `共 ${talismanRows.length} 类符箓` : "当前没有符箓库存"}</p>
+      </article>
+      ${talismanCards.join("") || `<article class="stack-item"><strong>暂无符箓</strong></article>`}
+    </section>
+  `);
+
+  const materialCards = materialRowsList.map((row) => {
+    const item = row.material || {};
+    return `
+      <article class="stack-item">
+        <div class="stack-item-head">
+          <strong>${escapeHtml(item.name || "未命名材料")}</strong>
+          ${qualityBadgeHtml(item.quality_label || item.quality_level || "凡品", item.quality_color)}
+        </div>
+        <p>数量 ${escapeHtml(row.quantity || 0)}</p>
+        <p>${escapeHtml(item.description || item.quality_feature || "暂无描述")}</p>
+        <div class="inline-action-buttons player-inline-actions">${playerFillInventoryButton("material", item.id, row.quantity || 0)}</div>
+      </article>
+    `;
+  });
+  parts.push(`
+    <section class="stack-list">
+      <article class="stack-item">
+        <strong>材料背包</strong>
+        <p>${materialRowsList.length ? `共 ${materialRowsList.length} 类材料` : "当前没有材料库存"}</p>
+      </article>
+      ${materialCards.join("") || `<article class="stack-item"><strong>暂无材料</strong></article>`}
+    </section>
+  `);
+
+  root.innerHTML = parts.join("");
+}
+
+function renderPlayerTitles(detail = {}) {
+  const root = $("player-title-list");
+  if (!root) return;
+  const rows = Array.isArray(detail.titles) ? detail.titles : [];
+  root.innerHTML = rows.map((row) => {
+    const item = row.title || {};
+    const actions = [
+      playerSelectionButton(item.equipped ? "卸下称号" : (item.action_label || "佩戴称号"), "title", item.equipped ? null : item.id),
+      playerRevokeButton("title", item.id),
+    ];
+    return `
+      <article class="stack-item">
+        <div class="stack-item-head">
+          <strong>${escapeHtml(item.name || "未命名称号")}</strong>
+          <span class="badge badge--normal">${item.equipped ? "已佩戴" : "未佩戴"}</span>
+        </div>
+        <p>${escapeHtml(item.description || "暂无称号描述")}</p>
+        <p>${escapeHtml(adminTitleEffectSummary(item))}</p>
+        <p>${escapeHtml(playerOwnedMeta(row.source, row.obtained_note))}</p>
+        <div class="inline-action-buttons player-inline-actions">${actions.join("")}</div>
+      </article>
+    `;
+  }).join("") || `<article class="stack-item"><strong>暂无称号</strong></article>`;
+}
+
+function renderPlayerTechniques(detail = {}) {
+  const root = $("player-technique-list");
+  if (!root) return;
+  const rows = Array.isArray(detail.techniques) ? detail.techniques : [];
+  root.innerHTML = rows.map((item) => {
+    const actions = [
+      playerSelectionButton(item.active ? "清空当前功法" : (item.action_label || "设为当前功法"), "technique", item.active ? null : item.id),
+      playerRevokeButton("technique", item.id),
+    ];
+    return `
+      <article class="stack-item">
+        <div class="stack-item-head">
+          <strong>${escapeHtml(item.name || "未命名功法")}</strong>
+          ${qualityBadgeHtml(item.rarity || "凡品", item.quality_color)}
+        </div>
+        <p>${escapeHtml(item.technique_type_label || item.technique_type || "功法")} · ${item.active ? "当前参悟中" : "未设为当前"}</p>
+        <p>${escapeHtml(affixSummary(item))}</p>
+        <p>${escapeHtml(playerOwnedMeta(item.source, item.obtained_note))}</p>
+        <div class="inline-action-buttons player-inline-actions">${actions.join("")}</div>
+      </article>
+    `;
+  }).join("") || `<article class="stack-item"><strong>暂无功法</strong></article>`;
+}
+
+function renderPlayerRecipes(detail = {}) {
+  const root = $("player-recipe-list");
+  if (!root) return;
+  const rows = Array.isArray(detail.recipes) ? detail.recipes : [];
+  root.innerHTML = rows.map((row) => {
+    const item = row.recipe || {};
+    return `
+      <article class="stack-item">
+        <div class="stack-item-head">
+          <strong>${escapeHtml(item.name || "未命名配方")}</strong>
+          <span class="badge badge--normal">${escapeHtml(item.recipe_kind_label || item.recipe_kind || "配方")}</span>
+        </div>
+        <p>产出 ${escapeHtml(item.result_item?.name || item.result_kind_label || item.result_kind || "未知产物")} × ${escapeHtml(item.result_quantity || 1)} · 成功率 ${escapeHtml(item.base_success_rate || 0)}%</p>
+        <p>${escapeHtml(playerOwnedMeta(row.source, row.obtained_note))}</p>
+        <div class="inline-action-buttons player-inline-actions">${playerRevokeButton("recipe", item.id)}</div>
+      </article>
+    `;
+  }).join("") || `<article class="stack-item"><strong>暂无配方</strong></article>`;
+}
+
+function applyPlayerDetail(data, { reveal = true, smooth = true } = {}) {
+  const detail = data?.profile ? data : { profile: data || {} };
+  const profile = detail.profile || {};
+  const tg = Number(profile.tg || state.selectedPlayerTg || $("player-edit-tg")?.value || 0);
+  if (!tg) return;
+  state.selectedPlayerTg = tg;
+  state.selectedPlayerDetail = detail;
+  syncSelectedPlayerUI(playerDisplayName(profile, tg));
+  $("player-edit-tg").value = String(tg);
+  const titleNode = $("player-edit-title");
+  if (titleNode) titleNode.textContent = `编辑: ${playerDisplayName(profile, tg)}`;
+  renderPlayerAccount(detail.emby_account || profile.emby_account || null);
+  PLAYER_EDIT_FIELDS.forEach((key) => {
+    const el = $("pe-" + key);
+    if (el) el.value = profile?.[key] ?? "";
+  });
+  renderPlayerInventory(detail);
+  renderPlayerTitles(detail);
+  renderPlayerTechniques(detail);
+  renderPlayerRecipes(detail);
+  syncPlayerResourceForms();
+  highlightSelectedPlayerResult();
+  if (reveal) revealPlayerEditor(smooth);
+}
+
+async function refreshSelectedPlayerDetail(options = {}) {
+  const detail = await request("GET", selectedPlayerAdminPath(""));
+  applyPlayerDetail(detail, options);
+  return detail;
+}
+
 async function searchPlayers(options = {}) {
   const query = String(options.query ?? state.playerSearch?.query ?? "");
   const requestedPage = Math.max(Number(options.page ?? state.playerSearch?.page ?? 1), 1);
@@ -1846,18 +2142,7 @@ async function searchPlayers(options = {}) {
 
 async function openPlayerEdit(tg) {
   const data = await request("GET", `/plugins/xiuxian/admin-api/players/${tg}`);
-  const profile = data?.profile || data || {};
-  state.selectedPlayerTg = Number(tg);
-  syncSelectedPlayerUI(profile?.display_label || profile?.display_name || (profile?.username ? "@" + profile.username : `TG ${tg}`));
-  $("player-edit-tg").value = tg;
-  document.getElementById("player-edit-title").textContent = `编辑: ${profile?.display_label || profile?.display_name || (profile?.username ? "@" + profile.username : "TG " + tg)}`;
-  renderPlayerAccount(data?.emby_account || profile?.emby_account || null);
-  PLAYER_EDIT_FIELDS.forEach((key) => {
-    const el = $("pe-" + key);
-    if (el) el.value = profile?.[key] ?? "";
-  });
-  highlightSelectedPlayerResult();
-  revealPlayerEditor();
+  applyPlayerDetail(data);
 }
 
 async function submitPlayerEdit(e) {
@@ -1873,7 +2158,8 @@ async function submitPlayerEdit(e) {
     payload[key] = PLAYER_STRING_FIELDS.has(key) ? raw : Number(raw);
   });
   try {
-    await request("PATCH", `/plugins/xiuxian/admin-api/players/${tg}`, payload);
+    const detail = await request("PATCH", `/plugins/xiuxian/admin-api/players/${tg}`, payload);
+    applyPlayerDetail(detail, { reveal: false, smooth: false });
     await popup("操作成功", "角色属性已保存", "success");
     await searchPlayers({
       query: $("player-search-q")?.value || "",
@@ -1883,6 +2169,89 @@ async function submitPlayerEdit(e) {
     revealPlayerEditor(false);
   } catch (err) {
     await popup("保存失败", String(err.message || err), "error");
+  }
+}
+
+async function submitPlayerInventoryEdit(event) {
+  event.preventDefault();
+  try {
+    const itemRefId = Number($("player-inventory-ref-id")?.value || 0);
+    if (!itemRefId) {
+      throw new Error("请选择要调整的背包物品");
+    }
+    const detail = await request("POST", selectedPlayerAdminPath("/resource/inventory"), {
+      item_kind: $("player-inventory-kind")?.value || "artifact",
+      item_ref_id: itemRefId,
+      quantity: Number($("player-inventory-quantity")?.value || 0),
+      bound_quantity: $("player-inventory-bound")?.value === "" ? null : Number($("player-inventory-bound")?.value || 0),
+    });
+    applyPlayerDetail(detail, { reveal: false, smooth: false });
+    await popup("背包已更新", "玩家背包库存已经保存。", "success");
+  } catch (error) {
+    await popup("保存失败", String(error.message || error), "error");
+  }
+}
+
+async function submitPlayerOwnedGrant(event) {
+  event.preventDefault();
+  try {
+    const itemRefId = Number($("player-owned-ref-id")?.value || 0);
+    if (!itemRefId) {
+      throw new Error("请选择要授予的条目");
+    }
+    const detail = await request("POST", selectedPlayerAdminPath("/resource/grant"), {
+      item_kind: $("player-owned-kind")?.value || "title",
+      item_ref_id: itemRefId,
+      quantity: 1,
+      equip: Boolean($("player-owned-equip")?.checked),
+    });
+    applyPlayerDetail(detail, { reveal: false, smooth: false });
+    await popup("授予成功", "条目已经写入该角色。", "success");
+  } catch (error) {
+    await popup("授予失败", String(error.message || error), "error");
+  }
+}
+
+async function handlePlayerResourceAction(event) {
+  const fillButton = event.target.closest("[data-player-fill-inventory-kind]");
+  if (fillButton) {
+    $("player-inventory-kind").value = fillButton.dataset.playerFillInventoryKind || "artifact";
+    syncPlayerResourceForms();
+    $("player-inventory-ref-id").value = fillButton.dataset.playerFillInventoryId || "";
+    $("player-inventory-quantity").value = fillButton.dataset.playerFillInventoryQuantity || "0";
+    $("player-inventory-bound").value = fillButton.dataset.playerFillInventoryBound ?? "";
+    $("player-inventory-quantity")?.focus?.();
+    return;
+  }
+
+  const selectionButton = event.target.closest("[data-player-select-kind]");
+  if (selectionButton) {
+    try {
+      const rawRefId = selectionButton.dataset.playerSelectItemRefId;
+      const detail = await request("POST", selectedPlayerAdminPath("/resource/select"), {
+        selection_kind: selectionButton.dataset.playerSelectKind,
+        item_ref_id: rawRefId == null || rawRefId === "" ? null : Number(rawRefId),
+      });
+      applyPlayerDetail(detail, { reveal: false, smooth: false });
+      await popup("配置已更新", "玩家当前佩戴/启用状态已经保存。", "success");
+    } catch (error) {
+      await popup("操作失败", String(error.message || error), "error");
+    }
+    return;
+  }
+
+  const revokeButton = event.target.closest("[data-player-revoke-kind]");
+  if (revokeButton) {
+    try {
+      const detail = await request("POST", selectedPlayerAdminPath("/resource/revoke"), {
+        item_kind: revokeButton.dataset.playerRevokeKind,
+        item_ref_id: Number(revokeButton.dataset.playerRevokeItemRefId || 0),
+      });
+      applyPlayerDetail(detail, { reveal: false, smooth: false });
+      await popup("移除成功", "玩家持有内容已经回收。", "success");
+    } catch (error) {
+      await popup("移除失败", String(error.message || error), "error");
+    }
   }
 }
 
@@ -1917,8 +2286,16 @@ document.getElementById("player-page-jump-form")?.addEventListener("submit", (e)
   });
 });
 document.getElementById("player-edit-form")?.addEventListener("submit", submitPlayerEdit);
+document.getElementById("player-inventory-form")?.addEventListener("submit", submitPlayerInventoryEdit);
+document.getElementById("player-owned-form")?.addEventListener("submit", submitPlayerOwnedGrant);
+document.getElementById("player-inventory-kind")?.addEventListener("change", syncPlayerResourceForms);
+document.getElementById("player-owned-kind")?.addEventListener("change", syncPlayerResourceForms);
+document.getElementById("player-edit-panel")?.addEventListener("click", (event) => {
+  handlePlayerResourceAction(event);
+});
 document.getElementById("player-edit-cancel")?.addEventListener("click", () => {
   state.selectedPlayerTg = null;
+  state.selectedPlayerDetail = null;
   $("player-edit-tg").value = "";
   $("player-edit-panel").classList.add("hidden");
   syncSelectedPlayerUI();
@@ -1976,6 +2353,7 @@ const baseSyncSelectsWithTitles = syncSelects;
 syncSelects = function syncSelectsWithAchievementTitle() {
   baseSyncSelectsWithTitles();
   setOptions($("title-grant-id"), titleRows(), $("title-grant-id")?.value);
+  syncPlayerResourceForms();
   renderAchievementMetricOptions();
 };
 

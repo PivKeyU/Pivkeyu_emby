@@ -422,6 +422,7 @@ function renderProfile(bundle) {
       "#action-card",
       "#exchange-card",
       "#inventory-card",
+      "#technique-card",
       "#official-shop-card",
       "#market-card",
       "#leaderboard-card",
@@ -440,6 +441,7 @@ function renderProfile(bundle) {
   ensureSectionState("#action-card", true, true);
   ensureSectionState("#exchange-card", true);
   ensureSectionState("#inventory-card", true);
+  ensureSectionState("#technique-card", true);
   ensureSectionState("#official-shop-card", true);
   ensureSectionState("#market-card", true);
   ensureSectionState("#leaderboard-card", true);
@@ -515,6 +517,7 @@ function renderProfile(bundle) {
     "#action-card",
     "#exchange-card",
     "#inventory-card",
+    "#technique-card",
     "#official-shop-card",
     "#market-card",
     "#leaderboard-card",
@@ -1357,6 +1360,7 @@ async function refreshBundle() {
   }
 
   ensureSectionState("#journal-card", Boolean(payload.profile_bundle?.profile?.consented));
+  ensureSectionState("#technique-card", Boolean(payload.profile_bundle?.profile?.consented));
   return payload.profile_bundle;
 }
 
@@ -2565,6 +2569,7 @@ renderProfile = function renderProfileRedesigned(bundle) {
     "#action-card",
     "#exchange-card",
     "#inventory-card",
+    "#technique-card",
     "#official-shop-card",
     "#market-card",
     "#leaderboard-card",
@@ -2623,6 +2628,7 @@ renderProfile = function renderProfileRedesigned(bundle) {
       <article class="profile-item"><span>法宝位</span><strong>${escapeHtml(equippedArtifacts.length)} / ${escapeHtml(equipLimit)}</strong></article>
       <article class="profile-item"><span>已装法宝</span><strong>${escapeHtml(artifactNames)}</strong></article>
       <article class="profile-item"><span>待生效符箓</span><strong>${escapeHtml(talismanName)}</strong></article>
+      <article class="profile-item"><span>当前功法</span><strong>${escapeHtml(bundle.current_technique?.name || "暂无")}</strong></article>
       <article class="profile-item"><span>闭关状态</span><strong>${escapeHtml(retreatStatus)}</strong></article>
       <article class="profile-item"><span>宗门贡献</span><strong>${escapeHtml(profile.sect_contribution ?? 0)}</strong></article>
       <article class="profile-item"><span>综合战力</span><strong>${escapeHtml(bundle.combat_power ?? stats.attack_power ?? 0)}</strong></article>

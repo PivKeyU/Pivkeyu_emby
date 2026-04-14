@@ -25,10 +25,15 @@ from bot.plugins import list_plugins
 from bot.ranks_helper.ranks_draw import RanksDraw
 from bot.scheduler.bot_commands import BotCommands
 from bot.plugins.xiuxian_game.service import (
+    admin_grant_player_resource,
     admin_patch_player,
+    admin_revoke_player_resource,
     admin_seed_demo_assets,
+    admin_set_player_inventory,
+    admin_set_player_selection,
     activate_technique_for_user,
     assert_duel_stake_affordable,
+    build_admin_player_detail,
     set_current_title_for_user,
     activate_talisman_for_user,
     bind_artifact_for_user,
@@ -742,6 +747,30 @@ class PlayerPatchPayload(BaseModel):
     technique_capacity: int | None = None
 
 
+class PlayerResourceGrantPayload(BaseModel):
+    item_kind: str
+    item_ref_id: int
+    quantity: int = 1
+    equip: bool = False
+
+
+class PlayerInventoryPayload(BaseModel):
+    item_kind: str
+    item_ref_id: int
+    quantity: int
+    bound_quantity: int | None = None
+
+
+class PlayerSelectionPayload(BaseModel):
+    selection_kind: str
+    item_ref_id: int | None = None
+
+
+class PlayerRevokePayload(BaseModel):
+    item_kind: str
+    item_ref_id: int
+
+
 class ArtifactPayload(BaseModel):
     name: str
     rarity: str = "凡品"
@@ -861,6 +890,16 @@ def _merge_profile_identity(profile: dict[str, Any], identity: dict[str, str] | 
     elif merged.get("tg"):
         merged["display_label"] = f"TG {merged['tg']}"
     return merged
+
+
+async def _admin_player_bundle_payload(tg: int) -> dict[str, Any]:
+    bundle = build_admin_player_detail(tg)
+    if bundle is None:
+        raise HTTPException(status_code=404, detail="Player not found")
+    identity = await _refresh_profile_identity_from_telegram(tg)
+    bundle["profile"] = _merge_profile_identity(bundle.get("profile") or {}, identity)
+    bundle["emby_account"] = get_emby_account(tg)
+    return bundle
 
 
 def _verify_user_from_init_data(init_data: str) -> dict[str, Any]:
@@ -2446,39 +2485,48 @@ def register_bot(bot_instance) -> None:
     @bot_instance.on_message(filters.command(["seek"], prefixes) & filters.reply & filters.chat(group))
     async def xiuxian_seek_command(_, msg):
         try:
-            if msg.from_user is None:
-                return
-            if msg.reply_to_message is None or msg.reply_to_message.from_user is None:
-                return await _reply_text(msg, "请先回复目标道友，再尝试探查。", quote=True)
-            if msg.reply_to_message.from_user.is_bot:
-                return await _reply_text(msg, "机器人没有可供探查的修仙信息。", quote=True)
-            if int(msg.reply_to_message.from_user.id) == int(msg.from_user.id):
-                return await _reply_text(msg, "你观照己身即可，无需对自己施展探查。", quote=True)
+            try:
+                if msg.from_user is None:
+                    return
+                if msg.reply_to_message is None or msg.reply_to_message.from_user is None:
+                    return await _reply_text(msg, "请先回复目标道友，再尝试探查。", quote=True)
+                if msg.reply_to_message.from_user.is_bot:
+                    return await _reply_text(msg, "机器人没有可供探查的修仙信息。", quote=True)
+                if int(msg.reply_to_message.from_user.id) == int(msg.from_user.id):
+                    return await _reply_text(msg, "你观照己身即可，无需对自己施展探查。", quote=True)
 
-            seeker = serialize_full_profile(msg.from_user.id)
-            if not seeker["profile"]["consented"]:
-                return await _reply_text(msg, "你还没有踏入仙途，先私聊机器人点击 /xiuxian 入道。", quote=True)
+                seeker = serialize_full_profile(msg.from_user.id)
+                if not seeker["profile"]["consented"]:
+                    return await _reply_text(msg, "你还没有踏入仙途，先私聊机器人点击 /xiuxian 入道。", quote=True)
 
-            target = serialize_full_profile(msg.reply_to_message.from_user.id)
-            if not target["profile"]["consented"]:
-                return await _reply_text(msg, "对方尚未踏入仙途，探查不到任何灵息。", quote=True)
+                target = serialize_full_profile(msg.reply_to_message.from_user.id)
+                if not target["profile"]["consented"]:
+                    return await _reply_text(msg, "对方尚未踏入仙途，探查不到任何灵息。", quote=True)
 
-            seeker_divine_sense = _effective_divine_sense(seeker)
-            target_divine_sense = _effective_divine_sense(target)
-            if seeker_divine_sense <= target_divine_sense:
-                return await _reply_text(
-                    msg,
-                    f"神识强度不够，无法看破对方虚实。你的神识 {seeker_divine_sense}，对方神识 {target_divine_sense}。",
-                    quote=True,
+                seeker_divine_sense = _effective_divine_sense(seeker)
+                target_divine_sense = _effective_divine_sense(target)
+                if seeker_divine_sense <= target_divine_sense:
+                    return await _reply_text(
+                        msg,
+                        f"神识强度不够，无法看破对方虚实。你的神识 {seeker_divine_sense}，对方神识 {target_divine_sense}。",
+                        quote=True,
+                    )
+
+                fallback_name = msg.reply_to_message.from_user.first_name or f"TG {msg.reply_to_message.from_user.id}"
+                lines = [
+                    f"探查成功。你的神识 {seeker_divine_sense}，对方神识 {target_divine_sense}。",
+                    "",
+                    _format_group_profile_showcase(target, fallback_name),
+                ]
+                await _reply_text(msg, "\n".join(lines), quote=True, parse_mode=RICH_TEXT_MODE)
+            except Exception as exc:
+                LOGGER.warning(
+                    "xiuxian seek failed seeker=%s target=%s: %s",
+                    getattr(msg.from_user, "id", None),
+                    getattr(getattr(msg.reply_to_message, "from_user", None), "id", None),
+                    exc,
                 )
-
-            fallback_name = msg.reply_to_message.from_user.first_name or f"TG {msg.reply_to_message.from_user.id}"
-            lines = [
-                f"探查成功。你的神识 {seeker_divine_sense}，对方神识 {target_divine_sense}。",
-                "",
-                _format_group_profile_showcase(target, fallback_name),
-            ]
-            await _reply_text(msg, "\n".join(lines), quote=True, parse_mode=RICH_TEXT_MODE)
+                await _reply_text(msg, f"探查失败：{exc}", quote=True)
         finally:
             await _delete_user_command_message(msg)
 
@@ -3417,15 +3465,7 @@ def register_web(app) -> None:
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
-        from bot.sql_helper.sql_xiuxian import get_profile
-        profile = get_profile(tg, create=False)
-        if profile is None or not profile.consented:
-            raise HTTPException(status_code=404, detail="Player not found")
-        identity = await _refresh_profile_identity_from_telegram(tg)
-        bundle = serialize_full_profile(tg)
-        bundle["profile"] = _merge_profile_identity(bundle.get("profile") or {}, identity)
-        bundle["emby_account"] = get_emby_account(tg)
-        return {"code": 200, "data": bundle}
+        return {"code": 200, "data": await _admin_player_bundle_payload(tg)}
 
     @admin_router.patch("/players/{tg}")
     async def xiuxian_admin_player_patch_api(tg: int, payload: PlayerPatchPayload, request: Request):
@@ -3437,7 +3477,56 @@ def register_web(app) -> None:
         if result is None:
             raise HTTPException(status_code=404, detail="Player not found")
         create_journal(tg, "admin", "主人修改", f"主人修改了属性: {', '.join(patch.keys())}")
-        return {"code": 200, "data": result}
+        return {"code": 200, "data": await _admin_player_bundle_payload(tg)}
+
+    @admin_router.post("/players/{tg}/resource/grant")
+    async def xiuxian_admin_player_grant_resource_api(tg: int, payload: PlayerResourceGrantPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        admin_grant_player_resource(
+            tg,
+            payload.item_kind,
+            payload.item_ref_id,
+            quantity=payload.quantity,
+            equip=payload.equip,
+        )
+        create_journal(tg, "admin", "主人发放", f"主人发放了 {payload.item_kind}:{payload.item_ref_id}")
+        return {"code": 200, "data": await _admin_player_bundle_payload(tg)}
+
+    @admin_router.post("/players/{tg}/resource/inventory")
+    async def xiuxian_admin_player_inventory_api(tg: int, payload: PlayerInventoryPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        admin_set_player_inventory(
+            tg,
+            payload.item_kind,
+            payload.item_ref_id,
+            payload.quantity,
+            payload.bound_quantity,
+        )
+        create_journal(tg, "admin", "主人调包", f"主人调整了背包: {payload.item_kind}:{payload.item_ref_id}")
+        return {"code": 200, "data": await _admin_player_bundle_payload(tg)}
+
+    @admin_router.post("/players/{tg}/resource/select")
+    async def xiuxian_admin_player_select_resource_api(tg: int, payload: PlayerSelectionPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        admin_set_player_selection(tg, payload.selection_kind, payload.item_ref_id)
+        target = f"{payload.selection_kind}:{payload.item_ref_id or 0}"
+        create_journal(tg, "admin", "主人设定", f"主人切换了当前配置: {target}")
+        return {"code": 200, "data": await _admin_player_bundle_payload(tg)}
+
+    @admin_router.post("/players/{tg}/resource/revoke")
+    async def xiuxian_admin_player_revoke_resource_api(tg: int, payload: PlayerRevokePayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        admin_revoke_player_resource(tg, payload.item_kind, payload.item_ref_id)
+        create_journal(tg, "admin", "主人回收", f"主人移除了 {payload.item_kind}:{payload.item_ref_id}")
+        return {"code": 200, "data": await _admin_player_bundle_payload(tg)}
 
     app.include_router(user_router)
     app.include_router(admin_router)

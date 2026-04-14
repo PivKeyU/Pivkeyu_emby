@@ -68,7 +68,9 @@ from bot.sql_helper.sql_xiuxian import (
     list_talismans,
     list_user_titles,
     list_user_artifacts,
+    list_user_materials,
     list_user_pills,
+    list_user_recipes,
     list_user_techniques,
     list_user_talismans,
     normalize_realm_stage,
@@ -95,6 +97,13 @@ from bot.sql_helper.sql_xiuxian import (
     sync_talisman_by_name,
     sync_technique_by_name,
     sync_title_by_name,
+    admin_set_user_artifact_inventory,
+    admin_set_user_material_inventory,
+    admin_set_user_pill_inventory,
+    admin_set_user_talisman_inventory,
+    revoke_recipe_from_user,
+    revoke_technique_from_user,
+    revoke_title_from_user,
     unbind_user_artifact,
     unbind_user_talisman,
     update_shop_item,
@@ -3799,6 +3808,128 @@ def admin_patch_player(tg: int, **fields) -> dict[str, Any] | None:
             patch["root_quality_level"] = 1
             patch["root_quality_color"] = None
     return admin_patch_profile(tg, **patch)
+
+
+def build_admin_player_detail(tg: int) -> dict[str, Any] | None:
+    profile = get_profile(tg, create=False)
+    if profile is None or not profile.consented:
+        return None
+    bundle = serialize_full_profile(tg)
+    bundle["materials"] = list_user_materials(tg)
+    bundle["recipes"] = list_user_recipes(tg, enabled_only=False)
+    return bundle
+
+
+def admin_grant_player_resource(
+    tg: int,
+    item_kind: str,
+    item_ref_id: int,
+    quantity: int = 1,
+    equip: bool = False,
+) -> dict[str, Any]:
+    profile = get_profile(tg, create=False)
+    if profile is None or not profile.consented:
+        raise ValueError("玩家不存在")
+    normalized_kind = str(item_kind or "").strip()
+    if normalized_kind == "title":
+        grant_title_to_user(
+            tg,
+            int(item_ref_id),
+            source="admin",
+            obtained_note="后台发放",
+            equip=equip,
+            auto_equip_if_empty=equip,
+        )
+    elif normalized_kind == "technique":
+        grant_technique_to_user(
+            tg,
+            int(item_ref_id),
+            source="admin",
+            obtained_note="后台发放",
+            auto_equip_if_empty=equip,
+        )
+        if equip:
+            set_current_technique(tg, int(item_ref_id))
+    else:
+        grant_item_to_user(tg, normalized_kind, int(item_ref_id), max(int(quantity or 1), 1))
+    return build_admin_player_detail(tg) or {}
+
+
+def admin_set_player_inventory(
+    tg: int,
+    item_kind: str,
+    item_ref_id: int,
+    quantity: int,
+    bound_quantity: int | None = None,
+) -> dict[str, Any]:
+    profile = get_profile(tg, create=False)
+    if profile is None or not profile.consented:
+        raise ValueError("玩家不存在")
+    normalized_kind = str(item_kind or "").strip()
+    if normalized_kind == "artifact":
+        admin_set_user_artifact_inventory(tg, int(item_ref_id), int(quantity), bound_quantity)
+    elif normalized_kind == "pill":
+        admin_set_user_pill_inventory(tg, int(item_ref_id), int(quantity))
+    elif normalized_kind == "talisman":
+        admin_set_user_talisman_inventory(tg, int(item_ref_id), int(quantity), bound_quantity)
+    elif normalized_kind == "material":
+        admin_set_user_material_inventory(tg, int(item_ref_id), int(quantity))
+    else:
+        raise ValueError("不支持的背包类型")
+    return build_admin_player_detail(tg) or {}
+
+
+def admin_revoke_player_resource(tg: int, item_kind: str, item_ref_id: int) -> dict[str, Any]:
+    profile = get_profile(tg, create=False)
+    if profile is None or not profile.consented:
+        raise ValueError("玩家不存在")
+    normalized_kind = str(item_kind or "").strip()
+    removed = False
+    if normalized_kind == "title":
+        removed = revoke_title_from_user(tg, int(item_ref_id))
+    elif normalized_kind == "technique":
+        removed = revoke_technique_from_user(tg, int(item_ref_id))
+    elif normalized_kind == "recipe":
+        removed = revoke_recipe_from_user(tg, int(item_ref_id))
+    else:
+        raise ValueError("不支持的移除类型")
+    if not removed:
+        raise ValueError("玩家未持有该条目")
+    return build_admin_player_detail(tg) or {}
+
+
+def admin_set_player_selection(tg: int, selection_kind: str, item_ref_id: int | None = None) -> dict[str, Any]:
+    profile = get_profile(tg, create=False)
+    if profile is None or not profile.consented:
+        raise ValueError("玩家不存在")
+    normalized_kind = str(selection_kind or "").strip()
+    target_id = None if item_ref_id in {None, 0} else int(item_ref_id)
+    if normalized_kind == "title":
+        set_current_title(tg, target_id)
+    elif normalized_kind == "technique":
+        if target_id is not None and target_id not in {int(item.get("id") or 0) for item in list_user_techniques(tg, enabled_only=False)}:
+            raise ValueError("玩家未持有该功法")
+        set_current_technique(tg, target_id)
+    elif normalized_kind == "talisman":
+        if target_id is not None and target_id not in {
+            int((row.get("talisman") or {}).get("id") or 0)
+            for row in list_user_talismans(tg)
+        }:
+            raise ValueError("玩家未持有该符箓")
+        set_active_talisman(tg, target_id)
+    elif normalized_kind == "artifact":
+        if target_id is None:
+            raise ValueError("法宝选择不能为空")
+        if target_id not in {
+            int((row.get("artifact") or {}).get("id") or 0)
+            for row in list_user_artifacts(tg)
+        }:
+            raise ValueError("玩家背包里没有这件法宝")
+        equip_limit = max(int(get_xiuxian_settings().get("artifact_equip_limit", DEFAULT_SETTINGS["artifact_equip_limit"]) or 0), 1)
+        set_equipped_artifact(tg, target_id, equip_limit)
+    else:
+        raise ValueError("不支持的当前配置类型")
+    return build_admin_player_detail(tg) or {}
 
 
 def _battle_bundle(bundle_or_profile: dict[str, Any], opponent_profile: dict[str, Any] | None = None, apply_random: bool = False) -> dict[str, Any]:

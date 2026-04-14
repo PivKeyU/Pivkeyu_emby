@@ -296,6 +296,51 @@ button:disabled {
   line-height: 1.7;
 }
 
+.player-resource-workspace {
+  display: grid;
+  gap: 12px;
+}
+
+.player-resource-card {
+  overflow: hidden;
+}
+
+.player-resource-summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.player-resource-summary::-webkit-details-marker {
+  display: none;
+}
+
+.player-resource-summary p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.player-owned-columns {
+  display: grid;
+  gap: 12px;
+}
+
+.player-owned-columns h4 {
+  margin: 4px 0;
+  font-size: 13px;
+}
+
+.player-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.player-inline-actions button {
+  min-height: 34px;
+}
+
 .stack-item.is-clickable {
   cursor: pointer;
 }
@@ -546,6 +591,10 @@ button:disabled {
 
   .builder-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .player-owned-columns {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .player-workspace {

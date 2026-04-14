@@ -1884,6 +1884,24 @@ def grant_technique_to_user(
         return serialize_user_technique(row, serialize_technique(technique))
 
 
+def revoke_technique_from_user(tg: int, technique_id: int) -> bool:
+    with Session() as session:
+        row = (
+            session.query(XiuxianUserTechnique)
+            .filter(XiuxianUserTechnique.tg == tg, XiuxianUserTechnique.technique_id == technique_id)
+            .first()
+        )
+        if row is None:
+            return False
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).first()
+        if profile is not None and int(profile.current_technique_id or 0) == int(technique_id):
+            profile.current_technique_id = None
+            profile.updated_at = utcnow()
+        session.delete(row)
+        session.commit()
+        return True
+
+
 def list_artifact_sets(enabled_only: bool = False) -> list[dict[str, Any]]:
     with Session() as session:
         query = session.query(XiuxianArtifactSet)
@@ -2727,6 +2745,181 @@ def consume_user_talisman(tg: int, talisman_id: int, quantity: int = 1) -> bool:
             session.delete(row)
         session.commit()
         return True
+
+
+def admin_set_user_artifact_inventory(
+    tg: int,
+    artifact_id: int,
+    quantity: int,
+    bound_quantity: int | None = None,
+) -> dict[str, Any]:
+    target_quantity = max(int(quantity or 0), 0)
+    desired_bound = max(int(bound_quantity or 0), 0) if bound_quantity is not None else None
+    with Session() as session:
+        artifact = session.query(XiuxianArtifact).filter(XiuxianArtifact.id == artifact_id).first()
+        if artifact is None:
+            raise ValueError("artifact not found")
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+        if profile is None:
+            profile = XiuxianProfile(tg=tg)
+            session.add(profile)
+            session.flush()
+        row = (
+            session.query(XiuxianArtifactInventory)
+            .filter(XiuxianArtifactInventory.tg == tg, XiuxianArtifactInventory.artifact_id == artifact_id)
+            .with_for_update()
+            .first()
+        )
+        equipped_rows = (
+            session.query(XiuxianEquippedArtifact)
+            .filter(XiuxianEquippedArtifact.tg == tg, XiuxianEquippedArtifact.artifact_id == artifact_id)
+            .order_by(XiuxianEquippedArtifact.slot.asc(), XiuxianEquippedArtifact.id.asc())
+            .with_for_update()
+            .all()
+        )
+        if target_quantity < len(equipped_rows):
+            for equipped_row in equipped_rows[target_quantity:]:
+                session.delete(equipped_row)
+            session.flush()
+            equipped_rows = equipped_rows[:target_quantity]
+        if target_quantity <= 0:
+            if row is not None:
+                session.delete(row)
+        else:
+            if row is None:
+                row = XiuxianArtifactInventory(tg=tg, artifact_id=artifact_id, quantity=0, bound_quantity=0)
+                session.add(row)
+            row.quantity = target_quantity
+            max_bound = max(target_quantity - len(equipped_rows), 0)
+            applied_bound = int(row.bound_quantity or 0) if desired_bound is None else desired_bound
+            row.bound_quantity = max(min(applied_bound, max_bound), 0)
+            row.updated_at = utcnow()
+        refreshed_equipped = (
+            session.query(XiuxianEquippedArtifact)
+            .filter(XiuxianEquippedArtifact.tg == tg)
+            .order_by(XiuxianEquippedArtifact.slot.asc(), XiuxianEquippedArtifact.id.asc())
+            .all()
+        )
+        for index, equipped_row in enumerate(refreshed_equipped, start=1):
+            equipped_row.slot = index
+        profile.current_artifact_id = refreshed_equipped[0].artifact_id if refreshed_equipped else None
+        profile.updated_at = utcnow()
+        session.commit()
+        applied_bound = 0
+        if target_quantity > 0:
+            refreshed_row = (
+                session.query(XiuxianArtifactInventory)
+                .filter(XiuxianArtifactInventory.tg == tg, XiuxianArtifactInventory.artifact_id == artifact_id)
+                .first()
+            )
+            applied_bound = int(refreshed_row.bound_quantity or 0) if refreshed_row is not None else 0
+        return {
+            "artifact": serialize_artifact(artifact),
+            "quantity": target_quantity,
+            "bound_quantity": applied_bound,
+            "equipped_count": len([row for row in refreshed_equipped if int(row.artifact_id) == int(artifact_id)]),
+        }
+
+
+def admin_set_user_pill_inventory(tg: int, pill_id: int, quantity: int) -> dict[str, Any]:
+    target_quantity = max(int(quantity or 0), 0)
+    with Session() as session:
+        pill = session.query(XiuxianPill).filter(XiuxianPill.id == pill_id).first()
+        if pill is None:
+            raise ValueError("pill not found")
+        row = (
+            session.query(XiuxianPillInventory)
+            .filter(XiuxianPillInventory.tg == tg, XiuxianPillInventory.pill_id == pill_id)
+            .with_for_update()
+            .first()
+        )
+        if target_quantity <= 0:
+            if row is not None:
+                session.delete(row)
+        else:
+            if row is None:
+                row = XiuxianPillInventory(tg=tg, pill_id=pill_id, quantity=0)
+                session.add(row)
+            row.quantity = target_quantity
+            row.updated_at = utcnow()
+        session.commit()
+        return {
+            "pill": serialize_pill(pill),
+            "quantity": target_quantity,
+        }
+
+
+def admin_set_user_talisman_inventory(
+    tg: int,
+    talisman_id: int,
+    quantity: int,
+    bound_quantity: int | None = None,
+) -> dict[str, Any]:
+    target_quantity = max(int(quantity or 0), 0)
+    with Session() as session:
+        talisman = session.query(XiuxianTalisman).filter(XiuxianTalisman.id == talisman_id).first()
+        if talisman is None:
+            raise ValueError("talisman not found")
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+        if profile is None:
+            profile = XiuxianProfile(tg=tg)
+            session.add(profile)
+            session.flush()
+        row = (
+            session.query(XiuxianTalismanInventory)
+            .filter(XiuxianTalismanInventory.tg == tg, XiuxianTalismanInventory.talisman_id == talisman_id)
+            .with_for_update()
+            .first()
+        )
+        desired_bound = max(int(bound_quantity or 0), 0) if bound_quantity is not None else (int(row.bound_quantity or 0) if row is not None else 0)
+        if target_quantity <= 0:
+            if row is not None:
+                session.delete(row)
+            if int(profile.active_talisman_id or 0) == int(talisman_id):
+                profile.active_talisman_id = None
+        else:
+            if row is None:
+                row = XiuxianTalismanInventory(tg=tg, talisman_id=talisman_id, quantity=0, bound_quantity=0)
+                session.add(row)
+            row.quantity = target_quantity
+            row.bound_quantity = max(min(desired_bound, target_quantity), 0)
+            row.updated_at = utcnow()
+        profile.updated_at = utcnow()
+        session.commit()
+        return {
+            "talisman": serialize_talisman(talisman),
+            "quantity": target_quantity,
+            "bound_quantity": 0 if target_quantity <= 0 else max(min(desired_bound, target_quantity), 0),
+            "active": int(profile.active_talisman_id or 0) == int(talisman_id),
+        }
+
+
+def admin_set_user_material_inventory(tg: int, material_id: int, quantity: int) -> dict[str, Any]:
+    target_quantity = max(int(quantity or 0), 0)
+    with Session() as session:
+        material = session.query(XiuxianMaterial).filter(XiuxianMaterial.id == material_id).first()
+        if material is None:
+            raise ValueError("material not found")
+        row = (
+            session.query(XiuxianMaterialInventory)
+            .filter(XiuxianMaterialInventory.tg == tg, XiuxianMaterialInventory.material_id == material_id)
+            .with_for_update()
+            .first()
+        )
+        if target_quantity <= 0:
+            if row is not None:
+                session.delete(row)
+        else:
+            if row is None:
+                row = XiuxianMaterialInventory(tg=tg, material_id=material_id, quantity=0)
+                session.add(row)
+            row.quantity = target_quantity
+            row.updated_at = utcnow()
+        session.commit()
+        return {
+            "material": serialize_material(material),
+            "quantity": target_quantity,
+        }
 
 
 def use_user_artifact_listing_stock(tg: int, artifact_id: int, quantity: int = 1) -> bool:
@@ -3667,6 +3860,20 @@ def grant_recipe_to_user(
         return serialize_user_recipe(row, serialize_recipe(recipe))
 
 
+def revoke_recipe_from_user(tg: int, recipe_id: int) -> bool:
+    with Session() as session:
+        row = (
+            session.query(XiuxianUserRecipe)
+            .filter(XiuxianUserRecipe.tg == tg, XiuxianUserRecipe.recipe_id == recipe_id)
+            .first()
+        )
+        if row is None:
+            return False
+        session.delete(row)
+        session.commit()
+        return True
+
+
 def create_recipe(**fields) -> dict[str, Any]:
     with Session() as session:
         recipe = XiuxianRecipe(**fields)
@@ -4008,6 +4215,24 @@ def grant_title_to_user(
         session.commit()
         session.refresh(row)
         return serialize_user_title(row, serialize_title(title))
+
+
+def revoke_title_from_user(tg: int, title_id: int) -> bool:
+    with Session() as session:
+        row = (
+            session.query(XiuxianUserTitle)
+            .filter(XiuxianUserTitle.tg == tg, XiuxianUserTitle.title_id == title_id)
+            .first()
+        )
+        if row is None:
+            return False
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).first()
+        if profile is not None and int(profile.current_title_id or 0) == int(title_id):
+            profile.current_title_id = None
+            profile.updated_at = utcnow()
+        session.delete(row)
+        session.commit()
+        return True
 
 
 def set_current_title(tg: int, title_id: int | None) -> dict[str, Any] | None:

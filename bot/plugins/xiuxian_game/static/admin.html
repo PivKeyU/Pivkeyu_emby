@@ -1268,7 +1268,7 @@
           <p class="eyebrow" data-section-key="players">角色管理</p>
           <h2>角色搜索与编辑</h2>
         </div>
-        <span class="summary-tip">搜索修仙角色并编辑属性参数</span>
+        <span class="summary-tip">搜索修仙角色并管理属性、背包、称号、功法、配方</span>
       </summary>
       <div class="fold-body">
         <form id="player-search-form" class="grid-form" style="margin-bottom:12px;">
@@ -1402,6 +1402,87 @@
                 <button type="button" id="player-edit-cancel" style="background:#666;">取消</button>
               </div>
             </form>
+            <div class="player-resource-workspace">
+              <details class="stack-item player-resource-card" open>
+                <summary class="player-resource-summary">
+                  <div>
+                    <strong>背包管理</strong>
+                    <p>直接设置玩家背包中的法宝、丹药、符箓、材料数量</p>
+                  </div>
+                </summary>
+                <form id="player-inventory-form" class="grid-form">
+                  <label>
+                    背包类型
+                    <select id="player-inventory-kind">
+                      <option value="artifact">法宝</option>
+                      <option value="pill">丹药</option>
+                      <option value="talisman">符箓</option>
+                      <option value="material">材料</option>
+                    </select>
+                  </label>
+                  <label>
+                    目标物品
+                    <select id="player-inventory-ref-id"></select>
+                  </label>
+                  <label>
+                    设置数量
+                    <input id="player-inventory-quantity" type="number" min="0" value="0">
+                  </label>
+                  <label id="player-inventory-bound-wrap">
+                    绑定数量
+                    <input id="player-inventory-bound" type="number" min="0" placeholder="留空自动校正">
+                  </label>
+                  <div class="form-actions">
+                    <button type="submit">保存背包</button>
+                  </div>
+                </form>
+                <div id="player-inventory-list" class="stack-list"></div>
+              </details>
+
+              <details class="stack-item player-resource-card">
+                <summary class="player-resource-summary">
+                  <div>
+                    <strong>称号 / 功法 / 配方</strong>
+                    <p>授予、佩戴、设为当前、移除玩家已拥有内容</p>
+                  </div>
+                </summary>
+                <form id="player-owned-form" class="grid-form">
+                  <label>
+                    资源类型
+                    <select id="player-owned-kind">
+                      <option value="title">称号</option>
+                      <option value="technique">功法</option>
+                      <option value="recipe">配方</option>
+                    </select>
+                  </label>
+                  <label>
+                    目标条目
+                    <select id="player-owned-ref-id"></select>
+                  </label>
+                  <label class="inline-check">
+                    <input id="player-owned-equip" type="checkbox">
+                    授予后立即设为当前
+                  </label>
+                  <div class="form-actions">
+                    <button type="submit">授予条目</button>
+                  </div>
+                </form>
+                <div class="player-owned-columns">
+                  <div>
+                    <h4>称号</h4>
+                    <div id="player-title-list" class="stack-list"></div>
+                  </div>
+                  <div>
+                    <h4>功法</h4>
+                    <div id="player-technique-list" class="stack-list"></div>
+                  </div>
+                  <div>
+                    <h4>配方</h4>
+                    <div id="player-recipe-list" class="stack-list"></div>
+                  </div>
+                </div>
+              </details>
+            </div>
           </section>
         </div>
       </div>
