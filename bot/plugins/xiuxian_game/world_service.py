@@ -50,12 +50,15 @@ from bot.sql_helper.sql_xiuxian import (
     get_red_envelope,
     get_scene,
     get_sect,
+    get_technique,
     get_talisman,
     get_xiuxian_settings,
     grant_artifact_to_user,
     grant_material_to_user,
     grant_pill_to_user,
+    grant_recipe_to_user,
     grant_talisman_to_user,
+    grant_technique_to_user,
     list_recipe_ingredients,
     list_recipes,
     list_recent_journals,
@@ -66,9 +69,13 @@ from bot.sql_helper.sql_xiuxian import (
     list_sect_roles,
     list_sects,
     list_tasks,
+    list_techniques,
     list_user_materials,
+    list_user_recipes,
+    list_user_techniques,
     plunder_random_artifact_to_user,
     realm_index,
+    patch_sect,
     replace_recipe_ingredients,
     replace_sect_roles,
     serialize_exploration,
@@ -122,8 +129,16 @@ def _zero_effects() -> dict[str, int]:
     return {
         "attack_bonus": 0,
         "defense_bonus": 0,
+        "bone_bonus": 0,
+        "comprehension_bonus": 0,
+        "divine_sense_bonus": 0,
+        "fortune_bonus": 0,
+        "qi_blood_bonus": 0,
+        "true_yuan_bonus": 0,
+        "body_movement_bonus": 0,
         "duel_rate_bonus": 0,
         "cultivation_bonus": 0,
+        "breakthrough_bonus": 0,
     }
 
 
@@ -139,15 +154,22 @@ def get_sect_role_payload(sect_id: int | None, role_key: str | None) -> dict[str
 def get_sect_effects(profile_data: dict[str, Any] | None) -> dict[str, int]:
     if not profile_data:
         return _zero_effects()
+    sect = serialize_sect(get_sect(int(profile_data.get("sect_id") or 0))) if profile_data.get("sect_id") else None
     role = get_sect_role_payload(profile_data.get("sect_id"), profile_data.get("sect_role_key"))
-    if not role:
-        return _zero_effects()
-    return {
-        "attack_bonus": int(role.get("attack_bonus", 0) or 0),
-        "defense_bonus": int(role.get("defense_bonus", 0) or 0),
-        "duel_rate_bonus": int(role.get("duel_rate_bonus", 0) or 0),
-        "cultivation_bonus": int(role.get("cultivation_bonus", 0) or 0),
-    }
+    effects = _zero_effects()
+    if sect:
+        effects["attack_bonus"] += int(sect.get("attack_bonus", 0) or 0)
+        effects["defense_bonus"] += int(sect.get("defense_bonus", 0) or 0)
+        effects["duel_rate_bonus"] += int(sect.get("duel_rate_bonus", 0) or 0)
+        effects["cultivation_bonus"] += int(sect.get("cultivation_bonus", 0) or 0)
+        effects["fortune_bonus"] += int(sect.get("fortune_bonus", 0) or 0)
+        effects["body_movement_bonus"] += int(sect.get("body_movement_bonus", 0) or 0)
+    if role:
+        effects["attack_bonus"] += int(role.get("attack_bonus", 0) or 0)
+        effects["defense_bonus"] += int(role.get("defense_bonus", 0) or 0)
+        effects["duel_rate_bonus"] += int(role.get("duel_rate_bonus", 0) or 0)
+        effects["cultivation_bonus"] += int(role.get("cultivation_bonus", 0) or 0)
+    return effects
 
 
 def _default_role_payloads() -> list[dict[str, Any]]:
@@ -174,18 +196,42 @@ def create_sect_with_roles(
     name: str,
     description: str = "",
     image_url: str = "",
+    camp: str = "orthodox",
     min_realm_stage: str | None = None,
     min_realm_layer: int = 1,
     min_stone: int = 0,
+    min_bone: int = 0,
+    min_comprehension: int = 0,
+    min_divine_sense: int = 0,
+    min_fortune: int = 0,
+    attack_bonus: int = 0,
+    defense_bonus: int = 0,
+    duel_rate_bonus: int = 0,
+    cultivation_bonus: int = 0,
+    fortune_bonus: int = 0,
+    body_movement_bonus: int = 0,
+    entry_hint: str = "",
     roles: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     sect = create_sect(
         name=name,
         description=description,
         image_url=image_url,
+        camp=camp,
         min_realm_stage=min_realm_stage,
         min_realm_layer=max(int(min_realm_layer or 1), 1),
         min_stone=max(int(min_stone or 0), 0),
+        min_bone=max(int(min_bone or 0), 0),
+        min_comprehension=max(int(min_comprehension or 0), 0),
+        min_divine_sense=max(int(min_divine_sense or 0), 0),
+        min_fortune=max(int(min_fortune or 0), 0),
+        attack_bonus=int(attack_bonus or 0),
+        defense_bonus=int(defense_bonus or 0),
+        duel_rate_bonus=int(duel_rate_bonus or 0),
+        cultivation_bonus=int(cultivation_bonus or 0),
+        fortune_bonus=int(fortune_bonus or 0),
+        body_movement_bonus=int(body_movement_bonus or 0),
+        entry_hint=entry_hint,
         enabled=True,
     )
     role_payloads = roles or _default_role_payloads()
@@ -209,6 +255,77 @@ def create_sect_with_roles(
     return sect
 
 
+def sync_sect_with_roles_by_name(
+    *,
+    name: str,
+    description: str = "",
+    image_url: str = "",
+    camp: str = "orthodox",
+    min_realm_stage: str | None = None,
+    min_realm_layer: int = 1,
+    min_stone: int = 0,
+    min_bone: int = 0,
+    min_comprehension: int = 0,
+    min_divine_sense: int = 0,
+    min_fortune: int = 0,
+    attack_bonus: int = 0,
+    defense_bonus: int = 0,
+    duel_rate_bonus: int = 0,
+    cultivation_bonus: int = 0,
+    fortune_bonus: int = 0,
+    body_movement_bonus: int = 0,
+    entry_hint: str = "",
+    roles: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    existing = next((row for row in list_sects(enabled_only=False) if row.get("name") == name), None)
+    if existing is None:
+        return create_sect_with_roles(
+            name=name,
+            description=description,
+            image_url=image_url,
+            camp=camp,
+            min_realm_stage=min_realm_stage,
+            min_realm_layer=min_realm_layer,
+            min_stone=min_stone,
+            min_bone=min_bone,
+            min_comprehension=min_comprehension,
+            min_divine_sense=min_divine_sense,
+            min_fortune=min_fortune,
+            attack_bonus=attack_bonus,
+            defense_bonus=defense_bonus,
+            duel_rate_bonus=duel_rate_bonus,
+            cultivation_bonus=cultivation_bonus,
+            fortune_bonus=fortune_bonus,
+            body_movement_bonus=body_movement_bonus,
+            entry_hint=entry_hint,
+            roles=roles,
+        )
+    updated = patch_sect(
+        int(existing["id"]),
+        name=name,
+        description=description,
+        image_url=image_url,
+        camp=camp,
+        min_realm_stage=min_realm_stage,
+        min_realm_layer=min_realm_layer,
+        min_stone=min_stone,
+        min_bone=min_bone,
+        min_comprehension=min_comprehension,
+        min_divine_sense=min_divine_sense,
+        min_fortune=min_fortune,
+        attack_bonus=attack_bonus,
+        defense_bonus=defense_bonus,
+        duel_rate_bonus=duel_rate_bonus,
+        cultivation_bonus=cultivation_bonus,
+        fortune_bonus=fortune_bonus,
+        body_movement_bonus=body_movement_bonus,
+        entry_hint=entry_hint,
+        enabled=True,
+    ) or existing
+    updated["roles"] = replace_sect_roles(int(existing["id"]), roles or _default_role_payloads())
+    return updated
+
+
 def _count_sect_members(sect_id: int) -> int:
     with Session() as session:
         return (
@@ -225,6 +342,14 @@ def _eligible_for_sect(profile_data: dict[str, Any], sect: dict[str, Any]) -> tu
         return False, "层数不满足宗门要求"
     if int(profile_data.get("spiritual_stone") or 0) < int(sect.get("min_stone") or 0):
         return False, "灵石不满足宗门要求"
+    if int(profile_data.get("bone") or 0) < int(sect.get("min_bone") or 0):
+        return False, "根骨不满足宗门要求"
+    if int(profile_data.get("comprehension") or 0) < int(sect.get("min_comprehension") or 0):
+        return False, "悟性不满足宗门要求"
+    if int(profile_data.get("divine_sense") or 0) < int(sect.get("min_divine_sense") or 0):
+        return False, "神识不满足宗门要求"
+    if int(profile_data.get("fortune") or 0) < int(sect.get("min_fortune") or 0):
+        return False, "机缘不满足宗门要求"
     return True, ""
 
 
@@ -651,6 +776,16 @@ def _grant_item_by_kind(tg: int, kind: str, ref_id: int, quantity: int) -> dict[
         return grant_talisman_to_user(tg, ref_id, quantity)
     if kind == "material":
         return grant_material_to_user(tg, ref_id, quantity)
+    if kind == "recipe":
+        return grant_recipe_to_user(tg, ref_id, source="exploration", obtained_note="秘境所得")
+    if kind == "technique":
+        return grant_technique_to_user(
+            tg,
+            ref_id,
+            source="exploration",
+            obtained_note="秘境所得",
+            auto_equip_if_empty=True,
+        )
     raise ValueError("不支持的物品类型")
 
 
@@ -722,6 +857,13 @@ def _get_item_payload(kind: str, ref_id: int) -> dict[str, Any] | None:
         return serialize_talisman(get_talisman(ref_id))
     if kind == "material":
         return serialize_material(get_material(ref_id))
+    if kind == "technique":
+        return serialize_technique(get_technique(ref_id))
+    if kind == "recipe":
+        recipe = serialize_recipe(get_recipe(ref_id))
+        if recipe:
+            recipe["result_item"] = _get_item_payload(str(recipe.get("result_kind") or ""), int(recipe.get("result_ref_id") or 0))
+        return recipe
     return None
 
 
@@ -730,7 +872,12 @@ def _quality_from_item(kind: str, item: dict[str, Any] | None) -> int:
         return 1
     if kind == "material":
         return max(int(item.get("quality_level", 1) or 1), 1)
-    if kind in {"artifact", "talisman", "pill"}:
+    if kind == "recipe":
+        return _quality_from_item(
+            str(item.get("result_kind") or ""),
+            _get_item_payload(str(item.get("result_kind") or ""), int(item.get("result_ref_id") or 0)),
+        )
+    if kind in {"artifact", "talisman", "pill", "technique"}:
         if item.get("rarity_level") is not None:
             return max(int(item.get("rarity_level") or 1), 1)
         return max(RARITY_LEVEL_MAP.get(item.get("rarity") or "凡品", 1), 1)
@@ -791,11 +938,25 @@ def create_recipe_with_ingredients(
     return recipe
 
 
-def build_recipe_catalog() -> list[dict[str, Any]]:
+def build_recipe_catalog(tg: int | None = None) -> list[dict[str, Any]]:
     rows = []
-    for recipe in list_recipes(enabled_only=True):
+    source_rows: list[dict[str, Any]]
+    if tg is None:
+        source_rows = list_recipes(enabled_only=True)
+    else:
+        source_rows = []
+        for row in list_user_recipes(tg, enabled_only=True):
+            recipe = dict(row.get("recipe") or {})
+            if not recipe:
+                continue
+            recipe["owned"] = True
+            recipe["source"] = row.get("source")
+            recipe["obtained_note"] = row.get("obtained_note")
+            source_rows.append(recipe)
+    for recipe in source_rows:
         recipe["ingredients"] = list_recipe_ingredients(recipe["id"])
         recipe["result_item"] = _get_item_payload(recipe["result_kind"], int(recipe["result_ref_id"]))
+        recipe.setdefault("owned", True)
         rows.append(recipe)
     return rows
 
@@ -1002,6 +1163,8 @@ def _weighted_random_choice(rows: list[dict[str, Any]]) -> dict[str, Any] | None
 
 
 def _recipe_like_bonus_item(kind: str | None, ref_id: int | None) -> bool:
+    if kind in {"recipe", "technique"}:
+        return True
     item = _get_item_payload(str(kind or ""), int(ref_id or 0)) if kind and ref_id else None
     name = str((item or {}).get("name") or "")
     return "谱" in name or "残页" in name or "图录" in name
@@ -1059,6 +1222,8 @@ def craft_recipe_for_user(tg: int, recipe_id: int) -> dict[str, Any]:
     recipe = serialize_recipe(get_recipe(recipe_id))
     if recipe is None or not recipe.get("enabled"):
         raise ValueError("配方不存在")
+    if not any(int((row.get("recipe") or {}).get("id") or 0) == int(recipe_id) for row in list_user_recipes(tg, enabled_only=True)):
+        raise ValueError("你尚未掌握这张配方，无法开炉炼制")
     profile = serialize_profile(get_profile(tg, create=False))
     if not profile or not profile.get("consented"):
         raise ValueError("你还没有踏入仙途")
@@ -1257,6 +1422,23 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
             raise ValueError("该探索已领取过")
         if exploration.end_at > utcnow():
             raise ValueError("探索尚未结束")
+        outcome = dict(exploration.outcome_payload or {})
+        bonus_payload = outcome.get("bonus_reward") if isinstance(outcome.get("bonus_reward"), dict) else None
+        technique_rewards = []
+        if exploration.reward_kind == "technique" and exploration.reward_ref_id:
+            technique_rewards.append(int(exploration.reward_ref_id))
+        if bonus_payload and str(bonus_payload.get("kind") or "") == "technique" and int(bonus_payload.get("ref_id") or 0) > 0:
+            technique_rewards.append(int(bonus_payload.get("ref_id")))
+        if technique_rewards:
+            profile_obj = get_profile(tg, create=False)
+            capacity = max(int(getattr(profile_obj, "technique_capacity", 0) or 0), 1)
+            owned_ids = {
+                int((row.get("technique") or {}).get("id") or 0)
+                for row in list_user_techniques(tg, enabled_only=False)
+            }
+            incoming_new = {technique_id for technique_id in technique_rewards if technique_id not in owned_ids}
+            if len(owned_ids) + len(incoming_new) > capacity:
+                raise ValueError(f"当前可参悟功法数量已满，上限为 {capacity}，请先让管理员调整后再领取该机缘。")
         exploration.claimed = True
         exploration.updated_at = utcnow()
         session.commit()
@@ -1264,8 +1446,6 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
     reward_item = None
     if exploration.reward_kind and exploration.reward_ref_id and int(exploration.reward_quantity or 0) > 0:
         reward_item = _grant_item_by_kind(tg, exploration.reward_kind, int(exploration.reward_ref_id), int(exploration.reward_quantity))
-    outcome = dict(exploration.outcome_payload or {})
-    bonus_payload = outcome.get("bonus_reward") if isinstance(outcome.get("bonus_reward"), dict) else None
     bonus_reward = None
     if bonus_payload and bonus_payload.get("kind") and int(bonus_payload.get("ref_id") or 0) > 0 and int(bonus_payload.get("quantity") or 0) > 0:
         bonus_reward = _grant_item_by_kind(
@@ -1636,6 +1816,45 @@ def settle_duel_bet_pool(pool_id: int, winner_tg: int) -> dict[str, Any]:
     }
 
 
+def cancel_duel_bet_pool(pool_id: int, reason: str = "") -> dict[str, Any]:
+    with Session() as session:
+        pool = session.query(XiuxianDuelBetPool).filter(XiuxianDuelBetPool.id == pool_id).with_for_update().first()
+        if pool is None:
+            raise ValueError("下注池不存在")
+        if pool.resolved:
+            return {"pool_id": pool_id, "resolved": True, "cancelled": True, "entries": [], "reason": reason}
+        bets = session.query(XiuxianDuelBet).filter(XiuxianDuelBet.pool_id == pool_id).all()
+        name_map = get_emby_name_map([int(row.tg) for row in bets])
+        entries = []
+        for bet in bets:
+            refund_amount = max(int(bet.amount or 0), 0)
+            profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == bet.tg).with_for_update().first()
+            if profile is not None and refund_amount > 0:
+                profile.spiritual_stone = int(profile.spiritual_stone or 0) + refund_amount
+                profile.updated_at = utcnow()
+            entries.append(
+                {
+                    "tg": int(bet.tg),
+                    "name": name_map.get(int(bet.tg), f"TG {bet.tg}"),
+                    "side": bet.side,
+                    "bet_amount": refund_amount,
+                    "amount": refund_amount,
+                    "result": "refund",
+                }
+            )
+        pool.resolved = True
+        pool.winner_tg = None
+        pool.updated_at = utcnow()
+        session.commit()
+    return {
+        "pool_id": pool_id,
+        "resolved": True,
+        "cancelled": True,
+        "entries": entries,
+        "reason": reason,
+    }
+
+
 def format_duel_bet_board(pool_id: int) -> str:
     with Session() as session:
         pool = session.query(XiuxianDuelBetPool).filter(XiuxianDuelBetPool.id == pool_id).first()
@@ -1813,11 +2032,24 @@ def create_duel_bet_pool_for_duel(
     settings = get_xiuxian_settings()
     configured_minutes = int(settings.get("duel_bet_minutes", DEFAULT_SETTINGS.get("duel_bet_minutes", 2)) or 2)
     minutes = max(min(int(bet_minutes or configured_minutes), 15), 1)
+    stake_amount = max(int(stake or 0), 0)
+    if stake_amount > 0:
+        from bot.plugins.xiuxian_game.service import assert_duel_stake_affordable
+
+        challenger_profile_obj = get_profile(challenger_tg, create=False)
+        defender_profile_obj = get_profile(defender_tg, create=False)
+        if challenger_profile_obj is None or defender_profile_obj is None:
+            raise ValueError("斗法双方的修仙资料缺失。")
+        assert_duel_stake_affordable(
+            serialize_profile(challenger_profile_obj),
+            serialize_profile(defender_profile_obj),
+            stake_amount,
+        )
     with Session() as session:
         pool = XiuxianDuelBetPool(
             challenger_tg=challenger_tg,
             defender_tg=defender_tg,
-            stake=max(int(stake or 0), 0),
+            stake=stake_amount,
             group_chat_id=group_chat_id,
             duel_message_id=duel_message_id,
             bets_close_at=utcnow() + timedelta(minutes=minutes),
@@ -1841,12 +2073,16 @@ def build_world_bundle(tg: int) -> dict[str, Any]:
     scenes = list_scenes(enabled_only=True)
     for scene in scenes:
         scene["drops"] = list_scene_drops(scene["id"])
+    recipes = build_recipe_catalog(tg)
     return {
         "sects": list_sects_for_user(tg),
         "current_sect": get_current_sect_bundle(tg),
         "tasks": list_tasks_for_user(tg),
         "materials": list_user_materials(tg),
-        "recipes": build_recipe_catalog(),
+        "recipes": recipes,
+        "recipe_discovered_count": len(recipes),
+        "recipe_total_count": len(list_recipes(enabled_only=True)),
+        "technique_total_count": len(list_techniques(enabled_only=True)),
         "scenes": scenes,
         "active_exploration": _get_active_exploration(tg),
         "journal": list_recent_journals(tg),

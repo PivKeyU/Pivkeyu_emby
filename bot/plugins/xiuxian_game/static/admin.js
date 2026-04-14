@@ -1283,6 +1283,7 @@ function bindEvents() {
       name: $("talisman-name").value.trim(), rarity: $("talisman-rarity").value, image_url: $("talisman-image").value.trim(),
       description: $("talisman-description").value.trim(), attack_bonus: Number($("talisman-attack").value || 0),
       defense_bonus: Number($("talisman-defense").value || 0), duel_rate_bonus: Number($("talisman-duel").value || 0),
+      effect_uses: Number($("talisman-effect-uses")?.value || 1),
       min_realm_stage: $("talisman-stage").value || null, min_realm_layer: Number($("talisman-layer").value || 1),
     }), "创建成功", "符箓已加入修仙体系。");
     form?.reset?.();
@@ -1527,6 +1528,7 @@ function bindAttributeAwareSubmitters() {
         description: $("talisman-description")?.value.trim() || "",
         ...affixPayload("talisman"),
         duel_rate_bonus: Number($("talisman-duel")?.value || 0),
+        effect_uses: Number($("talisman-effect-uses")?.value || 1),
         combat_config: parseJsonInput($("talisman-combat-config")?.value || "{}", {}),
         min_realm_stage: $("talisman-stage")?.value || null,
         min_realm_layer: Number($("talisman-layer")?.value || 1),
@@ -1673,6 +1675,7 @@ renderWorld = function renderWorldEnhanced() {
         ${qualityBadgeHtml(item.rarity || "凡品", item.quality_color)}
       </div>
       <p>${escapeHtml(affixSummary(item))}</p>
+      <p>斗法内最多显化 ${escapeHtml(item.effect_uses || 1)} 次</p>
       <p>${escapeHtml(combatConfigSummary(item.combat_config || {}))}</p>
       <div class="inline-action-buttons">${deleteButton("talisman", item.id)}</div>
     </article>`).join("") || `<article class="stack-item"><strong>暂无符箓</strong></article>`);

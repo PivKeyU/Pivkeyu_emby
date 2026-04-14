@@ -98,18 +98,37 @@
           <span class="summary-tip">切换佩戴称号，查看成就进度</span>
         </summary>
         <div class="fold-body">
-          <section>
-            <h3>当前佩戴</h3>
-            <div id="current-title-summary" class="stack-list"></div>
-          </section>
-          <section>
-            <h3>已拥有称号</h3>
-            <div id="title-list" class="stack-list"></div>
-          </section>
-          <section>
-            <h3>成就进度</h3>
-            <div id="achievement-list" class="stack-list"></div>
-          </section>
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>当前佩戴</h3>
+              <span class="summary-tip">展示中的称号与群头衔同步</span>
+            </summary>
+            <div class="mini-fold-body">
+              <div class="inline-action-buttons">
+                <p id="title-sync-hint" class="section-copy">佩戴称号后，可尝试同步到群组头衔。</p>
+                <button id="title-group-sync-btn" type="button" class="ghost">同步到群头衔</button>
+              </div>
+              <div id="current-title-summary" class="stack-list"></div>
+            </div>
+          </details>
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>已拥有称号</h3>
+              <span class="summary-tip">切换当前展示称号</span>
+            </summary>
+            <div class="mini-fold-body">
+              <div id="title-list" class="stack-list"></div>
+            </div>
+          </details>
+          <details class="mini-fold">
+            <summary class="mini-fold-summary">
+              <h3>成就进度</h3>
+              <span class="summary-tip">查看解锁与奖励进度</span>
+            </summary>
+            <div class="mini-fold-body">
+              <div id="achievement-list" class="stack-list"></div>
+            </div>
+          </details>
         </div>
       </details>
 
@@ -183,18 +202,24 @@
         </summary>
         <div class="fold-body">
           <div class="inventory-columns">
-            <section>
-              <h3>法宝</h3>
-              <div id="artifact-list" class="stack-list"></div>
-            </section>
-            <section>
-              <h3>符箓</h3>
-              <div id="talisman-list" class="stack-list"></div>
-            </section>
-            <section>
-              <h3>丹药</h3>
-              <div id="pill-list" class="stack-list"></div>
-            </section>
+            <details class="mini-fold" open>
+              <summary class="mini-fold-summary"><h3>法宝</h3><span class="summary-tip">装备、绑定与套装</span></summary>
+              <div class="mini-fold-body">
+                <div id="artifact-list" class="stack-list"></div>
+              </div>
+            </details>
+            <details class="mini-fold">
+              <summary class="mini-fold-summary"><h3>符箓</h3><span class="summary-tip">预装待生效符箓</span></summary>
+              <div class="mini-fold-body">
+                <div id="talisman-list" class="stack-list"></div>
+              </div>
+            </details>
+            <details class="mini-fold">
+              <summary class="mini-fold-summary"><h3>丹药</h3><span class="summary-tip">消耗品与突破辅助</span></summary>
+              <div class="mini-fold-body">
+                <div id="pill-list" class="stack-list"></div>
+              </div>
+            </details>
           </div>
         </div>
       </details>
@@ -208,8 +233,25 @@
           <span class="summary-tip">切换当前参悟功法，影响修炼、突破与斗法</span>
         </summary>
         <div class="fold-body">
-          <div id="technique-current" class="stack-list"></div>
-          <div id="technique-list" class="stack-list"></div>
+          <p id="technique-discovery-hint" class="section-copy">功法需要通过探索、机缘或后台发放解锁，不会在开局自动获得。</p>
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>当前参悟</h3>
+              <span class="summary-tip">当前生效的主修功法</span>
+            </summary>
+            <div class="mini-fold-body">
+              <div id="technique-current" class="stack-list"></div>
+            </div>
+          </details>
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>已掌握功法</h3>
+              <span class="summary-tip">仅展示已解锁内容</span>
+            </summary>
+            <div class="mini-fold-body">
+              <div id="technique-list" class="stack-list"></div>
+            </div>
+          </details>
         </div>
       </details>
 
@@ -291,20 +333,28 @@
           <span class="summary-tip">加入宗门、领取俸禄、退出宗门</span>
         </summary>
         <div class="fold-body">
-          <section>
-            <div class="inline-actions">
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
               <h3>当前宗门</h3>
+              <span class="summary-tip">月俸、职位与宗门加成</span>
+            </summary>
+            <div class="mini-fold-body">
               <div class="inline-action-buttons">
                 <button id="sect-salary-btn" type="button" class="ghost">领取月俸</button>
                 <button id="sect-leave-btn" type="button" class="ghost">退出宗门</button>
               </div>
+              <div id="sect-current" class="stack-list"></div>
             </div>
-            <div id="sect-current" class="stack-list"></div>
-          </section>
-          <section>
-            <h3>可加入宗门</h3>
-            <div id="sect-list" class="stack-list"></div>
-          </section>
+          </details>
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>可加入宗门</h3>
+              <span class="summary-tip">按门槛与阵营筛选</span>
+            </summary>
+            <div class="mini-fold-body">
+              <div id="sect-list" class="stack-list"></div>
+            </div>
+          </details>
         </div>
       </details>
 
@@ -377,14 +427,25 @@
           <span class="summary-tip">材料背包与合成配方</span>
         </summary>
         <div class="fold-body">
-          <section>
-            <h3>材料背包</h3>
-            <div id="material-list" class="stack-list"></div>
-          </section>
-          <section>
-            <h3>炼制配方</h3>
-            <div id="recipe-list" class="stack-list"></div>
-          </section>
+          <p id="recipe-discovery-hint" class="section-copy">配方需要先拥有后才能开炉炼制，不会在入道时自动发放。</p>
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>材料背包</h3>
+              <span class="summary-tip">炼丹、炼器与制符用材</span>
+            </summary>
+            <div class="mini-fold-body">
+              <div id="material-list" class="stack-list"></div>
+            </div>
+          </details>
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>炼制配方</h3>
+              <span class="summary-tip">仅展示已探索获得的配方</span>
+            </summary>
+            <div class="mini-fold-body">
+              <div id="recipe-list" class="stack-list"></div>
+            </div>
+          </details>
         </div>
       </details>
 
@@ -397,14 +458,24 @@
           <span class="summary-tip">派遣探索与领取奖励</span>
         </summary>
         <div class="fold-body">
-          <section>
-            <h3>当前探索</h3>
-            <div id="exploration-active" class="stack-list"></div>
-          </section>
-          <section>
-            <h3>探索场景</h3>
-            <div id="scene-list" class="stack-list"></div>
-          </section>
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>当前探索</h3>
+              <span class="summary-tip">查看倒计时与待领取奖励</span>
+            </summary>
+            <div class="mini-fold-body">
+              <div id="exploration-active" class="stack-list"></div>
+            </div>
+          </details>
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>探索场景</h3>
+              <span class="summary-tip">查看掉落、机缘与派遣入口</span>
+            </summary>
+            <div class="mini-fold-body">
+              <div id="scene-list" class="stack-list"></div>
+            </div>
+          </details>
         </div>
       </details>
 

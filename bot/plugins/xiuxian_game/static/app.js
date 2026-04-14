@@ -1047,6 +1047,20 @@ function renderExploreArea(bundle) {
     sceneRoot.innerHTML = `<article class="stack-item"><strong>暂无探索场景</strong></article>`;
     return;
   }
+  const buildDurationOptions = (maxMinutesRaw) => {
+    const maxMinutes = Math.max(Number(maxMinutesRaw) || 1, 1);
+    const candidates = maxMinutes <= 10
+      ? [maxMinutes]
+      : maxMinutes <= 20
+        ? [10, maxMinutes]
+        : maxMinutes <= 30
+          ? [10, 20, maxMinutes]
+          : [10, 20, 30, Math.min(45, maxMinutes), maxMinutes];
+    return [...new Set(candidates.filter((value) => value > 0 && value <= maxMinutes))]
+      .sort((left, right) => left - right)
+      .map((value) => `<option value="${value}">${value} 分钟</option>`)
+      .join("");
+  };
   for (const scene of scenes) {
     const card = document.createElement("article");
     card.className = "stack-item";
@@ -1058,9 +1072,7 @@ function renderExploreArea(bundle) {
       <p>${escapeHtml(scene.description || "暂无场景描述")}</p>
       <label>探索时长
         <select data-scene-minutes="${scene.id}">
-          <option value="10">10 分钟</option>
-          <option value="30">30 分钟</option>
-          <option value="60">60 分钟</option>
+          ${buildDurationOptions(scene.max_minutes)}
         </select>
       </label>
       <button type="button" data-scene-id="${scene.id}">开始探索</button>
@@ -2282,6 +2294,7 @@ renderTalismanList = function renderTalismanList(items, retreating) {
         ${bindableQuantity > 0 ? `<span class="tag">未绑定 ${escapeHtml(bindableQuantity)}</span>` : ""}
         ${itemAffixTags(item, effects)}
       </div>
+      <p>斗法内最多显化 ${escapeHtml(item.effect_uses || 1)} 次，斗法结束后会自动消散。</p>
       <p>境界要求：${escapeHtml(item.min_realm_stage ? `${item.min_realm_stage}${item.min_realm_layer}层` : "无限制")}</p>
       <p>可交易：${escapeHtml(row.tradeable_quantity ?? 0)} ｜ 可提交：${escapeHtml(row.consumable_quantity ?? 0)}</p>
       ${reason ? `<p class="reason-text">${escapeHtml(reason)}</p>` : ""}
@@ -2786,6 +2799,225 @@ document.addEventListener("click", async (event) => {
     await popup("操作失败", normalizeError(error, "称号切换失败。"), "error");
   }
 });
+
+const renderTitleAchievementAreaBase = renderTitleAchievementArea;
+renderTitleAchievementArea = function renderTitleAchievementAreaEnhanced(bundle) {
+  renderTitleAchievementAreaBase(bundle);
+  const syncButton = document.querySelector("#title-group-sync-btn");
+  const syncHint = document.querySelector("#title-sync-hint");
+  const currentTitleName = bundle.current_title?.name || "";
+  if (syncHint) {
+    syncHint.textContent = currentTitleName
+      ? `当前佩戴「${currentTitleName}」，若你在群内拥有管理员身份，可尝试同步到群头衔。`
+      : "请先佩戴称号，再同步到群头衔。";
+  }
+  if (syncButton) {
+    setDisabled(syncButton, !currentTitleName, currentTitleName ? "" : "当前未佩戴称号");
+  }
+};
+
+const renderTechniqueAreaBase = renderTechniqueArea;
+renderTechniqueArea = function renderTechniqueAreaEnhanced(bundle) {
+  renderTechniqueAreaBase(bundle);
+  const hint = document.querySelector("#technique-discovery-hint");
+  if (!hint) return;
+  const owned = Number(bundle.technique_owned_count ?? (bundle.techniques || []).length ?? 0);
+  const total = Number(bundle.technique_total_count ?? 0);
+  const capacity = Number(bundle.profile?.technique_capacity ?? owned);
+  hint.textContent = `已掌握 ${owned}${total ? ` / ${total}` : ""} 门功法，当前可参悟上限 ${capacity} 门。功法需要先探索获得，开局不会自动发放。`;
+};
+
+const renderCraftAreaBase = renderCraftArea;
+renderCraftArea = function renderCraftAreaEnhanced(bundle) {
+  renderCraftAreaBase(bundle);
+  const hint = document.querySelector("#recipe-discovery-hint");
+  if (!hint) return;
+  const discovered = Number(bundle.recipe_discovered_count ?? (bundle.recipes || []).length ?? 0);
+  const total = Number(bundle.recipe_total_count ?? 0);
+  hint.textContent = `已发现 ${discovered}${total ? ` / ${total}` : ""} 张配方。只有先获得配方，才可炼制对应成品。`;
+};
+
+const renderProfileWithDiscoveriesBase = renderProfile;
+renderProfile = function renderProfileWithDiscoveries(bundle) {
+  renderProfileWithDiscoveriesBase(bundle);
+  if (!bundle?.profile?.consented) return;
+  const statusText = document.querySelector("#status-text");
+  if (statusText) {
+    const name = bundle.profile?.display_name_with_title || bundle.profile?.display_label || "道友";
+    statusText.textContent = `${name} 当前已踏入仙途，可展开下方模块继续修炼、探索与经营。`;
+  }
+  const profileGrid = document.querySelector("#profile-grid");
+  if (profileGrid) {
+    const activeSets = (bundle.active_artifact_sets || []).filter((item) => item.active);
+    const activeSetText = activeSets.length
+      ? activeSets.map((item) => `${item.name}(${item.equipped_count}/${item.required_count})`).join("、")
+      : "暂无激活";
+    const techniqueCount = Number(bundle.technique_owned_count ?? (bundle.techniques || []).length ?? 0);
+    profileGrid.insertAdjacentHTML(
+      "beforeend",
+      `<article class="profile-item"><span>功法上限</span><strong>${escapeHtml(bundle.profile?.technique_capacity ?? 0)} / ${escapeHtml(techniqueCount)}</strong></article>`
+      + `<article class="profile-item"><span>法宝套装</span><strong>${escapeHtml(activeSetText)}</strong></article>`
+    );
+  }
+};
+
+document.querySelector("#title-group-sync-btn")?.addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  try {
+    await runButtonAction(button, "同步中...", async () => {
+      await postJson("/plugins/xiuxian/api/title/group-sync", {});
+      await refreshBundle();
+      await popup("同步成功", "当前佩戴称号已尝试同步到群组头衔。若群内未生效，请确认你是否为该群管理员，以及 bot 是否拥有修改管理员头衔的权限。");
+    });
+  } catch (error) {
+    await popup("同步失败", normalizeError(error, "群头衔同步失败。"), "error");
+  }
+});
+
+const renderArtifactListBase = renderArtifactList;
+renderArtifactList = function renderArtifactListEnhanced(items, retreating, equipLimit, equippedCount) {
+  renderArtifactListBase(items, retreating, equipLimit, equippedCount);
+  const root = document.querySelector("#artifact-list");
+  if (!root || !items?.length) return;
+  root.innerHTML = "";
+  for (const row of items) {
+    const item = row.artifact || {};
+    const effects = item.resolved_effects || {};
+    const disabled = !item.usable || retreating;
+    const bindableQuantity = Number(row.unbound_quantity ?? row.quantity ?? 0);
+    const unbindableQuantity = Number(row.bound_quantity ?? 0);
+    const canBind = bindableQuantity > 0;
+    const canUnbind = unbindableQuantity > 0;
+    const unbindCost = Number(state.profileBundle?.settings?.equipment_unbind_cost || 0);
+    const reason = item.equipped
+      ? ""
+      : fallbackReason(item.unusable_reason, retreating ? "闭关期间无法切换法宝" : "当前不满足装备条件");
+    const activeSet = item.artifact_set_name ? `${item.artifact_set_name}` : "无套装";
+    const card = document.createElement("article");
+    card.className = "stack-item";
+    card.innerHTML = `
+      <div class="stack-item-head">
+        <strong>${escapeHtml(item.name || "未命名法宝")}</strong>
+        <span class="badge badge--normal">x${escapeHtml(row.quantity ?? 0)}</span>
+      </div>
+      <p>${escapeHtml(item.description || "暂无描述")}</p>
+      <div class="item-tags">
+        <span class="tag ${item.artifact_type === "support" ? "support" : ""}">${escapeHtml(item.artifact_type_label || artifactTypeLabel(item.artifact_type))}</span>
+        <span class="tag">${escapeHtml(item.equip_slot_label || item.equip_slot || "槽位未定")}</span>
+        <span class="tag">${escapeHtml(item.artifact_role_label || item.artifact_role || "定位未定")}</span>
+        <span class="tag">${escapeHtml(activeSet)}</span>
+        ${qualityBadgeHtml(item.rarity || "凡品", item.quality_color, "tag")}
+        ${unbindableQuantity > 0 ? `<span class="tag">已绑定 ${escapeHtml(unbindableQuantity)}</span>` : ""}
+        ${bindableQuantity > 0 ? `<span class="tag">未绑定 ${escapeHtml(bindableQuantity)}</span>` : ""}
+        ${itemAffixTags(item, effects)}
+      </div>
+      <p>境界要求：${escapeHtml(item.min_realm_stage ? `${item.min_realm_stage}${item.min_realm_layer}层` : "无限制")}</p>
+      <p>可交易：${escapeHtml(row.tradeable_quantity ?? 0)} ｜ 可提交：${escapeHtml(row.consumable_quantity ?? 0)}</p>
+      ${reason ? `<p class="reason-text">${escapeHtml(reason)}</p>` : ""}
+      <div class="inline-action-buttons">
+        <button type="button" data-equip-id="${item.id}" ${disabled ? "disabled" : ""}>${escapeHtml(item.action_label || (item.equipped ? "卸下法宝" : "装备法宝"))}</button>
+        <button type="button" class="ghost" data-artifact-bind-id="${item.id}" ${canBind ? "" : "disabled"}>绑定1件</button>
+        <button type="button" class="ghost" data-artifact-unbind-id="${item.id}" ${canUnbind ? "" : "disabled"}>解绑1件${unbindCost > 0 ? `（${escapeHtml(unbindCost)}灵石）` : ""}</button>
+      </div>
+    `;
+    root.appendChild(card);
+  }
+};
+
+function sectRequirementSummary(sect = {}) {
+  const rows = [];
+  if (sect.min_realm_stage) rows.push(`境界 ${sect.min_realm_stage}${sect.min_realm_layer || 1}层`);
+  if (Number(sect.min_stone || 0) > 0) rows.push(`灵石 ${sect.min_stone}`);
+  if (Number(sect.min_bone || 0) > 0) rows.push(`根骨 ${sect.min_bone}`);
+  if (Number(sect.min_comprehension || 0) > 0) rows.push(`悟性 ${sect.min_comprehension}`);
+  if (Number(sect.min_divine_sense || 0) > 0) rows.push(`神识 ${sect.min_divine_sense}`);
+  if (Number(sect.min_fortune || 0) > 0) rows.push(`机缘 ${sect.min_fortune}`);
+  return rows.join(" · ") || "几乎无门槛";
+}
+
+function sectBonusSummary(sect = {}, role = null) {
+  const rows = [];
+  const attack = Number(sect.attack_bonus || 0) + Number(role?.attack_bonus || 0);
+  const defense = Number(sect.defense_bonus || 0) + Number(role?.defense_bonus || 0);
+  const duel = Number(sect.duel_rate_bonus || 0) + Number(role?.duel_rate_bonus || 0);
+  const cultivation = Number(sect.cultivation_bonus || 0) + Number(role?.cultivation_bonus || 0);
+  const fortune = Number(sect.fortune_bonus || 0);
+  const movement = Number(sect.body_movement_bonus || 0);
+  if (attack) rows.push(`攻击 ${attack > 0 ? "+" : ""}${attack}`);
+  if (defense) rows.push(`防御 ${defense > 0 ? "+" : ""}${defense}`);
+  if (duel) rows.push(`斗法 ${duel > 0 ? "+" : ""}${duel}%`);
+  if (cultivation) rows.push(`修炼 ${cultivation > 0 ? "+" : ""}${cultivation}`);
+  if (fortune) rows.push(`机缘 ${fortune > 0 ? "+" : ""}${fortune}`);
+  if (movement) rows.push(`身法 ${movement > 0 ? "+" : ""}${movement}`);
+  return rows.join(" · ") || "暂无额外加成";
+}
+
+renderSectArea = function renderSectAreaEnhanced(bundle) {
+  const currentRoot = document.querySelector("#sect-current");
+  const listRoot = document.querySelector("#sect-list");
+  const salaryButton = document.querySelector("#sect-salary-btn");
+  const leaveButton = document.querySelector("#sect-leave-btn");
+  if (!currentRoot || !listRoot || !salaryButton || !leaveButton) return;
+
+  const current = bundle.current_sect;
+  currentRoot.innerHTML = "";
+  if (current) {
+    const role = current.current_role || null;
+    const contribution = bundle.profile?.sect_contribution ?? 0;
+    currentRoot.innerHTML = `
+      <article class="stack-item">
+        <div class="stack-item-head">
+          <strong>${escapeHtml(current.name)}</strong>
+          <span class="badge badge--normal">${escapeHtml(current.camp_label || current.camp || "宗门")}</span>
+        </div>
+        <p>${escapeHtml(current.description || "暂无宗门简介")}</p>
+        <div class="item-tags">
+          <span class="tag">职位 ${escapeHtml(role?.role_name || "门下弟子")}</span>
+          <span class="tag">成员 ${escapeHtml((current.roster || []).length)}</span>
+          <span class="tag">贡献 ${escapeHtml(contribution)}</span>
+          <span class="tag">月俸 ${escapeHtml(role?.monthly_salary ?? 0)} 灵石</span>
+        </div>
+        <p>宗门加成：${escapeHtml(sectBonusSummary(current, role))}</p>
+        ${current.entry_hint ? `<p>${escapeHtml(current.entry_hint)}</p>` : ""}
+      </article>
+    `;
+    salaryButton.disabled = false;
+    leaveButton.disabled = false;
+  } else {
+    currentRoot.innerHTML = `<article class="stack-item"><strong>暂未加入宗门</strong><p>满足门槛后，即可在下方挑选正邪宗门与入门路线。</p></article>`;
+    salaryButton.disabled = true;
+    leaveButton.disabled = true;
+  }
+
+  listRoot.innerHTML = "";
+  const sects = bundle.sects || [];
+  if (!sects.length) {
+    listRoot.innerHTML = `<article class="stack-item"><strong>暂无可加入宗门</strong></article>`;
+    return;
+  }
+
+  for (const sect of sects) {
+    const disabled = current?.id === sect.id || !sect.joinable;
+    const card = document.createElement("article");
+    card.className = "stack-item";
+    card.innerHTML = `
+      <div class="stack-item-head">
+        <strong>${escapeHtml(sect.name)}</strong>
+        <span class="badge badge--normal">${escapeHtml(sect.camp_label || sect.camp || "宗门")}</span>
+      </div>
+      <p>${escapeHtml(sect.description || "暂无简介")}</p>
+      <div class="item-tags">
+        <span class="tag">${escapeHtml(sectRequirementSummary(sect))}</span>
+        <span class="tag">成员 ${escapeHtml(sect.member_count ?? 0)}</span>
+      </div>
+      <p>宗门加成：${escapeHtml(sectBonusSummary(sect))}</p>
+      ${sect.entry_hint ? `<p>${escapeHtml(sect.entry_hint)}</p>` : ""}
+      ${disabled && sect.join_reason ? `<p class="reason-text">${escapeHtml(sect.join_reason)}</p>` : ""}
+      <button type="button" data-sect-id="${sect.id}" ${disabled ? "disabled" : ""}>${current?.id === sect.id ? "已加入" : "加入宗门"}</button>
+    `;
+    listRoot.appendChild(card);
+  }
+};
 
 setupFoldToolbar();
 

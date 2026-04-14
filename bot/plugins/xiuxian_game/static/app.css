@@ -314,6 +314,46 @@ h3 {
   gap: 14px;
 }
 
+.mini-fold {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.9));
+  overflow: hidden;
+}
+
+.mini-fold-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  list-style: none;
+  background: rgba(15, 118, 110, 0.04);
+}
+
+.mini-fold-summary::-webkit-details-marker {
+  display: none;
+}
+
+.mini-fold-summary::after {
+  content: "展开";
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.mini-fold[open] > .mini-fold-summary::after {
+  content: "收起";
+}
+
+.mini-fold-body {
+  display: grid;
+  gap: 12px;
+  padding: 0 16px 16px;
+}
+
 .board-grid {
   align-items: start;
 }

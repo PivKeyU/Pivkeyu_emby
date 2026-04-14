@@ -249,6 +249,7 @@
       </summary>
       <div class="fold-body">
         <form id="artifact-form" class="grid-form">
+          <input id="artifact-id" type="hidden">
           <label>
             法宝名称
             <input id="artifact-name" type="text" placeholder="例如：流云剑">
@@ -263,6 +264,32 @@
               <option value="battle">战斗法宝</option>
               <option value="support">辅助法宝</option>
             </select>
+          </label>
+          <label>
+            战斗定位
+            <select id="artifact-role">
+              <option value="battle">攻伐</option>
+              <option value="support">辅修</option>
+              <option value="guardian">护身</option>
+              <option value="movement">身法</option>
+            </select>
+          </label>
+          <label>
+            装备部位
+            <select id="artifact-slot">
+              <option value="weapon">武器</option>
+              <option value="chest">胸甲</option>
+              <option value="legs">护腿</option>
+              <option value="boots">靴子</option>
+              <option value="necklace">项链</option>
+              <option value="ring">戒指</option>
+              <option value="helmet">头冠</option>
+              <option value="bracelet">护腕</option>
+            </select>
+          </label>
+          <label>
+            所属套装
+            <select id="artifact-set-id"></select>
           </label>
           <label>
             图片地址
@@ -332,11 +359,62 @@
             最低层数
             <input id="artifact-layer" type="number" min="1" max="9" value="1">
           </label>
+          <label class="inline-check">
+            <input id="artifact-enabled" type="checkbox" checked>
+            启用法宝
+          </label>
           <div class="form-actions">
             <button type="submit">新增法宝</button>
           </div>
         </form>
         <div id="artifact-list" class="stack-list"></div>
+      </div>
+    </details>
+
+    <details class="card fold-card">
+      <summary class="fold-summary">
+        <div>
+          <p class="eyebrow" data-section-key="artifact-sets">套装</p>
+          <h2>法宝套装</h2>
+        </div>
+        <span class="summary-tip">按部位自由组合，自定义 2 件 / 3 件等套装效果</span>
+      </summary>
+      <div class="fold-body">
+        <form id="artifact-set-form" class="grid-form">
+          <input id="artifact-set-id" type="hidden">
+          <label>
+            套装名称
+            <input id="artifact-set-name" type="text" placeholder="例如：青霄巡天套">
+          </label>
+          <label>
+            生效件数
+            <input id="artifact-set-required-count" type="number" min="2" max="8" value="2">
+          </label>
+          <label class="inline-check">
+            <input id="artifact-set-enabled" type="checkbox" checked>
+            启用套装
+          </label>
+          <label class="wide-field">
+            套装描述
+            <textarea id="artifact-set-description" rows="2" placeholder="填写套装定位与效果说明"></textarea>
+          </label>
+          <label>攻击加成 <input id="artifact-set-attack" type="number" value="0"></label>
+          <label>防御加成 <input id="artifact-set-defense" type="number" value="0"></label>
+          <label>根骨加成 <input id="artifact-set-bone" type="number" value="0"></label>
+          <label>悟性加成 <input id="artifact-set-comprehension" type="number" value="0"></label>
+          <label>神识加成 <input id="artifact-set-divine-sense" type="number" value="0"></label>
+          <label>机缘加成 <input id="artifact-set-fortune" type="number" value="0"></label>
+          <label>气血加成 <input id="artifact-set-qi-blood" type="number" value="0"></label>
+          <label>真元加成 <input id="artifact-set-true-yuan" type="number" value="0"></label>
+          <label>身法加成 <input id="artifact-set-body-movement" type="number" value="0"></label>
+          <label>斗法加成（%） <input id="artifact-set-duel" type="number" value="0"></label>
+          <label>修炼加成 <input id="artifact-set-cultivation" type="number" value="0"></label>
+          <label>突破加成 <input id="artifact-set-breakthrough" type="number" value="0"></label>
+          <div class="form-actions">
+            <button type="submit">新增套装</button>
+          </div>
+        </form>
+        <div id="artifact-set-list" class="stack-list"></div>
       </div>
     </details>
 
@@ -350,6 +428,7 @@
       </summary>
       <div class="fold-body">
         <form id="talisman-form" class="grid-form">
+          <input id="talisman-id" type="hidden">
           <label>
             符箓名称
             <input id="talisman-name" type="text" placeholder="例如：惊雷符">
@@ -382,6 +461,10 @@
             斗法胜率加成（%）
             <input id="talisman-duel" type="number" value="0">
           </label>
+          <label>
+            斗法内生效次数
+            <input id="talisman-effect-uses" type="number" min="1" value="1">
+          </label>
           <label class="wide-field">
             战斗配置 JSON
             <textarea id="talisman-combat-config" rows="6" placeholder='{"skills":[{"name":"金钟护体","kind":"shield","chance":40,"flat_shield":24,"ratio_percent":18,"duration":1,"text":"护体时显示的战斗文本"}]}'></textarea>
@@ -393,6 +476,10 @@
           <label>
             最低层数
             <input id="talisman-layer" type="number" min="1" max="9" value="1">
+          </label>
+          <label class="inline-check">
+            <input id="talisman-enabled" type="checkbox" checked>
+            启用符箓
           </label>
           <div class="form-actions">
             <button type="submit">新增符箓</button>
@@ -412,6 +499,7 @@
       </summary>
       <div class="fold-body">
         <form id="pill-form" class="grid-form">
+          <input id="pill-id" type="hidden">
           <label>
             品质
             <select id="pill-rarity"></select>
@@ -473,6 +561,10 @@
             最低层数
             <input id="pill-layer" type="number" min="1" max="9" value="1">
           </label>
+          <label class="inline-check">
+            <input id="pill-enabled" type="checkbox" checked>
+            启用丹药
+          </label>
           <div class="form-actions">
             <button type="submit">新增丹药</button>
           </div>
@@ -491,9 +583,17 @@
       </summary>
       <div class="fold-body">
         <form id="sect-form" class="grid-form">
+          <input id="sect-id" type="hidden">
           <label>
             宗门名称
             <input id="sect-name" type="text" placeholder="例如：太虚剑宗">
+          </label>
+          <label>
+            阵营
+            <select id="sect-camp">
+              <option value="orthodox">正道</option>
+              <option value="heterodox">邪道</option>
+            </select>
           </label>
           <label>
             最低境界
@@ -508,6 +608,22 @@
             <input id="sect-stone" type="number" min="0" value="0">
           </label>
           <label>
+            最低根骨
+            <input id="sect-bone" type="number" min="0" value="0">
+          </label>
+          <label>
+            最低悟性
+            <input id="sect-comprehension" type="number" min="0" value="0">
+          </label>
+          <label>
+            最低神识
+            <input id="sect-divine-sense" type="number" min="0" value="0">
+          </label>
+          <label>
+            最低机缘
+            <input id="sect-fortune" type="number" min="0" value="0">
+          </label>
+          <label>
             图片地址
             <input id="sect-image" type="url" placeholder="https://...">
             <div class="upload-inline">
@@ -518,6 +634,16 @@
           <label class="wide-field">
             宗门简介
             <textarea id="sect-description" rows="2" placeholder="填写宗门简介"></textarea>
+          </label>
+          <label>全宗攻击加成 <input id="sect-attack" type="number" value="0"></label>
+          <label>全宗防御加成 <input id="sect-defense" type="number" value="0"></label>
+          <label>全宗斗法加成（%） <input id="sect-duel" type="number" value="0"></label>
+          <label>全宗修炼加成 <input id="sect-cultivation" type="number" value="0"></label>
+          <label>全宗机缘加成 <input id="sect-fortune-bonus" type="number" value="0"></label>
+          <label>全宗身法加成 <input id="sect-body-movement" type="number" value="0"></label>
+          <label class="wide-field">
+            入门提示
+            <textarea id="sect-entry-hint" rows="2" placeholder="例如：只收心性沉稳、愿护苍生之人"></textarea>
           </label>
           <div class="wide-field builder-section">
             <div class="builder-head">
@@ -561,6 +687,7 @@
       </summary>
       <div class="fold-body">
         <form id="technique-form" class="grid-form">
+          <input id="technique-id" type="hidden">
           <label>
             功法名称
             <input id="technique-name" type="text" placeholder="例如：长青诀">
@@ -618,6 +745,10 @@
             最低层数
             <input id="technique-layer" type="number" min="1" max="9" value="1">
           </label>
+          <label class="inline-check">
+            <input id="technique-enabled" type="checkbox" checked>
+            启用功法
+          </label>
           <div class="form-actions">
             <button type="submit">新增功法</button>
           </div>
@@ -636,6 +767,7 @@
       </summary>
       <div class="fold-body">
         <form id="title-form" class="grid-form">
+          <input id="title-id" type="hidden">
           <label>
             称号名称
             <input id="title-name" type="text" placeholder="例如：斗战真君">
@@ -708,6 +840,7 @@
       <div class="fold-body">
         <datalist id="achievement-metric-options"></datalist>
         <form id="achievement-form" class="grid-form">
+          <input id="achievement-id" type="hidden">
           <label>
             成就 Key
             <input id="achievement-key" type="text" placeholder="可留空，系统自动生成">
@@ -787,6 +920,7 @@
       </summary>
       <div class="fold-body">
         <form id="material-form" class="grid-form">
+          <input id="material-id" type="hidden">
           <label>
             材料名称
             <input id="material-name" type="text" placeholder="例如：玄铁矿">
@@ -807,6 +941,10 @@
             材料描述
             <textarea id="material-description" rows="2" placeholder="填写来源、用途与说明"></textarea>
           </label>
+          <label class="inline-check">
+            <input id="material-enabled" type="checkbox" checked>
+            启用材料
+          </label>
           <div class="form-actions">
             <button type="submit">新增材料</button>
           </div>
@@ -825,6 +963,7 @@
       </summary>
       <div class="fold-body">
         <form id="recipe-form" class="grid-form">
+          <input id="recipe-id" type="hidden">
           <label>
             配方名称
             <input id="recipe-name" type="text" placeholder="例如：凝气丹方">
@@ -886,6 +1025,7 @@
       </summary>
       <div class="fold-body">
         <form id="scene-form" class="grid-form">
+          <input id="scene-id" type="hidden">
           <label>
             场景名称
             <input id="scene-name" type="text" placeholder="例如：幽冥谷">
@@ -974,6 +1114,8 @@
               <option value="pill">丹药</option>
               <option value="talisman">符箓</option>
               <option value="material">材料</option>
+              <option value="recipe">配方</option>
+              <option value="technique">功法</option>
             </select>
           </label>
           <label>
@@ -1059,6 +1201,8 @@
               <option value="talisman">符箓</option>
               <option value="pill">丹药</option>
               <option value="material">材料</option>
+              <option value="recipe">配方</option>
+              <option value="technique">功法</option>
             </select>
           </label>
           <label>
@@ -1252,6 +1396,7 @@
               <label>防御 <input id="pe-defense_power" type="number"></label>
               <label>丹毒 <input id="pe-dan_poison" type="number" min="0"></label>
               <label>宗门贡献 <input id="pe-sect_contribution" type="number"></label>
+              <label>可用功法栏位 <input id="pe-technique_capacity" type="number" min="1"></label>
               <div class="form-actions">
                 <button type="submit">保存修改</button>
                 <button type="button" id="player-edit-cancel" style="background:#666;">取消</button>
@@ -1265,5 +1410,6 @@
 
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="/plugins/xiuxian/static/admin.js"></script>
+  <script src="/plugins/xiuxian/static/admin-advanced.js"></script>
 </body>
 </html>
