@@ -8,15 +8,19 @@ from __future__ import annotations
 
 import random
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from bot.sql_helper import Session
 from bot.sql_helper.sql_xiuxian import (
     DEFAULT_SETTINGS,
+    DUEL_MODE_LABELS,
     QUALITY_LABEL_LEVELS,
     SECT_ROLE_LABELS,
     SECT_ROLE_PRESETS,
+    apply_spiritual_stone_delta,
+    assert_currency_operation_allowed,
+    assert_profile_alive,
     XiuxianArtifactInventory,
     XiuxianEquippedArtifact,
     XiuxianPillInventory,
@@ -54,6 +58,7 @@ from bot.sql_helper.sql_xiuxian import (
     get_technique,
     get_talisman,
     get_xiuxian_settings,
+    get_active_duel_lock,
     grant_artifact_to_user,
     grant_material_to_user,
     grant_pill_to_user,
@@ -67,6 +72,7 @@ from bot.sql_helper.sql_xiuxian import (
     list_scene_drops,
     list_scenes,
     list_equipped_artifacts,
+    list_slave_profiles,
     list_sect_roles,
     list_sects,
     list_tasks,
@@ -118,6 +124,20 @@ def china_now():
 
 def china_day_key() -> str:
     return china_now().strftime("%Y-%m-%d")
+
+
+def _require_alive_profile_data(tg: int, action_text: str) -> tuple[XiuxianProfile, dict[str, Any]]:
+    profile_obj = get_profile(tg, create=False)
+    if profile_obj is None or not profile_obj.consented:
+        raise ValueError("你还没有踏入仙途")
+    assert_profile_alive(profile_obj, action_text)
+    return profile_obj, serialize_profile(profile_obj)
+
+
+def _full_profile_bundle(tg: int) -> dict[str, Any]:
+    from bot.plugins.xiuxian_game.service import serialize_full_profile
+
+    return serialize_full_profile(tg)
 
 
 def floor_div(left: int, right: int) -> int:
@@ -205,6 +225,11 @@ def create_sect_with_roles(
     min_comprehension: int = 0,
     min_divine_sense: int = 0,
     min_fortune: int = 0,
+    min_willpower: int = 0,
+    min_charisma: int = 0,
+    min_karma: int = 0,
+    min_body_movement: int = 0,
+    min_combat_power: int = 0,
     attack_bonus: int = 0,
     defense_bonus: int = 0,
     duel_rate_bonus: int = 0,
@@ -226,6 +251,11 @@ def create_sect_with_roles(
         min_comprehension=max(int(min_comprehension or 0), 0),
         min_divine_sense=max(int(min_divine_sense or 0), 0),
         min_fortune=max(int(min_fortune or 0), 0),
+        min_willpower=max(int(min_willpower or 0), 0),
+        min_charisma=max(int(min_charisma or 0), 0),
+        min_karma=max(int(min_karma or 0), 0),
+        min_body_movement=max(int(min_body_movement or 0), 0),
+        min_combat_power=max(int(min_combat_power or 0), 0),
         attack_bonus=int(attack_bonus or 0),
         defense_bonus=int(defense_bonus or 0),
         duel_rate_bonus=int(duel_rate_bonus or 0),
@@ -269,6 +299,11 @@ def sync_sect_with_roles_by_name(
     min_comprehension: int = 0,
     min_divine_sense: int = 0,
     min_fortune: int = 0,
+    min_willpower: int = 0,
+    min_charisma: int = 0,
+    min_karma: int = 0,
+    min_body_movement: int = 0,
+    min_combat_power: int = 0,
     attack_bonus: int = 0,
     defense_bonus: int = 0,
     duel_rate_bonus: int = 0,
@@ -292,6 +327,11 @@ def sync_sect_with_roles_by_name(
             min_comprehension=min_comprehension,
             min_divine_sense=min_divine_sense,
             min_fortune=min_fortune,
+            min_willpower=min_willpower,
+            min_charisma=min_charisma,
+            min_karma=min_karma,
+            min_body_movement=min_body_movement,
+            min_combat_power=min_combat_power,
             attack_bonus=attack_bonus,
             defense_bonus=defense_bonus,
             duel_rate_bonus=duel_rate_bonus,
@@ -314,6 +354,11 @@ def sync_sect_with_roles_by_name(
         min_comprehension=min_comprehension,
         min_divine_sense=min_divine_sense,
         min_fortune=min_fortune,
+        min_willpower=min_willpower,
+        min_charisma=min_charisma,
+        min_karma=min_karma,
+        min_body_movement=min_body_movement,
+        min_combat_power=min_combat_power,
         attack_bonus=attack_bonus,
         defense_bonus=defense_bonus,
         duel_rate_bonus=duel_rate_bonus,
@@ -336,7 +381,51 @@ def _count_sect_members(sect_id: int) -> int:
         )
 
 
-def _eligible_for_sect(profile_data: dict[str, Any], sect: dict[str, Any]) -> tuple[bool, str]:
+def _parse_optional_datetime(raw: str | None) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(str(raw))
+    except ValueError:
+        return None
+
+
+def _format_remaining_delta(delta: timedelta) -> str:
+    total_seconds = max(int(delta.total_seconds()), 0)
+    days, rem = divmod(total_seconds, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, _ = divmod(rem, 60)
+    parts = []
+    if days:
+        parts.append(f"{days} 天")
+    if hours:
+        parts.append(f"{hours} 小时")
+    if minutes or not parts:
+        parts.append(f"{minutes} 分钟")
+    return "".join(parts[:2])
+
+
+def _sect_salary_min_stay_days() -> int:
+    settings = get_xiuxian_settings()
+    return max(int(settings.get("sect_salary_min_stay_days", DEFAULT_SETTINGS.get("sect_salary_min_stay_days", 30)) or 0), 1)
+
+
+def _sect_betrayal_cooldown_days() -> int:
+    settings = get_xiuxian_settings()
+    return max(int(settings.get("sect_betrayal_cooldown_days", DEFAULT_SETTINGS.get("sect_betrayal_cooldown_days", 7)) or 0), 1)
+
+
+def _sect_betrayal_stone_penalty(balance: int) -> int:
+    current = max(int(balance or 0), 0)
+    if current <= 0:
+        return 0
+    return min(current, max(current // 10, 20), 300)
+
+
+def _eligible_for_sect(profile_data: dict[str, Any], sect: dict[str, Any], combat_power: int = 0) -> tuple[bool, str]:
+    betrayal_until = _parse_optional_datetime(profile_data.get("sect_betrayal_until"))
+    if betrayal_until and betrayal_until > utcnow():
+        return False, f"叛宗余罚未消，需再等 {_format_remaining_delta(betrayal_until - utcnow())} 方可重投山门"
     if sect.get("min_realm_stage") and realm_index(profile_data.get("realm_stage")) < realm_index(sect.get("min_realm_stage")):
         return False, "境界不满足宗门要求"
     if profile_data.get("realm_stage") == sect.get("min_realm_stage") and int(profile_data.get("realm_layer") or 0) < int(sect.get("min_realm_layer") or 1):
@@ -351,16 +440,32 @@ def _eligible_for_sect(profile_data: dict[str, Any], sect: dict[str, Any]) -> tu
         return False, "神识不满足宗门要求"
     if int(profile_data.get("fortune") or 0) < int(sect.get("min_fortune") or 0):
         return False, "机缘不满足宗门要求"
+    if int(profile_data.get("willpower") or 0) < int(sect.get("min_willpower") or 0):
+        return False, "心志不满足宗门要求"
+    if int(profile_data.get("charisma") or 0) < int(sect.get("min_charisma") or 0):
+        return False, "魅力不满足宗门要求"
+    if int(profile_data.get("karma") or 0) < int(sect.get("min_karma") or 0):
+        return False, "因果不满足宗门要求"
+    if int(profile_data.get("body_movement") or 0) < int(sect.get("min_body_movement") or 0):
+        return False, "身法不满足宗门要求"
+    if int(combat_power or 0) < int(sect.get("min_combat_power") or 0):
+        return False, "战力不满足宗门要求"
     return True, ""
 
 
 def list_sects_for_user(tg: int) -> list[dict[str, Any]]:
-    profile = serialize_profile(get_profile(tg, create=True))
+    profile_obj = get_profile(tg, create=True)
+    profile = serialize_profile(profile_obj)
+    combat_power = 0
+    if profile and profile.get("consented") and not profile.get("death_at"):
+        from bot.plugins.xiuxian_game.service import serialize_full_profile
+
+        combat_power = int((serialize_full_profile(tg) or {}).get("combat_power") or 0)
     rows = []
     for sect in list_sects(enabled_only=True):
         sect["roles"] = list_sect_roles(sect["id"])
         sect["member_count"] = _count_sect_members(sect["id"])
-        allowed, reason = _eligible_for_sect(profile, sect)
+        allowed, reason = _eligible_for_sect(profile, sect, combat_power=combat_power)
         sect["joinable"] = profile.get("sect_id") in {None, sect["id"]} and allowed
         sect["join_reason"] = "" if sect["joinable"] else reason or ("你已经加入其他宗门" if profile.get("sect_id") not in {None, sect["id"]} else "")
         rows.append(sect)
@@ -392,38 +497,80 @@ def get_current_sect_bundle(tg: int) -> dict[str, Any] | None:
 
 
 def join_sect_for_user(tg: int, sect_id: int) -> dict[str, Any]:
-    profile = serialize_profile(get_profile(tg, create=False))
-    if profile is None or not profile.get("consented"):
-        raise ValueError("你还没有踏入仙途")
+    _, profile = _require_alive_profile_data(tg, "加入宗门")
+    if profile.get("sect_id") and int(profile.get("sect_id")) == int(sect_id):
+        raise ValueError("你已在该宗门门下，无需重复拜山。")
     if profile.get("sect_id") and int(profile.get("sect_id")) != int(sect_id):
         raise ValueError("你已加入其他宗门")
     sect = serialize_sect(get_sect(sect_id))
     if sect is None or not sect.get("enabled"):
         raise ValueError("宗门不存在")
-    allowed, reason = _eligible_for_sect(profile, sect)
+    from bot.plugins.xiuxian_game.service import serialize_full_profile
+
+    allowed, reason = _eligible_for_sect(profile, sect, combat_power=int((serialize_full_profile(tg) or {}).get("combat_power") or 0))
     if not allowed:
         raise ValueError(reason)
-    upsert_profile(tg, sect_id=sect_id, sect_role_key="outer_disciple")
-    create_journal(tg, "sect", "加入宗门", f"加入了宗门【{sect['name']}】")
+    upsert_profile(
+        tg,
+        sect_id=sect_id,
+        sect_role_key="outer_disciple",
+        sect_joined_at=utcnow(),
+        sect_betrayal_until=None,
+    )
+    create_journal(tg, "sect", "加入宗门", f"重整衣冠，拜入宗门【{sect['name']}】门下。")
     return get_current_sect_bundle(tg)
 
 
 def leave_sect_for_user(tg: int) -> dict[str, Any]:
-    profile = serialize_profile(get_profile(tg, create=False))
-    if profile is None or not profile.get("consented"):
-        raise ValueError("你还没有踏入仙途")
-    if not profile.get("sect_id"):
-        raise ValueError("你当前并未加入宗门")
     current = get_current_sect_bundle(tg)
-    upsert_profile(
+    if not current:
+        raise ValueError("你当前并未加入宗门")
+    with Session() as session:
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+        if profile is None or not profile.consented:
+            raise ValueError("你还没有踏入仙途")
+        assert_profile_alive(profile, "退出宗门")
+        assert_currency_operation_allowed(tg, "叛出宗门", session=session, profile=profile)
+        if not profile.sect_id:
+            raise ValueError("你当前并未加入宗门")
+
+        penalty = _sect_betrayal_stone_penalty(int(profile.spiritual_stone or 0))
+        cooldown_until = utcnow() + timedelta(days=_sect_betrayal_cooldown_days())
+        previous_contribution = int(profile.sect_contribution or 0)
+        if penalty > 0:
+            apply_spiritual_stone_delta(
+                session,
+                tg,
+                -penalty,
+                action_text="叛出宗门",
+                allow_dead=False,
+                apply_tribute=False,
+            )
+        profile.sect_id = None
+        profile.sect_role_key = None
+        profile.sect_contribution = 0
+        profile.sect_joined_at = None
+        profile.sect_betrayal_until = cooldown_until
+        profile.updated_at = utcnow()
+        session.commit()
+
+    sect_name = (current or {}).get("name", "未知宗门")
+    create_journal(
         tg,
-        sect_id=None,
-        sect_role_key=None,
-        sect_contribution=0,
-        last_salary_claim_at=None,
+        "sect",
+        "叛出宗门",
+        f"叛出宗门【{sect_name}】，被收回 {penalty} 灵石供奉，清空 {previous_contribution} 点宗门贡献，并禁投山门至 {cooldown_until.isoformat()}。",
     )
-    create_journal(tg, "sect", "退出宗门", f"离开了宗门【{(current or {}).get('name', '未知宗门')}】")
-    return {"previous_sect": current, "profile": serialize_profile(get_profile(tg, create=False))}
+    return {
+        "previous_sect": current,
+        "profile": serialize_profile(get_profile(tg, create=False)),
+        "betrayal": {
+            "stone_penalty": penalty,
+            "contribution_cleared": previous_contribution,
+            "cooldown_until": cooldown_until.isoformat(),
+            "cooldown_days": _sect_betrayal_cooldown_days(),
+        },
+    }
 
 
 def set_user_sect_role(tg: int, sect_id: int, role_key: str) -> dict[str, Any]:
@@ -436,29 +583,43 @@ def set_user_sect_role(tg: int, sect_id: int, role_key: str) -> dict[str, Any]:
     profile_obj = get_profile(tg, create=False)
     if profile_obj is None or not profile_obj.consented:
         raise ValueError("目标用户尚未踏入仙途")
-    updated = upsert_profile(tg, sect_id=sect_id, sect_role_key=role_key)
+    assert_profile_alive(profile_obj, "调整宗门职位")
+    profile_payload = {"sect_id": sect_id, "sect_role_key": role_key}
+    if int(profile_obj.sect_id or 0) != int(sect_id):
+        profile_payload["sect_joined_at"] = utcnow()
+        profile_payload["sect_betrayal_until"] = None
+    updated = upsert_profile(tg, **profile_payload)
     return {"profile": serialize_profile(updated), "role": role, "sect": sect}
 
 
 def claim_sect_salary_for_user(tg: int) -> dict[str, Any]:
-    profile_obj = get_profile(tg, create=False)
-    if profile_obj is None or not profile_obj.consented:
-        raise ValueError("你还没有踏入仙途")
+    profile_obj, _ = _require_alive_profile_data(tg, "领取宗门俸禄")
+    assert_currency_operation_allowed(tg, "领取宗门俸禄", profile=profile_obj)
     role = get_sect_role_payload(profile_obj.sect_id, profile_obj.sect_role_key)
     if not role:
         raise ValueError("当前没有宗门俸禄可领取")
+    now = utcnow()
+    joined_at = profile_obj.sect_joined_at or profile_obj.last_salary_claim_at or profile_obj.created_at or now
     last_claim = profile_obj.last_salary_claim_at
-    if last_claim and utcnow() - last_claim < timedelta(days=30):
-        remaining = timedelta(days=30) - (utcnow() - last_claim)
-        raise ValueError(f"距离下次领取俸禄还需 {remaining.days} 天")
+    if last_claim is None or last_claim < joined_at:
+        min_stay = timedelta(days=_sect_salary_min_stay_days())
+        if now - joined_at < min_stay:
+            remaining = min_stay - (now - joined_at)
+            raise ValueError(f"新入门弟子仍在考察期，需再留宗 {_format_remaining_delta(remaining)} 才能领取俸禄。")
+    elif now - last_claim < timedelta(days=30):
+        remaining = timedelta(days=30) - (now - last_claim)
+        raise ValueError(f"距离下次领取俸禄还需 {_format_remaining_delta(remaining)}。")
     salary = int(role.get("monthly_salary", 0) or 0)
-    updated = upsert_profile(
-        tg,
-        spiritual_stone=int(profile_obj.spiritual_stone or 0) + salary,
-        last_salary_claim_at=utcnow(),
-    )
+    with Session() as session:
+        updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+        if updated is None or not updated.consented:
+            raise ValueError("你还没有踏入仙途")
+        apply_spiritual_stone_delta(session, tg, salary, action_text="领取宗门俸禄", apply_tribute=True)
+        updated.last_salary_claim_at = now
+        updated.updated_at = now
+        session.commit()
     create_journal(tg, "sect", "领取俸禄", f"领取了 {salary} 灵石的宗门俸禄")
-    return {"salary": salary, "profile": serialize_profile(updated), "role": role}
+    return {"salary": salary, "profile": _full_profile_bundle(tg)["profile"], "role": role}
 
 
 def _can_publish_sect_task(tg: int) -> bool:
@@ -577,9 +738,8 @@ def create_bounty_task(
         # 玩家发布任务先过开关、身份与灵石扣费三道校验。
         if not bool(settings.get("allow_user_task_publish", DEFAULT_SETTINGS.get("allow_user_task_publish", True))):
             raise ValueError("当前未开放玩家发布任务")
-        actor_profile = serialize_profile(get_profile(actor_tg, create=False))
-        if not actor_profile or not actor_profile.get("consented"):
-            raise ValueError("你还没有踏入仙途")
+        actor_obj, actor_profile = _require_alive_profile_data(actor_tg, "发布任务")
+        assert_currency_operation_allowed(actor_tg, "发布任务", profile=actor_obj)
         publish_cost = max(int(settings.get("task_publish_cost", DEFAULT_SETTINGS.get("task_publish_cost", 0)) or 0), 0)
 
     if task_scope_value == "sect":
@@ -599,11 +759,16 @@ def create_bounty_task(
             publisher = session.query(XiuxianProfile).filter(XiuxianProfile.tg == actor_tg).with_for_update().first()
             if publisher is None or not publisher.consented:
                 raise ValueError("你还没有踏入仙途")
-            if int(publisher.spiritual_stone or 0) < publish_cost:
-                raise ValueError(f"灵石不足，发布任务需要 {publish_cost} 灵石")
             if publish_cost > 0:
-                publisher.spiritual_stone -= publish_cost
-                publisher.updated_at = utcnow()
+                apply_spiritual_stone_delta(
+                    session,
+                    actor_tg,
+                    -publish_cost,
+                    action_text="发布任务",
+                    enforce_currency_lock=False,
+                    allow_dead=False,
+                    apply_tribute=False,
+                )
 
         task_row = XiuxianTask(
             title=title_value,
@@ -791,18 +956,24 @@ def _grant_item_by_kind(tg: int, kind: str, ref_id: int, quantity: int) -> dict[
 
 
 def _award_task_rewards(tg: int, task: XiuxianTask) -> dict[str, Any]:
-    profile_obj = get_profile(tg, create=False)
-    if profile_obj is None:
-        raise ValueError("用户不存在")
-    updated = upsert_profile(
-        tg,
-        spiritual_stone=int(profile_obj.spiritual_stone or 0) + int(task.reward_stone or 0),
-    )
+    with Session() as session:
+        updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+        if updated is None:
+            raise ValueError("用户不存在")
+        apply_spiritual_stone_delta(
+            session,
+            tg,
+            int(task.reward_stone or 0),
+            action_text="领取任务奖励",
+            allow_dead=False,
+            apply_tribute=True,
+        )
+        session.commit()
     reward_item = None
     if task.reward_item_kind and task.reward_item_ref_id and int(task.reward_item_quantity or 0) > 0:
         reward_item = _grant_item_by_kind(tg, task.reward_item_kind, int(task.reward_item_ref_id), int(task.reward_item_quantity))
     return {
-        "profile": serialize_profile(updated),
+        "profile": _full_profile_bundle(tg)["profile"],
         "reward_stone": int(task.reward_stone or 0),
         "reward_item": reward_item,
     }
@@ -1355,9 +1526,7 @@ def _get_active_exploration(tg: int) -> dict[str, Any] | None:
 
 
 def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str, Any]:
-    profile = serialize_profile(get_profile(tg, create=False))
-    if not profile or not profile.get("consented"):
-        raise ValueError("你还没有踏入仙途")
+    _, profile = _require_alive_profile_data(tg, "进入秘境")
     active = _get_active_exploration(tg)
     if active and not active.get("claimed"):
         raise ValueError("你还有未结算的探索")
@@ -1410,6 +1579,7 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
 
 
 def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
+    _require_alive_profile_data(tg, "结算探索")
     with Session() as session:
         exploration = (
             session.query(XiuxianExploration)
@@ -1461,10 +1631,21 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
     current_stone = int(profile.spiritual_stone or 0) if profile else 0
     actual_stone_loss = min(current_stone, event_stone_loss)
     total_stone_delta = int(exploration.stone_reward or 0) + event_stone_bonus - actual_stone_loss
-    updated = upsert_profile(
-        tg,
-        spiritual_stone=max(current_stone + total_stone_delta, 0),
-    )
+    with Session() as session:
+        updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+        if updated is None or not updated.consented:
+            raise ValueError("你还没有踏入仙途")
+        if total_stone_delta:
+            apply_spiritual_stone_delta(
+                session,
+                tg,
+                total_stone_delta,
+                action_text="结算探索",
+                enforce_currency_lock=True,
+                allow_dead=False,
+                apply_tribute=total_stone_delta > 0,
+            )
+        session.commit()
     event_type = str((outcome.get("event") or {}).get("event_type") or "").strip()
     recipe_like_drop = bool(bonus_payload and bonus_payload.get("is_recipe_like")) or _recipe_like_bonus_item(
         exploration.reward_kind,
@@ -1491,7 +1672,7 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
         "stone_gain": int(exploration.stone_reward or 0) + event_stone_bonus,
         "stone_loss": actual_stone_loss,
         "stone_delta": total_stone_delta,
-        "profile": serialize_profile(updated),
+        "profile": _full_profile_bundle(tg)["profile"],
         "achievement_unlocks": achievement_unlocks,
     }
 
@@ -1507,17 +1688,26 @@ def create_red_envelope_for_user(
     target_tg: int | None = None,
     group_chat_id: int | None = None,
 ) -> dict[str, Any]:
-    profile = get_profile(tg, create=False)
-    if profile is None or not profile.consented:
-        raise ValueError("你还没有踏入仙途")
+    profile, _ = _require_alive_profile_data(tg, "发放红包")
+    assert_currency_operation_allowed(tg, "发放红包", profile=profile)
     amount_total = max(int(amount_total or 0), 1)
     count_total = max(int(count_total or 1), 1)
     if int(profile.spiritual_stone or 0) < amount_total:
         raise ValueError("灵石不足")
-    updated = upsert_profile(
-        tg,
-        spiritual_stone=int(profile.spiritual_stone or 0) - amount_total,
-    )
+    with Session() as session:
+        updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+        if updated is None or not updated.consented:
+            raise ValueError("你还没有踏入仙途")
+        apply_spiritual_stone_delta(
+            session,
+            tg,
+            -amount_total,
+            action_text="发放红包",
+            enforce_currency_lock=False,
+            allow_dead=False,
+            apply_tribute=False,
+        )
+        session.commit()
     with Session() as session:
         envelope = XiuxianRedEnvelope(
             creator_tg=tg,
@@ -1539,7 +1729,7 @@ def create_red_envelope_for_user(
     create_journal(tg, "red_envelope", "发放红包", f"发放了 {amount_total} 灵石红包【{serialized.get('cover_text') or '福运临门'}】")
     return {
         "envelope": serialized,
-        "profile": serialize_profile(updated),
+        "profile": serialize_profile(get_profile(tg, create=False)),
         "achievement_unlocks": record_red_envelope_metrics(tg, amount_total),
     }
 
@@ -1548,13 +1738,24 @@ def _draw_red_envelope_amount(envelope: XiuxianRedEnvelope) -> int:
     if int(envelope.remaining_count or 1) <= 1:
         return int(envelope.remaining_amount or 0)
     if envelope.mode == "normal":
-        return max(int(envelope.amount_total or 0) // max(int(envelope.count_total or 1), 1), 1)
-    max_pick = max(int(envelope.remaining_amount or 0) - (int(envelope.remaining_count or 1) - 1), 1)
-    return random.randint(1, max_pick)
+        average = max(int(envelope.amount_total or 0) // max(int(envelope.count_total or 1), 1), 1)
+        reserve = max(int(envelope.remaining_amount or 0) - (int(envelope.remaining_count or 1) - 1), 1)
+        return min(average, reserve)
+    remaining_amount = max(int(envelope.remaining_amount or 0), 1)
+    remaining_count = max(int(envelope.remaining_count or 1), 1)
+    average = remaining_amount / remaining_count
+    reserve = max(remaining_amount - (remaining_count - 1), 1)
+    upper = max(min(int(average * 2), reserve), 1)
+    return random.randint(1, upper)
 
 
 def claim_red_envelope_for_user(envelope_id: int, tg: int) -> dict[str, Any]:
     with Session() as session:
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+        if profile is None or not profile.consented:
+            raise ValueError("你还没有踏入仙途")
+        assert_profile_alive(profile, "领取红包")
+        assert_currency_operation_allowed(tg, "领取红包", session=session, profile=profile)
         envelope = session.query(XiuxianRedEnvelope).filter(XiuxianRedEnvelope.id == envelope_id).with_for_update().first()
         if envelope is None or envelope.status != "active":
             raise ValueError("红包不存在或已领完")
@@ -1577,13 +1778,25 @@ def claim_red_envelope_for_user(envelope_id: int, tg: int) -> dict[str, Any]:
         envelope.updated_at = utcnow()
         session.add(XiuxianRedEnvelopeClaim(envelope_id=envelope_id, tg=tg, amount=amount))
         session.commit()
-    profile = get_profile(tg, create=False)
-    updated = upsert_profile(tg, spiritual_stone=int(profile.spiritual_stone or 0) + amount)
+    with Session() as session:
+        updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+        if updated is None or not updated.consented:
+            raise ValueError("你还没有踏入仙途")
+        apply_spiritual_stone_delta(
+            session,
+            tg,
+            amount,
+            action_text="领取红包",
+            enforce_currency_lock=True,
+            allow_dead=False,
+            apply_tribute=True,
+        )
+        session.commit()
     create_journal(tg, "red_envelope", "领取红包", f"领取了 {amount} 灵石红包")
     return {
         "envelope": serialize_red_envelope(get_red_envelope(envelope_id)),
         "amount": amount,
-        "profile": serialize_profile(updated),
+        "profile": serialize_full_profile(tg)["profile"],
         "claims": list_red_envelope_claims(envelope_id),
     }
 
@@ -1595,17 +1808,31 @@ def gift_spirit_stone(sender_tg: int, target_tg: int, amount: int) -> dict[str, 
     if amount <= 0:
         raise ValueError("赠送灵石数量必须大于 0")
 
+    _require_alive_profile_data(sender_tg, "赠送灵石")
+    _require_alive_profile_data(target_tg, "接收灵石")
     with Session() as session:
         sender = session.query(XiuxianProfile).filter(XiuxianProfile.tg == sender_tg).with_for_update().first()
         receiver = session.query(XiuxianProfile).filter(XiuxianProfile.tg == target_tg).with_for_update().first()
         if sender is None or receiver is None or not sender.consented or not receiver.consented:
             raise ValueError("双方都需要已踏入仙途")
-        if int(sender.spiritual_stone or 0) < amount:
-            raise ValueError("你的灵石不足")
-        sender.spiritual_stone -= amount
-        receiver.spiritual_stone += amount
-        sender.updated_at = utcnow()
-        receiver.updated_at = utcnow()
+        assert_currency_operation_allowed(sender_tg, "赠送灵石", session=session, profile=sender)
+        assert_currency_operation_allowed(target_tg, "接收灵石", session=session, profile=receiver)
+        apply_spiritual_stone_delta(
+            session,
+            sender_tg,
+            -amount,
+            action_text="赠送灵石",
+            allow_dead=False,
+            apply_tribute=False,
+        )
+        apply_spiritual_stone_delta(
+            session,
+            target_tg,
+            amount,
+            action_text="接收灵石",
+            allow_dead=False,
+            apply_tribute=True,
+        )
         session.commit()
 
     create_journal(sender_tg, "gift", "赠送灵石", f"向 TG {target_tg} 赠送了 {amount} 灵石")
@@ -1628,10 +1855,12 @@ def reset_robbery_counter_if_needed(profile_obj: XiuxianProfile) -> XiuxianProfi
 def rob_player(attacker_tg: int, defender_tg: int, success_hint: float = 0.5) -> dict[str, Any]:
     if attacker_tg == defender_tg:
         raise ValueError("不能抢劫自己")
-    attacker_obj = reset_robbery_counter_if_needed(get_profile(attacker_tg, create=False))
-    defender_obj = get_profile(defender_tg, create=False)
+    attacker_obj = reset_robbery_counter_if_needed(_require_alive_profile_data(attacker_tg, "发起抢劫")[0])
+    defender_obj = _require_alive_profile_data(defender_tg, "被抢劫")[0]
     if attacker_obj is None or defender_obj is None or not attacker_obj.consented or not defender_obj.consented:
         raise ValueError("双方都需要已踏入仙途")
+    if get_active_duel_lock(attacker_tg) or get_active_duel_lock(defender_tg):
+        raise ValueError("斗法结算期间无法发起或响应抢劫。")
     settings = get_xiuxian_settings()
     if int(attacker_obj.robbery_daily_count or 0) >= int(settings.get("robbery_daily_limit", DEFAULT_SETTINGS["robbery_daily_limit"]) or 0):
         raise ValueError("今日抢劫次数已用完")
@@ -1650,13 +1879,17 @@ def rob_player(attacker_tg: int, defender_tg: int, success_hint: float = 0.5) ->
     artifact_plunder = None
     if success:
         amount = max(min(steal_cap, max(int(defender_obj.spiritual_stone or 0) // 6, 20)), 0)
-        attacker_updated = upsert_profile(
-            attacker_tg,
-            spiritual_stone=int(attacker_obj.spiritual_stone or 0) + amount,
-            robbery_daily_count=int(attacker_obj.robbery_daily_count or 0) + 1,
-            robbery_day_key=china_day_key(),
-        )
-        defender_updated = upsert_profile(defender_tg, spiritual_stone=max(int(defender_obj.spiritual_stone or 0) - amount, 0))
+        with Session() as session:
+            attacker_updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == attacker_tg).with_for_update().first()
+            defender_updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == defender_tg).with_for_update().first()
+            if attacker_updated is None or defender_updated is None:
+                raise ValueError("双方都需要已踏入仙途")
+            apply_spiritual_stone_delta(session, defender_tg, -amount, action_text="被抢劫", allow_dead=False, apply_tribute=False)
+            apply_spiritual_stone_delta(session, attacker_tg, amount, action_text="抢劫得手", allow_dead=False, apply_tribute=True)
+            attacker_updated.robbery_daily_count = int(attacker_updated.robbery_daily_count or 0) + 1
+            attacker_updated.robbery_day_key = china_day_key()
+            attacker_updated.updated_at = utcnow()
+            session.commit()
         artifact_roll = roll_probability_percent(
             int(settings.get("artifact_plunder_chance", DEFAULT_SETTINGS["artifact_plunder_chance"]) or 0),
             actor_fortune=float(duel["challenger_snapshot"]["stats"]["fortune"]),
@@ -1682,20 +1915,24 @@ def rob_player(attacker_tg: int, defender_tg: int, success_hint: float = 0.5) ->
     else:
         penalty = max(min(int(attacker_obj.spiritual_stone or 0) // 20, 30), 5)
         amount = -penalty
-        attacker_updated = upsert_profile(
-            attacker_tg,
-            spiritual_stone=max(int(attacker_obj.spiritual_stone or 0) - penalty, 0),
-            robbery_daily_count=int(attacker_obj.robbery_daily_count or 0) + 1,
-            robbery_day_key=china_day_key(),
-        )
-        defender_updated = upsert_profile(defender_tg, spiritual_stone=int(defender_obj.spiritual_stone or 0) + penalty)
+        with Session() as session:
+            attacker_updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == attacker_tg).with_for_update().first()
+            defender_updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == defender_tg).with_for_update().first()
+            if attacker_updated is None or defender_updated is None:
+                raise ValueError("双方都需要已踏入仙途")
+            apply_spiritual_stone_delta(session, attacker_tg, -penalty, action_text="抢劫失败赔付", allow_dead=False, apply_tribute=False)
+            apply_spiritual_stone_delta(session, defender_tg, penalty, action_text="获得抢劫赔付", allow_dead=False, apply_tribute=True)
+            attacker_updated.robbery_daily_count = int(attacker_updated.robbery_daily_count or 0) + 1
+            attacker_updated.robbery_day_key = china_day_key()
+            attacker_updated.updated_at = utcnow()
+            session.commit()
     return {
         "success": success,
         "roll": round(roll, 4),
         "success_rate": round(rate, 4),
         "amount": amount,
-        "attacker": serialize_profile(attacker_updated),
-        "defender": serialize_profile(defender_updated),
+        "attacker": serialize_profile(get_profile(attacker_tg, create=False)),
+        "defender": serialize_profile(get_profile(defender_tg, create=False)),
         "artifact_plunder": artifact_plunder,
         "achievement_unlocks": record_robbery_metrics(attacker_tg, success=success, amount=max(amount, 0)),
     }
@@ -1722,9 +1959,9 @@ def place_duel_bet(pool_id: int, tg: int, side: str, amount: int) -> dict[str, A
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if profile is None or not profile.consented:
             raise ValueError("你还没有踏入仙途")
+        assert_profile_alive(profile, "下注")
+        assert_currency_operation_allowed(tg, "下注", session=session, profile=profile)
         amount = max(int(amount or 0), 1)
-        if int(profile.spiritual_stone or 0) < amount:
-            raise ValueError("灵石不足")
         bet = session.query(XiuxianDuelBet).filter(XiuxianDuelBet.pool_id == pool_id, XiuxianDuelBet.tg == tg).first()
         if bet is None:
             bet = XiuxianDuelBet(pool_id=pool_id, tg=tg, side=side, amount=0)
@@ -1732,8 +1969,7 @@ def place_duel_bet(pool_id: int, tg: int, side: str, amount: int) -> dict[str, A
         elif bet.side != side:
             raise ValueError("同一场斗法只能押注一方")
         bet.amount += amount
-        profile.spiritual_stone -= amount
-        profile.updated_at = utcnow()
+        apply_spiritual_stone_delta(session, tg, -amount, action_text="下注", allow_dead=False, apply_tribute=False)
         pool.updated_at = utcnow()
         session.commit()
         challenger_total = sum(int(row.amount or 0) for row in session.query(XiuxianDuelBet).filter(XiuxianDuelBet.pool_id == pool_id, XiuxianDuelBet.side == "challenger").all())
@@ -1764,8 +2000,7 @@ def settle_duel_bet_pool(pool_id: int, winner_tg: int) -> dict[str, Any]:
             total_back = int(bet.amount or 0) + bonus
             profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == bet.tg).with_for_update().first()
             if profile is not None:
-                profile.spiritual_stone += total_back
-                profile.updated_at = utcnow()
+                apply_spiritual_stone_delta(session, int(bet.tg), total_back, action_text="领取斗法押注返还", allow_dead=False, apply_tribute=True)
             entries.append(
                 {
                     "tg": int(bet.tg),
@@ -1831,8 +2066,7 @@ def cancel_duel_bet_pool(pool_id: int, reason: str = "") -> dict[str, Any]:
             refund_amount = max(int(bet.amount or 0), 0)
             profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == bet.tg).with_for_update().first()
             if profile is not None and refund_amount > 0:
-                profile.spiritual_stone = int(profile.spiritual_stone or 0) + refund_amount
-                profile.updated_at = utcnow()
+                apply_spiritual_stone_delta(session, int(bet.tg), refund_amount, action_text="退还斗法押注", allow_dead=False, apply_tribute=True)
             entries.append(
                 {
                     "tg": int(bet.tg),
@@ -1866,12 +2100,15 @@ def format_duel_bet_board(pool_id: int) -> str:
         remaining = max(int((pool.bets_close_at - utcnow()).total_seconds()), 0)
         from bot.plugins.xiuxian_game.service import compute_duel_odds, format_duel_matchup_text
 
-        duel = compute_duel_odds(int(pool.challenger_tg), int(pool.defender_tg))
+        duel_mode = str(pool.duel_mode or "standard")
+        duel = compute_duel_odds(int(pool.challenger_tg), int(pool.defender_tg), duel_mode=duel_mode)
+        duel_label = DUEL_MODE_LABELS.get(duel_mode, "斗法")
         lines = [
             format_duel_matchup_text(
                 duel,
                 stake=int(pool.stake or 0),
-                title="🎯 **斗法押注中**" if not pool.resolved else "🎯 **斗法押注已结束**",
+                title=f"🎯 **{duel_label}押注中**" if not pool.resolved else f"🎯 **{duel_label}押注已结束**",
+                duel_mode=duel_mode,
             ),
             "",
             "押注情况：",
@@ -2026,10 +2263,27 @@ def create_duel_bet_pool_for_duel(
     challenger_tg: int,
     defender_tg: int,
     stake: int,
+    duel_mode: str = "standard",
     bet_minutes: int | None = None,
     group_chat_id: int,
     duel_message_id: int | None = None,
 ) -> dict[str, Any]:
+    mode_aliases = {
+        "standard": "standard",
+        "normal": "standard",
+        "master": "master",
+        "slave": "master",
+        "servant": "master",
+        "主仆": "master",
+        "death": "death",
+        "dead": "death",
+        "生死": "death",
+    }
+    duel_mode_value = mode_aliases.get(str(duel_mode or "standard").strip().lower(), "standard")
+    for tg in (challenger_tg, defender_tg):
+        active_lock = get_active_duel_lock(tg)
+        if active_lock is not None:
+            raise ValueError(f"{active_lock['duel_mode_label']}尚未结算，暂时不能再次开启新的斗法。")
     settings = get_xiuxian_settings()
     configured_minutes = int(settings.get("duel_bet_minutes", DEFAULT_SETTINGS.get("duel_bet_minutes", 2)) or 2)
     minutes = max(min(int(bet_minutes or configured_minutes), 15), 1)
@@ -2053,6 +2307,7 @@ def create_duel_bet_pool_for_duel(
             stake=stake_amount,
             group_chat_id=group_chat_id,
             duel_message_id=duel_message_id,
+            duel_mode=duel_mode_value,
             bets_close_at=utcnow() + timedelta(minutes=minutes),
             resolved=False,
         )
@@ -2066,6 +2321,8 @@ def create_duel_bet_pool_for_duel(
             "stake": pool.stake,
             "group_chat_id": pool.group_chat_id,
             "bet_minutes": minutes,
+            "duel_mode": duel_mode_value,
+            "duel_mode_label": DUEL_MODE_LABELS.get(duel_mode_value, duel_mode_value),
             "bets_close_at": serialize_datetime(pool.bets_close_at),
         }
 

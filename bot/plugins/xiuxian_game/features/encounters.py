@@ -122,6 +122,48 @@ def maybe_spawn_group_encounter(chat_id: int) -> dict[str, Any] | None:
     return {"template": template, "instance": instance}
 
 
+def spawn_group_encounter(chat_id: int, template_id: int | None = None) -> dict[str, Any]:
+    if not int(chat_id or 0):
+        raise ValueError("缺少可投放的群聊 ID。")
+    _legacy_service().ensure_seed_data()
+    if find_active_group_encounter(int(chat_id)):
+        raise ValueError("当前群里已有未结束的奇遇，请等这桩机缘结算后再投放。")
+
+    template: dict[str, Any] | None = None
+    if int(template_id or 0) > 0:
+        template = next(
+            (
+                row
+                for row in sql_list_encounter_templates(enabled_only=False)
+                if int(row.get("id") or 0) == int(template_id)
+            ),
+            None,
+        )
+        if template is None:
+            raise ValueError("奇遇模板不存在。")
+        if not bool(template.get("enabled", True)):
+            raise ValueError("该奇遇模板未启用，无法手动投放。")
+    else:
+        template = _weighted_choice(list_encounter_templates(enabled_only=True))
+        if template is None:
+            raise ValueError("当前没有可投放的启用奇遇模板。")
+
+    settings = get_xiuxian_settings()
+    active_seconds = max(
+        int(template.get("active_seconds") or settings.get("encounter_active_seconds", DEFAULT_SETTINGS.get("encounter_active_seconds", 90)) or 90),
+        15,
+    )
+    instance = create_encounter_instance(
+        template_id=int(template.get("id") or 0) or None,
+        template_name=str(template.get("name") or "无名奇遇"),
+        group_chat_id=int(chat_id),
+        button_text=str(template.get("button_text") or "争抢机缘"),
+        reward_payload=_encounter_reward_payload(template),
+        expires_at=utcnow() + timedelta(seconds=active_seconds),
+    )
+    return {"template": template, "instance": instance}
+
+
 def mark_group_encounter_message(instance_id: int, message_id: int) -> dict[str, Any] | None:
     return patch_encounter_instance(instance_id, message_id=message_id)
 

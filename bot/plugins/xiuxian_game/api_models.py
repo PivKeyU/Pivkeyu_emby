@@ -177,6 +177,8 @@ class AdminSettingPayload(BaseModel):
     robbery_daily_limit: int | None = None
     robbery_max_steal: int | None = None
     high_quality_broadcast_level: int | None = None
+    slave_tribute_percent: int | None = None
+    slave_challenge_cooldown_hours: int | None = None
     root_quality_value_rules: dict[str, RootQualityRulePayload] | None = None
     exploration_drop_weight_rules: DropWeightRulePayload | None = None
     item_quality_value_rules: dict[str, ItemQualityValueRulePayload] | None = None
@@ -367,6 +369,11 @@ class SectPayload(BaseModel):
     min_comprehension: int = 0
     min_divine_sense: int = 0
     min_fortune: int = 0
+    min_willpower: int = 0
+    min_charisma: int = 0
+    min_karma: int = 0
+    min_body_movement: int = 0
+    min_combat_power: int = 0
     attack_bonus: int = 0
     defense_bonus: int = 0
     duel_rate_bonus: int = 0
@@ -488,6 +495,11 @@ class EncounterPayload(BaseModel):
     reward_charisma: int = 0
     reward_karma: int = 0
     enabled: bool = True
+
+
+class EncounterDispatchPayload(BaseModel):
+    template_id: int | None = None
+    group_chat_id: int | None = None
 
 
 class UploadPermissionPayload(BaseModel):

@@ -4,7 +4,13 @@ from math import floor
 
 from bot.sql_helper import Session
 from bot.sql_helper.sql_emby import Emby, sql_get_emby
-from bot.sql_helper.sql_xiuxian import XiuxianProfile, get_xiuxian_settings, utcnow
+from bot.sql_helper.sql_xiuxian import (
+    XiuxianProfile,
+    apply_spiritual_stone_delta,
+    assert_currency_operation_allowed,
+    get_xiuxian_settings,
+    utcnow,
+)
 
 
 def get_emby_balance(tg: int) -> int:
@@ -88,14 +94,20 @@ def convert_coin_to_stone(tg: int, coin_amount: int) -> dict:
         if int(user.iv or 0) < amount:
             raise ValueError("片刻碎片不足")
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
-        if profile is None:
-            profile = XiuxianProfile(tg=tg)
-            session.add(profile)
-            session.flush()
+        if profile is None or not profile.consented:
+            raise ValueError("你还没有踏入仙途")
+        assert_currency_operation_allowed(tg, "兑换灵石", session=session, profile=profile)
 
         user.iv = int(user.iv or 0) - amount
-        profile.spiritual_stone = int(profile.spiritual_stone or 0) + int(preview["net"])
-        profile.updated_at = utcnow()
+        apply_spiritual_stone_delta(
+            session,
+            tg,
+            int(preview["net"]),
+            action_text="兑换灵石",
+            enforce_currency_lock=False,
+            allow_dead=False,
+            apply_tribute=True,
+        )
         session.commit()
         emby_balance = int(user.iv or 0)
         stone_balance = int(profile.spiritual_stone or 0)
@@ -124,14 +136,24 @@ def convert_stone_to_coin(tg: int, stone_amount: int) -> dict:
 
     with Session() as session:
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
-        if profile is None or int(profile.spiritual_stone or 0) < int(preview["spent_stone"]):
+        if profile is None or not profile.consented:
+            raise ValueError("你还没有踏入仙途")
+        assert_currency_operation_allowed(tg, "兑换片刻碎片", session=session, profile=profile)
+        if int(profile.spiritual_stone or 0) < int(preview["spent_stone"]):
             raise ValueError("灵石不足")
         user = session.query(Emby).filter(Emby.tg == tg).with_for_update().first()
         if user is None:
             raise ValueError("Emby 账号不存在")
 
-        profile.spiritual_stone = int(profile.spiritual_stone or 0) - int(preview["spent_stone"])
-        profile.updated_at = utcnow()
+        apply_spiritual_stone_delta(
+            session,
+            tg,
+            -int(preview["spent_stone"]),
+            action_text="兑换片刻碎片",
+            enforce_currency_lock=False,
+            allow_dead=False,
+            apply_tribute=False,
+        )
         user.iv = int(user.iv or 0) + int(preview["net"])
         session.commit()
         new_coin_balance = int(user.iv or 0)

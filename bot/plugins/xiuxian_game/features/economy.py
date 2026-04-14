@@ -5,10 +5,12 @@ from typing import Any
 from bot.sql_helper import Session
 from bot.sql_helper.sql_xiuxian import (
     XiuxianProfile,
+    apply_spiritual_stone_delta,
+    assert_currency_operation_allowed,
+    assert_profile_alive,
     create_journal,
     get_profile,
     serialize_profile,
-    utcnow,
 )
 from bot.plugins.xiuxian_game.achievement_service import record_gift_metrics
 from bot.plugins.xiuxian_game.features.retreat import ensure_not_in_retreat
@@ -28,12 +30,26 @@ def gift_spirit_stone(sender_tg: int, target_tg: int, amount: int) -> dict[str, 
         receiver = session.query(XiuxianProfile).filter(XiuxianProfile.tg == target_tg).with_for_update().first()
         if sender is None or receiver is None or not sender.consented or not receiver.consented:
             raise ValueError("双方都需要已踏入仙途")
-        if int(sender.spiritual_stone or 0) < amount:
-            raise ValueError("你的灵石不足")
-        sender.spiritual_stone -= amount
-        receiver.spiritual_stone += amount
-        sender.updated_at = utcnow()
-        receiver.updated_at = utcnow()
+        assert_profile_alive(sender, "赠送灵石")
+        assert_profile_alive(receiver, "接收灵石")
+        assert_currency_operation_allowed(sender_tg, "赠送灵石", session=session, profile=sender)
+        assert_currency_operation_allowed(target_tg, "接收灵石", session=session, profile=receiver)
+        apply_spiritual_stone_delta(
+            session,
+            sender_tg,
+            -amount,
+            action_text="赠送灵石",
+            allow_dead=False,
+            apply_tribute=False,
+        )
+        apply_spiritual_stone_delta(
+            session,
+            target_tg,
+            amount,
+            action_text="接收灵石",
+            allow_dead=False,
+            apply_tribute=True,
+        )
         session.commit()
 
     create_journal(sender_tg, "gift", "赠送灵石", f"向 TG {target_tg} 赠送了 {amount} 灵石")
@@ -44,4 +60,3 @@ def gift_spirit_stone(sender_tg: int, target_tg: int, amount: int) -> dict[str, 
         "receiver": serialize_profile(get_profile(target_tg, create=False)),
         "achievement_unlocks": record_gift_metrics(sender_tg, amount),
     }
-

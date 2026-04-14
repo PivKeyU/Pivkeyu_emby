@@ -41,6 +41,11 @@ ITEM_KIND_LABELS = {
     "technique": "功法",
     "recipe": "配方",
 }
+DUEL_MODE_LABELS = {
+    "standard": "普通斗法",
+    "master": "主仆对决",
+    "death": "生死斗",
+}
 ARTIFACT_TYPE_LABELS = {
     "battle": "战斗法宝",
     "support": "辅助法宝",
@@ -186,6 +191,10 @@ DEFAULT_SETTINGS = {
     "encounter_spawn_chance": 5,
     "encounter_group_cooldown_minutes": 12,
     "encounter_active_seconds": 90,
+    "slave_tribute_percent": 20,
+    "slave_challenge_cooldown_hours": 24,
+    "sect_salary_min_stay_days": 30,
+    "sect_betrayal_cooldown_days": 7,
 }
 DEFAULT_SETTINGS["duel_bet_minutes"] = 2
 
@@ -301,6 +310,20 @@ ATTRIBUTE_LABELS = {
     "body_movement_bonus": "身法",
     "attack_bonus": "攻击",
     "defense_bonus": "防御",
+}
+ATTRIBUTE_EFFECT_HINTS = {
+    "bone": "影响吐纳收益、丹毒抗性与气血底子",
+    "comprehension": "影响吐纳收益、炼制与突破把握",
+    "divine_sense": "影响秘境判断、掉落权重与斗法洞察",
+    "fortune": "影响奇遇、夺宝与高品质掉落",
+    "willpower": "影响突破成功率与持久战韧性",
+    "charisma": "影响坊市广播折扣与部分身份门槛",
+    "karma": "影响高风险机缘与斗法综合评价",
+    "qi_blood": "影响斗法耐久上限",
+    "true_yuan": "影响斗法技能续航",
+    "body_movement": "影响斗法闪避与身法门槛",
+    "attack_power": "影响斗法输出",
+    "defense_power": "影响斗法承伤",
 }
 ROOT_QUALITY_LEVELS = {
     "废灵根": 1,
@@ -431,6 +454,13 @@ class XiuxianProfile(Base):
     sect_id = Column(Integer, nullable=True)
     sect_role_key = Column(String(32), nullable=True)
     last_salary_claim_at = Column(DateTime, nullable=True)
+    sect_joined_at = Column(DateTime, nullable=True)
+    sect_betrayal_until = Column(DateTime, nullable=True)
+    master_tg = Column(BigInteger, nullable=True)
+    servitude_started_at = Column(DateTime, nullable=True)
+    servitude_challenge_available_at = Column(DateTime, nullable=True)
+    death_at = Column(DateTime, nullable=True)
+    rebirth_count = Column(Integer, default=0, nullable=False)
     robbery_daily_count = Column(Integer, default=0, nullable=False)
     robbery_day_key = Column(String(16), nullable=True)
     current_artifact_id = Column(Integer, nullable=True)
@@ -560,6 +590,11 @@ class XiuxianSect(Base):
     min_comprehension = Column(Integer, default=0, nullable=False)
     min_divine_sense = Column(Integer, default=0, nullable=False)
     min_fortune = Column(Integer, default=0, nullable=False)
+    min_willpower = Column(Integer, default=0, nullable=False)
+    min_charisma = Column(Integer, default=0, nullable=False)
+    min_karma = Column(Integer, default=0, nullable=False)
+    min_body_movement = Column(Integer, default=0, nullable=False)
+    min_combat_power = Column(Integer, default=0, nullable=False)
     attack_bonus = Column(Integer, default=0, nullable=False)
     defense_bonus = Column(Integer, default=0, nullable=False)
     duel_rate_bonus = Column(Integer, default=0, nullable=False)
@@ -844,6 +879,7 @@ class XiuxianDuelBetPool(Base):
     group_chat_id = Column(BigInteger, nullable=False)
     duel_message_id = Column(Integer, nullable=True)
     bet_message_id = Column(Integer, nullable=True)
+    duel_mode = Column(String(16), default="standard", nullable=False)
     bets_close_at = Column(DateTime, nullable=False)
     resolved = Column(Boolean, default=False, nullable=False)
     winner_tg = Column(BigInteger, nullable=True)
@@ -1092,6 +1128,7 @@ class XiuxianDuelRecord(Base):
     defender_tg = Column(BigInteger, nullable=False)
     winner_tg = Column(BigInteger, nullable=False)
     loser_tg = Column(BigInteger, nullable=False)
+    duel_mode = Column(String(16), default="standard", nullable=False)
     challenger_rate = Column(Integer, default=500, nullable=False)
     defender_rate = Column(Integer, default=500, nullable=False)
     summary = Column(Text, nullable=True)
@@ -1149,6 +1186,13 @@ def serialize_profile(profile: XiuxianProfile | None) -> dict[str, Any] | None:
         "sect_role_key": profile.sect_role_key,
         "sect_role_label": SECT_ROLE_LABELS.get(profile.sect_role_key or "", profile.sect_role_key),
         "last_salary_claim_at": serialize_datetime(profile.last_salary_claim_at),
+        "sect_joined_at": serialize_datetime(profile.sect_joined_at),
+        "sect_betrayal_until": serialize_datetime(profile.sect_betrayal_until),
+        "master_tg": profile.master_tg,
+        "servitude_started_at": serialize_datetime(profile.servitude_started_at),
+        "servitude_challenge_available_at": serialize_datetime(profile.servitude_challenge_available_at),
+        "death_at": serialize_datetime(profile.death_at),
+        "rebirth_count": int(profile.rebirth_count or 0),
         "robbery_daily_count": profile.robbery_daily_count,
         "robbery_day_key": profile.robbery_day_key,
         "current_artifact_id": profile.current_artifact_id,
@@ -1295,6 +1339,11 @@ def serialize_sect(sect: XiuxianSect | None) -> dict[str, Any] | None:
         "min_comprehension": sect.min_comprehension,
         "min_divine_sense": sect.min_divine_sense,
         "min_fortune": sect.min_fortune,
+        "min_willpower": sect.min_willpower,
+        "min_charisma": sect.min_charisma,
+        "min_karma": sect.min_karma,
+        "min_body_movement": sect.min_body_movement,
+        "min_combat_power": int(sect.min_combat_power or 0),
         "attack_bonus": sect.attack_bonus,
         "defense_bonus": sect.defense_bonus,
         "duel_rate_bonus": sect.duel_rate_bonus,
@@ -1875,6 +1924,134 @@ def upsert_profile(tg: int, **fields) -> XiuxianProfile:
         return profile
 
 
+def is_profile_dead(profile: XiuxianProfile | dict[str, Any] | None) -> bool:
+    if profile is None:
+        return False
+    if isinstance(profile, dict):
+        return bool(profile.get("death_at"))
+    return profile.death_at is not None
+
+
+def assert_profile_alive(profile: XiuxianProfile | dict[str, Any] | None, action_text: str = "继续行动") -> None:
+    if is_profile_dead(profile):
+        raise ValueError(f"你已身死道消，无法{action_text}，只能重新踏出仙途。")
+
+
+def _active_duel_pool_row(
+    session: Session,
+    tg: int,
+    *,
+    for_update: bool = False,
+) -> XiuxianDuelBetPool | None:
+    query = session.query(XiuxianDuelBetPool).filter(
+        XiuxianDuelBetPool.resolved.is_(False),
+        or_(XiuxianDuelBetPool.challenger_tg == tg, XiuxianDuelBetPool.defender_tg == tg),
+    )
+    if for_update:
+        query = query.with_for_update()
+    return query.order_by(XiuxianDuelBetPool.id.desc()).first()
+
+
+def get_active_duel_lock(tg: int) -> dict[str, Any] | None:
+    with Session() as session:
+        row = _active_duel_pool_row(session, tg, for_update=False)
+        if row is None:
+            return None
+        return {
+            "pool_id": int(row.id),
+            "duel_mode": str(row.duel_mode or "standard"),
+            "duel_mode_label": DUEL_MODE_LABELS.get(str(row.duel_mode or "standard"), str(row.duel_mode or "standard")),
+            "challenger_tg": int(row.challenger_tg),
+            "defender_tg": int(row.defender_tg),
+            "bets_close_at": serialize_datetime(row.bets_close_at),
+        }
+
+
+def assert_currency_operation_allowed(
+    tg: int,
+    action_text: str = "进行灵石操作",
+    *,
+    session: Session | None = None,
+    profile: XiuxianProfile | None = None,
+) -> None:
+    own_session = session is None
+    active_session = session or Session()
+    try:
+        profile_row = profile
+        if profile_row is None:
+            query = active_session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg)
+            if not own_session:
+                query = query.with_for_update()
+            profile_row = query.first()
+        assert_profile_alive(profile_row, action_text)
+        active_duel = _active_duel_pool_row(active_session, tg, for_update=not own_session)
+        if active_duel is not None:
+            duel_mode = str(active_duel.duel_mode or "standard")
+            raise ValueError(f"{DUEL_MODE_LABELS.get(duel_mode, '斗法')}结算前，禁止{action_text}。")
+    finally:
+        if own_session:
+            active_session.close()
+
+
+def _clear_servitude_fields(profile: XiuxianProfile) -> None:
+    profile.master_tg = None
+    profile.servitude_started_at = None
+    profile.servitude_challenge_available_at = None
+
+
+def apply_spiritual_stone_delta(
+    session: Session,
+    tg: int,
+    delta: int,
+    *,
+    action_text: str = "进行灵石操作",
+    enforce_currency_lock: bool = False,
+    allow_create: bool = False,
+    allow_dead: bool = False,
+    apply_tribute: bool = True,
+) -> dict[str, Any]:
+    amount = int(delta or 0)
+    profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+    if profile is None:
+        if not allow_create:
+            raise ValueError("你还没有踏入仙途")
+        profile = XiuxianProfile(tg=tg)
+        session.add(profile)
+        session.flush()
+    if not allow_dead:
+        assert_profile_alive(profile, action_text)
+    if enforce_currency_lock and profile.consented:
+        assert_currency_operation_allowed(tg, action_text, session=session, profile=profile)
+
+    current = int(profile.spiritual_stone or 0)
+    tribute_amount = 0
+    tribute_master = None
+    if amount < 0 and current + amount < 0:
+        raise ValueError("灵石不足")
+
+    if amount > 0 and apply_tribute and profile.consented and profile.master_tg:
+        master = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(profile.master_tg)).with_for_update().first()
+        if master is None or not master.consented or master.death_at is not None or int(master.tg) == int(profile.tg):
+            _clear_servitude_fields(profile)
+        else:
+            settings = get_xiuxian_settings()
+            tribute_percent = max(min(int(settings.get("slave_tribute_percent", DEFAULT_SETTINGS.get("slave_tribute_percent", 20)) or 0), 100), 0)
+            tribute_amount = min(amount, amount * tribute_percent // 100)
+            if tribute_amount > 0:
+                master.spiritual_stone = int(master.spiritual_stone or 0) + tribute_amount
+                master.updated_at = utcnow()
+                tribute_master = master
+
+    profile.spiritual_stone = max(current + amount - tribute_amount, 0)
+    profile.updated_at = utcnow()
+    return {
+        "profile": profile,
+        "tribute_amount": tribute_amount,
+        "tribute_master": tribute_master,
+        "net_delta": amount - tribute_amount,
+    }
+
+
 def get_artifact(artifact_id: int) -> XiuxianArtifact | None:
     with Session() as session:
         return session.query(XiuxianArtifact).filter(XiuxianArtifact.id == artifact_id).first()
@@ -2316,6 +2493,11 @@ def _normalize_sect_fields(fields: dict[str, Any]) -> dict[str, Any]:
         "min_comprehension": max(_coerce_int(fields.get("min_comprehension"), 0), 0),
         "min_divine_sense": max(_coerce_int(fields.get("min_divine_sense"), 0), 0),
         "min_fortune": max(_coerce_int(fields.get("min_fortune"), 0), 0),
+        "min_willpower": max(_coerce_int(fields.get("min_willpower"), 0), 0),
+        "min_charisma": max(_coerce_int(fields.get("min_charisma"), 0), 0),
+        "min_karma": max(_coerce_int(fields.get("min_karma"), 0), 0),
+        "min_body_movement": max(_coerce_int(fields.get("min_body_movement"), 0), 0),
+        "min_combat_power": max(_coerce_int(fields.get("min_combat_power"), 0), 0),
         "attack_bonus": _coerce_int(fields.get("attack_bonus"), 0),
         "defense_bonus": _coerce_int(fields.get("defense_bonus"), 0),
         "duel_rate_bonus": _coerce_int(fields.get("duel_rate_bonus"), 0),
@@ -3584,6 +3766,7 @@ def create_duel_record(
     challenger_rate: int,
     defender_rate: int,
     summary: str,
+    duel_mode: str = "standard",
     battle_log: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     with Session() as session:
@@ -3592,6 +3775,7 @@ def create_duel_record(
             defender_tg=defender_tg,
             winner_tg=winner_tg,
             loser_tg=loser_tg,
+            duel_mode=str(duel_mode or "standard"),
             challenger_rate=challenger_rate,
             defender_rate=defender_rate,
             summary=summary,
@@ -3606,6 +3790,7 @@ def create_duel_record(
             "defender_tg": record.defender_tg,
             "winner_tg": record.winner_tg,
             "loser_tg": record.loser_tg,
+            "duel_mode": record.duel_mode,
             "challenger_rate": record.challenger_rate,
             "defender_rate": record.defender_rate,
             "summary": record.summary,
@@ -3651,6 +3836,20 @@ def get_emby_account(tg: int) -> dict[str, Any] | None:
 def list_profiles() -> list[XiuxianProfile]:
     with Session() as session:
         return session.query(XiuxianProfile).filter(XiuxianProfile.consented.is_(True)).all()
+
+
+def list_slave_profiles(master_tg: int) -> list[dict[str, Any]]:
+    with Session() as session:
+        rows = (
+            session.query(XiuxianProfile)
+            .filter(
+                XiuxianProfile.master_tg == int(master_tg),
+                XiuxianProfile.consented.is_(True),
+            )
+            .order_by(XiuxianProfile.updated_at.desc(), XiuxianProfile.tg.asc())
+            .all()
+        )
+        return [serialize_profile(row) for row in rows]
 
 
 def search_profiles(

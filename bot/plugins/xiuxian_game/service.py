@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import random
-from datetime import timedelta
+from datetime import datetime, timedelta
 from math import ceil
 from typing import Any
 
@@ -15,6 +15,7 @@ from pykeyboard import InlineButton, InlineKeyboard
 from pyromod.helpers import ikb
 
 from bot import api as api_config
+from bot.sql_helper import Session
 from bot.func_helper.emby_currency import (
     convert_coin_to_stone,
     convert_stone_to_coin,
@@ -23,7 +24,9 @@ from bot.func_helper.emby_currency import (
 )
 from bot.sql_helper.sql_xiuxian import (
     ATTRIBUTE_LABELS,
+    ATTRIBUTE_EFFECT_HINTS,
     DEFAULT_SETTINGS,
+    DUEL_MODE_LABELS,
     ELEMENT_CONTROLS,
     ELEMENT_GENERATES,
     FIVE_ELEMENTS,
@@ -33,7 +36,10 @@ from bot.sql_helper.sql_xiuxian import (
     ROOT_QUALITY_COLORS,
     ROOT_QUALITY_LEVELS,
     ROOT_VARIANT_ELEMENTS,
+    apply_spiritual_stone_delta,
     admin_patch_profile,
+    assert_currency_operation_allowed,
+    assert_profile_alive,
     bind_user_artifact,
     bind_user_talisman,
     create_journal,
@@ -60,6 +66,7 @@ from bot.sql_helper.sql_xiuxian import (
     grant_technique_to_user,
     list_artifacts,
     list_artifact_sets,
+    list_slave_profiles,
     list_equipped_artifacts,
     list_materials,
     list_pills,
@@ -85,6 +92,7 @@ from bot.sql_helper.sql_xiuxian import (
     serialize_profile,
     serialize_technique,
     serialize_talisman,
+    get_active_duel_lock,
     set_current_technique,
     set_current_title,
     set_active_talisman,
@@ -111,6 +119,14 @@ from bot.sql_helper.sql_xiuxian import (
     unbind_user_talisman,
     update_shop_item,
     upsert_profile,
+    XiuxianProfile,
+    XiuxianArtifactInventory,
+    XiuxianEquippedArtifact,
+    XiuxianMaterialInventory,
+    XiuxianPillInventory,
+    XiuxianTalismanInventory,
+    XiuxianUserRecipe,
+    XiuxianUserTechnique,
     use_user_artifact_listing_stock,
     use_user_material_listing_stock,
     use_user_pill_listing_stock,
@@ -3069,11 +3085,17 @@ def leaderboard_keyboard(kind: str, page: int, total_pages: int) -> InlineKeyboa
     return keyboard
 
 
-def duel_keyboard(challenger_tg: int, defender_tg: int, stake: int, bet_minutes: int) -> InlineKeyboard:
+def duel_keyboard(challenger_tg: int, defender_tg: int, stake: int, bet_minutes: int, duel_mode: str = "standard") -> InlineKeyboard:
+    mode = _normalize_duel_mode(duel_mode)
+    accept_label = {
+        "standard": "🟢 接受斗法",
+        "master": "⛓️ 接下名帖",
+        "death": "☠️ 立下血契",
+    }.get(mode, "🟢 接受斗法")
     return ikb(
         [[
-            ("接受斗法", f"xiuxian:duel:accept:{challenger_tg}:{defender_tg}:{stake}:{bet_minutes}"),
-            ("拒绝斗法", f"xiuxian:duel:reject:{challenger_tg}:{defender_tg}:{stake}:{bet_minutes}"),
+            (accept_label, f"xiuxian:duel:accept:{mode}:{challenger_tg}:{defender_tg}:{stake}:{bet_minutes}"),
+            ("🚫 拒绝", f"xiuxian:duel:reject:{mode}:{challenger_tg}:{defender_tg}:{stake}:{bet_minutes}"),
         ]]
     )
 
@@ -3144,6 +3166,11 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         current_title["resolved_effects"] = resolve_title_effects(profile_data, current_title)
     profile_data["current_title_name"] = (current_title or {}).get("name")
     profile_data["display_name_with_title"] = _profile_name_with_title(profile_data, current_title)
+    profile_data["is_dead"] = bool(profile_data.get("death_at"))
+    master_profile = serialize_profile(get_profile(int(profile_data["master_tg"]), create=False)) if profile_data.get("master_tg") else None
+    slave_profiles = list_slave_profiles(tg)
+    profile_data["master_name"] = (master_profile or {}).get("display_label")
+    profile_data["slave_names"] = [item.get("display_label") or f"TG {item.get('tg')}" for item in slave_profiles]
 
     artifact_set_bundle = _resolve_active_artifact_sets(equipped)
     artifacts = build_user_artifact_rows(profile_data, tg, retreating, equip_limit, equipped_ids, equipped_slot_names)
@@ -3208,18 +3235,49 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         "official_shop_name": str(xiuxian_settings.get("official_shop_name", DEFAULT_SETTINGS["official_shop_name"]) or DEFAULT_SETTINGS["official_shop_name"]),
         "allow_user_task_publish": bool(xiuxian_settings.get("allow_user_task_publish", DEFAULT_SETTINGS["allow_user_task_publish"])),
         "task_publish_cost": max(int(xiuxian_settings.get("task_publish_cost", DEFAULT_SETTINGS["task_publish_cost"]) or 0), 0),
+        "slave_tribute_percent": max(int(xiuxian_settings.get("slave_tribute_percent", DEFAULT_SETTINGS["slave_tribute_percent"]) or 0), 0),
+        "slave_challenge_cooldown_hours": max(int(xiuxian_settings.get("slave_challenge_cooldown_hours", DEFAULT_SETTINGS["slave_challenge_cooldown_hours"]) or 0), 1),
     }
+    active_duel_lock = get_active_duel_lock(tg)
+    attribute_effects = [
+        {
+            "key": key,
+            "label": label,
+            "value": int(profile_data.get(key) or 0),
+            "effective_value": int(profile_data.get(key) or 0),
+            "effect": ATTRIBUTE_EFFECT_HINTS.get(key, ""),
+        }
+        for key, label in (
+            ("bone", "根骨"),
+            ("comprehension", "悟性"),
+            ("divine_sense", "神识"),
+            ("fortune", "机缘"),
+            ("willpower", "心志"),
+            ("charisma", "魅力"),
+            ("karma", "因果"),
+            ("qi_blood", "气血"),
+            ("true_yuan", "真元"),
+            ("body_movement", "身法"),
+            ("attack_power", "攻击"),
+            ("defense_power", "防御"),
+        )
+    ]
 
     capabilities = {
-        "can_train": profile_data["consented"] and not retreating and not is_same_china_day(profile.last_train_at, utcnow()),
-        "train_reason": "" if not retreating and not is_same_china_day(profile.last_train_at, utcnow()) else ("闭关期间无法吐纳修炼" if retreating else "今日已经完成过吐纳修炼了"),
-        "can_breakthrough": profile_data["consented"] and not retreating and int(profile_data["realm_layer"] or 0) >= 9 and bool(progress["breakthrough_ready"]),
-        "breakthrough_reason": "" if not retreating and int(profile_data["realm_layer"] or 0) >= 9 and progress["breakthrough_ready"] else ("闭关期间无法突破" if retreating else "只有达到当前境界九层且满修为后才能突破"),
-        "can_retreat": profile_data["consented"] and not retreating,
-        "retreat_reason": "" if not retreating else "你正在闭关中",
+        "can_train": profile_data["consented"] and not profile_data["is_dead"] and not retreating and not is_same_china_day(profile.last_train_at, utcnow()),
+        "train_reason": "角色已死亡，只能重新踏出仙途" if profile_data["is_dead"] else ("" if not retreating and not is_same_china_day(profile.last_train_at, utcnow()) else ("闭关期间无法吐纳修炼" if retreating else "今日已经完成过吐纳修炼了")),
+        "can_breakthrough": profile_data["consented"] and not profile_data["is_dead"] and not retreating and int(profile_data["realm_layer"] or 0) >= 9 and bool(progress["breakthrough_ready"]),
+        "breakthrough_reason": "角色已死亡，只能重新踏出仙途" if profile_data["is_dead"] else ("" if not retreating and int(profile_data["realm_layer"] or 0) >= 9 and progress["breakthrough_ready"] else ("闭关期间无法突破" if retreating else "只有达到当前境界九层且满修为后才能突破")),
+        "can_retreat": profile_data["consented"] and not profile_data["is_dead"] and not retreating,
+        "retreat_reason": "角色已死亡，只能重新踏出仙途" if profile_data["is_dead"] else ("" if not retreating else "你正在闭关中"),
         "is_in_retreat": retreating,
+        "is_dead": profile_data["is_dead"],
+        "death_reason": "角色已死亡，只能重新踏出仙途" if profile_data["is_dead"] else "",
         "artifact_equip_limit": equip_limit,
         "equipped_artifact_count": len(equipped),
+        "duel_locked": bool(active_duel_lock),
+        "duel_lock": active_duel_lock,
+        "duel_lock_reason": "" if not active_duel_lock else f"{active_duel_lock['duel_mode_label']}结算前，禁止灵石与交易操作",
     }
 
     return {
@@ -3244,6 +3302,9 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         "achievement_metric_progress": achievement_overview.get("metric_progress") or {},
         "achievement_unlocked_count": int(achievement_overview.get("unlocked_count") or 0),
         "achievement_total_count": int(achievement_overview.get("total_count") or 0),
+        "attribute_effects": attribute_effects,
+        "master_profile": master_profile,
+        "slave_profiles": slave_profiles,
         "settings": settings,
         "official_shop": list_shop_items(official_only=True),
         "community_shop": community_shop,
@@ -3259,11 +3320,17 @@ def _find_pill_in_inventory(tg: int, pill_type: str) -> dict[str, Any] | None:
     return None
 
 
+def _require_alive_profile_obj(tg: int, action_text: str) -> Any:
+    profile = get_profile(tg, create=False)
+    if profile is None or not profile.consented:
+        raise ValueError("你还没有踏入仙途。")
+    assert_profile_alive(profile, action_text)
+    return profile
+
+
 def equip_artifact_for_user(tg: int, artifact_id: int) -> dict[str, Any]:
     ensure_not_in_retreat(tg)
-    profile = serialize_profile(get_profile(tg, create=False))
-    if profile is None:
-        raise ValueError("你还没有踏入仙途。")
+    profile = serialize_profile(_require_alive_profile_obj(tg, "装备法宝"))
 
     owned = {row["artifact"]["id"] for row in list_user_artifacts(tg)}
     if artifact_id not in owned:
@@ -3286,9 +3353,7 @@ def equip_artifact_for_user(tg: int, artifact_id: int) -> dict[str, Any]:
 
 
 def bind_artifact_for_user(tg: int, artifact_id: int) -> dict[str, Any]:
-    profile_obj = get_profile(tg, create=False)
-    if profile_obj is None or not profile_obj.consented:
-        raise ValueError("你还没有踏入仙途。")
+    _require_alive_profile_obj(tg, "绑定法宝")
     artifact = get_artifact(artifact_id)
     if artifact is None:
         raise ValueError("未找到目标法宝。")
@@ -3301,9 +3366,7 @@ def bind_artifact_for_user(tg: int, artifact_id: int) -> dict[str, Any]:
 
 
 def unbind_artifact_for_user(tg: int, artifact_id: int) -> dict[str, Any]:
-    profile_obj = get_profile(tg, create=False)
-    if profile_obj is None or not profile_obj.consented:
-        raise ValueError("你还没有踏入仙途。")
+    _require_alive_profile_obj(tg, "解绑法宝")
     artifact = get_artifact(artifact_id)
     if artifact is None:
         raise ValueError("未找到目标法宝。")
@@ -3319,9 +3382,7 @@ def unbind_artifact_for_user(tg: int, artifact_id: int) -> dict[str, Any]:
 
 def activate_talisman_for_user(tg: int, talisman_id: int) -> dict[str, Any]:
     ensure_not_in_retreat(tg)
-    profile_obj = get_profile(tg, create=False)
-    if profile_obj is None or not profile_obj.consented:
-        raise ValueError("你还没有踏入仙途。")
+    profile_obj = _require_alive_profile_obj(tg, "启用符箓")
     if profile_obj.active_talisman_id:
         raise ValueError("你已经准备了一张符箓，需先消耗后才能再启用。")
 
@@ -3345,9 +3406,7 @@ def activate_talisman_for_user(tg: int, talisman_id: int) -> dict[str, Any]:
 
 
 def bind_talisman_for_user(tg: int, talisman_id: int) -> dict[str, Any]:
-    profile_obj = get_profile(tg, create=False)
-    if profile_obj is None or not profile_obj.consented:
-        raise ValueError("你还没有踏入仙途。")
+    _require_alive_profile_obj(tg, "绑定符箓")
     talisman = get_talisman(talisman_id)
     if talisman is None or not talisman.enabled:
         raise ValueError("未找到可用的符箓。")
@@ -3360,9 +3419,7 @@ def bind_talisman_for_user(tg: int, talisman_id: int) -> dict[str, Any]:
 
 
 def unbind_talisman_for_user(tg: int, talisman_id: int) -> dict[str, Any]:
-    profile_obj = get_profile(tg, create=False)
-    if profile_obj is None or not profile_obj.consented:
-        raise ValueError("你还没有踏入仙途。")
+    _require_alive_profile_obj(tg, "解绑符箓")
     talisman = get_talisman(talisman_id)
     if talisman is None or not talisman.enabled:
         raise ValueError("未找到可用的符箓。")
@@ -3378,9 +3435,7 @@ def unbind_talisman_for_user(tg: int, talisman_id: int) -> dict[str, Any]:
 
 def activate_technique_for_user(tg: int, technique_id: int) -> dict[str, Any]:
     ensure_seed_data()
-    profile_obj = get_profile(tg, create=False)
-    if profile_obj is None or not profile_obj.consented:
-        raise ValueError("你还没有踏入仙途。")
+    profile_obj = _require_alive_profile_obj(tg, "参悟功法")
     owned_ids = {
         int((row.get("technique") or {}).get("id") or 0)
         for row in list_user_techniques(tg, enabled_only=True)
@@ -3401,9 +3456,7 @@ def activate_technique_for_user(tg: int, technique_id: int) -> dict[str, Any]:
 
 
 def set_current_title_for_user(tg: int, title_id: int | None) -> dict[str, Any]:
-    profile_obj = get_profile(tg, create=False)
-    if profile_obj is None or not profile_obj.consented:
-        raise ValueError("你还没有踏入仙途。")
+    _require_alive_profile_obj(tg, "切换称号")
     title = set_current_title(tg, title_id)
     return {
         "title": title,
@@ -3412,9 +3465,8 @@ def set_current_title_for_user(tg: int, title_id: int | None) -> dict[str, Any]:
 
 
 def start_retreat_for_user(tg: int, hours: int) -> dict[str, Any]:
-    profile = get_profile(tg, create=False)
-    if profile is None or not profile.consented:
-        raise ValueError("你还没有踏入仙途。")
+    profile = _require_alive_profile_obj(tg, "开始闭关")
+    assert_currency_operation_allowed(tg, "开始闭关", profile=profile)
     if _is_retreating(profile):
         raise ValueError("你已经在闭关中。")
 
@@ -3444,10 +3496,9 @@ def start_retreat_for_user(tg: int, hours: int) -> dict[str, Any]:
 
 
 def finish_retreat_for_user(tg: int) -> dict[str, Any]:
+    profile = _require_alive_profile_obj(tg, "结束闭关")
+    assert_currency_operation_allowed(tg, "结束闭关", profile=profile)
     result = _settle_retreat_progress(tg)
-    profile = get_profile(tg, create=False)
-    if profile is None or not profile.consented:
-        raise ValueError("你还没有踏入仙途。")
     if result is None and not _is_retreating(profile):
         raise ValueError("你当前并未处于闭关状态。")
 
@@ -3476,11 +3527,10 @@ def create_personal_shop_listing(
     price_stone: int,
     broadcast: bool,
 ) -> dict[str, Any]:
-    profile = get_profile(tg, create=False)
-    if profile is None or not profile.consented:
-        raise ValueError("你还没有踏入仙途。")
+    profile = _require_alive_profile_obj(tg, "上架坊市")
     if _is_retreating(profile):
         raise ValueError("闭关期间无法上架个人商店。")
+    assert_currency_operation_allowed(tg, "上架坊市", profile=profile)
 
     item_name = ""
     if item_kind == "artifact":
@@ -3534,18 +3584,30 @@ def create_personal_shop_listing(
         is_official=False,
     )
 
-    updated = upsert_profile(
-        tg,
-        shop_name=resolved_shop_name,
-        shop_broadcast=bool(broadcast),
-        spiritual_stone=int(profile.spiritual_stone or 0) - (final_broadcast_cost if broadcast else 0),
-    )
+    with Session() as session:
+        updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+        if updated is None or not updated.consented:
+            raise ValueError("你还没有踏入仙途。")
+        if broadcast and final_broadcast_cost > 0:
+            apply_spiritual_stone_delta(
+                session,
+                tg,
+                -final_broadcast_cost,
+                action_text="支付坊市播报费用",
+                enforce_currency_lock=True,
+                allow_dead=False,
+                apply_tribute=False,
+            )
+        updated.shop_name = resolved_shop_name
+        updated.shop_broadcast = bool(broadcast)
+        updated.updated_at = utcnow()
+        session.commit()
 
     return {
         "listing": listing,
         "broadcast_cost": final_broadcast_cost if broadcast else 0,
         "broadcast_discount": charisma_discount if broadcast else 0,
-        "profile": serialize_profile(updated),
+        "profile": serialize_full_profile(tg),
     }
 
 
@@ -3648,6 +3710,24 @@ def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
                 0,
             ),
             100,
+        )
+    if "slave_tribute_percent" in patch and patch["slave_tribute_percent"] is not None:
+        patch["slave_tribute_percent"] = min(
+            _coerce_int(
+                patch["slave_tribute_percent"],
+                DEFAULT_SETTINGS["slave_tribute_percent"],
+                0,
+            ),
+            100,
+        )
+    if "slave_challenge_cooldown_hours" in patch and patch["slave_challenge_cooldown_hours"] is not None:
+        patch["slave_challenge_cooldown_hours"] = min(
+            _coerce_int(
+                patch["slave_challenge_cooldown_hours"],
+                DEFAULT_SETTINGS["slave_challenge_cooldown_hours"],
+                1,
+            ),
+            720,
         )
     if "message_auto_delete_seconds" in patch and patch["message_auto_delete_seconds"] is not None:
         patch["message_auto_delete_seconds"] = min(
@@ -4248,6 +4328,10 @@ def serialize_full_profile(tg: int) -> dict[str, Any]:
         for key, value in battle["stats"].items()
     }
     bundle["combat_power"] = int(round(battle["power"]))
+    for entry in bundle.get("attribute_effects") or []:
+        key = str(entry.get("key") or "")
+        if key in bundle["effective_stats"]:
+            entry["effective_value"] = int(bundle["effective_stats"].get(key) or 0)
     return bundle
 
 
@@ -4477,7 +4561,7 @@ def format_root(payload: dict[str, Any]) -> str:
 def init_path_for_user(tg: int) -> dict[str, Any]:
     ensure_seed_data()
     profile = get_profile(tg, create=True)
-    if profile and profile.consented:
+    if profile and profile.consented and profile.death_at is None:
         return serialize_full_profile(tg)
 
     root_payload = generate_root_payload()
@@ -4498,6 +4582,26 @@ def init_path_for_user(tg: int) -> dict[str, Any]:
         cultivation=0,
         spiritual_stone=50,
         dan_poison=0,
+        master_tg=None,
+        servitude_started_at=None,
+        servitude_challenge_available_at=None,
+        death_at=None,
+        rebirth_count=int(profile.rebirth_count or 0) + (1 if profile and profile.death_at is not None else 0),
+        sect_id=None,
+        sect_role_key=None,
+        sect_contribution=0,
+        sect_joined_at=None,
+        sect_betrayal_until=None,
+        current_artifact_id=None,
+        active_talisman_id=None,
+        current_technique_id=None,
+        current_title_id=None,
+        retreat_started_at=None,
+        retreat_end_at=None,
+        retreat_gain_per_minute=0,
+        retreat_cost_per_minute=0,
+        retreat_minutes_total=0,
+        retreat_minutes_resolved=0,
         shop_name="",
         shop_broadcast=False,
         **stats,
@@ -4506,9 +4610,7 @@ def init_path_for_user(tg: int) -> dict[str, Any]:
 
 
 def practice_for_user(tg: int) -> dict[str, Any]:
-    profile = get_profile(tg, create=False)
-    if profile is None or not profile.consented:
-        raise ValueError("你还没有踏入仙途。")
+    profile = _require_alive_profile_obj(tg, "吐纳修炼")
     if _is_retreating(profile):
         raise ValueError("闭关期间无法吐纳修炼。")
     if is_same_china_day(profile.last_train_at, utcnow()):
@@ -4531,13 +4633,16 @@ def practice_for_user(tg: int) -> dict[str, Any]:
     stone_gain = random.randint(2, 8) + int(stats["fortune"] // 18)
     stage = normalize_realm_stage(profile.realm_stage or "炼气")
     layer, cultivation, upgraded_layers, remaining = apply_cultivation_gain(stage, int(profile.realm_layer or 1), int(profile.cultivation or 0), gain)
-    updated = upsert_profile(
-        tg,
-        cultivation=cultivation,
-        spiritual_stone=int(profile.spiritual_stone or 0) + stone_gain,
-        realm_layer=layer,
-        last_train_at=utcnow(),
-    )
+    with Session() as session:
+        updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+        if updated is None or not updated.consented:
+            raise ValueError("你还没有踏入仙途。")
+        apply_spiritual_stone_delta(session, tg, stone_gain, action_text="获取吐纳灵石", allow_dead=False, apply_tribute=True)
+        updated.cultivation = cultivation
+        updated.realm_layer = layer
+        updated.last_train_at = utcnow()
+        updated.updated_at = utcnow()
+        session.commit()
     _apply_profile_growth_floor(tg)
     return {
         "gain": gain,
@@ -4549,9 +4654,7 @@ def practice_for_user(tg: int) -> dict[str, Any]:
 
 
 def breakthrough_for_user(tg: int, use_pill: bool = False) -> dict[str, Any]:
-    profile = get_profile(tg, create=False)
-    if profile is None or not profile.consented:
-        raise ValueError("你还没有踏入仙途。")
+    profile = _require_alive_profile_obj(tg, "突破境界")
     if _is_retreating(profile):
         raise ValueError("闭关期间无法突破。")
     if int(profile.realm_layer or 0) < 9:
@@ -4649,9 +4752,7 @@ def breakthrough_for_user(tg: int, use_pill: bool = False) -> dict[str, Any]:
 
 
 def consume_pill_for_user(tg: int, pill_id: int) -> dict[str, Any]:
-    profile = get_profile(tg, create=False)
-    if profile is None or not profile.consented:
-        raise ValueError("你还没有踏入仙途。")
+    profile = _require_alive_profile_obj(tg, "服用丹药")
     if _is_retreating(profile):
         raise ValueError("闭关期间无法服用丹药。")
     pill = get_pill(pill_id)
@@ -4700,27 +4801,41 @@ def consume_pill_for_user(tg: int, pill_id: int) -> dict[str, Any]:
         root_patch = _transformed_root_payload(profile_data, pill.pill_type, effects.get("effect_value", pill_data.get("effect_value", 0)))
 
     layer, cultivation, _, _ = apply_cultivation_gain(normalize_realm_stage(profile.realm_stage or "炼气"), int(profile.realm_layer or 1), cultivation, 0)
-    updated = upsert_profile(
-        tg,
-        dan_poison=dan_poison,
-        cultivation=cultivation,
-        spiritual_stone=spiritual_stone,
-        bone=bone,
-        comprehension=comprehension,
-        divine_sense=divine_sense,
-        fortune=fortune,
-        willpower=willpower,
-        charisma=charisma,
-        karma=karma,
-        qi_blood=qi_blood,
-        true_yuan=true_yuan,
-        body_movement=body_movement,
-        attack_power=attack_power,
-        defense_power=defense_power,
-        realm_layer=layer,
-        **(root_patch or {}),
-    )
-    bundle = serialize_full_profile(updated.tg)
+    stone_delta = spiritual_stone - int(profile.spiritual_stone or 0)
+    with Session() as session:
+        updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+        if updated is None or not updated.consented:
+            raise ValueError("你还没有踏入仙途。")
+        if stone_delta:
+            apply_spiritual_stone_delta(
+                session,
+                tg,
+                stone_delta,
+                action_text="通过丹药变动灵石",
+                enforce_currency_lock=stone_delta != 0,
+                allow_dead=False,
+                apply_tribute=stone_delta > 0,
+            )
+        updated.dan_poison = dan_poison
+        updated.cultivation = cultivation
+        updated.bone = bone
+        updated.comprehension = comprehension
+        updated.divine_sense = divine_sense
+        updated.fortune = fortune
+        updated.willpower = willpower
+        updated.charisma = charisma
+        updated.karma = karma
+        updated.qi_blood = qi_blood
+        updated.true_yuan = true_yuan
+        updated.body_movement = body_movement
+        updated.attack_power = attack_power
+        updated.defense_power = defense_power
+        updated.realm_layer = layer
+        for key, value in (root_patch or {}).items():
+            setattr(updated, key, value)
+        updated.updated_at = utcnow()
+        session.commit()
+    bundle = serialize_full_profile(tg)
     return {
         "pill": {**pill_data, "resolved_effects": effects},
         "profile": bundle,
@@ -4821,6 +4936,59 @@ def _create_duel_actor(bundle: dict[str, Any], state: dict[str, Any]) -> dict[st
 
 def _append_duel_log(logs: list[dict[str, Any]], round_no: int, text: str, kind: str = "action") -> None:
     logs.append({"round": round_no, "kind": kind, "text": text})
+
+
+def _duel_actor_effect_rows(actor: dict[str, Any]) -> list[str]:
+    rows: list[str] = []
+    for effect in actor["effects"].get("burn", []):
+        rows.append(f"灼烧-{int(effect.get('damage') or 0)}/{int(effect.get('remaining') or 0)}轮")
+    for effect in actor["effects"].get("bleed", []):
+        rows.append(f"流血-{int(effect.get('damage') or 0)}/{int(effect.get('remaining') or 0)}轮")
+    for effect in actor["effects"].get("shield", []):
+        rows.append(f"护盾{int(effect.get('pool') or 0)}/{int(effect.get('remaining') or 0)}轮")
+    for effect in actor["effects"].get("guard", []):
+        rows.append(f"格挡{int(round(float(effect.get('ratio') or 0) * 100))}%/{int(effect.get('remaining') or 0)}轮")
+    for effect in actor["effects"].get("dodge", []):
+        rows.append(f"闪避+{int(effect.get('bonus') or 0)}/{int(effect.get('remaining') or 0)}轮")
+    for effect in actor["effects"].get("armor_break", []):
+        rows.append(f"破甲{int(round(float(effect.get('ratio') or 0) * 100))}%/{int(effect.get('remaining') or 0)}轮")
+    return rows
+
+
+def _duel_actor_status_payload(actor: dict[str, Any]) -> dict[str, Any]:
+    effect_rows = _duel_actor_effect_rows(actor)
+    return {
+        "hp": int(actor.get("hp") or 0),
+        "max_hp": int(actor.get("max_hp") or 0),
+        "mp": int(actor.get("mp") or 0),
+        "max_mp": int(actor.get("max_mp") or 0),
+        "effects_text": "、".join(effect_rows) if effect_rows else "无",
+    }
+
+
+def _append_duel_state_log(
+    logs: list[dict[str, Any]],
+    round_no: int,
+    challenger_actor: dict[str, Any],
+    defender_actor: dict[str, Any],
+    *,
+    text: str | None = None,
+) -> None:
+    challenger_status = _duel_actor_status_payload(challenger_actor)
+    defender_status = _duel_actor_status_payload(defender_actor)
+    logs.append(
+        {
+            "round": round_no,
+            "kind": "state",
+            "text": text
+            or (
+                f"状态回读：{challenger_actor['name']} 气血 {challenger_status['hp']}/{challenger_status['max_hp']}、真元 {challenger_status['mp']}/{challenger_status['max_mp']}、状态 {challenger_status['effects_text']}；"
+                f"{defender_actor['name']} 气血 {defender_status['hp']}/{defender_status['max_hp']}、真元 {defender_status['mp']}/{defender_status['max_mp']}、状态 {defender_status['effects_text']}。"
+            ),
+            "challenger_status": challenger_status,
+            "defender_status": defender_status,
+        }
+    )
 
 
 def _active_effect_value(actor: dict[str, Any], effect_kind: str, value_key: str) -> float:
@@ -5067,6 +5235,7 @@ def _simulate_duel_battle(
         _append_duel_log(logs, 0, f"{challenger_actor['name']} 起手运转，{opening}", "opening")
     for opening in defender_actor["combat_entries"]["openings"]:
         _append_duel_log(logs, 0, f"{defender_actor['name']} 也不示弱，{opening}", "opening")
+    _append_duel_state_log(logs, 0, challenger_actor, defender_actor, text="斗法台禁制已经落下，双方起手气机被完整记录。")
 
     max_rounds = 8
     round_count = 0
@@ -5092,6 +5261,7 @@ def _simulate_duel_battle(
                 break
         _decay_duel_effects(challenger_actor)
         _decay_duel_effects(defender_actor)
+        _append_duel_state_log(logs, round_no, challenger_actor, defender_actor)
         if challenger_actor["hp"] <= 0 or defender_actor["hp"] <= 0:
             break
 
@@ -5107,6 +5277,7 @@ def _simulate_duel_battle(
         f"{winner['name']} 以剩余气血 {winner['hp']}/{winner['max_hp']} "
         f"压过 {loser['name']} 的 {loser['hp']}/{loser['max_hp']}，斗法告一段落。"
     )
+    _append_duel_state_log(logs, round_count, challenger_actor, defender_actor, text="斗法余波散尽，最终状态已经锁定。")
     return {
         "challenger_actor": challenger_actor,
         "defender_actor": defender_actor,
@@ -5183,11 +5354,101 @@ def _format_duel_side_block(snapshot: dict[str, Any], label: str) -> list[str]:
     ]
 
 
+def _normalize_duel_mode(raw: str | None) -> str:
+    value = str(raw or "standard").strip().lower()
+    aliases = {
+        "standard": "standard",
+        "normal": "standard",
+        "master": "master",
+        "slave": "master",
+        "servant": "master",
+        "主仆": "master",
+        "death": "death",
+        "dead": "death",
+        "生死": "death",
+    }
+    return aliases.get(value, "standard")
+
+
+def _parse_optional_datetime(raw: str | None) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(raw))
+    except ValueError:
+        return None
+    return parsed
+
+
+def _slave_cooldown_delta() -> timedelta:
+    settings = get_xiuxian_settings()
+    hours = max(int(settings.get("slave_challenge_cooldown_hours", DEFAULT_SETTINGS["slave_challenge_cooldown_hours"]) or 0), 1)
+    return timedelta(hours=hours)
+
+
+def _validate_duel_mode(duel: dict[str, Any], duel_mode: str) -> dict[str, Any]:
+    challenger_profile = duel["challenger"]["profile"]
+    defender_profile = duel["defender"]["profile"]
+    challenger_tg = int(challenger_profile["tg"])
+    defender_tg = int(defender_profile["tg"])
+    mode = _normalize_duel_mode(duel_mode)
+    context = {
+        "duel_mode": mode,
+        "break_free_tg": None,
+        "owner_tg": None,
+    }
+    if mode != "master":
+        return context
+    challenger_master = int(challenger_profile.get("master_tg") or 0)
+    defender_master = int(defender_profile.get("master_tg") or 0)
+    if challenger_master and challenger_master != defender_tg:
+        raise ValueError("你已是他人奴仆，只能向自己的主人发起赎身挑战。")
+    if defender_master and defender_master != challenger_tg:
+        raise ValueError("对方已归于他人麾下，无法再发起新的主仆对决。")
+    if challenger_master == defender_tg:
+        available = _parse_optional_datetime(challenger_profile.get("servitude_challenge_available_at"))
+        if available and available > utcnow():
+            remaining = available - utcnow()
+            hours = max(int(remaining.total_seconds() // 3600), 0)
+            minutes = max(int((remaining.total_seconds() % 3600) // 60), 0)
+            raise ValueError(f"赎身挑战冷却中，还需约 {hours} 小时 {minutes} 分钟。")
+        context["break_free_tg"] = challenger_tg
+        context["owner_tg"] = defender_tg
+        return context
+    if defender_master == challenger_tg:
+        raise ValueError("主人无需再次发起主仆对决，等待奴仆自行挑战即可。")
+    if challenger_master or defender_master:
+        raise ValueError("主仆对决只允许自由身之间对决，或奴仆向主人发起赎身挑战。")
+    return context
+
+
+def _duel_mode_preview_lines(duel: dict[str, Any], duel_mode: str) -> list[str]:
+    mode = _normalize_duel_mode(duel_mode)
+    challenger_profile = duel["challenger"]["profile"]
+    defender_profile = duel["defender"]["profile"]
+    if mode == "master":
+        if int(challenger_profile.get("master_tg") or 0) == int(defender_profile["tg"]):
+            return [
+                "⛓️ 赎身挑战：奴仆胜，则立即摆脱主仆印记；主人胜，则延长下一次强制挑战冷却。",
+            ]
+        return [
+            "⛓️ 主仆对决：败者将被烙上主仆印记，名帖公开归属，后续灵石收益按后台比例上供。",
+        ]
+    if mode == "death":
+        return [
+            "☠️ 生死斗：胜者继承败者全部灵石、物品与修为。",
+            "☠️ 修为继承不会越过当前大境界上限，仍需自行突破。",
+            "☠️ 败者角色死亡，只能重新踏出仙途。",
+        ]
+    return []
+
+
 def format_duel_matchup_text(
     duel: dict[str, Any],
     stake: int = 0,
     title: str = "⚔️ **斗法邀请**",
     plunder_percent: int | None = None,
+    duel_mode: str = "standard",
 ) -> str:
     settings = get_xiuxian_settings()
     if plunder_percent is None:
@@ -5220,16 +5481,19 @@ def format_duel_matchup_text(
         lines.append(f"赌注：每人 {stake} 灵石")
     lines.append(f"胜者掠夺：败者当前灵石的 {plunder_percent}%")
     lines.append(f"法宝掠夺：基础 {artifact_plunder_chance}% 夺取 1 件未绑定法宝，受双方机缘影响")
+    lines.extend(_duel_mode_preview_lines(duel, duel_mode))
     return "\n".join(lines)
 
 
-def compute_duel_odds(challenger_tg: int, defender_tg: int) -> dict[str, Any]:
+def compute_duel_odds(challenger_tg: int, defender_tg: int, duel_mode: str = "standard") -> dict[str, Any]:
     challenger = serialize_full_profile(challenger_tg)
     defender = serialize_full_profile(defender_tg)
     challenger_profile = challenger["profile"]
     defender_profile = defender["profile"]
     if not challenger_profile["consented"] or not defender_profile["consented"]:
         raise ValueError("斗法双方都必须已经踏入仙途。")
+    assert_profile_alive(challenger_profile, "发起斗法")
+    assert_profile_alive(defender_profile, "应战斗法")
 
     challenger_state = _battle_bundle(challenger, defender_profile)
     defender_state = _battle_bundle(defender, challenger_profile)
@@ -5259,9 +5523,10 @@ def compute_duel_odds(challenger_tg: int, defender_tg: int) -> dict[str, Any]:
     defender_rate = max(min(1 - rate, 0.999), 0.001)
     challenger_snapshot = _build_duel_snapshot(challenger, challenger_state, defender_profile, rate)
     defender_snapshot = _build_duel_snapshot(defender, defender_state, challenger_profile, defender_rate)
-    return {
+    duel_payload = {
         "challenger": challenger,
         "defender": defender,
+        "duel_mode": _normalize_duel_mode(duel_mode),
         "challenger_snapshot": challenger_snapshot,
         "defender_snapshot": defender_snapshot,
         "challenger_rate": round(rate, 4),
@@ -5285,6 +5550,8 @@ def compute_duel_odds(challenger_tg: int, defender_tg: int) -> dict[str, Any]:
             "defender_body_movement": round(defender_state["stats"]["body_movement"]),
         },
     }
+    duel_payload["mode_context"] = _validate_duel_mode(duel_payload, duel_payload["duel_mode"])
+    return duel_payload
 
 
 def assert_duel_stake_affordable(
@@ -5314,11 +5581,187 @@ def _clear_duel_active_talismans(*tgs: int) -> None:
         cleared.add(int(tg))
 
 
-def resolve_duel(challenger_tg: int, defender_tg: int, stake: int = 0) -> dict[str, Any]:
-    duel = compute_duel_odds(challenger_tg, defender_tg)
+def _clear_servitude_marks(row: XiuxianProfile) -> None:
+    row.master_tg = None
+    row.servitude_started_at = None
+    row.servitude_challenge_available_at = None
+
+
+def _reassign_slave_roster(session: Session, from_master_tg: int, to_master_tg: int) -> list[int]:
+    rows = (
+        session.query(XiuxianProfile)
+        .filter(XiuxianProfile.master_tg == int(from_master_tg), XiuxianProfile.tg != int(to_master_tg))
+        .with_for_update()
+        .all()
+    )
+    reassigned: list[int] = []
+    for row in rows:
+        row.master_tg = int(to_master_tg)
+        row.updated_at = utcnow()
+        reassigned.append(int(row.tg))
+    return reassigned
+
+
+def _transfer_inventory_rows(session: Session, model_cls, ref_field: str, loser_tg: int, winner_tg: int) -> None:
+    rows = session.query(model_cls).filter(model_cls.tg == int(loser_tg)).with_for_update().all()
+    ref_column = getattr(model_cls, ref_field)
+    for row in rows:
+        ref_id = int(getattr(row, ref_field))
+        existing = (
+            session.query(model_cls)
+            .filter(model_cls.tg == int(winner_tg), ref_column == ref_id)
+            .with_for_update()
+            .first()
+        )
+        if existing is None:
+            row.tg = int(winner_tg)
+            row.updated_at = utcnow()
+            continue
+        existing.quantity = int(existing.quantity or 0) + int(row.quantity or 0)
+        if hasattr(existing, "bound_quantity"):
+            existing.bound_quantity = int(getattr(existing, "bound_quantity", 0) or 0) + int(getattr(row, "bound_quantity", 0) or 0)
+        existing.updated_at = utcnow()
+        session.delete(row)
+
+
+def _transfer_user_knowledge(session: Session, model_cls, ref_field: str, loser_tg: int, winner_tg: int) -> None:
+    rows = session.query(model_cls).filter(model_cls.tg == int(loser_tg)).with_for_update().all()
+    ref_column = getattr(model_cls, ref_field)
+    for row in rows:
+        ref_id = int(getattr(row, ref_field))
+        existing = (
+            session.query(model_cls)
+            .filter(model_cls.tg == int(winner_tg), ref_column == ref_id)
+            .with_for_update()
+            .first()
+        )
+        if existing is None:
+            row.tg = int(winner_tg)
+            row.updated_at = utcnow()
+            continue
+        session.delete(row)
+
+
+def _mark_profile_dead(row: XiuxianProfile) -> None:
+    row.consented = False
+    row.root_type = None
+    row.root_primary = None
+    row.root_secondary = None
+    row.root_relation = None
+    row.root_bonus = 0
+    row.root_quality = None
+    row.root_quality_level = 1
+    row.root_quality_color = None
+    row.realm_stage = "凡人"
+    row.realm_layer = 0
+    row.cultivation = 0
+    row.spiritual_stone = 0
+    row.sect_id = None
+    row.sect_role_key = None
+    row.sect_contribution = 0
+    row.current_artifact_id = None
+    row.active_talisman_id = None
+    row.current_technique_id = None
+    row.current_title_id = None
+    row.shop_broadcast = False
+    row.last_salary_claim_at = None
+    row.sect_joined_at = None
+    row.sect_betrayal_until = None
+    row.last_train_at = None
+    row.retreat_started_at = None
+    row.retreat_end_at = None
+    row.retreat_gain_per_minute = 0
+    row.retreat_cost_per_minute = 0
+    row.retreat_minutes_total = 0
+    row.retreat_minutes_resolved = 0
+    row.robbery_daily_count = 0
+    row.robbery_day_key = None
+    _clear_servitude_marks(row)
+    row.death_at = utcnow()
+    row.updated_at = utcnow()
+
+
+def _apply_master_duel_outcome(
+    session: Session,
+    duel: dict[str, Any],
+    winner_tg: int,
+    loser_tg: int,
+) -> dict[str, Any] | None:
+    if _normalize_duel_mode(duel.get("duel_mode")) != "master":
+        return None
+    now = utcnow()
+    cooldown_until = now + _slave_cooldown_delta()
+    winner = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(winner_tg)).with_for_update().first()
+    loser = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(loser_tg)).with_for_update().first()
+    if winner is None or loser is None:
+        return None
+    mode_context = duel.get("mode_context") or {}
+    break_free_tg = int(mode_context.get("break_free_tg") or 0)
+    owner_tg = int(mode_context.get("owner_tg") or 0)
+    if break_free_tg and owner_tg:
+        slave = session.query(XiuxianProfile).filter(XiuxianProfile.tg == break_free_tg).with_for_update().first()
+        if slave is None:
+            return None
+        if int(winner_tg) == break_free_tg:
+            _clear_servitude_marks(slave)
+            slave.updated_at = now
+            return {"kind": "break_free", "slave_tg": break_free_tg, "owner_tg": owner_tg}
+        slave.servitude_challenge_available_at = cooldown_until
+        slave.updated_at = now
+        return {"kind": "master_defended", "slave_tg": break_free_tg, "owner_tg": owner_tg, "next_challenge_at": cooldown_until.isoformat()}
+
+    loser.master_tg = int(winner_tg)
+    loser.servitude_started_at = now
+    loser.servitude_challenge_available_at = cooldown_until
+    loser.updated_at = now
+    inherited_slaves = _reassign_slave_roster(session, int(loser_tg), int(winner_tg))
+    return {
+        "kind": "subjugated",
+        "master_tg": int(winner_tg),
+        "slave_tg": int(loser_tg),
+        "inherited_slave_tgs": inherited_slaves,
+        "next_challenge_at": cooldown_until.isoformat(),
+    }
+
+
+def _apply_death_duel_outcome(session: Session, winner_tg: int, loser_tg: int) -> dict[str, Any]:
+    winner = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(winner_tg)).with_for_update().first()
+    loser = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(loser_tg)).with_for_update().first()
+    if winner is None or loser is None:
+        raise ValueError("生死斗结算失败，角色资料缺失。")
+    inherited_stone = int(loser.spiritual_stone or 0)
+    inherited_cultivation = int(loser.cultivation or 0)
+    if inherited_stone > 0:
+        apply_spiritual_stone_delta(session, winner_tg, inherited_stone, action_text="继承生死斗遗产", allow_dead=False, apply_tribute=True)
+    cultivation_cap = cultivation_threshold(normalize_realm_stage(winner.realm_stage or "炼气"), 9)
+    winner.cultivation = min(int(winner.cultivation or 0) + inherited_cultivation, cultivation_cap)
+    winner.updated_at = utcnow()
+    _transfer_inventory_rows(session, XiuxianArtifactInventory, "artifact_id", loser_tg, winner_tg)
+    _transfer_inventory_rows(session, XiuxianPillInventory, "pill_id", loser_tg, winner_tg)
+    _transfer_inventory_rows(session, XiuxianTalismanInventory, "talisman_id", loser_tg, winner_tg)
+    _transfer_inventory_rows(session, XiuxianMaterialInventory, "material_id", loser_tg, winner_tg)
+    _transfer_user_knowledge(session, XiuxianUserRecipe, "recipe_id", loser_tg, winner_tg)
+    _transfer_user_knowledge(session, XiuxianUserTechnique, "technique_id", loser_tg, winner_tg)
+    inherited_slaves = _reassign_slave_roster(session, loser_tg, winner_tg)
+    session.query(XiuxianEquippedArtifact).filter(XiuxianEquippedArtifact.tg == int(loser_tg)).delete()
+    _mark_profile_dead(loser)
+    return {
+        "kind": "death",
+        "winner_tg": int(winner_tg),
+        "loser_tg": int(loser_tg),
+        "inherited_stone": inherited_stone,
+        "inherited_cultivation": inherited_cultivation,
+        "cultivation_cap": cultivation_cap,
+        "inherited_slave_tgs": inherited_slaves,
+    }
+
+
+def resolve_duel(challenger_tg: int, defender_tg: int, stake: int = 0, duel_mode: str = "standard") -> dict[str, Any]:
+    duel = compute_duel_odds(challenger_tg, defender_tg, duel_mode=duel_mode)
     challenger_profile = duel["challenger"]["profile"]
     defender_profile = duel["defender"]["profile"]
     stake_amount = max(int(stake), 0)
+    duel_mode_value = _normalize_duel_mode(duel.get("duel_mode"))
     settings = get_xiuxian_settings()
     plunder_percent = max(
         min(int(settings.get("duel_winner_steal_percent", DEFAULT_SETTINGS["duel_winner_steal_percent"]) or 0), 100),
@@ -5339,29 +5782,32 @@ def resolve_duel(challenger_tg: int, defender_tg: int, stake: int = 0) -> dict[s
     challenger_win = winner_tg == challenger_tg
     winner_state = challenger_state if challenger_win else defender_state
     loser_state = defender_state if challenger_win else challenger_state
-    challenger_profile_obj = get_profile(challenger_tg, create=False)
-    defender_profile_obj = get_profile(defender_tg, create=False)
-    winner_profile = get_profile(winner_tg, create=False)
-    loser_profile = get_profile(loser_tg, create=False)
-    if challenger_profile_obj is None or defender_profile_obj is None or winner_profile is None or loser_profile is None:
-        raise ValueError("斗法双方的修仙资料缺失。")
-
-    challenger_stone = int(challenger_profile_obj.spiritual_stone or 0)
-    defender_stone = int(defender_profile_obj.spiritual_stone or 0)
-    challenger_after_stake = max(challenger_stone - stake_amount, 0)
-    defender_after_stake = max(defender_stone - stake_amount, 0)
-    winner_after_stake = challenger_after_stake if winner_tg == challenger_tg else defender_after_stake
-    loser_after_stake = defender_after_stake if winner_tg == challenger_tg else challenger_after_stake
-    plunder_amount = loser_after_stake * plunder_percent // 100 if plunder_percent > 0 else 0
-
-    upsert_profile(
-        winner_tg,
-        spiritual_stone=winner_after_stake + stake_amount * 2 + plunder_amount,
-    )
-    upsert_profile(
-        loser_tg,
-        spiritual_stone=max(loser_after_stake - plunder_amount, 0),
-    )
+    plunder_amount = 0
+    mode_outcome = None
+    with Session() as session:
+        challenger_profile_obj = session.query(XiuxianProfile).filter(XiuxianProfile.tg == challenger_tg).with_for_update().first()
+        defender_profile_obj = session.query(XiuxianProfile).filter(XiuxianProfile.tg == defender_tg).with_for_update().first()
+        winner_profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == winner_tg).with_for_update().first()
+        loser_profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == loser_tg).with_for_update().first()
+        if challenger_profile_obj is None or defender_profile_obj is None or winner_profile is None or loser_profile is None:
+            raise ValueError("斗法双方的修仙资料缺失。")
+        if stake_amount > 0:
+            apply_spiritual_stone_delta(session, challenger_tg, -stake_amount, action_text="支付斗法赌注", allow_dead=False, apply_tribute=False)
+            apply_spiritual_stone_delta(session, defender_tg, -stake_amount, action_text="支付斗法赌注", allow_dead=False, apply_tribute=False)
+        if plunder_percent > 0:
+            loser_current = session.query(XiuxianProfile).filter(XiuxianProfile.tg == loser_tg).with_for_update().first()
+            loser_balance = int(loser_current.spiritual_stone or 0) if loser_current is not None else 0
+            plunder_amount = loser_balance * plunder_percent // 100
+            if plunder_amount > 0:
+                apply_spiritual_stone_delta(session, loser_tg, -plunder_amount, action_text="斗法被掠夺", allow_dead=False, apply_tribute=False)
+        winnings = stake_amount * 2 + plunder_amount
+        if winnings > 0:
+            apply_spiritual_stone_delta(session, winner_tg, winnings, action_text="斗法结算", allow_dead=False, apply_tribute=True)
+        if duel_mode_value == "master":
+            mode_outcome = _apply_master_duel_outcome(session, duel, winner_tg, loser_tg)
+        elif duel_mode_value == "death":
+            mode_outcome = _apply_death_duel_outcome(session, winner_tg, loser_tg)
+        session.commit()
 
     artifact_plunder_roll = roll_probability_percent(
         artifact_plunder_base_chance,
@@ -5373,7 +5819,7 @@ def resolve_duel(challenger_tg: int, defender_tg: int, stake: int = 0) -> dict[s
         maximum=95,
     )
     artifact_plunder = None
-    if artifact_plunder_roll["success"]:
+    if duel_mode_value != "death" and artifact_plunder_roll["success"]:
         artifact_plunder = plunder_random_artifact_to_user(winner_tg, loser_tg)
         if artifact_plunder and artifact_plunder.get("artifact"):
             artifact_name = artifact_plunder["artifact"].get("name", "未知法宝")
@@ -5385,6 +5831,7 @@ def resolve_duel(challenger_tg: int, defender_tg: int, stake: int = 0) -> dict[s
         defender_tg=defender_tg,
         winner_tg=winner_tg,
         loser_tg=loser_tg,
+        duel_mode=duel_mode_value,
         challenger_rate=int(round(dynamic_rate * 1000)),
         defender_rate=int(round((1 - dynamic_rate) * 1000)),
         summary=str(simulated_battle["summary"]),
@@ -5395,6 +5842,7 @@ def resolve_duel(challenger_tg: int, defender_tg: int, stake: int = 0) -> dict[s
     return {
         "challenger": serialize_full_profile(challenger_tg),
         "defender": serialize_full_profile(defender_tg),
+        "duel_mode": duel_mode_value,
         "winner_tg": winner_tg,
         "loser_tg": loser_tg,
         "challenger_rate": dynamic_rate,
@@ -5414,6 +5862,7 @@ def resolve_duel(challenger_tg: int, defender_tg: int, stake: int = 0) -> dict[s
         "summary": str(simulated_battle["summary"]),
         "battle_log": simulated_battle["battle_log"],
         "round_count": int(simulated_battle["round_count"]),
+        "mode_outcome": mode_outcome,
         "achievement_unlocks": achievement_unlocks,
     }
 
@@ -5430,16 +5879,32 @@ def format_duel_settlement_text(
 ) -> str:
     challenger = result["challenger"]["profile"]
     defender = result["defender"]["profile"]
+    duel_mode = _normalize_duel_mode(result.get("duel_mode"))
     winner_profile = challenger if int(result["winner_tg"]) == int(challenger["tg"]) else defender
     loser_profile = defender if int(result["loser_tg"]) == int(defender["tg"]) else challenger
     winner_name = _duel_display_name(winner_profile)
     loser_name = _duel_display_name(loser_profile)
     lines = [
-        "⚖️ **斗法已结算**",
+        {
+            "standard": "⚖️ **斗法已结算**",
+            "master": "⛓️ **主仆对决已结算**",
+            "death": "☠️ **生死斗已结算**",
+        }.get(duel_mode, "⚖️ **斗法已结算**"),
         f"胜者：{winner_name}",
         f"败者：{loser_name}",
         f"{result['summary']}",
     ]
+    mode_outcome = result.get("mode_outcome") or {}
+    if mode_outcome:
+        lines.append("")
+        if mode_outcome.get("kind") == "subjugated":
+            lines.append(f"主仆结果：{winner_name} 收下 {loser_name} 为奴仆。")
+        elif mode_outcome.get("kind") == "break_free":
+            lines.append(f"赎身结果：{winner_name} 斩断主仆印记，重获自由。")
+        elif mode_outcome.get("kind") == "master_defended":
+            lines.append(f"赎身结果：{winner_name} 守住主仆印记，{loser_name} 需等待下一次强制挑战。")
+        elif mode_outcome.get("kind") == "death":
+            lines.append(f"生死结果：{winner_name} 继承了 {loser_name} 的全部遗产，{loser_name} 已身死道消。")
 
     battle_log = list(result.get("battle_log") or [])
     if battle_log:
@@ -5526,8 +5991,14 @@ def format_duel_settlement_text(
     return "\n".join(lines)
 
 
-def generate_duel_preview_text(duel: dict[str, Any], stake: int = 0) -> str:
-    return format_duel_matchup_text(duel, stake=stake)
+def generate_duel_preview_text(duel: dict[str, Any], stake: int = 0, duel_mode: str = "standard") -> str:
+    mode = _normalize_duel_mode(duel_mode or duel.get("duel_mode"))
+    title = {
+        "standard": "⚔️ **斗法邀请**",
+        "master": "⛓️ **主仆对决名帖**",
+        "death": "☠️ **生死斗血契**",
+    }.get(mode, "⚔️ **斗法邀请**")
+    return format_duel_matchup_text(duel, stake=stake, title=title, duel_mode=mode)
 
 
 from bot.plugins.xiuxian_game.features.pills import (  # noqa: E402

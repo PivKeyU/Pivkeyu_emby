@@ -97,6 +97,10 @@
     return `<button type="button" class="secondary" data-edit-kind="${escapeHtml(kind)}" data-id="${escapeHtml(id)}">编辑</button>`;
   }
 
+  function encounterDispatchButton(id) {
+    return `<button type="button" class="secondary" data-encounter-dispatch="${escapeHtml(id)}">投放到群</button>`;
+  }
+
   function focusForm(formId) {
     const form = $(formId);
     if (!form) return;
@@ -655,6 +659,11 @@
       min_comprehension: Number($("sect-comprehension")?.value || 0),
       min_divine_sense: Number($("sect-divine-sense")?.value || 0),
       min_fortune: Number($("sect-fortune")?.value || 0),
+      min_willpower: Number($("sect-willpower")?.value || 0),
+      min_charisma: Number($("sect-charisma")?.value || 0),
+      min_karma: Number($("sect-karma")?.value || 0),
+      min_body_movement: Number($("sect-min-body-movement")?.value || 0),
+      min_combat_power: Number($("sect-min-combat-power")?.value || 0),
       attack_bonus: Number($("sect-attack")?.value || 0),
       defense_bonus: Number($("sect-defense")?.value || 0),
       duel_rate_bonus: Number($("sect-duel")?.value || 0),
@@ -890,6 +899,11 @@
     if (Number(item.min_comprehension || 0)) rows.push(`悟性 ${item.min_comprehension}`);
     if (Number(item.min_divine_sense || 0)) rows.push(`神识 ${item.min_divine_sense}`);
     if (Number(item.min_fortune || 0)) rows.push(`机缘 ${item.min_fortune}`);
+    if (Number(item.min_willpower || 0)) rows.push(`心志 ${item.min_willpower}`);
+    if (Number(item.min_charisma || 0)) rows.push(`魅力 ${item.min_charisma}`);
+    if (Number(item.min_karma || 0)) rows.push(`因果 ${item.min_karma}`);
+    if (Number(item.min_body_movement || 0)) rows.push(`身法 ${item.min_body_movement}`);
+    if (Number(item.min_combat_power || 0)) rows.push(`战力 ${item.min_combat_power}`);
     return rows.join(" · ") || "无门槛";
   }
 
@@ -1044,7 +1058,7 @@
         </div>
         <p>${escapeHtml(item.description || "暂无描述")}</p>
         <p>奖励：灵石 ${escapeHtml(item.reward_stone_min || 0)}-${escapeHtml(item.reward_stone_max || 0)} · 修为 ${escapeHtml(item.reward_cultivation_min || 0)}-${escapeHtml(item.reward_cultivation_max || 0)}</p>
-        <div class="inline-action-buttons">${editButton("encounter", item.id)}${deleteButton("encounter", item.id)}</div>
+        <div class="inline-action-buttons">${editButton("encounter", item.id)}${encounterDispatchButton(item.id)}${deleteButton("encounter", item.id)}</div>
       </article>
     `).join("") || `<article class="stack-item"><strong>暂无奇遇</strong></article>`);
   };
@@ -1175,6 +1189,11 @@
     $("sect-comprehension").value = item.min_comprehension || 0;
     $("sect-divine-sense").value = item.min_divine_sense || 0;
     $("sect-fortune").value = item.min_fortune || 0;
+    $("sect-willpower").value = item.min_willpower || 0;
+    $("sect-charisma").value = item.min_charisma || 0;
+    $("sect-karma").value = item.min_karma || 0;
+    $("sect-min-body-movement").value = item.min_body_movement || 0;
+    $("sect-min-combat-power").value = item.min_combat_power || 0;
     $("sect-image").value = item.image_url || "";
     $("sect-description").value = item.description || "";
     $("sect-attack").value = item.attack_bonus || 0;

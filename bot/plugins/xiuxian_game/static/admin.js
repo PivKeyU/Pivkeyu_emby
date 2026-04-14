@@ -1049,6 +1049,10 @@ function deleteButton(entity, id) {
   return `<button type="button" class="ghost" data-delete="${entity}" data-id="${id}">删除</button>`;
 }
 
+function encounterDispatchButton(id) {
+  return `<button type="button" class="secondary" data-encounter-dispatch="${id}">投放到群</button>`;
+}
+
 function combatConfigSummary(config = {}) {
   const skills = Array.isArray(config.skills) ? config.skills : [];
   const passives = Array.isArray(config.passives) ? config.passives : [];
@@ -1102,7 +1106,7 @@ function renderWorld() {
     <p>${escapeHtml(item.description || "暂无描述")}</p>
     <p>门槛：${escapeHtml(item.min_realm_stage ? `${item.min_realm_stage}${item.min_realm_layer || 1}层` : "无限制")} · 战力 ${escapeHtml(item.min_combat_power || 0)} · 持续 ${escapeHtml(item.active_seconds || 90)} 秒</p>
     <p>奖励：灵石 ${escapeHtml(item.reward_stone_min || 0)}-${escapeHtml(item.reward_stone_max || 0)} · 修为 ${escapeHtml(item.reward_cultivation_min || 0)}-${escapeHtml(item.reward_cultivation_max || 0)} · 心志 ${escapeHtml(item.reward_willpower || 0)} · 魅力 ${escapeHtml(item.reward_charisma || 0)} · 因果 ${escapeHtml(item.reward_karma || 0)}</p>
-    <div class="inline-action-buttons">${deleteButton("encounter", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无奇遇</strong></article>`);
+    <div class="inline-action-buttons">${encounterDispatchButton(item.id)}${deleteButton("encounter", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无奇遇</strong></article>`);
 
   renderStack("sect-list", (bundle.sects || []).map((item) => `
     <article class="stack-item"><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml((item.roles || []).length)} 个职位</span></div>
@@ -1173,6 +1177,8 @@ function applySettings(settings = {}) {
   $("setting-robbery-limit").value = settings.robbery_daily_limit ?? 3;
   $("setting-robbery-max").value = settings.robbery_max_steal ?? 180;
   $("setting-quality-broadcast").value = settings.high_quality_broadcast_level ?? 4;
+  $("setting-slave-tribute").value = settings.slave_tribute_percent ?? 20;
+  $("setting-slave-cooldown").value = settings.slave_challenge_cooldown_hours ?? 24;
   const immortalTouchNode = $("setting-immortal-touch-layers");
   if (immortalTouchNode) immortalTouchNode.value = settings.immortal_touch_infusion_layers ?? 1;
   applyRootQualityRules(settings);
@@ -1277,6 +1283,8 @@ function bindEvents() {
       equipment_unbind_cost: Number($("setting-unbind-cost").value || 0),
       artifact_equip_limit: Number($("setting-artifact-limit").value || 3),
       high_quality_broadcast_level: Number($("setting-quality-broadcast").value || 4),
+      slave_tribute_percent: Number($("setting-slave-tribute").value || 20),
+      slave_challenge_cooldown_hours: Number($("setting-slave-cooldown").value || 24),
     }), "保存成功", "斗法与装备规则已更新。");
   });
 
@@ -1462,6 +1470,21 @@ function bindEvents() {
         await submitAndRefresh(() => request("DELETE", `/plugins/xiuxian/admin-api/${entity}/${id}`), "删除成功", "目标条目已删除。");
       } catch (error) {
         await popup("删除失败", String(error.message || error), "error");
+      }
+      return;
+    }
+    const dispatch = event.target.closest("[data-encounter-dispatch]");
+    if (dispatch) {
+      try {
+        await submitAndRefresh(
+          () => request("POST", "/plugins/xiuxian/admin-api/encounter/dispatch", {
+            template_id: Number(dispatch.dataset.encounterDispatch || 0),
+          }),
+          "投放成功",
+          "奇遇已经推送到群里。",
+        );
+      } catch (error) {
+        await popup("投放失败", String(error.message || error), "error");
       }
       return;
     }

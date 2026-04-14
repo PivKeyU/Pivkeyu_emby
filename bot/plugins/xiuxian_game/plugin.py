@@ -35,6 +35,7 @@ from bot.plugins.xiuxian_game.api_models import (
     BreakthroughPayload,
     ConsumePillPayload,
     CraftPayload,
+    EncounterDispatchPayload,
     EncounterPayload,
     EquipArtifactPayload,
     ExchangePayload,
@@ -110,6 +111,7 @@ from bot.plugins.xiuxian_game.features.encounters import (
     patch_encounter_template,
     render_group_encounter_success_text,
     render_group_encounter_text,
+    spawn_group_encounter,
 )
 from bot.plugins.xiuxian_game.features.exploration import (
     claim_exploration_for_user,
@@ -271,7 +273,7 @@ PLUGIN_NAME = str(PLUGIN_MANIFEST.get("name") or "修仙玩法")
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 ALLOWED_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
-IMMORTAL_TOUCH_PATTERN = re.compile(r"^仙人抚我顶[\s，,]*结发授长生[\s。！!？?~～]*$")
+IMMORTAL_TOUCH_PATTERN = re.compile(r"^仙人抚我顶(?:[\s，,]*结发授长生)?[\s。！!？?~～]*$")
 MARKDOWN_ESCAPE_PATTERN = re.compile(r"([_*\[`])")
 SHANGHAI_TZ = timezone(timedelta(hours=8))
 DUEL_MESSAGE_REFRESH_CACHE: dict[int, float] = {}
@@ -659,6 +661,21 @@ async def _can_manage_upload_permissions(client, msg) -> bool:
     return chat_id < 0 and await _is_group_admin(client, chat_id, msg.from_user.id)
 
 
+async def _require_message_user(message, *, action_text: str) -> Any | None:
+    user = getattr(message, "from_user", None)
+    if user is not None:
+        return user
+    if getattr(message, "sender_chat", None) is not None:
+        await _reply_text(
+            message,
+            f"当前消息来自匿名管理员或频道身份，机器人拿不到真实 TG 账号，无法{action_text}。请关闭匿名发送后重试。",
+            quote=True,
+        )
+    else:
+        await _reply_text(message, f"当前无法识别你的 TG 身份，暂时不能{action_text}。", quote=True)
+    return None
+
+
 def _remember_journal(tg: int, action_type: str, title: str, detail: str | None = None) -> None:
     try:
         create_journal(tg, action_type, title, detail)
@@ -865,6 +882,22 @@ def _duel_profile_label(profile: dict[str, Any] | None) -> str:
 
 def _duel_side_label(side: str | None) -> str:
     return "挑战者" if side == "challenger" else "应战者"
+
+
+def _gift_group_broadcast_text(sender_name: str, receiver: dict[str, Any], amount: int) -> str:
+    receiver_label = (
+        str(receiver.get("display_name_with_title") or "").strip()
+        or str(receiver.get("display_label") or "").strip()
+        or str(receiver.get("display_name") or "").strip()
+        or (f"@{receiver['username']}" if str(receiver.get("username") or "").strip() else f"TG {receiver.get('tg', 0)}")
+    )
+    return "\n".join(
+        [
+            "🎁 **灵石赠礼**",
+            f"{_md_escape(sender_name)} 向 {_md_escape(receiver_label)} 赠出了 `{int(amount or 0)}` 灵石。",
+            "一份机缘已经当众完成交接。",
+        ]
+    )
 
 
 def _build_duel_result_private_message(result: dict[str, Any], recipient_tg: int) -> str:
@@ -1341,6 +1374,23 @@ def _duel_refresh_interval(remaining_seconds: int | None = None) -> int:
     return 5
 
 
+def _normalize_duel_mode_arg(raw: str | None) -> str:
+    value = str(raw or "").strip().lower()
+    aliases = {
+        "": "standard",
+        "standard": "standard",
+        "normal": "standard",
+        "master": "master",
+        "slave": "master",
+        "servant": "master",
+        "主仆": "master",
+        "death": "death",
+        "dead": "death",
+        "生死": "death",
+    }
+    return aliases.get(value, "standard")
+
+
 def _duel_log_emoji(kind: str | None) -> str:
     return {
         "opening": "🌀",
@@ -1348,19 +1398,40 @@ def _duel_log_emoji(kind: str | None) -> str:
         "dot": "🔥",
         "dodge": "💨",
         "shield": "🛡️",
+        "state": "📊",
         "finish": "🏁",
     }.get(str(kind or "").strip(), "⚔️")
 
 
-def _duel_snapshot_line(label: str, snapshot: dict[str, Any]) -> str:
+def _latest_visible_duel_statuses(result: dict[str, Any], visible_count: int) -> tuple[dict[str, Any], dict[str, Any]]:
+    challenger_status: dict[str, Any] = {}
+    defender_status: dict[str, Any] = {}
+    battle_log = list(result.get("battle_log") or [])
+    shown = min(max(int(visible_count or 0), 0), len(battle_log))
+    for row in reversed(battle_log[:shown]):
+        if not challenger_status and isinstance(row.get("challenger_status"), dict):
+            challenger_status = dict(row.get("challenger_status") or {})
+        if not defender_status and isinstance(row.get("defender_status"), dict):
+            defender_status = dict(row.get("defender_status") or {})
+        if challenger_status and defender_status:
+            break
+    return challenger_status, defender_status
+
+
+def _duel_snapshot_line(label: str, snapshot: dict[str, Any], status: dict[str, Any] | None = None) -> str:
     stats = snapshot.get("stats") or {}
-    qi_blood = int(stats.get("qi_blood") or 0)
-    true_yuan = int(stats.get("true_yuan") or 0)
+    status = status or {}
+    qi_blood = int(status.get("hp") or stats.get("qi_blood") or 0)
+    max_qi_blood = int(status.get("max_hp") or stats.get("qi_blood") or 0)
+    true_yuan = int(status.get("mp") or stats.get("true_yuan") or 0)
+    max_true_yuan = int(status.get("max_mp") or stats.get("true_yuan") or 0)
+    effect_text = str(status.get("effects_text") or "无")
     return (
         f"{label} {_md_escape(str(snapshot.get('name') or '道友'))}"
         f" ｜ 战力 `{int(round(snapshot.get('power') or 0))}`"
-        f" ｜ 气血 `{qi_blood}`"
-        f" ｜ 真元 `{true_yuan}`"
+        f" ｜ 气血 `{qi_blood}/{max_qi_blood}`"
+        f" ｜ 真元 `{true_yuan}/{max_true_yuan}`"
+        f" ｜ 状态 {_md_escape(effect_text)}"
         f" ｜ 胜率 `{float(snapshot.get('win_rate') or 0):.1f}%`"
     )
 
@@ -1373,6 +1444,7 @@ def _format_duel_stream_text(result: dict[str, Any], visible_count: int) -> str:
     battle_log = list(result.get("battle_log") or [])
     total = len(battle_log)
     shown = min(max(int(visible_count or 0), 0), total)
+    challenger_status, defender_status = _latest_visible_duel_statuses(result, shown)
     lines = [
         "⚔️ **斗法直播**",
         f"对局：{_md_escape(_duel_profile_label(challenger))} vs {_md_escape(_duel_profile_label(defender))}",
@@ -1385,8 +1457,8 @@ def _format_duel_stream_text(result: dict[str, Any], visible_count: int) -> str:
     lines.extend(
         [
             "",
-            _duel_snapshot_line("🟥", challenger_snapshot),
-            _duel_snapshot_line("🟦", defender_snapshot),
+            _duel_snapshot_line("🟥", challenger_snapshot, challenger_status),
+            _duel_snapshot_line("🟦", defender_snapshot, defender_status),
             "",
         ]
     )
@@ -1468,6 +1540,7 @@ def register_bot(bot_instance) -> None:
         challenger_tg: int,
         defender_tg: int,
         stake: int,
+        duel_mode: str,
         message,
         bets_close_at: str | None,
     ) -> None:
@@ -1477,7 +1550,7 @@ def register_bot(bot_instance) -> None:
         else:
             await asyncio.sleep(120)
         try:
-            result = resolve_duel(challenger_tg, defender_tg, stake)
+            result = resolve_duel(challenger_tg, defender_tg, stake, duel_mode=duel_mode)
             bet_settlement = settle_duel_bet_pool(pool_id, result["winner_tg"])
             DUEL_MESSAGE_REFRESH_CACHE.pop(pool_id, None)
             total_pages = _duel_settlement_total_pages(bet_settlement)
@@ -1732,29 +1805,42 @@ def register_bot(bot_instance) -> None:
     @bot_instance.on_message(filters.command(["duel"], prefixes) & filters.chat(group))
     async def xiuxian_duel_command(_, msg):
         try:
+            actor = await _require_message_user(msg, action_text="发起斗法")
+            if actor is None:
+                return
             settings = get_xiuxian_settings()
             bet_minutes = int(settings.get("duel_bet_minutes", 2) or 2)
             stake = 0
-            if len(msg.command) > 1:
+            duel_mode = "standard"
+            numeric_args: list[str] = []
+            for arg in msg.command[1:]:
+                raw = str(arg or "").strip()
+                if not raw:
+                    continue
+                if not numeric_args and not re.fullmatch(r"-?\d+", raw):
+                    duel_mode = _normalize_duel_mode_arg(raw)
+                    continue
+                numeric_args.append(raw)
+            if numeric_args:
                 try:
-                    stake = max(int(msg.command[1]), 0)
-                    if len(msg.command) > 2:
-                        bet_minutes = max(min(int(msg.command[2]), 15), 1)
+                    stake = max(int(numeric_args[0]), 0)
+                    if len(numeric_args) > 1:
+                        bet_minutes = max(min(int(numeric_args[1]), 15), 1)
                 except ValueError:
-                    return await _reply_text(msg, "赌注必须填写整数。")
+                    return await _reply_text(msg, "赌注和下注时长必须填写整数。")
             if msg.reply_to_message is None or msg.reply_to_message.from_user is None:
                 return await _reply_text(msg, "请先回复一位目标道友，再发起斗法邀请。")
-            if msg.reply_to_message.from_user.id == msg.from_user.id:
+            if msg.reply_to_message.from_user.id == actor.id:
                 return await _reply_text(msg, "你不能自己和自己斗法。")
 
             try:
-                duel = compute_duel_odds(msg.from_user.id, msg.reply_to_message.from_user.id)
+                duel = compute_duel_odds(actor.id, msg.reply_to_message.from_user.id, duel_mode=duel_mode)
                 assert_duel_stake_affordable(duel["challenger"]["profile"], duel["defender"]["profile"], stake)
-                preview = generate_duel_preview_text(duel, stake) + f"\n\n下注开放 {bet_minutes} 分钟"
+                preview = generate_duel_preview_text(duel, stake, duel_mode=duel_mode) + f"\n\n下注开放 {bet_minutes} 分钟"
                 await _reply_text(
                     msg,
                     preview,
-                    reply_markup=duel_keyboard(msg.from_user.id, msg.reply_to_message.from_user.id, stake, bet_minutes),
+                    reply_markup=duel_keyboard(actor.id, msg.reply_to_message.from_user.id, stake, bet_minutes, duel_mode=duel_mode),
                     persistent=True,
                     parse_mode=RICH_TEXT_MODE,
                 )
@@ -1763,13 +1849,14 @@ def register_bot(bot_instance) -> None:
         finally:
             await _delete_user_command_message(msg)
 
-    @bot_instance.on_callback_query(filters.regex(r"^xiuxian:duel:(accept|reject):(\d+):(\d+):(\d+):(\d+)$"))
+    @bot_instance.on_callback_query(filters.regex(r"^xiuxian:duel:(accept|reject):([a-z_]+):(\d+):(\d+):(\d+):(\d+)$"))
     async def xiuxian_duel_callback(_, call):
         action = call.matches[0].group(1)
-        challenger_tg = int(call.matches[0].group(2))
-        defender_tg = int(call.matches[0].group(3))
-        stake = int(call.matches[0].group(4))
-        bet_minutes = int(call.matches[0].group(5))
+        duel_mode = _normalize_duel_mode_arg(call.matches[0].group(2))
+        challenger_tg = int(call.matches[0].group(3))
+        defender_tg = int(call.matches[0].group(4))
+        stake = int(call.matches[0].group(5))
+        bet_minutes = int(call.matches[0].group(6))
 
         if call.from_user.id != defender_tg:
             return await callAnswer(call, "只有被邀请的应战者才能处理这场斗法。", True)
@@ -1783,13 +1870,14 @@ def register_bot(bot_instance) -> None:
                 challenger_tg=challenger_tg,
                 defender_tg=defender_tg,
                 stake=stake,
+                duel_mode=duel_mode,
                 bet_minutes=bet_minutes,
                 group_chat_id=call.message.chat.id,
                 duel_message_id=call.message.id,
             )
             sent = await _edit_text(
                 call.message,
-                f"斗法邀请已接受，押注通道开放 {pool.get('bet_minutes', bet_minutes)} 分钟。\n\n" + format_duel_bet_board(pool["id"]),
+                f"{'⛓️ 主仆对决' if duel_mode == 'master' else ('☠️ 生死斗' if duel_mode == 'death' else '⚔️ 斗法')}邀请已接受，押注通道开放 {pool.get('bet_minutes', bet_minutes)} 分钟。\n\n" + format_duel_bet_board(pool["id"]),
                 reply_markup=_duel_bet_keyboard(pool["id"]),
                 persistent=True,
                 parse_mode=RICH_TEXT_MODE,
@@ -1801,7 +1889,7 @@ def register_bot(bot_instance) -> None:
                 LOGGER.warning(f"xiuxian duel bet message update failed: {exc}")
             await callAnswer(call, "斗法已开始，押注倒计时启动。")
             asyncio.create_task(refresh_duel_bet_countdown(pool["id"], sent, pool.get("bets_close_at")))
-            asyncio.create_task(finalize_duel_after_betting(pool["id"], challenger_tg, defender_tg, stake, sent, pool.get("bets_close_at")))
+            asyncio.create_task(finalize_duel_after_betting(pool["id"], challenger_tg, defender_tg, stake, duel_mode, sent, pool.get("bets_close_at")))
         except Exception as exc:
             try:
                 await _edit_text(
@@ -2025,11 +2113,15 @@ def register_bot(bot_instance) -> None:
             await _delete_user_command_message(msg)
 
     async def _handle_immortal_touch_request(client, msg, *, command_mode: bool = False):
-        if msg.from_user is None or not getattr(msg, "text", None):
+        if not getattr(msg, "text", None):
             return
-        if not command_mode and not IMMORTAL_TOUCH_PATTERN.fullmatch(msg.text.strip()):
+        raw_text = str(msg.text or "").strip()
+        if not command_mode and not IMMORTAL_TOUCH_PATTERN.fullmatch(raw_text):
             return
-        if not is_admin_user_id(msg.from_user.id) and not await _is_group_admin(client, msg.chat.id, msg.from_user.id):
+        actor = await _require_message_user(msg, action_text="施展仙人抚顶")
+        if actor is None:
+            return
+        if not is_admin_user_id(actor.id) and not await _is_group_admin(client, msg.chat.id, actor.id):
             return await _reply_text(msg, "只有本群主人才能施展仙人抚顶。", quote=True)
 
         target_user = getattr(getattr(msg, "reply_to_message", None), "from_user", None)
@@ -2037,12 +2129,12 @@ def register_bot(bot_instance) -> None:
             return await _reply_text(msg, "请先回复一位真实用户，再施展仙人抚顶。", quote=True)
 
         try:
-            result = immortal_touch_infuse_cultivation(msg.from_user.id, target_user.id)
+            result = immortal_touch_infuse_cultivation(actor.id, target_user.id)
         except Exception as exc:
             return await _reply_text(msg, str(exc), quote=True)
 
         profile = result.get("profile") or {}
-        actor_name = msg.from_user.first_name or f"TG {msg.from_user.id}"
+        actor_name = actor.first_name or f"TG {actor.id}"
         target_name = target_user.first_name or f"TG {target_user.id}"
         stage = profile.get("realm_stage") or "炼气"
         layer = int(profile.get("realm_layer") or 1)
@@ -2075,16 +2167,17 @@ def register_bot(bot_instance) -> None:
     @bot_instance.on_message(filters.command(["rob"], prefixes) & filters.reply & filters.chat(group))
     async def xiuxian_rob_command(_, msg):
         try:
-            if msg.from_user is None:
+            actor = await _require_message_user(msg, action_text="发起抢劫")
+            if actor is None:
                 return
             if msg.reply_to_message is None or msg.reply_to_message.from_user is None:
                 return await _reply_text(msg, "请先回复目标道友，再尝试发起抢劫。")
             if msg.reply_to_message.from_user.is_bot:
                 return await _reply_text(msg, "不能对机器人发起抢劫。", quote=True)
-            if int(msg.reply_to_message.from_user.id) == int(msg.from_user.id):
+            if int(msg.reply_to_message.from_user.id) == int(actor.id):
                 return await _reply_text(msg, "你不能抢劫自己。", quote=True)
             try:
-                result = rob_player(msg.from_user.id, msg.reply_to_message.from_user.id)
+                result = rob_player(actor.id, msg.reply_to_message.from_user.id)
                 if result["success"]:
                     lines = [f"抢劫成功，你夺得了 {result['amount']} 灵石。"]
                     artifact_payload = ((result.get("artifact_plunder") or {}).get("artifact") or {})
@@ -2104,16 +2197,17 @@ def register_bot(bot_instance) -> None:
     async def xiuxian_seek_command(_, msg):
         try:
             try:
-                if msg.from_user is None:
+                actor = await _require_message_user(msg, action_text="探查对方信息")
+                if actor is None:
                     return
                 if msg.reply_to_message is None or msg.reply_to_message.from_user is None:
                     return await _reply_text(msg, "请先回复目标道友，再尝试探查。", quote=True)
                 if msg.reply_to_message.from_user.is_bot:
                     return await _reply_text(msg, "机器人没有可供探查的修仙信息。", quote=True)
-                if int(msg.reply_to_message.from_user.id) == int(msg.from_user.id):
+                if int(msg.reply_to_message.from_user.id) == int(actor.id):
                     return await _reply_text(msg, "你观照己身即可，无需对自己施展探查。", quote=True)
 
-                seeker = serialize_full_profile(msg.from_user.id)
+                seeker = serialize_full_profile(actor.id)
                 if not seeker["profile"]["consented"]:
                     return await _reply_text(msg, "你还没有踏入仙途，先私聊机器人点击 /xiuxian 入道。", quote=True)
 
@@ -2140,7 +2234,7 @@ def register_bot(bot_instance) -> None:
             except Exception as exc:
                 LOGGER.warning(
                     "xiuxian seek failed seeker=%s target=%s: %s",
-                    getattr(msg.from_user, "id", None),
+                    getattr(actor, "id", None),
                     getattr(getattr(msg.reply_to_message, "from_user", None), "id", None),
                     exc,
                 )
@@ -2151,6 +2245,9 @@ def register_bot(bot_instance) -> None:
     @bot_instance.on_message(filters.command(["gift"], prefixes))
     async def xiuxian_gift_command(_, msg):
         try:
+            actor = await _require_message_user(msg, action_text="赠送灵石")
+            if actor is None:
+                return
             if len(msg.command) < 3:
                 return await _reply_text(msg, "用法：/gift <TGID> <灵石数量>")
             try:
@@ -2159,11 +2256,20 @@ def register_bot(bot_instance) -> None:
             except ValueError:
                 return await _reply_text(msg, "赠送命令格式不正确，请填写整数 TGID 和灵石数量。")
             try:
-                result = gift_spirit_stone(msg.from_user.id, target_tg, amount)
-                await _reply_text(
-                    msg,
-                    f"赠送成功，已向 {result['receiver'].get('display_label') or f'TG {target_tg}'} 送出 {amount} 灵石。"
-                )
+                result = gift_spirit_stone(actor.id, target_tg, amount)
+                if int(getattr(getattr(msg, "chat", None), "id", 0) or 0) < 0:
+                    await _send_message(
+                        bot,
+                        msg.chat.id,
+                        _gift_group_broadcast_text(actor.first_name or f"TG {actor.id}", result.get("receiver") or {}, amount),
+                        parse_mode=RICH_TEXT_MODE,
+                        persistent=True,
+                    )
+                else:
+                    await _reply_text(
+                        msg,
+                        f"赠送成功，已向 {result['receiver'].get('display_label') or f'TG {target_tg}'} 送出 {amount} 灵石。"
+                    )
                 await _notify_achievement_unlocks(result.get("achievement_unlocks"))
             except Exception as exc:
                 await _reply_text(msg, str(exc))
@@ -2932,6 +3038,18 @@ def register_web(app) -> None:
         if encounter is None:
             raise HTTPException(status_code=404, detail="Encounter not found")
         return {"code": 200, "data": encounter}
+
+    @admin_router.post("/encounter/dispatch")
+    async def xiuxian_encounter_dispatch_api(payload: EncounterDispatchPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        chat_id = int(payload.group_chat_id or _main_group_chat_id() or 0)
+        if not chat_id:
+            raise HTTPException(status_code=400, detail="当前未配置可投放奇遇的群组。")
+        encounter_payload = spawn_group_encounter(chat_id, template_id=payload.template_id)
+        message_payload = await _push_group_encounter_notice(encounter_payload)
+        return {"code": 200, "data": {"encounter": encounter_payload, "message": message_payload}}
 
     @admin_router.post("/task")
     async def xiuxian_admin_task_api(payload: AdminTaskPayload, request: Request):

@@ -210,6 +210,11 @@ function officialShopName(bundle = state.profileBundle) {
   return String(raw || "").trim() || "官方商店";
 }
 
+function currentDuelLockReason(bundle = state.profileBundle) {
+  const reason = bundle?.capabilities?.duel_lock_reason;
+  return String(reason || "").trim();
+}
+
 function profileRootText(profile) {
   if (!profile.root_type) return "尚未踏入仙途";
   if (profile.root_type === "双灵根") {
@@ -743,6 +748,8 @@ function renderOfficialShop(items, retreating) {
     return;
   }
 
+  const duelLockReason = currentDuelLockReason();
+  const blockedReason = retreating ? "闭关期间无法交易。" : duelLockReason;
   for (const item of items) {
     const card = document.createElement("article");
     card.className = "stack-item";
@@ -752,7 +759,8 @@ function renderOfficialShop(items, retreating) {
         <span class="badge badge--vip">${escapeHtml(item.price_stone)} 灵石</span>
       </div>
       <p>${escapeHtml(item.item_kind_label)} · 库存 ${escapeHtml(item.quantity)} · ${escapeHtml(item.shop_name)}</p>
-      <button type="button" data-buy-id="${item.id}" ${retreating ? "disabled" : ""}>购买 1 件</button>
+      ${blockedReason ? `<p class="reason-text">${escapeHtml(blockedReason)}</p>` : ""}
+      <button type="button" data-buy-id="${item.id}" ${(retreating || duelLockReason) ? "disabled" : ""}>购买 1 件</button>
     `;
     root.appendChild(card);
   }
@@ -788,6 +796,8 @@ function renderCommunityShop(items, retreating) {
     return;
   }
 
+  const duelLockReason = currentDuelLockReason();
+  const blockedReason = retreating ? "闭关期间无法交易。" : duelLockReason;
   for (const item of items) {
     const card = document.createElement("article");
     card.className = "stack-item";
@@ -797,7 +807,8 @@ function renderCommunityShop(items, retreating) {
         <span class="badge badge--normal">${escapeHtml(item.price_stone)} 灵石</span>
       </div>
       <p>${escapeHtml(item.item_kind_label)} · 库存 ${escapeHtml(item.quantity)} · ${escapeHtml(item.shop_name)}</p>
-      <button type="button" data-buy-id="${item.id}" ${retreating ? "disabled" : ""}>购买 1 件</button>
+      ${blockedReason ? `<p class="reason-text">${escapeHtml(blockedReason)}</p>` : ""}
+      <button type="button" data-buy-id="${item.id}" ${(retreating || duelLockReason) ? "disabled" : ""}>购买 1 件</button>
     `;
     root.appendChild(card);
   }
@@ -886,6 +897,8 @@ function renderTaskArea(bundle) {
   let publishReason = "";
   if (!publishAllowed) {
     publishReason = "当前未开放玩家发布任务。";
+  } else if (currentDuelLockReason(bundle)) {
+    publishReason = currentDuelLockReason(bundle);
   } else if (currentStone < publishCost) {
     publishReason = `发布任务需要 ${publishCost} 灵石，当前灵石不足。`;
   }
@@ -1211,6 +1224,7 @@ function renderPersonalShop(items) {
     return;
   }
 
+  const duelLockReason = currentDuelLockReason();
   for (const item of items) {
     const card = document.createElement("article");
     card.className = "stack-item";
@@ -1221,7 +1235,7 @@ function renderPersonalShop(items) {
       </div>
       <p>${escapeHtml(item.item_kind_label)} · 库存 ${escapeHtml(item.quantity)} · 游仙小铺</p>
       <div class="inline-action-buttons">
-        <button type="button" data-cancel-id="${item.id}" class="ghost">取消上架</button>
+        <button type="button" data-cancel-id="${item.id}" class="ghost" ${duelLockReason ? "disabled" : ""}>取消上架</button>
       </div>
     `;
     root.appendChild(card);
@@ -1761,7 +1775,15 @@ document.querySelector("#sect-leave-btn")?.addEventListener("click", async (even
   try {
     const payload = await runButtonAction(button, "退出中…", () => postJson("/plugins/xiuxian/api/sect/leave"));
     const sectName = payload?.sect?.previous_sect?.name || "当前宗门";
-    const message = `你已经离开 ${sectName}。`;
+    const betrayal = payload?.sect?.betrayal || {};
+    const penalty = Number(betrayal.stone_penalty || 0);
+    const contribution = Number(betrayal.contribution_cleared || 0);
+    const cooldownUntil = betrayal.cooldown_until ? formatDate(betrayal.cooldown_until) : "";
+    const lines = [`你已经离开 ${sectName}。`];
+    if (penalty > 0) lines.push(`宗门收回供奉灵石 ${penalty}。`);
+    if (contribution > 0) lines.push(`宗门贡献清零 ${contribution}。`);
+    if (cooldownUntil) lines.push(`叛宗余罚将持续到 ${cooldownUntil}。`);
+    const message = lines.join("\n");
     setStatus(message, "success");
     await popup("退出成功", message);
     await refreshBundle();
@@ -2629,10 +2651,21 @@ renderProfile = function renderProfileRedesigned(bundle) {
   const profileGrid = document.querySelector("#profile-grid");
 
   if (!consented) {
+    const deathAt = profile.death_at ? formatDate(profile.death_at) : "";
+    const rebirthCount = Number(profile.rebirth_count || 0);
     if (realmBadge) realmBadge.textContent = "未入道";
-    if (heroRootPill) heroRootPill.textContent = "等待踏入仙途";
-    if (rootText) rootText.textContent = "确认入道后将抽取灵根、开启境界与背包系统。";
-    setStatus("你还没有踏入仙途，确认后将建立修仙档案。", "warning");
+    if (heroRootPill) heroRootPill.textContent = profile.death_at ? "残魂待续" : "等待踏入仙途";
+    if (rootText) {
+      rootText.textContent = profile.death_at
+        ? `上一世已于 ${deathAt || "未知时刻"} 陨落，当前转世次数 ${rebirthCount}。重新入道后将重开道途。`
+        : "确认入道后将抽取灵根、开启境界与背包系统。";
+    }
+    setStatus(
+      profile.death_at
+        ? "你已身死道消，当前只能重新踏入仙途。"
+        : "你还没有踏入仙途，确认后将建立修仙档案。",
+      profile.death_at ? "error" : "warning",
+    );
     syncAdminEntry(bundle);
     syncUserTaskComposer();
     return;
@@ -2641,6 +2674,7 @@ renderProfile = function renderProfileRedesigned(bundle) {
   const progress = bundle.progress || {};
   const settings = bundle.settings || {};
   const retreating = Boolean(bundle.capabilities?.is_in_retreat);
+  const duelLockReason = currentDuelLockReason(bundle);
   const equippedArtifacts = bundle.equipped_artifacts || [];
   const equipLimit = settings.artifact_equip_limit || bundle.capabilities?.artifact_equip_limit || 1;
   const artifactNames = equippedArtifacts.length ? equippedArtifacts.map((item) => item.name).join("、") : "未装备";
@@ -2650,6 +2684,13 @@ renderProfile = function renderProfileRedesigned(bundle) {
   const rootQuality = profile.root_quality || "灵根未定";
   const rootBonus = Number(profile.root_bonus || 0);
   const stats = bundle.effective_stats || {};
+  const slaveNames = Array.isArray(profile.slave_names) ? profile.slave_names : [];
+  const servitudeText = profile.master_name
+    ? `从属 ${profile.master_name}`
+    : (slaveNames.length ? `麾下 ${slaveNames.length} 人` : "自由身");
+  const servitudeCooldownText = profile.master_name
+    ? (profile.servitude_challenge_available_at ? formatDate(profile.servitude_challenge_available_at) : "可随时挑战")
+    : "无";
 
   if (realmBadge) {
     realmBadge.textContent = `${profile.realm_stage || "凡人"}${profile.realm_layer || 0}层`;
@@ -2678,13 +2719,19 @@ renderProfile = function renderProfileRedesigned(bundle) {
       <article class="profile-item"><span>已装法宝</span><strong>${escapeHtml(artifactNames)}</strong></article>
       <article class="profile-item"><span>待生效符箓</span><strong>${escapeHtml(talismanName)}</strong></article>
       <article class="profile-item"><span>当前功法</span><strong>${escapeHtml(bundle.current_technique?.name || "暂无")}</strong></article>
+      <article class="profile-item"><span>主仆状态</span><strong>${escapeHtml(servitudeText)}</strong></article>
+      <article class="profile-item"><span>赎身冷却</span><strong>${escapeHtml(servitudeCooldownText)}</strong></article>
       <article class="profile-item"><span>闭关状态</span><strong>${escapeHtml(retreatStatus)}</strong></article>
       <article class="profile-item"><span>宗门贡献</span><strong>${escapeHtml(profile.sect_contribution ?? 0)}</strong></article>
+      <article class="profile-item"><span>转世次数</span><strong>${escapeHtml(profile.rebirth_count ?? 0)}</strong></article>
       <article class="profile-item"><span>综合战力</span><strong>${escapeHtml(bundle.combat_power ?? stats.attack_power ?? 0)}</strong></article>
     `;
   }
 
   const hints = [];
+  if (duelLockReason) {
+    hints.push(duelLockReason);
+  }
   if (retreating) {
     hints.push("闭关期间无法进行大部分主动操作。");
   } else {
@@ -2701,7 +2748,7 @@ renderProfile = function renderProfileRedesigned(bundle) {
   const minExchange = settings.min_coin_exchange ?? 1;
   const exchangeHint = document.querySelector("#exchange-hint");
   if (exchangeHint) {
-    exchangeHint.textContent = `当前比例：1 片刻碎片 = ${rate} 灵石，手续费 ${fee}%，灵石兑换碎片最低消耗 ${minExchange} 灵石，不足 ${rate} 灵石一份的零头会保留。`;
+    exchangeHint.textContent = `当前比例：1 片刻碎片 = ${rate} 灵石，手续费 ${fee}%，灵石兑换碎片最低消耗 ${minExchange} 灵石，不足 ${rate} 灵石一份的零头会保留。${duelLockReason ? ` 当前状态：${duelLockReason}` : ""}`;
   }
 
   setDisabled(document.querySelector("#train-btn"), !bundle.capabilities?.can_train, "当前无法吐纳修炼");
@@ -2709,11 +2756,16 @@ renderProfile = function renderProfileRedesigned(bundle) {
   setDisabled(document.querySelector("#break-pill-btn"), !bundle.capabilities?.can_breakthrough, "当前无法使用筑基丹突破");
   setDisabled(document.querySelector("#retreat-start-btn"), !bundle.capabilities?.can_retreat, "当前无法开始闭关");
   setDisabled(document.querySelector("#retreat-finish-btn"), !retreating, "当前没有进行中的闭关");
+  setDisabled(document.querySelector("#coin-to-stone-form button[type='submit']"), Boolean(duelLockReason), duelLockReason);
+  setDisabled(document.querySelector("#stone-to-coin-form button[type='submit']"), Boolean(duelLockReason), duelLockReason);
 
-  const shopDisabledReason = retreating ? "闭关期间无法经营店铺。" : "";
+  const shopDisabledReason = retreating ? "闭关期间无法经营店铺。" : duelLockReason;
   ["#shop-item-kind", "#shop-item-ref", "#shop-quantity", "#shop-price", "#shop-name", "#shop-broadcast"]
-    .forEach((selector) => setDisabled(document.querySelector(selector), retreating, shopDisabledReason));
-  setDisabled(document.querySelector("#personal-shop-form button[type='submit']"), retreating, shopDisabledReason);
+    .forEach((selector) => setDisabled(document.querySelector(selector), retreating || Boolean(duelLockReason), shopDisabledReason));
+  setDisabled(document.querySelector("#shop-name-toggle"), retreating || Boolean(duelLockReason), shopDisabledReason);
+  setDisabled(document.querySelector("#personal-shop-form button[type='submit']"), retreating || Boolean(duelLockReason), shopDisabledReason);
+  setDisabled(document.querySelector("#gift-form button[type='submit']"), Boolean(duelLockReason), duelLockReason);
+  setDisabled(document.querySelector("#red-envelope-form button[type='submit']"), Boolean(duelLockReason), duelLockReason);
 
   renderArtifactList(bundle.artifacts || [], retreating, equipLimit, equippedArtifacts.length);
   renderTalismanList(bundle.talismans || [], retreating);
@@ -2987,6 +3039,11 @@ function sectRequirementSummary(sect = {}) {
   if (Number(sect.min_comprehension || 0) > 0) rows.push(`悟性 ${sect.min_comprehension}`);
   if (Number(sect.min_divine_sense || 0) > 0) rows.push(`神识 ${sect.min_divine_sense}`);
   if (Number(sect.min_fortune || 0) > 0) rows.push(`机缘 ${sect.min_fortune}`);
+  if (Number(sect.min_willpower || 0) > 0) rows.push(`心志 ${sect.min_willpower}`);
+  if (Number(sect.min_charisma || 0) > 0) rows.push(`魅力 ${sect.min_charisma}`);
+  if (Number(sect.min_karma || 0) > 0) rows.push(`因果 ${sect.min_karma}`);
+  if (Number(sect.min_body_movement || 0) > 0) rows.push(`身法 ${sect.min_body_movement}`);
+  if (Number(sect.min_combat_power || 0) > 0) rows.push(`战力 ${sect.min_combat_power}`);
   return rows.join(" · ") || "几乎无门槛";
 }
 
@@ -3015,6 +3072,7 @@ renderSectArea = function renderSectAreaEnhanced(bundle) {
   if (!currentRoot || !listRoot || !salaryButton || !leaveButton) return;
 
   const current = bundle.current_sect;
+  const duelLockReason = currentDuelLockReason(bundle);
   currentRoot.innerHTML = "";
   if (current) {
     const role = current.current_role || null;
@@ -3036,8 +3094,8 @@ renderSectArea = function renderSectAreaEnhanced(bundle) {
         ${current.entry_hint ? `<p>${escapeHtml(current.entry_hint)}</p>` : ""}
       </article>
     `;
-    salaryButton.disabled = false;
-    leaveButton.disabled = false;
+    setDisabled(salaryButton, Boolean(duelLockReason), duelLockReason);
+    setDisabled(leaveButton, Boolean(duelLockReason), duelLockReason);
   } else {
     currentRoot.innerHTML = `<article class="stack-item"><strong>暂未加入宗门</strong><p>满足门槛后，即可在下方挑选正邪宗门与入门路线。</p></article>`;
     salaryButton.disabled = true;
