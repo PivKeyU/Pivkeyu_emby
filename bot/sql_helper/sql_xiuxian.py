@@ -177,6 +177,7 @@ DEFAULT_SETTINGS = {
     "task_publish_cost": 20,
     "artifact_equip_limit": 3,
     "duel_winner_steal_percent": 25,
+    "duel_invite_timeout_seconds": 90,
     "allow_non_admin_image_upload": False,
     "chat_cultivation_chance": 8,
     "chat_cultivation_min_gain": 1,
