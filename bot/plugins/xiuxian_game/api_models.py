@@ -161,6 +161,7 @@ class AdminSettingPayload(BaseModel):
     exchange_fee_percent: int | None = None
     min_coin_exchange: int | None = None
     duel_bet_minutes: int | None = None
+    duel_invite_timeout_seconds: int | None = None
     duel_winner_steal_percent: int | None = None
     artifact_plunder_chance: int | None = None
     message_auto_delete_seconds: int | None = None

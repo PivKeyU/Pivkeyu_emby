@@ -276,6 +276,7 @@ MARKDOWN_ESCAPE_PATTERN = re.compile(r"([_*\[`])")
 SHANGHAI_TZ = timezone(timedelta(hours=8))
 DUEL_MESSAGE_REFRESH_CACHE: dict[int, float] = {}
 DUEL_SETTLEMENT_CACHE: dict[int, dict[str, Any]] = {}
+PENDING_DUEL_INVITES: dict[tuple[int, int], dict[str, Any]] = {}
 MESSAGE_AUTO_DELETE_TASKS: dict[tuple[int, int], asyncio.Task] = {}
 COMMAND_DISPATCH_CACHE: dict[tuple[int, int, str], float] = {}
 DUEL_SETTLEMENT_PAGE_SIZE = 10
@@ -1420,6 +1421,180 @@ def _normalize_duel_mode_arg(raw: str | None) -> str:
     return aliases.get(value, "standard")
 
 
+def _duel_mode_emoji(mode: str | None) -> str:
+    return {
+        "standard": "⚔️",
+        "master": "⛓️",
+        "death": "☠️",
+    }.get(_normalize_duel_mode_arg(mode), "⚔️")
+
+
+def _duel_mode_label(mode: str | None) -> str:
+    return {
+        "standard": "斗法",
+        "master": "主仆对决",
+        "death": "生死斗",
+    }.get(_normalize_duel_mode_arg(mode), "斗法")
+
+
+def _duel_invite_timeout_seconds(settings: dict[str, Any] | None = None) -> int:
+    source = settings if isinstance(settings, dict) else get_xiuxian_settings()
+    raw = source.get("duel_invite_timeout_seconds", DEFAULT_SETTINGS.get("duel_invite_timeout_seconds", 90))
+    return min(max(int(raw or DEFAULT_SETTINGS.get("duel_invite_timeout_seconds", 90)), 10), 1800)
+
+
+def _duel_invite_key(chat_id: Any, message_id: Any) -> tuple[int, int] | None:
+    if chat_id is None or message_id is None:
+        return None
+    return (int(chat_id), int(message_id))
+
+
+def _duel_invite_message_key(message: Any) -> tuple[int, int] | None:
+    return _duel_invite_key(
+        getattr(getattr(message, "chat", None), "id", None),
+        getattr(message, "id", None),
+    )
+
+
+def _duel_invite_matches(
+    invite: dict[str, Any] | None,
+    *,
+    challenger_tg: int,
+    defender_tg: int,
+    duel_mode: str,
+    stake: int,
+    bet_minutes: int,
+) -> bool:
+    if not isinstance(invite, dict):
+        return False
+    return (
+        int(invite.get("challenger_tg") or 0) == int(challenger_tg)
+        and int(invite.get("defender_tg") or 0) == int(defender_tg)
+        and int(invite.get("stake") or 0) == int(stake)
+        and int(invite.get("bet_minutes") or 0) == int(bet_minutes)
+        and _normalize_duel_mode_arg(invite.get("duel_mode")) == _normalize_duel_mode_arg(duel_mode)
+    )
+
+
+def _get_pending_duel_invite(
+    message: Any,
+    *,
+    challenger_tg: int,
+    defender_tg: int,
+    duel_mode: str,
+    stake: int,
+    bet_minutes: int,
+) -> tuple[tuple[int, int] | None, dict[str, Any] | None]:
+    key = _duel_invite_message_key(message)
+    if key is None:
+        return None, None
+    invite = PENDING_DUEL_INVITES.get(key)
+    if not _duel_invite_matches(
+        invite,
+        challenger_tg=challenger_tg,
+        defender_tg=defender_tg,
+        duel_mode=duel_mode,
+        stake=stake,
+        bet_minutes=bet_minutes,
+    ):
+        return key, None
+    return key, invite
+
+
+def _cancel_pending_duel_invite_task(task: asyncio.Task | None) -> None:
+    if task is None or task.done() or task is asyncio.current_task():
+        return
+    task.cancel()
+
+
+def _pop_pending_duel_invite(key: tuple[int, int] | None) -> dict[str, Any] | None:
+    if key is None:
+        return None
+    invite = PENDING_DUEL_INVITES.pop(key, None)
+    if invite:
+        _cancel_pending_duel_invite_task(invite.get("task"))
+    return invite
+
+
+def _format_duel_invite_footer(timeout_seconds: int, bet_minutes: int) -> str:
+    return "\n".join(
+        [
+            "",
+            f"⏳ 请应战者在 `{timeout_seconds}` 秒内作出回应，超时将自动撤销邀请。",
+            f"🎲 接受后将开放 `{bet_minutes}` 分钟押注。",
+            "🛑 发起者可点击下方按钮主动撤回本场邀请。",
+        ]
+    )
+
+
+def _format_duel_invite_closed_text(mode: str, headline: str, detail_lines: list[str]) -> str:
+    return "\n".join([f"{_duel_mode_emoji(mode)} **{headline}**", "", *detail_lines])
+
+
+async def _expire_duel_invite(chat_id: int, message_id: int, duel_mode: str, timeout_seconds: int) -> None:
+    try:
+        await asyncio.sleep(max(int(timeout_seconds or 0), 1))
+    except asyncio.CancelledError:
+        return
+
+    key = _duel_invite_key(chat_id, message_id)
+    invite = _pop_pending_duel_invite(key)
+    if invite is None:
+        return
+
+    try:
+        await _edit_message_text(
+            bot,
+            chat_id,
+            message_id,
+            _format_duel_invite_closed_text(
+                duel_mode,
+                f"{_duel_mode_label(duel_mode)}邀请已超时撤销",
+                [
+                    f"对方未在 `{timeout_seconds}` 秒内应战，本场邀请已自动失效。",
+                    "📭 发起者可重新发起新的挑战。",
+                ],
+            ),
+            persistent=True,
+            reply_markup=None,
+            parse_mode=RICH_TEXT_MODE,
+        )
+    except Exception as exc:
+        LOGGER.warning(f"xiuxian duel invite timeout update failed chat={chat_id} message={message_id}: {exc}")
+
+
+def _register_pending_duel_invite(
+    message: Any,
+    *,
+    challenger_tg: int,
+    defender_tg: int,
+    duel_mode: str,
+    stake: int,
+    bet_minutes: int,
+    timeout_seconds: int,
+) -> None:
+    key = _duel_invite_message_key(message)
+    if key is None:
+        return
+    _pop_pending_duel_invite(key)
+    PENDING_DUEL_INVITES[key] = {
+        "challenger_tg": int(challenger_tg),
+        "defender_tg": int(defender_tg),
+        "duel_mode": _normalize_duel_mode_arg(duel_mode),
+        "stake": int(stake),
+        "bet_minutes": int(bet_minutes),
+        "timeout_seconds": int(timeout_seconds),
+        "task": asyncio.create_task(
+            _expire_duel_invite(
+                key[0],
+                key[1],
+                duel_mode=_normalize_duel_mode_arg(duel_mode),
+                timeout_seconds=int(timeout_seconds),
+            )
+        ),
+    }
+
+
 def _duel_log_emoji(kind: str | None) -> str:
     return {
         "opening": "🌀",
@@ -1871,6 +2046,7 @@ def register_bot(bot_instance) -> None:
                 return
             settings = get_xiuxian_settings()
             bet_minutes = int(settings.get("duel_bet_minutes", 2) or 2)
+            invite_timeout_seconds = _duel_invite_timeout_seconds(settings)
             stake = 0
             numeric_args: list[str] = []
             for arg in command_args:
@@ -1901,20 +2077,32 @@ def register_bot(bot_instance) -> None:
             try:
                 duel = compute_duel_odds(actor.id, msg.reply_to_message.from_user.id, duel_mode=duel_mode)
                 assert_duel_stake_affordable(duel["challenger"]["profile"], duel["defender"]["profile"], stake)
-                preview = generate_duel_preview_text(duel, stake, duel_mode=duel_mode) + f"\n\n下注开放 {bet_minutes} 分钟"
-                await _reply_text(
+                preview = generate_duel_preview_text(duel, stake, duel_mode=duel_mode) + _format_duel_invite_footer(
+                    invite_timeout_seconds,
+                    bet_minutes,
+                )
+                sent = await _reply_text(
                     msg,
                     preview,
                     reply_markup=duel_keyboard(actor.id, msg.reply_to_message.from_user.id, stake, bet_minutes, duel_mode=duel_mode),
                     persistent=True,
                     parse_mode=RICH_TEXT_MODE,
                 )
+                _register_pending_duel_invite(
+                    sent,
+                    challenger_tg=actor.id,
+                    defender_tg=msg.reply_to_message.from_user.id,
+                    duel_mode=duel_mode,
+                    stake=stake,
+                    bet_minutes=bet_minutes,
+                    timeout_seconds=invite_timeout_seconds,
+                )
             except Exception as exc:
                 await _reply_text(msg, str(exc), quote=True)
         finally:
             await _delete_user_command_message(msg)
 
-    @bot_instance.on_callback_query(filters.regex(r"^xiuxian:duel:(accept|reject):([a-z_]+):(\d+):(\d+):(\d+):(\d+)$"))
+    @bot_instance.on_callback_query(filters.regex(r"^xiuxian:duel:(accept|reject|cancel):([a-z_]+):(\d+):(\d+):(\d+):(\d+)$"))
     async def xiuxian_duel_callback(_, call):
         action = call.matches[0].group(1)
         duel_mode = _normalize_duel_mode_arg(call.matches[0].group(2))
@@ -1923,13 +2111,59 @@ def register_bot(bot_instance) -> None:
         stake = int(call.matches[0].group(5))
         bet_minutes = int(call.matches[0].group(6))
 
+        key, invite = _get_pending_duel_invite(
+            call.message,
+            challenger_tg=challenger_tg,
+            defender_tg=defender_tg,
+            duel_mode=duel_mode,
+            stake=stake,
+            bet_minutes=bet_minutes,
+        )
+        if invite is None:
+            return await callAnswer(call, "这场斗法邀请已失效或已被处理。", True)
+
+        if action == "cancel":
+            if call.from_user.id != challenger_tg:
+                return await callAnswer(call, "只有发起斗法的一方才能主动撤销邀请。", True)
+            _pop_pending_duel_invite(key)
+            await _edit_text(
+                call.message,
+                _format_duel_invite_closed_text(
+                    duel_mode,
+                    f"{_duel_mode_label(duel_mode)}邀请已主动撤销",
+                    [
+                        "🛑 发起者已收回这场挑战。",
+                        "📭 若仍想开战，可重新发起新的斗法邀请。",
+                    ],
+                ),
+                persistent=True,
+                reply_markup=None,
+                parse_mode=RICH_TEXT_MODE,
+            )
+            return await callAnswer(call, "斗法邀请已撤销。")
+
         if call.from_user.id != defender_tg:
             return await callAnswer(call, "只有被邀请的应战者才能处理这场斗法。", True)
 
         if action == "reject":
-            await _edit_text(call.message, "这场斗法邀请已被拒绝。")
+            _pop_pending_duel_invite(key)
+            await _edit_text(
+                call.message,
+                _format_duel_invite_closed_text(
+                    duel_mode,
+                    f"{_duel_mode_label(duel_mode)}邀请已被拒绝",
+                    [
+                        "🚫 应战者选择了拒绝，本场挑战到此作废。",
+                        "📭 发起者可稍后重新发起新的邀请。",
+                    ],
+                ),
+                persistent=True,
+                reply_markup=None,
+                parse_mode=RICH_TEXT_MODE,
+            )
             return await callAnswer(call, "斗法已取消。")
 
+        _pop_pending_duel_invite(key)
         try:
             pool = create_duel_bet_pool_for_duel(
                 challenger_tg=challenger_tg,
@@ -1942,7 +2176,7 @@ def register_bot(bot_instance) -> None:
             )
             sent = await _edit_text(
                 call.message,
-                f"{'⛓️ 主仆对决' if duel_mode == 'master' else ('☠️ 生死斗' if duel_mode == 'death' else '⚔️ 斗法')}邀请已接受，押注通道开放 {pool.get('bet_minutes', bet_minutes)} 分钟。\n\n" + format_duel_bet_board(pool["id"]),
+                f"{_duel_mode_emoji(duel_mode)} {_duel_mode_label(duel_mode)}邀请已接受，押注通道开放 {pool.get('bet_minutes', bet_minutes)} 分钟。\n\n" + format_duel_bet_board(pool["id"]),
                 reply_markup=_duel_bet_keyboard(pool["id"]),
                 persistent=True,
                 parse_mode=RICH_TEXT_MODE,
@@ -1959,8 +2193,9 @@ def register_bot(bot_instance) -> None:
             try:
                 await _edit_text(
                     call.message,
-                    f"⚠️ **斗法邀请已取消**\n\n{_md_escape(str(exc))}",
+                    f"⚠️ **{_duel_mode_label(duel_mode)}邀请已取消**\n\n{_md_escape(str(exc))}",
                     persistent=True,
+                    reply_markup=None,
                     parse_mode=RICH_TEXT_MODE,
                 )
             except Exception as message_exc:

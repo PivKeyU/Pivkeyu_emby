@@ -1160,6 +1160,7 @@ function applySettings(settings = {}) {
   $("setting-fee").value = settings.exchange_fee_percent ?? 1;
   $("setting-min").value = settings.min_coin_exchange ?? 1;
   $("setting-duel-minutes").value = settings.duel_bet_minutes ?? 2;
+  $("setting-duel-invite-timeout").value = settings.duel_invite_timeout_seconds ?? 90;
   $("setting-duel-steal").value = settings.duel_winner_steal_percent ?? 25;
   $("setting-artifact-plunder").value = settings.artifact_plunder_chance ?? 20;
   $("setting-message-auto-delete").value = settings.message_auto_delete_seconds ?? 180;
@@ -1275,6 +1276,7 @@ function bindEvents() {
     event.preventDefault();
     await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/settings", {
       duel_bet_minutes: Number($("setting-duel-minutes").value || 2),
+      duel_invite_timeout_seconds: Number($("setting-duel-invite-timeout").value || 90),
       duel_winner_steal_percent: Number($("setting-duel-steal").value || 25),
       artifact_plunder_chance: Number($("setting-artifact-plunder").value || 20),
       equipment_unbind_cost: Number($("setting-unbind-cost").value || 0),

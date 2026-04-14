@@ -3093,10 +3093,15 @@ def duel_keyboard(challenger_tg: int, defender_tg: int, stake: int, bet_minutes:
         "death": "☠️ 立下血契",
     }.get(mode, "🟢 接受斗法")
     return ikb(
-        [[
-            (accept_label, f"xiuxian:duel:accept:{mode}:{challenger_tg}:{defender_tg}:{stake}:{bet_minutes}"),
-            ("🚫 拒绝", f"xiuxian:duel:reject:{mode}:{challenger_tg}:{defender_tg}:{stake}:{bet_minutes}"),
-        ]]
+        [
+            [
+                (accept_label, f"xiuxian:duel:accept:{mode}:{challenger_tg}:{defender_tg}:{stake}:{bet_minutes}"),
+                ("🚫 拒绝", f"xiuxian:duel:reject:{mode}:{challenger_tg}:{defender_tg}:{stake}:{bet_minutes}"),
+            ],
+            [
+                ("🛑 发起者撤销", f"xiuxian:duel:cancel:{mode}:{challenger_tg}:{defender_tg}:{stake}:{bet_minutes}"),
+            ],
+        ]
     )
 
 
@@ -3228,6 +3233,10 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         "equipment_unbind_cost": int(xiuxian_settings.get("equipment_unbind_cost", DEFAULT_SETTINGS["equipment_unbind_cost"]) or 0),
         "artifact_plunder_chance": int(
             xiuxian_settings.get("artifact_plunder_chance", DEFAULT_SETTINGS["artifact_plunder_chance"]) or 0
+        ),
+        "duel_invite_timeout_seconds": max(
+            int(xiuxian_settings.get("duel_invite_timeout_seconds", DEFAULT_SETTINGS["duel_invite_timeout_seconds"]) or 0),
+            10,
         ),
         "duel_winner_steal_percent": int(
             xiuxian_settings.get("duel_winner_steal_percent", DEFAULT_SETTINGS["duel_winner_steal_percent"]) or 0
@@ -3710,6 +3719,15 @@ def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
                 0,
             ),
             100,
+        )
+    if "duel_invite_timeout_seconds" in patch and patch["duel_invite_timeout_seconds"] is not None:
+        patch["duel_invite_timeout_seconds"] = min(
+            _coerce_int(
+                patch["duel_invite_timeout_seconds"],
+                DEFAULT_SETTINGS["duel_invite_timeout_seconds"],
+                10,
+            ),
+            1800,
         )
     if "slave_tribute_percent" in patch and patch["slave_tribute_percent"] is not None:
         patch["slave_tribute_percent"] = min(
@@ -5334,20 +5352,21 @@ def _build_duel_snapshot(
 
 def _format_duel_side_block(snapshot: dict[str, Any], label: str) -> list[str]:
     stats = snapshot["stats"]
+    side_emoji = "🟥" if label == "挑战者" else "🟦" if label == "应战者" else "⚔️"
     return [
-        f"{label}：{snapshot['name']}",
-        f"境界：{snapshot['realm_text']} ｜ 战力：{snapshot['power']:.1f} ｜ 预测胜率：{snapshot['win_rate']:.1f}%",
-        f"灵根：{snapshot['root_text']} ｜ 五行修正 {snapshot['root_modifier_percent']:+.1f}% ｜ 灵根战斗系数 {snapshot['root_factor']:.3f}",
-        f"功法：{snapshot['technique_name']}",
-        f"法宝：{snapshot['artifact_names']} ｜ 符箓：{snapshot['talisman_name']}",
+        f"{side_emoji} {label}：{snapshot['name']}",
+        f"🏯 境界：{snapshot['realm_text']} ｜ ⚡ 战力：{snapshot['power']:.1f} ｜ 🎯 预测胜率：{snapshot['win_rate']:.1f}%",
+        f"🌱 灵根：{snapshot['root_text']} ｜ 🧭 五行修正 {snapshot['root_modifier_percent']:+.1f}% ｜ 🪨 灵根战斗系数 {snapshot['root_factor']:.3f}",
+        f"📜 功法：{snapshot['technique_name']}",
+        f"🧰 法宝：{snapshot['artifact_names']} ｜ 🧿 符箓：{snapshot['talisman_name']}",
         (
-            "核心数值："
+            "⚔️ 核心数值："
             f"攻 {stats['attack_power']} 防 {stats['defense_power']} "
             f"气血 {stats['qi_blood']} 真元 {stats['true_yuan']} "
             f"身法 {stats['body_movement']} 斗法 {stats['duel_rate_bonus']:+d}%"
         ),
         (
-            "资质数值："
+            "🧠 资质数值："
             f"根骨 {stats['bone']} 悟性 {stats['comprehension']} "
             f"神识 {stats['divine_sense']} 机缘 {stats['fortune']}"
         ),
@@ -5475,12 +5494,12 @@ def format_duel_matchup_text(
         "",
         *_format_duel_side_block(duel["defender_snapshot"], "应战者"),
         "",
-        f"综合预测：挑战者 {duel['challenger_rate'] * 100:.1f}% / 应战者 {duel['defender_rate'] * 100:.1f}%",
+        f"📊 综合预测：挑战者 {duel['challenger_rate'] * 100:.1f}% / 应战者 {duel['defender_rate'] * 100:.1f}%",
     ]
     if stake:
-        lines.append(f"赌注：每人 {stake} 灵石")
-    lines.append(f"胜者掠夺：败者当前灵石的 {plunder_percent}%")
-    lines.append(f"法宝掠夺：基础 {artifact_plunder_chance}% 夺取 1 件未绑定法宝，受双方机缘影响")
+        lines.append(f"💰 赌注：每人 {stake} 灵石")
+    lines.append(f"🎁 胜者掠夺：败者当前灵石的 {plunder_percent}%")
+    lines.append(f"🗡️ 法宝掠夺：基础 {artifact_plunder_chance}% 夺取 1 件未绑定法宝，受双方机缘影响")
     lines.extend(_duel_mode_preview_lines(duel, duel_mode))
     return "\n".join(lines)
 
