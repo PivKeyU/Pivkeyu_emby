@@ -198,6 +198,7 @@ DEFAULT_SETTINGS = {
     "sect_betrayal_cooldown_days": 7,
 }
 DEFAULT_SETTINGS["duel_bet_minutes"] = 2
+STALE_DUEL_LOCK_GRACE_SECONDS = 120
 
 QUALITY_LEVEL_LABELS = {
     1: "凡品",
@@ -1955,8 +1956,10 @@ def _active_duel_pool_row(
     *,
     for_update: bool = False,
 ) -> XiuxianDuelBetPool | None:
+    stale_cutoff = utcnow() - timedelta(seconds=STALE_DUEL_LOCK_GRACE_SECONDS)
     query = session.query(XiuxianDuelBetPool).filter(
         XiuxianDuelBetPool.resolved.is_(False),
+        XiuxianDuelBetPool.bets_close_at > stale_cutoff,
         or_(XiuxianDuelBetPool.challenger_tg == tg, XiuxianDuelBetPool.defender_tg == tg),
     )
     if for_update:
@@ -1964,8 +1967,55 @@ def _active_duel_pool_row(
     return query.order_by(XiuxianDuelBetPool.id.desc()).first()
 
 
+def _cleanup_stale_duel_locks(
+    session: Session,
+    tg: int,
+    *,
+    for_update: bool = False,
+) -> list[int]:
+    stale_cutoff = utcnow() - timedelta(seconds=STALE_DUEL_LOCK_GRACE_SECONDS)
+    query = session.query(XiuxianDuelBetPool).filter(
+        XiuxianDuelBetPool.resolved.is_(False),
+        XiuxianDuelBetPool.bets_close_at <= stale_cutoff,
+        or_(XiuxianDuelBetPool.challenger_tg == tg, XiuxianDuelBetPool.defender_tg == tg),
+    )
+    if for_update:
+        query = query.with_for_update()
+    stale_pools = query.order_by(XiuxianDuelBetPool.id.asc()).all()
+    cleaned_ids: list[int] = []
+
+    for pool in stale_pools:
+        bets = session.query(XiuxianDuelBet).filter(XiuxianDuelBet.pool_id == pool.id).all()
+        for bet in bets:
+            refund_amount = max(int(bet.amount or 0), 0)
+            if refund_amount <= 0:
+                continue
+            profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(bet.tg)).with_for_update().first()
+            if profile is None:
+                continue
+            apply_spiritual_stone_delta(
+                session,
+                int(bet.tg),
+                refund_amount,
+                action_text="退还过期斗法押注",
+                allow_dead=True,
+                apply_tribute=True,
+            )
+        pool.resolved = True
+        pool.winner_tg = None
+        pool.updated_at = utcnow()
+        cleaned_ids.append(int(pool.id))
+
+    if cleaned_ids:
+        session.flush()
+    return cleaned_ids
+
+
 def get_active_duel_lock(tg: int) -> dict[str, Any] | None:
     with Session() as session:
+        cleaned_ids = _cleanup_stale_duel_locks(session, tg, for_update=False)
+        if cleaned_ids:
+            session.commit()
         row = _active_duel_pool_row(session, tg, for_update=False)
         if row is None:
             return None
@@ -1996,6 +2046,9 @@ def assert_currency_operation_allowed(
                 query = query.with_for_update()
             profile_row = query.first()
         assert_profile_alive(profile_row, action_text)
+        cleaned_ids = _cleanup_stale_duel_locks(active_session, tg, for_update=not own_session)
+        if cleaned_ids and own_session:
+            active_session.commit()
         active_duel = _active_duel_pool_row(active_session, tg, for_update=not own_session)
         if active_duel is not None:
             duel_mode = str(active_duel.duel_mode or "standard")

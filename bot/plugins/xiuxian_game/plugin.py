@@ -1810,11 +1810,16 @@ def register_bot(bot_instance) -> None:
                 LOGGER.warning(f"xiuxian duel cancel message update failed: {message_exc}")
         except Exception as exc:
             DUEL_MESSAGE_REFRESH_CACHE.pop(pool_id, None)
+            DUEL_SETTLEMENT_CACHE.pop(pool_id, None)
+            try:
+                cancel_duel_bet_pool(pool_id, str(exc))
+            except Exception as refund_exc:
+                LOGGER.warning(f"xiuxian duel finalize fallback refund failed: {refund_exc}")
             LOGGER.warning(f"xiuxian duel finalize failed: {exc}")
             try:
                 await _edit_text(
                     message,
-                    "⚠️ **赌斗结算异常**\n\n本场斗法未能正常落盘，请稍后重试或让主人检查日志。",
+                    "⚠️ **赌斗结算异常**\n\n本场斗法未能正常落盘，赌池已自动撤销，已参与押注的灵石会原路退回。",
                     persistent=True,
                     parse_mode=RICH_TEXT_MODE,
                 )
