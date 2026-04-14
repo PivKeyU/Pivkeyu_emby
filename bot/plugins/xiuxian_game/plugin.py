@@ -2164,14 +2164,14 @@ def register_bot(bot_instance) -> None:
     async def xiuxian_immortal_touch_reply(client, msg):
         return await _handle_immortal_touch_request(client, msg, command_mode=False)
 
-    @bot_instance.on_message(filters.command(["rob"], prefixes) & filters.reply & filters.chat(group))
+    @bot_instance.on_message(filters.command(["rob"], prefixes) & filters.chat(group))
     async def xiuxian_rob_command(_, msg):
         try:
             actor = await _require_message_user(msg, action_text="发起抢劫")
             if actor is None:
                 return
             if msg.reply_to_message is None or msg.reply_to_message.from_user is None:
-                return await _reply_text(msg, "请先回复目标道友，再尝试发起抢劫。")
+                return await _reply_text(msg, "请先回复目标道友，再尝试发起抢劫。", quote=True)
             if msg.reply_to_message.from_user.is_bot:
                 return await _reply_text(msg, "不能对机器人发起抢劫。", quote=True)
             if int(msg.reply_to_message.from_user.id) == int(actor.id):
@@ -2189,7 +2189,7 @@ def register_bot(bot_instance) -> None:
                 await _reply_text(msg, text, quote=True)
                 await _notify_achievement_unlocks(result.get("achievement_unlocks"))
             except Exception as exc:
-                await _reply_text(msg, str(exc), quote=True)
+                await _reply_text(msg, str(exc) or "抢劫失败，请稍后重试。", quote=True)
         finally:
             await _delete_user_command_message(msg)
 
@@ -2238,7 +2238,7 @@ def register_bot(bot_instance) -> None:
                     getattr(getattr(msg.reply_to_message, "from_user", None), "id", None),
                     exc,
                 )
-                await _reply_text(msg, f"探查失败：{exc}", quote=True)
+                await _reply_text(msg, f"探查失败：{exc or '请稍后重试。'}", quote=True)
         finally:
             await _delete_user_command_message(msg)
 

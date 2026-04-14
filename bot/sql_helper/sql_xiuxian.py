@@ -235,6 +235,15 @@ QUALITY_LEVEL_FEATURES = {
     6: "强力特效，可能改变玩法节奏",
     7: "唯一机制、套装或事件级特效",
 }
+MATERIAL_QUALITY_NOTES = {
+    1: "常见基础灵材，适合入门炼制、任务收集与日常积累。",
+    2: "灵性稳定的常备材料，足以支撑前中期常规配方。",
+    3: "已具明显灵韵，可作为中阶丹器符配方的主辅材料。",
+    4: "材质精纯、灵息凝实，常用于高阶炼制与精修。",
+    5: "珍稀核心灵材，往往决定成品的上限与方向。",
+    6: "传说层次的异材，多见于险地奇遇、榜单奖励或古修遗藏。",
+    7: "天材地宝级重宝，足以左右顶级炼制与机缘布局。",
+}
 PILL_TYPE_LABELS = {
     "foundation": "突破加成",
     "clear_poison": "解毒",
@@ -1377,6 +1386,8 @@ def serialize_material(material: XiuxianMaterial | None) -> dict[str, Any] | Non
     if material is None:
         return None
     quality = get_quality_meta(material.quality_level)
+    description = str(material.description or "").strip()
+    quality_note = description or MATERIAL_QUALITY_NOTES.get(int(quality["level"]), "") or quality["description"]
     return {
         "id": material.id,
         "name": material.name,
@@ -1384,7 +1395,7 @@ def serialize_material(material: XiuxianMaterial | None) -> dict[str, Any] | Non
         "quality_label": quality["label"],
         "quality_color": quality["color"],
         "quality_description": quality["description"],
-        "quality_feature": quality["feature"],
+        "quality_feature": quality_note,
         "image_url": material.image_url,
         "description": material.description,
         "enabled": material.enabled,
