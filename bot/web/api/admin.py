@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import os
 import shutil
+import threading
 import time
 from datetime import datetime
 from time import monotonic
 from sys import argv, executable
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func
@@ -197,6 +198,12 @@ def _restart_after_delay(seconds: float = 1.0) -> None:
     _restart_current_process()
 
 
+def _schedule_restart_after_delay(seconds: float = 4.0) -> None:
+    # 让导入响应先完整返回，避免移动端/WebView把正常导入误判成网络失败。
+    worker = threading.Thread(target=_restart_after_delay, args=(seconds,), daemon=True)
+    worker.start()
+
+
 def _serialize_code_actor(
     tg: int | None,
     identity_map: dict[int, dict[str, str]],
@@ -368,23 +375,23 @@ async def export_migration_bundle():
 
 @router.post("/system/migration/import")
 async def import_migration_bundle_api(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     restore_config_file: bool = Form(False),
     restart_after_import: bool = Form(True),
 ):
     try:
-        imported = restore_migration_bundle(await file.read(), restore_config_file=restore_config_file)
+        await file.seek(0)
+        imported = restore_migration_bundle(file.file, restore_config_file=restore_config_file)
     except MigrationBundleError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        LOGGER.error(f"migration bundle import failed: {exc}")
+        LOGGER.exception("migration bundle import failed")
         raise HTTPException(status_code=500, detail="迁移压缩包导入失败，请检查日志。") from exc
     finally:
         await file.close()
 
     if restart_after_import:
-        background_tasks.add_task(_restart_after_delay, 1.2)
+        _schedule_restart_after_delay(4.0)
 
     return {
         "code": 200,

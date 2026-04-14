@@ -182,7 +182,7 @@ function isNarrowScreen() {
 function normalizeError(error, fallback = "操作失败，请稍后再试。") {
   const message = String(error?.message || fallback || "").trim();
   if (!message) return fallback;
-  if (message === "Failed to fetch") {
+  if (message === "Failed to fetch" || message === "Load failed" || message === "NetworkError when attempting to fetch resource.") {
     return "网络请求失败，请稍后重试。";
   }
   if (message.startsWith("Unexpected token")) {
@@ -192,6 +192,15 @@ function normalizeError(error, fallback = "操作失败，请稍后再试。") {
     return "服务暂时不可用，请稍后重试。";
   }
   return message;
+}
+
+function isLikelyFetchDisconnect(error) {
+  const message = String(error?.message || "").trim();
+  return [
+    "Failed to fetch",
+    "Load failed",
+    "NetworkError when attempting to fetch resource."
+  ].includes(message);
 }
 
 function touchFeedback(tone = "success") {
@@ -1299,7 +1308,7 @@ refs.migrationImportForm?.addEventListener("submit", async (event) => {
     }
 
     if (restartScheduled) {
-      message += " Bot 即将自动重启，请稍后重新进入后台。";
+      message += " Bot 将在数秒后自动重启，请稍后重新进入后台。";
     } else {
       message += " 请尽快手动重启 Bot，以加载新的配置和插件状态。";
     }
@@ -1314,6 +1323,15 @@ refs.migrationImportForm?.addEventListener("submit", async (event) => {
     showToast(restartScheduled ? "迁移数据已导入，Bot 即将重启。" : "迁移数据已导入。", restartScheduled ? "warning" : "success");
     await popup(restartScheduled ? "导入成功，即将重启" : "导入成功", message, restartScheduled ? "warning" : "success");
   } catch (error) {
+    if (refs.migrationRestartAfterImport?.checked && isLikelyFetchDisconnect(error)) {
+      const message = "连接在导入请求结束前后中断了；如果你勾选了自动重启，Bot 很可能已经开始重启。请等待 10 到 20 秒后刷新后台，并核对导入后的数据。";
+      setAdminStatus(message, "warning");
+      refs.migrationNote.textContent = message;
+      refs.migrationNote.dataset.tone = "warning";
+      showToast("连接已中断，Bot 可能正在重启。", "warning");
+      await popup("连接已中断", message, "warning");
+      return;
+    }
     const message = normalizeError(error);
     setAdminStatus(`导入迁移压缩包失败：${message}`, "error");
     refs.migrationNote.textContent = `导入失败：${message}`;

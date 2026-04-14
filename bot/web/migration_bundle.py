@@ -10,7 +10,7 @@ import zipfile
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, BinaryIO
 
 from sqlalchemy import MetaData, select, text
 from sqlalchemy.sql.sqltypes import Boolean, Date, DateTime, Float, Integer, JSON, LargeBinary, Numeric, Time
@@ -271,14 +271,22 @@ def _resolve_bundle_root(paths: set[PurePosixPath]) -> str | None:
     return top_level
 
 
-def _extract_bundle(archive_bytes: bytes) -> tuple[Path, dict[str, Any], Path]:
-    if not archive_bytes:
-        raise MigrationBundleError("上传的迁移压缩包为空。")
+def _extract_bundle(archive_source: bytes | BinaryIO) -> tuple[Path, dict[str, Any], Path]:
+    if isinstance(archive_source, (bytes, bytearray)):
+        if not archive_source:
+            raise MigrationBundleError("上传的迁移压缩包为空。")
+        source = io.BytesIO(bytes(archive_source))
+    else:
+        source = archive_source
+        if hasattr(source, "seek"):
+            source.seek(0)
 
     try:
-        zip_file = zipfile.ZipFile(io.BytesIO(archive_bytes))
+        zip_file = zipfile.ZipFile(source)
     except zipfile.BadZipFile as exc:
         raise MigrationBundleError("上传文件不是有效的 ZIP 压缩包。") from exc
+    except Exception as exc:
+        raise MigrationBundleError("上传的迁移压缩包无法读取。") from exc
 
     temp_root = Path(tempfile.mkdtemp(prefix="pivkeyu-migration-import-"))
     extract_root = temp_root / "bundle"
@@ -439,8 +447,8 @@ def _restore_config_snapshot(config_root: Path) -> dict[str, Any]:
     return {"restored": True, "available": True, "filename": snapshot.name}
 
 
-def restore_migration_bundle(archive_bytes: bytes, *, restore_config_file: bool = False) -> dict[str, Any]:
-    extract_root, manifest, temp_root = _extract_bundle(archive_bytes)
+def restore_migration_bundle(archive_source: bytes | BinaryIO, *, restore_config_file: bool = False) -> dict[str, Any]:
+    extract_root, manifest, temp_root = _extract_bundle(archive_source)
     warnings: list[str] = []
     try:
         # 没有数据库快照时直接拒绝，防止误导入后把现有数据库清空。
