@@ -2171,10 +2171,32 @@ def _pill_effect_summary(before_profile: dict[str, Any], after_profile: dict[str
     parts: list[str] = []
     before_root = format_root(before_profile)
     after_root = format_root(after_profile)
+    before_stage = normalize_realm_stage(before_profile.get("realm_stage") or "炼气")
+    after_stage = normalize_realm_stage(after_profile.get("realm_stage") or "炼气")
+    before_layer = max(int(before_profile.get("realm_layer") or 1), 1)
+    after_layer = max(int(after_profile.get("realm_layer") or 1), 1)
+
+    def cultivation_progress_total(profile: dict[str, Any]) -> int:
+        stage = normalize_realm_stage(profile.get("realm_stage") or "炼气")
+        layer = max(int(profile.get("realm_layer") or 1), 1)
+        cultivation = max(int(profile.get("cultivation") or 0), 0)
+        total = cultivation
+        for current_layer in range(1, layer):
+            total += cultivation_threshold(stage, current_layer)
+        return total
+
     if before_root != after_root:
         parts.append(f"灵根：{before_root} -> {after_root}")
+    if before_stage != after_stage or before_layer != after_layer:
+        parts.append(f"境界：{before_stage}{before_layer}层 -> {after_stage}{after_layer}层")
+    cultivation_delta = (
+        cultivation_progress_total(after_profile) - cultivation_progress_total(before_profile)
+        if before_stage == after_stage
+        else int(after_profile.get("cultivation") or 0) - int(before_profile.get("cultivation") or 0)
+    )
+    if cultivation_delta:
+        parts.append(f"修为 {'+' if cultivation_delta > 0 else ''}{cultivation_delta}")
     for key in (
-        "cultivation",
         "spiritual_stone",
         "bone",
         "comprehension",
