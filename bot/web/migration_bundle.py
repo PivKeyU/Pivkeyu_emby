@@ -109,6 +109,23 @@ def _json_load(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _is_zero_date_string(value: str) -> bool:
+    normalized = str(value or "").strip()
+    return normalized.startswith("0000-00-00")
+
+
+def _temporal_fallback(column, kind: str) -> Any:
+    if column.nullable:
+        return None
+    if kind == "datetime":
+        return datetime.utcnow()
+    if kind == "date":
+        return date.today()
+    if kind == "time":
+        return time.min
+    return None
+
+
 def _copy_data_snapshot(target_dir: Path) -> dict[str, Any]:
     target_dir.mkdir(parents=True, exist_ok=True)
     copied_items: list[dict[str, Any]] = []
@@ -358,11 +375,20 @@ def _coerce_column_value(column, value: Any) -> Any:
     if isinstance(column.type, JSON):
         return value
     if isinstance(column.type, DateTime) and isinstance(value, str):
-        return datetime.fromisoformat(value)
+        normalized = value.strip().replace("Z", "+00:00")
+        if _is_zero_date_string(normalized):
+            return _temporal_fallback(column, "datetime")
+        return datetime.fromisoformat(normalized)
     if isinstance(column.type, Date) and isinstance(value, str):
-        return date.fromisoformat(value)
+        normalized = value.strip()
+        if _is_zero_date_string(normalized):
+            return _temporal_fallback(column, "date")
+        return date.fromisoformat(normalized)
     if isinstance(column.type, Time) and isinstance(value, str):
-        return time.fromisoformat(value)
+        normalized = value.strip()
+        if _is_zero_date_string(normalized):
+            return _temporal_fallback(column, "time")
+        return time.fromisoformat(normalized)
     if isinstance(column.type, Boolean):
         return bool(value)
     if isinstance(column.type, Integer):
@@ -411,7 +437,14 @@ def _restore_database_snapshot(database_root: Path) -> dict[str, Any]:
                     for column in table.columns:
                         if column.name not in row:
                             continue
-                        converted_row[column.name] = _coerce_column_value(column, row[column.name])
+                        try:
+                            converted_row[column.name] = _coerce_column_value(column, row[column.name])
+                        except (TypeError, ValueError) as exc:
+                            raw_value = str(row[column.name])
+                            preview = raw_value[:120] + ("..." if len(raw_value) > 120 else "")
+                            raise MigrationBundleError(
+                                f"迁移快照中表 {table.name} 的字段 {column.name} 包含无法恢复的值：{preview}"
+                            ) from exc
                     converted_rows.append(converted_row)
 
                 if converted_rows:
