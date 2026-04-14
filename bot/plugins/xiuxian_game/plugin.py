@@ -319,23 +319,6 @@ def _schedule_command_refresh(bot_instance) -> None:
         LOGGER.debug(f"xiuxian command refresh skipped: {exc}")
 
 
-def _extract_prefixed_command(message) -> tuple[str, list[str]] | None:
-    raw_text = str(getattr(message, "text", "") or "").strip()
-    if not raw_text:
-        return None
-    active_prefixes = prefixes if isinstance(prefixes, (list, tuple, set)) else [prefixes]
-    prefix_set = {str(item) for item in active_prefixes if str(item)}
-    if not prefix_set or raw_text[0] not in prefix_set:
-        return None
-    tokens = raw_text[1:].split()
-    if not tokens:
-        return None
-    command_name = str(tokens[0]).split("@", 1)[0].strip().lower()
-    if not command_name:
-        return None
-    return command_name, [str(item) for item in tokens[1:]]
-
-
 def _xiuxian_basic_guide_text(consented: bool) -> str:
     lines = [
         f"《{PLUGIN_NAME}》当前版本：v{PLUGIN_VERSION}",
@@ -1831,16 +1814,19 @@ def register_bot(bot_instance) -> None:
         finally:
             await _delete_user_command_message(msg)
 
-    @bot_instance.on_message(filters.text & filters.chat(group))
+    @bot_instance.on_message(filters.command(list(DUEL_COMMAND_MODES.keys()), prefixes) & filters.chat(group))
     async def xiuxian_duel_command(_, msg):
         try:
-            parsed = _extract_prefixed_command(msg)
-            if parsed is None:
-                return
-            command_name, command_args = parsed
+            command_name = str((msg.command or [""])[0]).split("@", 1)[0].strip().lower()
+            command_args = [str(item) for item in (msg.command[1:] if len(msg.command or []) > 1 else [])]
             duel_mode = DUEL_COMMAND_MODES.get(command_name)
             if duel_mode is None:
                 return
+            LOGGER.info(
+                f"xiuxian duel command received chat={getattr(getattr(msg, 'chat', None), 'id', None)} "
+                f"actor={getattr(getattr(msg, 'from_user', None), 'id', None)} "
+                f"cmd={command_name} reply_to={getattr(getattr(getattr(msg, 'reply_to_message', None), 'from_user', None), 'id', None)}"
+            )
             actor = await _require_message_user(msg, action_text="发起斗法")
             if actor is None:
                 return
@@ -2204,12 +2190,14 @@ def register_bot(bot_instance) -> None:
     async def xiuxian_immortal_touch_reply(client, msg):
         return await _handle_immortal_touch_request(client, msg, command_mode=False)
 
-    @bot_instance.on_message(filters.text & filters.chat(group))
+    @bot_instance.on_message(filters.command(["rob"], prefixes) & filters.chat(group))
     async def xiuxian_rob_command(_, msg):
         try:
-            parsed = _extract_prefixed_command(msg)
-            if parsed is None or parsed[0] != "rob":
-                return
+            LOGGER.info(
+                f"xiuxian rob command received chat={getattr(getattr(msg, 'chat', None), 'id', None)} "
+                f"actor={getattr(getattr(msg, 'from_user', None), 'id', None)} "
+                f"reply_to={getattr(getattr(getattr(msg, 'reply_to_message', None), 'from_user', None), 'id', None)}"
+            )
             actor = await _require_message_user(msg, action_text="发起抢劫")
             if actor is None:
                 return
@@ -2232,16 +2220,22 @@ def register_bot(bot_instance) -> None:
                 await _reply_text(msg, text, quote=True)
                 await _notify_achievement_unlocks(result.get("achievement_unlocks"))
             except Exception as exc:
+                LOGGER.warning(
+                    f"xiuxian rob failed attacker={getattr(actor, 'id', None)} "
+                    f"target={getattr(getattr(getattr(msg, 'reply_to_message', None), 'from_user', None), 'id', None)}: {exc}"
+                )
                 await _reply_text(msg, str(exc) or "抢劫失败，请稍后重试。", quote=True)
         finally:
             await _delete_user_command_message(msg)
 
-    @bot_instance.on_message(filters.text & filters.chat(group))
+    @bot_instance.on_message(filters.command(["seek"], prefixes) & filters.chat(group))
     async def xiuxian_seek_command(_, msg):
         try:
-            parsed = _extract_prefixed_command(msg)
-            if parsed is None or parsed[0] != "seek":
-                return
+            LOGGER.info(
+                f"xiuxian seek command received chat={getattr(getattr(msg, 'chat', None), 'id', None)} "
+                f"actor={getattr(getattr(msg, 'from_user', None), 'id', None)} "
+                f"reply_to={getattr(getattr(getattr(msg, 'reply_to_message', None), 'from_user', None), 'id', None)}"
+            )
             try:
                 actor = await _require_message_user(msg, action_text="探查对方信息")
                 if actor is None:
