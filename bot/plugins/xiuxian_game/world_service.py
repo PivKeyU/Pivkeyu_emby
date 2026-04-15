@@ -417,9 +417,19 @@ def _sect_betrayal_cooldown_days() -> int:
 
 def _sect_betrayal_stone_penalty(balance: int) -> int:
     current = max(int(balance or 0), 0)
-    if current <= 0:
-        return 0
-    return min(current, max(current // 10, 20), 300)
+    return min(max(current // 10, 20), 300)
+
+
+def _scene_exploration_counts(tg: int) -> dict[int, int]:
+    counts: dict[int, int] = {}
+    with Session() as session:
+        rows = session.query(XiuxianExploration.scene_id).filter(XiuxianExploration.tg == int(tg)).all()
+    for row in rows:
+        scene_id = int(getattr(row, "scene_id", row[0] if row else 0) or 0)
+        if scene_id <= 0:
+            continue
+        counts[scene_id] = counts.get(scene_id, 0) + 1
+    return counts
 
 
 def _eligible_for_sect(profile_data: dict[str, Any], sect: dict[str, Any], combat_power: int = 0) -> tuple[bool, str]:
@@ -529,23 +539,25 @@ def leave_sect_for_user(tg: int) -> dict[str, Any]:
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if profile is None or not profile.consented:
             raise ValueError("你还没有踏入仙途")
-        assert_profile_alive(profile, "退出宗门")
+        assert_profile_alive(profile, "叛出宗门")
         assert_currency_operation_allowed(tg, "叛出宗门", session=session, profile=profile)
         if not profile.sect_id:
             raise ValueError("你当前并未加入宗门")
 
-        penalty = _sect_betrayal_stone_penalty(int(profile.spiritual_stone or 0))
+        current_stone = max(int(profile.spiritual_stone or 0), 0)
+        penalty = _sect_betrayal_stone_penalty(current_stone)
+        if current_stone < penalty:
+            raise ValueError(f"叛出宗门需要缴纳 {penalty} 灵石供奉，你当前灵石不足。")
         cooldown_until = utcnow() + timedelta(days=_sect_betrayal_cooldown_days())
         previous_contribution = int(profile.sect_contribution or 0)
-        if penalty > 0:
-            apply_spiritual_stone_delta(
-                session,
-                tg,
-                -penalty,
-                action_text="叛出宗门",
-                allow_dead=False,
-                apply_tribute=False,
-            )
+        apply_spiritual_stone_delta(
+            session,
+            tg,
+            -penalty,
+            action_text="叛出宗门",
+            allow_dead=False,
+            apply_tribute=False,
+        )
         profile.sect_id = None
         profile.sect_role_key = None
         profile.sect_contribution = 0
@@ -1811,7 +1823,7 @@ def claim_red_envelope_for_user(envelope_id: int, tg: int) -> dict[str, Any]:
     return {
         "envelope": serialize_red_envelope(get_red_envelope(envelope_id)),
         "amount": amount,
-        "profile": serialize_full_profile(tg)["profile"],
+        "profile": _full_profile_bundle(tg)["profile"],
         "claims": list_red_envelope_claims(envelope_id),
     }
 
@@ -2344,8 +2356,10 @@ def create_duel_bet_pool_for_duel(
 
 def build_world_bundle(tg: int) -> dict[str, Any]:
     scenes = list_scenes(enabled_only=True)
+    exploration_counts = _scene_exploration_counts(tg)
     for scene in scenes:
         scene["drops"] = list_scene_drops(scene["id"])
+        scene["user_exploration_count"] = exploration_counts.get(int(scene["id"]), 0)
     recipes = build_recipe_catalog(tg)
     return {
         "sects": list_sects_for_user(tg),

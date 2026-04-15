@@ -1107,6 +1107,7 @@ function renderExploreArea(bundle) {
   for (const scene of scenes) {
     const riskRows = sceneRiskRows(scene);
     const risky = riskRows.some((row) => row.includes("阵亡概率"));
+    const explorationCount = Number(scene.user_exploration_count || 0);
     const card = document.createElement("article");
     card.className = "stack-item";
     card.innerHTML = `
@@ -1115,6 +1116,7 @@ function renderExploreArea(bundle) {
         <span class="badge badge--normal">最多 ${escapeHtml(scene.max_minutes)} 分钟</span>
       </div>
       <p>${escapeHtml(scene.description || "暂无场景描述")}</p>
+      <p>已探索 ${escapeHtml(explorationCount)} 次</p>
       <p>${escapeHtml(riskRows.join(" · ") || "当前秘境无额外门槛")}</p>
       <label>探索时长
         <select data-scene-minutes="${scene.id}">
@@ -1379,22 +1381,21 @@ function renderLeaderboard(result) {
   document.querySelector("#rank-next").disabled = result.page >= result.total_pages;
 }
 
-async function refreshBundle() {
-  const payload = await postJson("/plugins/xiuxian/api/bootstrap");
-  renderBottomNav(payload.bottom_nav || []);
-  renderProfile(payload.profile_bundle);
-  renderSectArea(payload.profile_bundle);
-  renderTaskArea(payload.profile_bundle);
-  renderTechniqueArea(payload.profile_bundle);
-  renderCraftArea(payload.profile_bundle);
-  renderExploreArea(payload.profile_bundle);
-  renderJournalArea(payload.profile_bundle);
+function applyProfileBundle(bundle) {
+  if (!bundle) return;
+  renderProfile(bundle);
+  renderSectArea(bundle);
+  renderTaskArea(bundle);
+  renderTechniqueArea(bundle);
+  renderCraftArea(bundle);
+  renderExploreArea(bundle);
+  renderJournalArea(bundle);
   renderRedEnvelopeClaims(state.lastRedEnvelopeClaims || []);
 
   state.shopNameEditing = false;
-  applyShopNameState(payload.profile_bundle?.profile?.shop_name || "游仙小铺");
+  applyShopNameState(bundle?.profile?.shop_name || "游仙小铺");
 
-  const settings = payload.profile_bundle?.settings || {};
+  const settings = bundle?.settings || {};
   const rate = settings.rate ?? settings.coin_exchange_rate ?? 100;
   const fee = settings.fee_percent ?? settings.exchange_fee_percent ?? 1;
   const minExchange = settings.min_coin_exchange ?? 1;
@@ -1403,8 +1404,14 @@ async function refreshBundle() {
     exchangeHint.textContent = `当前比例：1 片刻碎片 = ${rate} 灵石，手续费 ${fee}%，灵石兑换碎片最低消耗 ${minExchange} 灵石，不足 ${rate} 灵石一份的零头会保留。`;
   }
 
-  ensureSectionState("#journal-card", Boolean(payload.profile_bundle?.profile?.consented));
-  ensureSectionState("#technique-card", Boolean(payload.profile_bundle?.profile?.consented));
+  ensureSectionState("#journal-card", Boolean(bundle?.profile?.consented));
+  ensureSectionState("#technique-card", Boolean(bundle?.profile?.consented));
+}
+
+async function refreshBundle() {
+  const payload = await postJson("/plugins/xiuxian/api/bootstrap");
+  renderBottomNav(payload.bottom_nav || []);
+  applyProfileBundle(payload.profile_bundle);
   return payload.profile_bundle;
 }
 
@@ -1773,22 +1780,26 @@ document.querySelector("#sect-salary-btn")?.addEventListener("click", async (eve
 document.querySelector("#sect-leave-btn")?.addEventListener("click", async (event) => {
   const button = event.currentTarget;
   try {
-    const payload = await runButtonAction(button, "退出中…", () => postJson("/plugins/xiuxian/api/sect/leave"));
+    const payload = await runButtonAction(button, "叛出中…", () => postJson("/plugins/xiuxian/api/sect/leave"));
     const sectName = payload?.sect?.previous_sect?.name || "当前宗门";
     const betrayal = payload?.sect?.betrayal || {};
     const penalty = Number(betrayal.stone_penalty || 0);
     const contribution = Number(betrayal.contribution_cleared || 0);
     const cooldownUntil = betrayal.cooldown_until ? formatDate(betrayal.cooldown_until) : "";
-    const lines = [`你已经离开 ${sectName}。`];
+    if (payload?.bundle) {
+      applyProfileBundle(payload.bundle);
+    } else {
+      await refreshBundle();
+    }
+    const lines = [`你已经叛出 ${sectName}。`];
     if (penalty > 0) lines.push(`宗门收回供奉灵石 ${penalty}。`);
     if (contribution > 0) lines.push(`宗门贡献清零 ${contribution}。`);
     if (cooldownUntil) lines.push(`叛宗余罚将持续到 ${cooldownUntil}。`);
     const message = lines.join("\n");
     setStatus(message, "success");
-    await popup("退出成功", message);
-    await refreshBundle();
+    await popup("叛出成功", message);
   } catch (error) {
-    const message = normalizeError(error, "退出宗门失败。");
+    const message = normalizeError(error, "叛出宗门失败。");
     setStatus(message, "error");
     await popup("操作失败", message, "error");
   }
@@ -3073,6 +3084,7 @@ renderSectArea = function renderSectAreaEnhanced(bundle) {
 
   const current = bundle.current_sect;
   const duelLockReason = currentDuelLockReason(bundle);
+  leaveButton.textContent = "叛出宗门";
   currentRoot.innerHTML = "";
   if (current) {
     const role = current.current_role || null;
@@ -3098,8 +3110,8 @@ renderSectArea = function renderSectAreaEnhanced(bundle) {
     setDisabled(leaveButton, Boolean(duelLockReason), duelLockReason);
   } else {
     currentRoot.innerHTML = `<article class="stack-item"><strong>暂未加入宗门</strong><p>满足门槛后，即可在下方挑选正邪宗门与入门路线。</p></article>`;
-    salaryButton.disabled = true;
-    leaveButton.disabled = true;
+    setDisabled(salaryButton, true);
+    setDisabled(leaveButton, true);
   }
 
   listRoot.innerHTML = "";
