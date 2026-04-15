@@ -416,8 +416,13 @@ def _sect_betrayal_cooldown_days() -> int:
 
 
 def _sect_betrayal_stone_penalty(balance: int) -> int:
+    settings = get_xiuxian_settings()
     current = max(int(balance or 0), 0)
-    return min(max(current // 10, 20), 300)
+    percent = max(int(settings.get("sect_betrayal_stone_percent", DEFAULT_SETTINGS.get("sect_betrayal_stone_percent", 10)) or 0), 0)
+    minimum = max(int(settings.get("sect_betrayal_stone_min", DEFAULT_SETTINGS.get("sect_betrayal_stone_min", 20)) or 0), 0)
+    maximum = max(int(settings.get("sect_betrayal_stone_max", DEFAULT_SETTINGS.get("sect_betrayal_stone_max", 300)) or 0), minimum)
+    percent_penalty = (current * percent) // 100 if percent > 0 else 0
+    return min(max(percent_penalty, minimum), maximum)
 
 
 def _scene_exploration_counts(tg: int) -> dict[int, int]:

@@ -180,6 +180,11 @@ class AdminSettingPayload(BaseModel):
     high_quality_broadcast_level: int | None = None
     slave_tribute_percent: int | None = None
     slave_challenge_cooldown_hours: int | None = None
+    sect_salary_min_stay_days: int | None = None
+    sect_betrayal_cooldown_days: int | None = None
+    sect_betrayal_stone_percent: int | None = None
+    sect_betrayal_stone_min: int | None = None
+    sect_betrayal_stone_max: int | None = None
     root_quality_value_rules: dict[str, RootQualityRulePayload] | None = None
     exploration_drop_weight_rules: DropWeightRulePayload | None = None
     item_quality_value_rules: dict[str, ItemQualityValueRulePayload] | None = None

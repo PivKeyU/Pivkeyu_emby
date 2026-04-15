@@ -3248,6 +3248,11 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         "task_publish_cost": max(int(xiuxian_settings.get("task_publish_cost", DEFAULT_SETTINGS["task_publish_cost"]) or 0), 0),
         "slave_tribute_percent": max(int(xiuxian_settings.get("slave_tribute_percent", DEFAULT_SETTINGS["slave_tribute_percent"]) or 0), 0),
         "slave_challenge_cooldown_hours": max(int(xiuxian_settings.get("slave_challenge_cooldown_hours", DEFAULT_SETTINGS["slave_challenge_cooldown_hours"]) or 0), 1),
+        "sect_salary_min_stay_days": max(int(xiuxian_settings.get("sect_salary_min_stay_days", DEFAULT_SETTINGS["sect_salary_min_stay_days"]) or 0), 1),
+        "sect_betrayal_cooldown_days": max(int(xiuxian_settings.get("sect_betrayal_cooldown_days", DEFAULT_SETTINGS["sect_betrayal_cooldown_days"]) or 0), 1),
+        "sect_betrayal_stone_percent": max(int(xiuxian_settings.get("sect_betrayal_stone_percent", DEFAULT_SETTINGS["sect_betrayal_stone_percent"]) or 0), 0),
+        "sect_betrayal_stone_min": max(int(xiuxian_settings.get("sect_betrayal_stone_min", DEFAULT_SETTINGS["sect_betrayal_stone_min"]) or 0), 0),
+        "sect_betrayal_stone_max": max(int(xiuxian_settings.get("sect_betrayal_stone_max", DEFAULT_SETTINGS["sect_betrayal_stone_max"]) or 0), 0),
     }
     active_duel_lock = get_active_duel_lock(tg)
     attribute_effects = [
@@ -3749,6 +3754,59 @@ def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
             ),
             720,
         )
+    if "sect_salary_min_stay_days" in patch and patch["sect_salary_min_stay_days"] is not None:
+        patch["sect_salary_min_stay_days"] = min(
+            _coerce_int(
+                patch["sect_salary_min_stay_days"],
+                DEFAULT_SETTINGS["sect_salary_min_stay_days"],
+                1,
+            ),
+            3650,
+        )
+    if "sect_betrayal_cooldown_days" in patch and patch["sect_betrayal_cooldown_days"] is not None:
+        patch["sect_betrayal_cooldown_days"] = min(
+            _coerce_int(
+                patch["sect_betrayal_cooldown_days"],
+                DEFAULT_SETTINGS["sect_betrayal_cooldown_days"],
+                1,
+            ),
+            3650,
+        )
+    if "sect_betrayal_stone_percent" in patch and patch["sect_betrayal_stone_percent"] is not None:
+        patch["sect_betrayal_stone_percent"] = min(
+            _coerce_int(
+                patch["sect_betrayal_stone_percent"],
+                DEFAULT_SETTINGS["sect_betrayal_stone_percent"],
+                0,
+            ),
+            100,
+        )
+    if "sect_betrayal_stone_min" in patch and patch["sect_betrayal_stone_min"] is not None:
+        patch["sect_betrayal_stone_min"] = min(
+            _coerce_int(
+                patch["sect_betrayal_stone_min"],
+                DEFAULT_SETTINGS["sect_betrayal_stone_min"],
+                0,
+            ),
+            1000000,
+        )
+    if "sect_betrayal_stone_max" in patch and patch["sect_betrayal_stone_max"] is not None:
+        patch["sect_betrayal_stone_max"] = min(
+            _coerce_int(
+                patch["sect_betrayal_stone_max"],
+                DEFAULT_SETTINGS["sect_betrayal_stone_max"],
+                0,
+            ),
+            1000000,
+        )
+    if "sect_betrayal_stone_min" in patch or "sect_betrayal_stone_max" in patch:
+        min_value = int(patch.get("sect_betrayal_stone_min", DEFAULT_SETTINGS["sect_betrayal_stone_min"]) or 0)
+        max_value = int(patch.get("sect_betrayal_stone_max", DEFAULT_SETTINGS["sect_betrayal_stone_max"]) or 0)
+        if max_value < min_value:
+            if "sect_betrayal_stone_max" in patch:
+                patch["sect_betrayal_stone_max"] = min_value
+            else:
+                patch["sect_betrayal_stone_min"] = max_value
     if "message_auto_delete_seconds" in patch and patch["message_auto_delete_seconds"] is not None:
         patch["message_auto_delete_seconds"] = min(
             _coerce_int(

@@ -196,6 +196,9 @@ DEFAULT_SETTINGS = {
     "slave_challenge_cooldown_hours": 24,
     "sect_salary_min_stay_days": 30,
     "sect_betrayal_cooldown_days": 7,
+    "sect_betrayal_stone_percent": 10,
+    "sect_betrayal_stone_min": 20,
+    "sect_betrayal_stone_max": 300,
 }
 DEFAULT_SETTINGS["duel_bet_minutes"] = 2
 STALE_DUEL_LOCK_GRACE_SECONDS = 120

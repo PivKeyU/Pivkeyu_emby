@@ -1180,6 +1180,11 @@ function applySettings(settings = {}) {
   $("setting-quality-broadcast").value = settings.high_quality_broadcast_level ?? 4;
   $("setting-slave-tribute").value = settings.slave_tribute_percent ?? 20;
   $("setting-slave-cooldown").value = settings.slave_challenge_cooldown_hours ?? 24;
+  $("setting-sect-salary-stay").value = settings.sect_salary_min_stay_days ?? 30;
+  $("setting-sect-betrayal-cooldown").value = settings.sect_betrayal_cooldown_days ?? 7;
+  $("setting-sect-betrayal-percent").value = settings.sect_betrayal_stone_percent ?? 10;
+  $("setting-sect-betrayal-min").value = settings.sect_betrayal_stone_min ?? 20;
+  $("setting-sect-betrayal-max").value = settings.sect_betrayal_stone_max ?? 300;
   applyRootQualityRules(settings);
   applyItemQualityRules(settings);
   applyDropWeightRules(settings);
@@ -1284,6 +1289,11 @@ function bindEvents() {
       high_quality_broadcast_level: Number($("setting-quality-broadcast").value || 4),
       slave_tribute_percent: Number($("setting-slave-tribute").value || 20),
       slave_challenge_cooldown_hours: Number($("setting-slave-cooldown").value || 24),
+      sect_salary_min_stay_days: Number($("setting-sect-salary-stay").value || 30),
+      sect_betrayal_cooldown_days: Number($("setting-sect-betrayal-cooldown").value || 7),
+      sect_betrayal_stone_percent: Number($("setting-sect-betrayal-percent").value || 10),
+      sect_betrayal_stone_min: Number($("setting-sect-betrayal-min").value || 20),
+      sect_betrayal_stone_max: Number($("setting-sect-betrayal-max").value || 300),
     }), "保存成功", "斗法与装备规则已更新。");
   });
 
