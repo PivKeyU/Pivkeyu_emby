@@ -551,6 +551,7 @@ def leave_sect_for_user(tg: int) -> dict[str, Any]:
         profile.sect_contribution = 0
         profile.sect_joined_at = None
         profile.sect_betrayal_until = cooldown_until
+        profile.last_salary_claim_at = None
         profile.updated_at = utcnow()
         session.commit()
 
@@ -1402,6 +1403,9 @@ def craft_recipe_for_user(tg: int, recipe_id: int) -> dict[str, Any]:
     ingredients = list_recipe_ingredients(recipe_id)
     if not ingredients:
         raise ValueError("该配方还没有配置材料")
+    result_item = _get_item_payload(recipe["result_kind"], int(recipe["result_ref_id"]))
+    if result_item is None:
+        raise ValueError("该配方的成品配置无效，请联系管理员修复后再炼制")
     inventory_map = {row["material"]["id"]: row for row in list_user_materials(tg)}
     total_quality = 0
     total_count = 0
@@ -1426,7 +1430,6 @@ def craft_recipe_for_user(tg: int, recipe_id: int) -> dict[str, Any]:
             total_quality += int(item["material"].get("quality_level", 1) or 1) * int(item["quantity"] or 0)
             total_count += int(item["quantity"] or 0)
         session.commit()
-    result_item = _get_item_payload(recipe["result_kind"], int(recipe["result_ref_id"]))
     result_quality = _quality_from_item(recipe["result_kind"], result_item)
     avg_material_quality = total_quality / max(total_count, 1)
     sect_effects = get_sect_effects(profile)
@@ -1580,6 +1583,13 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
 
 def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
     _require_alive_profile_data(tg, "结算探索")
+    exploration_payload: dict[str, Any] | None = None
+    reward_kind = None
+    reward_ref_id = 0
+    reward_quantity = 0
+    stone_reward = 0
+    outcome: dict[str, Any] = {}
+    bonus_payload: dict[str, Any] | None = None
     with Session() as session:
         exploration = (
             session.query(XiuxianExploration)
@@ -1610,13 +1620,18 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
             incoming_new = {technique_id for technique_id in technique_rewards if technique_id not in owned_ids}
             if len(owned_ids) + len(incoming_new) > capacity:
                 raise ValueError(f"当前可参悟功法数量已满，上限为 {capacity}，请先让管理员调整后再领取该机缘。")
+        reward_kind = exploration.reward_kind
+        reward_ref_id = int(exploration.reward_ref_id or 0)
+        reward_quantity = int(exploration.reward_quantity or 0)
+        stone_reward = int(exploration.stone_reward or 0)
         exploration.claimed = True
         exploration.updated_at = utcnow()
         session.commit()
         session.refresh(exploration)
+        exploration_payload = serialize_exploration(exploration)
     reward_item = None
-    if exploration.reward_kind and exploration.reward_ref_id and int(exploration.reward_quantity or 0) > 0:
-        reward_item = _grant_item_by_kind(tg, exploration.reward_kind, int(exploration.reward_ref_id), int(exploration.reward_quantity))
+    if reward_kind and reward_ref_id and reward_quantity > 0:
+        reward_item = _grant_item_by_kind(tg, reward_kind, reward_ref_id, reward_quantity)
     bonus_reward = None
     if bonus_payload and bonus_payload.get("kind") and int(bonus_payload.get("ref_id") or 0) > 0 and int(bonus_payload.get("quantity") or 0) > 0:
         bonus_reward = _grant_item_by_kind(
@@ -1630,7 +1645,7 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
     event_stone_loss = max(int(outcome.get("stone_loss") or 0), 0)
     current_stone = int(profile.spiritual_stone or 0) if profile else 0
     actual_stone_loss = min(current_stone, event_stone_loss)
-    total_stone_delta = int(exploration.stone_reward or 0) + event_stone_bonus - actual_stone_loss
+    total_stone_delta = stone_reward + event_stone_bonus - actual_stone_loss
     with Session() as session:
         updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if updated is None or not updated.consented:
@@ -1648,8 +1663,8 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
         session.commit()
     event_type = str((outcome.get("event") or {}).get("event_type") or "").strip()
     recipe_like_drop = bool(bonus_payload and bonus_payload.get("is_recipe_like")) or _recipe_like_bonus_item(
-        exploration.reward_kind,
-        exploration.reward_ref_id,
+        reward_kind,
+        reward_ref_id,
     )
     achievement_unlocks = record_exploration_metrics(
         tg,
@@ -1666,10 +1681,10 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
         ),
     )
     return {
-        "exploration": serialize_exploration(exploration),
+        "exploration": exploration_payload,
         "reward_item": reward_item,
         "bonus_reward": bonus_reward,
-        "stone_gain": int(exploration.stone_reward or 0) + event_stone_bonus,
+        "stone_gain": stone_reward + event_stone_bonus,
         "stone_loss": actual_stone_loss,
         "stone_delta": total_stone_delta,
         "profile": _full_profile_bundle(tg)["profile"],

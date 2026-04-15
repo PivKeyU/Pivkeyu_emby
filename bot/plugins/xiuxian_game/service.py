@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import random
 from datetime import datetime, timedelta
-from math import ceil
+from math import ceil, exp
 from typing import Any
 
 from pykeyboard import InlineButton, InlineKeyboard
@@ -122,9 +122,11 @@ from bot.sql_helper.sql_xiuxian import (
     XiuxianProfile,
     XiuxianArtifactInventory,
     XiuxianEquippedArtifact,
+    XiuxianExploration,
     XiuxianMaterialInventory,
     XiuxianPillInventory,
     XiuxianTalismanInventory,
+    XiuxianTaskClaim,
     XiuxianUserRecipe,
     XiuxianUserTechnique,
     use_user_artifact_listing_stock,
@@ -4582,6 +4584,18 @@ def init_path_for_user(tg: int) -> dict[str, Any]:
     if profile and profile.consented and profile.death_at is None:
         return serialize_full_profile(tg)
 
+    is_rebirth = bool(profile and profile.death_at is not None)
+    if is_rebirth:
+        with Session() as session:
+            session.query(XiuxianExploration).filter(
+                XiuxianExploration.tg == int(tg),
+                XiuxianExploration.claimed.is_(False),
+            ).delete(synchronize_session=False)
+            session.query(XiuxianTaskClaim).filter(
+                XiuxianTaskClaim.tg == int(tg),
+            ).delete(synchronize_session=False)
+            session.commit()
+
     root_payload = generate_root_payload()
     stats = _build_opening_stats(root_payload)
     updated = upsert_profile(
@@ -4604,7 +4618,6 @@ def init_path_for_user(tg: int) -> dict[str, Any]:
         servitude_started_at=None,
         servitude_challenge_available_at=None,
         death_at=None,
-        rebirth_count=int(profile.rebirth_count or 0) + (1 if profile and profile.death_at is not None else 0),
         sect_id=None,
         sect_role_key=None,
         sect_contribution=0,
@@ -4620,8 +4633,13 @@ def init_path_for_user(tg: int) -> dict[str, Any]:
         retreat_cost_per_minute=0,
         retreat_minutes_total=0,
         retreat_minutes_resolved=0,
+        last_train_at=None,
+        last_salary_claim_at=None,
+        robbery_daily_count=0,
+        robbery_day_key=None,
         shop_name="",
         shop_broadcast=False,
+        rebirth_count=int(profile.rebirth_count or 0) + (1 if is_rebirth else 0),
         **stats,
     )
     return serialize_full_profile(updated.tg)
@@ -5504,6 +5522,53 @@ def format_duel_matchup_text(
     return "\n".join(lines)
 
 
+def _duel_odds_score(profile: dict[str, Any], state: dict[str, Any], opponent_profile: dict[str, Any] | None = None) -> float:
+    stats = state["stats"]
+    realm_score = max(realm_index(profile.get("realm_stage")), 0) * 260 + max(int(profile.get("realm_layer") or 0), 0) * 38
+    offense = max(float(stats.get("attack_power") or 0), 0.0)
+    defense = max(float(stats.get("defense_power") or 0), 0.0)
+    qi_blood = max(float(stats.get("qi_blood") or 0), 0.0)
+    true_yuan = max(float(stats.get("true_yuan") or 0), 0.0)
+    movement = max(float(stats.get("body_movement") or 0), 0.0)
+    divine_sense = max(float(stats.get("divine_sense") or 0), 0.0)
+    fortune = max(float(stats.get("fortune") or 0), 0.0)
+    bone = max(float(stats.get("bone") or 0), 0.0)
+    comprehension = max(float(stats.get("comprehension") or 0), 0.0)
+    karma = max(float(stats.get("karma") or 0), 0.0)
+    duel_rate_bonus = float(stats.get("duel_rate_bonus") or 0)
+
+    score = (
+        realm_score
+        + offense * 26.0
+        + defense * 18.0
+        + qi_blood * 0.58
+        + true_yuan * 0.22
+        + movement * 15.0
+        + divine_sense * 8.0
+        + fortune * 5.0
+        + bone * 4.0
+        + comprehension * 3.5
+        + karma * 2.5
+        + duel_rate_bonus * 32.0
+    )
+    root_factor = float(state["quality_payload"].get("combat_factor") or 1.0)
+    if opponent_profile:
+        root_factor += _root_element_duel_modifier(profile, opponent_profile)
+    if profile.get("root_type") == "变异灵根":
+        root_factor += 0.03
+    score *= max(root_factor, 0.55)
+
+    if offense <= 0:
+        score *= 0.42
+    elif offense < 5:
+        score *= 0.72
+    if defense <= 0:
+        score *= 0.78
+    if offense <= 0 and defense <= 0:
+        score *= 0.72
+    return max(score, 1.0)
+
+
 def compute_duel_odds(challenger_tg: int, defender_tg: int, duel_mode: str = "standard") -> dict[str, Any]:
     challenger = serialize_full_profile(challenger_tg)
     defender = serialize_full_profile(defender_tg)
@@ -5516,29 +5581,21 @@ def compute_duel_odds(challenger_tg: int, defender_tg: int, duel_mode: str = "st
 
     challenger_state = _battle_bundle(challenger, defender_profile)
     defender_state = _battle_bundle(defender, challenger_profile)
-    total_power = max(challenger_state["power"] + defender_state["power"], 1)
-    rate = challenger_state["power"] / total_power
+    challenger_score = _duel_odds_score(challenger_profile, challenger_state, defender_profile)
+    defender_score = _duel_odds_score(defender_profile, defender_state, challenger_profile)
     stage_diff = realm_index(challenger_profile["realm_stage"]) - realm_index(defender_profile["realm_stage"])
-    if abs(stage_diff) >= 2:
-        rate = adjust_probability_rate(
-            rate,
-            actor_fortune=challenger_state["stats"]["fortune"],
-            opponent_fortune=defender_state["stats"]["fortune"],
-            actor_weight=0.18,
-            opponent_weight=0.18,
-            minimum=0.001,
-            maximum=0.999,
-        )
-    else:
-        rate = adjust_probability_rate(
-            rate,
-            actor_fortune=challenger_state["stats"]["fortune"],
-            opponent_fortune=defender_state["stats"]["fortune"],
-            actor_weight=0.18,
-            opponent_weight=0.18,
-            minimum=0.03,
-            maximum=0.97,
-        )
+    score_gap = challenger_score - defender_score
+    scale = max((challenger_score + defender_score) * 0.12, 240.0)
+    rate = 1.0 / (1.0 + exp(-score_gap / scale))
+    rate = adjust_probability_rate(
+        rate,
+        actor_fortune=challenger_state["stats"]["fortune"],
+        opponent_fortune=defender_state["stats"]["fortune"],
+        actor_weight=0.12,
+        opponent_weight=0.12,
+        minimum=0.04,
+        maximum=0.96,
+    )
     defender_rate = max(min(1 - rate, 0.999), 0.001)
     challenger_snapshot = _build_duel_snapshot(challenger, challenger_state, defender_profile, rate)
     defender_snapshot = _build_duel_snapshot(defender, defender_state, challenger_profile, defender_rate)
@@ -5554,6 +5611,8 @@ def compute_duel_odds(challenger_tg: int, defender_tg: int, duel_mode: str = "st
         "defender_power": round(defender_state["power"], 2),
         "weights": {
             "stage_diff": stage_diff,
+            "challenger_score": round(challenger_score, 2),
+            "defender_score": round(defender_score, 2),
             "root_modifier": round(_root_element_duel_modifier(challenger_profile, defender_profile), 4),
             "challenger_quality": challenger_state["quality"],
             "defender_quality": defender_state["quality"],

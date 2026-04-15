@@ -33,6 +33,12 @@ def _legacy_service():
     return legacy_service
 
 
+def _legacy_world_service():
+    from bot.plugins.xiuxian_game import world_service as legacy_world_service
+
+    return legacy_world_service
+
+
 def list_encounter_templates(enabled_only: bool = False) -> list[dict[str, Any]]:
     _legacy_service().ensure_seed_data()
     return sql_list_encounter_templates(enabled_only=enabled_only)
@@ -169,7 +175,6 @@ def mark_group_encounter_message(instance_id: int, message_id: int) -> dict[str,
 
 
 def _encounter_reward_summary(reward_payload: dict[str, Any]) -> str:
-    legacy_service = _legacy_service()
     rows = []
     if int(reward_payload.get("stone_reward") or 0) > 0:
         rows.append(f"{int(reward_payload['stone_reward'])} 灵石")
@@ -179,7 +184,7 @@ def _encounter_reward_summary(reward_payload: dict[str, Any]) -> str:
     reward_item_ref_id = int(reward_payload.get("reward_item_ref_id") or 0)
     reward_item_quantity = int(reward_payload.get("reward_item_quantity") or 0)
     if reward_item_kind and reward_item_ref_id and reward_item_quantity > 0:
-        item = legacy_service._get_item_payload(reward_item_kind, reward_item_ref_id)
+        item = _legacy_world_service()._get_item_payload(reward_item_kind, reward_item_ref_id)
         item_name = (item or {}).get("name") or f"{reward_item_kind}#{reward_item_ref_id}"
         rows.append(f"{reward_item_quantity} 个{item_name}")
     if int(reward_payload.get("reward_willpower") or 0):
