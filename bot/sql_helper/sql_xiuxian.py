@@ -175,6 +175,7 @@ DEFAULT_SETTINGS = {
     "official_shop_name": "官方商店",
     "allow_user_task_publish": True,
     "task_publish_cost": 20,
+    "user_task_daily_limit": 3,
     "artifact_equip_limit": 3,
     "duel_winner_steal_percent": 25,
     "duel_invite_timeout_seconds": 90,

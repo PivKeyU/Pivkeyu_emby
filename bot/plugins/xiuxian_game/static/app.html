@@ -383,7 +383,7 @@
                   <option value="quiz">答题任务</option>
                 </select>
               </label>
-              <label>奖励灵石<input id="task-reward-stone" type="number" min="0" value="0"></label>
+              <label>奖励灵石<input id="task-reward-stone" type="number" min="1" value="10"></label>
               <label>领取上限<input id="task-max-claimants" type="number" min="1" value="1"></label>
               <label>需提交物类型
                 <select id="task-required-kind">
@@ -413,7 +413,7 @@
               <label class="inline-check"><input id="task-push-group" type="checkbox"> 推送到群内</label>
             </div>
             <button type="submit">发布悬赏</button>
-            <p id="task-compose-note" class="section-copy">发布前请补充清晰信息，信息不足会被拦截。</p>
+            <p id="task-compose-note" class="section-copy">发布前请补充清晰信息，且必须设置奖励。</p>
           </form>
           <div id="task-list" class="stack-list"></div>
         </div>

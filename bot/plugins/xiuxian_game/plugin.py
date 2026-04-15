@@ -67,6 +67,7 @@ from bot.plugins.xiuxian_game.api_models import (
     TalismanBindingPayload,
     TalismanPayload,
     TaskClaimPayload,
+    TaskCancelPayload,
     TechniquePayload,
     TitleEquipPayload,
     TitleGrantPayload,
@@ -173,6 +174,7 @@ from bot.plugins.xiuxian_game.features.social import (
     update_duel_bet_pool_message,
 )
 from bot.plugins.xiuxian_game.features.tasks import (
+    cancel_task_for_user,
     claim_task_for_user,
     create_bounty_task,
     mark_task_group_message,
@@ -2320,7 +2322,7 @@ def register_bot(bot_instance) -> None:
                     call.message,
                     caption or "红包状态已更新",
                     reply_markup=_red_envelope_keyboard(envelope_id) if is_active else None,
-                    parse_mode=PLAIN_TEXT_MODE,
+                    parse_mode=RICH_TEXT_MODE,
                     persistent=is_active,
                 )
             else:
@@ -2328,7 +2330,7 @@ def register_bot(bot_instance) -> None:
                     call.message,
                     notice_text,
                     reply_markup=_red_envelope_keyboard(envelope_id) if is_active else None,
-                    parse_mode=PLAIN_TEXT_MODE,
+                    parse_mode=RICH_TEXT_MODE,
                     persistent=is_active,
                 )
             await callAnswer(call, f"成功领取 {result['amount']} 灵石。")
@@ -2822,6 +2824,36 @@ def register_web(app) -> None:
     async def xiuxian_claim_task_api(payload: TaskClaimPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = claim_task_for_user(telegram_user["id"], payload.task_id)
+        return {"code": 200, "data": {"result": result, "bundle": _full_bundle(telegram_user["id"])}}
+
+    @user_router.post("/api/task/cancel")
+    async def xiuxian_cancel_task_api(payload: TaskCancelPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = cancel_task_for_user(telegram_user["id"], payload.task_id)
+        task = result.get("task") or {}
+        try:
+            task_chat_id = int(task.get("group_chat_id") or _main_group_chat_id() or 0)
+            if task_chat_id and task.get("group_message_id"):
+                summary = _task_group_text(task) + "\n\n发起者已主动撤销该任务。"
+                if task.get("image_url"):
+                    caption, _ = _split_photo_caption(summary)
+                    await bot.edit_message_caption(
+                        task_chat_id,
+                        int(task["group_message_id"]),
+                        caption or "任务已撤销",
+                        parse_mode=RICH_TEXT_MODE,
+                    )
+                else:
+                    await _edit_message_text(
+                        bot,
+                        task_chat_id,
+                        int(task["group_message_id"]),
+                        summary,
+                        parse_mode=RICH_TEXT_MODE,
+                        persistent=True,
+                    )
+        except Exception as exc:
+            LOGGER.warning(f"xiuxian task cancel message refresh failed: {exc}")
         return {"code": 200, "data": {"result": result, "bundle": _full_bundle(telegram_user["id"])}}
 
     @user_router.post("/api/recipe/craft")

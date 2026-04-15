@@ -1168,6 +1168,7 @@ function applySettings(settings = {}) {
   $("setting-broadcast").value = settings.shop_broadcast_cost ?? 20;
   $("setting-shop-name").value = settings.official_shop_name ?? "官方商店";
   $("setting-task-publish-cost").value = settings.task_publish_cost ?? 20;
+  $("setting-user-task-daily-limit").value = settings.user_task_daily_limit ?? 3;
   $("setting-allow-user-task-publish").checked = settings.allow_user_task_publish ?? true;
   if ($("official-shop-name")) $("official-shop-name").value = settings.official_shop_name ?? "官方商店";
   $("setting-artifact-limit").value = settings.artifact_equip_limit ?? 3;
@@ -1258,6 +1259,7 @@ function bindEvents() {
       shop_broadcast_cost: Number($("setting-broadcast").value || 20),
       official_shop_name: $("setting-shop-name").value.trim(),
       task_publish_cost: Number($("setting-task-publish-cost").value || 0),
+      user_task_daily_limit: Number($("setting-user-task-daily-limit").value || 0),
       allow_user_task_publish: $("setting-allow-user-task-publish").checked,
       allow_non_admin_image_upload: $("setting-user-upload").checked,
       chat_cultivation_chance: Number($("setting-chat-chance").value || 8),

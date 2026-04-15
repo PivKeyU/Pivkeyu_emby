@@ -879,6 +879,8 @@ function renderTaskArea(bundle) {
   const settings = bundle.settings || {};
   const publishAllowed = settings.allow_user_task_publish ?? true;
   const publishCost = Number(settings.task_publish_cost || 0);
+  const dailyLimit = Number(settings.user_task_daily_limit || 0);
+  const publishedToday = Number(settings.user_task_published_today || 0);
   const currentStone = Number(bundle.profile?.spiritual_stone || 0);
   const publishNote = document.querySelector("#task-compose-note");
   const publishButton = document.querySelector("#task-form button[type='submit']");
@@ -899,14 +901,17 @@ function renderTaskArea(bundle) {
     publishReason = "当前未开放玩家发布任务。";
   } else if (currentDuelLockReason(bundle)) {
     publishReason = currentDuelLockReason(bundle);
+  } else if (dailyLimit > 0 && publishedToday >= dailyLimit) {
+    publishReason = `今日已发布 ${publishedToday}/${dailyLimit} 次悬赏，已达到上限。`;
   } else if (currentStone < publishCost) {
     publishReason = `发布任务需要 ${publishCost} 灵石，当前灵石不足。`;
   }
   setDisabled(publishButton, Boolean(publishReason), publishReason);
   if (publishNote) {
+    const limitText = dailyLimit > 0 ? `今日已发布 ${publishedToday}/${dailyLimit} 次。` : "今日发布次数不限。";
     publishNote.textContent = publishReason || (publishCost > 0
-      ? `当前发布一次任务需要消耗 ${publishCost} 灵石，信息不足会被拦截。`
-      : "发布前请补充清晰信息，信息不足会被拦截。");
+      ? `当前发布一次任务需要消耗 ${publishCost} 灵石，且必须设置奖励。${limitText}`
+      : `发布前请补充清晰信息，且必须设置奖励。${limitText}`);
   }
   renderTaskRequirementSelect();
   const tasks = bundle.tasks || [];
@@ -930,6 +935,7 @@ function renderTaskArea(bundle) {
           : requiresItem
             ? "提交物品并完成"
             : "接取任务";
+    const canCancel = Boolean(task.can_cancel);
     const card = document.createElement("article");
     card.className = "stack-item";
     card.innerHTML = `
@@ -941,7 +947,10 @@ function renderTaskArea(bundle) {
       <p>类型：${escapeHtml(task.task_type_label || task.task_type)} · 奖励：${escapeHtml(taskRewardText(task))}</p>
       ${requiresItem ? `<p>提交需求：${escapeHtml(requiredItemName)} × ${escapeHtml(task.required_item_quantity)}</p>` : ""}
       ${task.question_text ? `<p>题目：${escapeHtml(task.question_text)}</p>` : ""}
-      <button type="button" data-task-id="${task.id}" ${disabled ? "disabled" : ""}>${actionLabel}</button>
+      <div class="inline-actions">
+        <button type="button" data-task-id="${task.id}" data-task-action="claim" ${disabled ? "disabled" : ""}>${actionLabel}</button>
+        ${canCancel ? `<button type="button" class="ghost" data-task-id="${task.id}" data-task-action="cancel">撤销任务</button>` : ""}
+      </div>
     `;
     root.appendChild(card);
   }
@@ -1878,28 +1887,40 @@ document.querySelector("#task-form-legacy")?.addEventListener("submit", async (e
 });
 
 document.querySelector("#task-list")?.addEventListener("click", async (event) => {
-  const button = event.target.closest("[data-task-id]");
+  const button = event.target.closest("[data-task-id][data-task-action]");
   if (!button || button.disabled) return;
+  const action = button.dataset.taskAction || "claim";
   try {
-    const payload = await runButtonAction(button, "领取中…", () => postJson("/plugins/xiuxian/api/task/claim", {
-      task_id: Number(button.dataset.taskId)
-    }));
-    const submitted = payload.result?.submitted_item;
-    if (submitted?.item) {
-      const itemName = submitted.item.name || "任务物品";
-      const quantity = submitted.quantity || 0;
-      const rewardText = taskRewardText(payload.result?.task || {});
-      const message = `已提交 ${itemName} × ${quantity}，任务已直接完成。奖励：${rewardText}`;
+    if (action === "cancel") {
+      const payload = await runButtonAction(button, "撤销中…", () => postJson("/plugins/xiuxian/api/task/cancel", {
+        task_id: Number(button.dataset.taskId)
+      }));
+      const taskTitle = payload.result?.task?.title || "该任务";
+      const message = `任务《${taskTitle}》已撤销。`;
       setStatus(message, "success");
-      await popup("提交完成", message);
+      await popup("撤销成功", message);
     } else {
-      const message = "任务已接取，请按要求完成后再领取奖励。";
-      setStatus(message, "success");
-      await popup("接取成功", message);
+      const payload = await runButtonAction(button, "领取中…", () => postJson("/plugins/xiuxian/api/task/claim", {
+        task_id: Number(button.dataset.taskId)
+      }));
+      const submitted = payload.result?.submitted_item;
+      if (submitted?.item) {
+        const itemName = submitted.item.name || "任务物品";
+        const quantity = submitted.quantity || 0;
+        const rewardText = taskRewardText(payload.result?.task || {});
+        const message = `已提交 ${itemName} × ${quantity}，任务已直接完成。奖励：${rewardText}`;
+        setStatus(message, "success");
+        await popup("提交完成", message);
+      } else {
+        const message = "任务已接取，请按要求完成后再领取奖励。";
+        setStatus(message, "success");
+        await popup("接取成功", message);
+      }
     }
     await refreshBundle();
   } catch (error) {
-    const message = normalizeError(error, "领取任务失败。");
+    const fallback = action === "cancel" ? "撤销任务失败。" : "领取任务失败。";
+    const message = normalizeError(error, fallback);
     setStatus(message, "error");
     await popup("操作失败", message, "error");
   }
@@ -2516,6 +2537,8 @@ document.querySelector("#task-form")?.addEventListener("submit", async (event) =
     setStatus(message, pushWarning ? "warning" : "success");
     await popup(pushWarning ? "创建已完成，但推送失败" : "发布成功", message, pushWarning ? "warning" : "success");
     form?.reset?.();
+    const rewardStoneInput = document.querySelector("#task-reward-stone");
+    if (rewardStoneInput) rewardStoneInput.value = "10";
     syncUserTaskComposer();
     await refreshBundle();
   } catch (error) {

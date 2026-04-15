@@ -35,6 +35,8 @@ from bot.sql_helper.sql_xiuxian import (
     grant_talisman_to_user,
     grant_technique_to_user,
     list_scene_drops,
+    list_recipe_ingredients,
+    list_recipes,
     list_user_techniques,
     realm_index,
     serialize_artifact,
@@ -150,6 +152,78 @@ def _exploration_drop_weight_rules() -> dict[str, int]:
         "high_quality_fortune_divisor": pick("high_quality_fortune_divisor", 1),
         "high_quality_root_level_start": pick("high_quality_root_level_start", 0),
     }
+
+
+def _craft_target_quality_by_material() -> dict[int, int]:
+    recipe_quality_map: dict[int, int] = {}
+    for recipe in list_recipes(enabled_only=True):
+        result_kind = str(recipe.get("result_kind") or "")
+        result_ref_id = int(recipe.get("result_ref_id") or 0)
+        result_quality = _quality_from_item(result_kind, _get_item_payload(result_kind, result_ref_id))
+        if result_quality <= 0:
+            continue
+        for ingredient in list_recipe_ingredients(int(recipe.get("id") or 0)):
+            material_id = int(ingredient.get("material_id") or 0)
+            if material_id <= 0:
+                continue
+            recipe_quality_map[material_id] = max(recipe_quality_map.get(material_id, 0), result_quality)
+    return recipe_quality_map
+
+
+def _drop_effective_quality(
+    drop: dict[str, Any],
+    item_payload: dict[str, Any] | None,
+    recipe_quality_map: dict[int, int],
+) -> int:
+    kind = str(drop.get("reward_kind") or "")
+    ref_id = int(drop.get("reward_ref_id") or 0)
+    quality = _quality_from_item(kind, item_payload)
+    if kind == "material" and ref_id > 0:
+        quality = max(quality, int(recipe_quality_map.get(ref_id) or 0))
+    return max(quality, 1)
+
+
+def _scene_quality_level(
+    drops: list[dict[str, Any]],
+    recipe_quality_map: dict[int, int],
+) -> int:
+    highest = 1
+    for drop in drops:
+        if not int(drop.get("reward_ref_id") or 0):
+            continue
+        item_payload = _get_item_payload(str(drop.get("reward_kind") or ""), int(drop.get("reward_ref_id") or 0))
+        highest = max(highest, _drop_effective_quality(drop, item_payload, recipe_quality_map))
+    return highest
+
+
+def _base_drop_success_rate(quality_level: int) -> int:
+    return {
+        1: 58,
+        2: 46,
+        3: 34,
+        4: 24,
+        5: 16,
+        6: 10,
+        7: 6,
+    }.get(max(int(quality_level or 1), 1), 6)
+
+
+def _drop_success_rate(
+    quality_level: int,
+    *,
+    duration: int,
+    max_minutes: int,
+    fortune: int,
+    divine_sense: int,
+    scene_quality: int,
+) -> int:
+    duration_ratio = max(min(float(duration) / float(max(max_minutes, 1)), 1.0), 0.05)
+    rate = _base_drop_success_rate(quality_level)
+    rate += int(round(duration_ratio * 28))
+    rate += max(fortune - 10, 0) // 4
+    rate += max(divine_sense - 10, 0) // 5
+    rate -= max(scene_quality - quality_level, 0) * 3
+    return max(min(rate, 95), 3)
 
 
 def sync_scene_with_drops_by_name(
@@ -343,6 +417,7 @@ def _build_exploration_outcome(
     divine_sense: int,
     karma: int,
     duration: int,
+    scene_quality: int = 1,
 ) -> dict[str, Any]:
     max_minutes = max(int(scene.get("max_minutes") or 60), 1)
     duration_ratio = max(min(float(duration) / float(max_minutes), 1.0), 0.05)
@@ -360,7 +435,8 @@ def _build_exploration_outcome(
         stone_loss_max = max(int(event.get("stone_loss_max") or stone_loss_min), stone_loss_min)
         if stone_loss_max > 0:
             mitigation = max(fortune // 4 + divine_sense // 6, 0)
-            stone_loss = max(int(round(random.randint(stone_loss_min, stone_loss_max) * effort_factor)) - mitigation, 0)
+            danger_factor = 1 + max(scene_quality - 1, 0) * 0.18
+            stone_loss = max(int(round(random.randint(stone_loss_min, stone_loss_max) * effort_factor * danger_factor)) - mitigation, 0)
         bonus_reward_kind = event.get("bonus_reward_kind")
         bonus_reward_ref_id = int(event.get("bonus_reward_ref_id") or 0)
         bonus_chance = max(min(int(event.get("bonus_chance") or 0) + max(karma - 10, 0) // 6, 100), 0)
@@ -389,6 +465,7 @@ def _build_exploration_outcome(
         "event_text": "，".join([part for part in parts if part]).strip("，"),
         "duration_minutes": int(duration),
         "duration_ratio": round(duration_ratio, 4),
+        "scene_quality_level": max(int(scene_quality or 1), 1),
     }
 
 
@@ -596,6 +673,8 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
     karma = int(profile.get("karma") or 0)
     root_quality_level = int(profile.get("root_quality_level") or 1)
     weight_rules = _exploration_drop_weight_rules()
+    recipe_quality_map = _craft_target_quality_by_material()
+    scene_quality = _scene_quality_level(drops, recipe_quality_map)
     weighted = []
     for drop in drops:
         item_payload = (
@@ -603,7 +682,7 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
             if drop.get("reward_ref_id")
             else None
         )
-        reward_quality = _quality_from_item(str(drop.get("reward_kind") or ""), item_payload)
+        reward_quality = _drop_effective_quality(drop, item_payload, recipe_quality_map)
         extra_weight = 0
         if str(drop.get("reward_kind") or "") == "material":
             extra_weight += max(divine_sense - 10, 0) // int(weight_rules["material_divine_sense_divisor"])
@@ -624,10 +703,35 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
     quantity = max(int(round(base_quantity * (0.55 + duration_ratio * 1.25))), 1)
     base_stone_reward = max(int(chosen.get("stone_reward", 0) or 0), 0)
     scaled_stone_reward = int(round(base_stone_reward * (0.45 + duration_ratio * 1.55)))
-    outcome = _build_exploration_outcome(scene, chosen, fortune, divine_sense, karma, duration)
+    chosen_payload = (
+        _get_item_payload(str(chosen.get("reward_kind") or ""), int(chosen.get("reward_ref_id") or 0))
+        if chosen.get("reward_ref_id")
+        else None
+    )
+    effective_quality = _drop_effective_quality(chosen, chosen_payload, recipe_quality_map)
+    drop_success_rate = _drop_success_rate(
+        effective_quality,
+        duration=duration,
+        max_minutes=max(int(scene.get("max_minutes") or 60), 1),
+        fortune=fortune,
+        divine_sense=divine_sense,
+        scene_quality=scene_quality,
+    )
+    drop_succeeded = roll_probability_percent(drop_success_rate)["success"]
+    if not drop_succeeded:
+        quantity = 0
+        scaled_stone_reward = int(round(scaled_stone_reward * 0.55))
+    outcome = _build_exploration_outcome(scene, chosen, fortune, divine_sense, karma, duration, scene_quality=scene_quality)
+    outcome["drop_quality_level"] = effective_quality
+    outcome["drop_success_rate"] = drop_success_rate
+    outcome["drop_succeeded"] = drop_succeeded
     event_text = outcome.get("event_text") or chosen.get("event_text") or ""
+    if not drop_succeeded:
+        miss_note = "你在秘境中有所收获，却没能真正带出那件材料。"
+        event_text = f"{event_text}，{miss_note}".strip("，") if event_text else miss_note
 
     death_chance = int(requirement_state.get("death_chance") or 0)
+    death_chance = min(death_chance + max(scene_quality - 3, 0) * 4, 95)
     fatal_outcome = None
     if death_chance > 0:
         death_roll = random.randint(1, 100)
@@ -658,8 +762,8 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
             started_at=utcnow(),
             end_at=utcnow() + timedelta(minutes=duration),
             claimed=False,
-            reward_kind=chosen.get("reward_kind"),
-            reward_ref_id=chosen.get("reward_ref_id"),
+            reward_kind=chosen.get("reward_kind") if drop_succeeded else None,
+            reward_ref_id=chosen.get("reward_ref_id") if drop_succeeded else None,
             reward_quantity=quantity,
             stone_reward=scaled_stone_reward,
             event_text=event_text or None,

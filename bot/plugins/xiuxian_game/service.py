@@ -3246,6 +3246,7 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         "official_shop_name": str(xiuxian_settings.get("official_shop_name", DEFAULT_SETTINGS["official_shop_name"]) or DEFAULT_SETTINGS["official_shop_name"]),
         "allow_user_task_publish": bool(xiuxian_settings.get("allow_user_task_publish", DEFAULT_SETTINGS["allow_user_task_publish"])),
         "task_publish_cost": max(int(xiuxian_settings.get("task_publish_cost", DEFAULT_SETTINGS["task_publish_cost"]) or 0), 0),
+        "user_task_daily_limit": max(int(xiuxian_settings.get("user_task_daily_limit", DEFAULT_SETTINGS["user_task_daily_limit"]) or 0), 0),
         "slave_tribute_percent": max(int(xiuxian_settings.get("slave_tribute_percent", DEFAULT_SETTINGS["slave_tribute_percent"]) or 0), 0),
         "slave_challenge_cooldown_hours": max(int(xiuxian_settings.get("slave_challenge_cooldown_hours", DEFAULT_SETTINGS["slave_challenge_cooldown_hours"]) or 0), 1),
         "sect_salary_min_stay_days": max(int(xiuxian_settings.get("sect_salary_min_stay_days", DEFAULT_SETTINGS["sect_salary_min_stay_days"]) or 0), 1),
@@ -3699,6 +3700,15 @@ def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
                 0,
             ),
             1000000,
+        )
+    if "user_task_daily_limit" in patch and patch["user_task_daily_limit"] is not None:
+        patch["user_task_daily_limit"] = min(
+            _coerce_int(
+                patch["user_task_daily_limit"],
+                DEFAULT_SETTINGS["user_task_daily_limit"],
+                0,
+            ),
+            1000,
         )
     if "equipment_unbind_cost" in patch and patch["equipment_unbind_cost"] is not None:
         patch["equipment_unbind_cost"] = min(

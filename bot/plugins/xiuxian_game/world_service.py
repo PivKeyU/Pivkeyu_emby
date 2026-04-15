@@ -423,7 +423,38 @@ def _sect_betrayal_stone_penalty(balance: int) -> int:
     minimum = max(int(settings.get("sect_betrayal_stone_min", DEFAULT_SETTINGS.get("sect_betrayal_stone_min", 20)) or 0), 0)
     maximum = max(int(settings.get("sect_betrayal_stone_max", DEFAULT_SETTINGS.get("sect_betrayal_stone_max", 300)) or 0), minimum)
     percent_penalty = (current * percent) // 100 if percent > 0 else 0
-    return min(max(percent_penalty, minimum), maximum)
+    return min(max(percent_penalty, minimum), maximum, current)
+
+
+def _task_publish_day_window() -> tuple[datetime, datetime]:
+    current = china_now()
+    day_start = current.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(hours=8)
+    return day_start, day_start + timedelta(days=1)
+
+
+def _user_task_daily_limit() -> int:
+    settings = get_xiuxian_settings()
+    return max(int(settings.get("user_task_daily_limit", DEFAULT_SETTINGS.get("user_task_daily_limit", 3)) or 0), 0)
+
+
+def _user_task_publish_count_today(tg: int, *, session: Session | None = None) -> int:
+    day_start, day_end = _task_publish_day_window()
+    owns_session = session is None
+    active_session = session or Session()
+    try:
+        return int(
+            active_session.query(XiuxianTask)
+            .filter(
+                XiuxianTask.owner_tg == int(tg),
+                XiuxianTask.created_at >= day_start,
+                XiuxianTask.created_at < day_end,
+            )
+            .count()
+            or 0
+        )
+    finally:
+        if owns_session:
+            active_session.close()
 
 
 def _scene_exploration_counts(tg: int) -> dict[int, int]:
@@ -509,6 +540,11 @@ def get_current_sect_bundle(tg: int) -> dict[str, Any] | None:
     sect["roles"] = list_sect_roles(sect["id"])
     sect["roster"] = _get_sect_roster(sect["id"])
     sect["current_role"] = get_sect_role_payload(sect["id"], profile.get("sect_role_key"))
+    sect["leave_preview"] = {
+        "stone_penalty": _sect_betrayal_stone_penalty(int(profile.get("spiritual_stone") or 0)),
+        "cooldown_days": _sect_betrayal_cooldown_days(),
+    }
+    sect["can_leave"] = True
     return sect
 
 
@@ -751,6 +787,9 @@ def create_bounty_task(
         reward_ref = None
         reward_qty = 0
 
+    if reward_stone_value <= 0 and not reward_kind:
+        raise ValueError("悬赏任务必须设置奖励，不能发布无奖励任务")
+
     actor_profile = None
     settings = get_xiuxian_settings()
     if actor_tg is not None:
@@ -760,6 +799,10 @@ def create_bounty_task(
         actor_obj, actor_profile = _require_alive_profile_data(actor_tg, "发布任务")
         assert_currency_operation_allowed(actor_tg, "发布任务", profile=actor_obj)
         publish_cost = max(int(settings.get("task_publish_cost", DEFAULT_SETTINGS.get("task_publish_cost", 0)) or 0), 0)
+        daily_limit = _user_task_daily_limit()
+        published_today = _user_task_publish_count_today(actor_tg)
+        if daily_limit > 0 and published_today >= daily_limit:
+            raise ValueError(f"你今日已发布 {published_today} 次悬赏，已达到上限 {daily_limit} 次。")
 
     if task_scope_value == "sect":
         if actor_tg is None:
@@ -853,8 +896,47 @@ def list_tasks_for_user(tg: int) -> list[dict[str, Any]]:
             continue
         task["claimed"] = task["id"] in claims_by_task or int(task.get("winner_tg") or 0) == int(tg)
         task["claim"] = claims_by_task.get(task["id"])
+        task["can_cancel"] = (
+            int(task.get("owner_tg") or 0) == int(tg)
+            and task.get("status") in {"open", "active"}
+            and not int(task.get("winner_tg") or 0)
+        )
         rows.append(_decorate_task_payload(task))
     return rows
+
+
+def cancel_task_for_user(tg: int, task_id: int) -> dict[str, Any]:
+    profile = serialize_profile(get_profile(tg, create=False))
+    if not profile or not profile.get("consented"):
+        raise ValueError("你还没有踏入仙途")
+    with Session() as session:
+        task = session.query(XiuxianTask).filter(XiuxianTask.id == task_id).with_for_update().first()
+        if task is None or not task.enabled:
+            raise ValueError("任务不存在")
+        if int(task.owner_tg or 0) != int(tg):
+            raise ValueError("只有发布者本人才能撤销任务")
+        if task.status not in {"open", "active"}:
+            raise ValueError("当前任务状态不允许撤销")
+        if int(task.winner_tg or 0):
+            raise ValueError("任务已经完成，不能撤销")
+        claims = (
+            session.query(XiuxianTaskClaim)
+            .filter(XiuxianTaskClaim.task_id == task_id)
+            .with_for_update()
+            .all()
+        )
+        for claim in claims:
+            if claim.status == "completed":
+                raise ValueError("任务已经完成，不能撤销")
+            claim.status = "cancelled"
+        task.status = "cancelled"
+        task.active_in_group = False
+        task.updated_at = utcnow()
+        session.commit()
+        session.refresh(task)
+        serialized = _decorate_task_payload(serialize_task(task))
+    create_journal(tg, "task", "撤销任务", f"主动撤销了任务【{serialized['title']}】")
+    return {"task": serialized}
 
 
 def _decorate_task_payload(task: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -2364,6 +2446,7 @@ def create_duel_bet_pool_for_duel(
 
 
 def build_world_bundle(tg: int) -> dict[str, Any]:
+    settings = get_xiuxian_settings()
     scenes = list_scenes(enabled_only=True)
     exploration_counts = _scene_exploration_counts(tg)
     for scene in scenes:
@@ -2383,9 +2466,13 @@ def build_world_bundle(tg: int) -> dict[str, Any]:
         "active_exploration": _get_active_exploration(tg),
         "journal": list_recent_journals(tg),
         "settings": {
-            "robbery_daily_limit": int(get_xiuxian_settings().get("robbery_daily_limit", DEFAULT_SETTINGS["robbery_daily_limit"]) or 3),
-            "robbery_max_steal": int(get_xiuxian_settings().get("robbery_max_steal", DEFAULT_SETTINGS["robbery_max_steal"]) or 180),
-            "artifact_plunder_chance": int(get_xiuxian_settings().get("artifact_plunder_chance", DEFAULT_SETTINGS["artifact_plunder_chance"]) or 0),
+            "robbery_daily_limit": int(settings.get("robbery_daily_limit", DEFAULT_SETTINGS["robbery_daily_limit"]) or 3),
+            "robbery_max_steal": int(settings.get("robbery_max_steal", DEFAULT_SETTINGS["robbery_max_steal"]) or 180),
+            "artifact_plunder_chance": int(settings.get("artifact_plunder_chance", DEFAULT_SETTINGS["artifact_plunder_chance"]) or 0),
+            "allow_user_task_publish": bool(settings.get("allow_user_task_publish", DEFAULT_SETTINGS["allow_user_task_publish"])),
+            "task_publish_cost": max(int(settings.get("task_publish_cost", DEFAULT_SETTINGS["task_publish_cost"]) or 0), 0),
+            "user_task_daily_limit": _user_task_daily_limit(),
+            "user_task_published_today": _user_task_publish_count_today(tg),
         },
     }
 
