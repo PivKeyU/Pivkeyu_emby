@@ -31,6 +31,7 @@ from bot.sql_helper.sql_xiuxian import (
     XiuxianSectRole,
     XiuxianTask,
     XiuxianTaskClaim,
+    XiuxianUserTechnique,
     XiuxianMaterialInventory,
     XiuxianTalismanInventory,
     XiuxianExploration,
@@ -1628,11 +1629,14 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
         if bonus_payload and str(bonus_payload.get("kind") or "") == "technique" and int(bonus_payload.get("ref_id") or 0) > 0:
             technique_rewards.append(int(bonus_payload.get("ref_id")))
         if technique_rewards:
-            profile_obj = get_profile(tg, create=False)
+            profile_obj = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).first()
             capacity = max(int(getattr(profile_obj, "technique_capacity", 0) or 0), 1)
             owned_ids = {
-                int((row.get("technique") or {}).get("id") or 0)
-                for row in list_user_techniques(tg, enabled_only=False)
+                int(row[0] or 0)
+                for row in session.query(XiuxianUserTechnique.technique_id)
+                .filter(XiuxianUserTechnique.tg == tg)
+                .all()
+                if int(row[0] or 0) > 0
             }
             incoming_new = {technique_id for technique_id in technique_rewards if technique_id not in owned_ids}
             if len(owned_ids) + len(incoming_new) > capacity:
