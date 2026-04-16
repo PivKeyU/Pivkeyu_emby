@@ -614,16 +614,24 @@ def leave_sect_for_user(tg: int) -> dict[str, Any]:
                 allow_dead=False,
                 apply_tribute=False,
             )
-        profile.sect_id = None
-        profile.sect_role_key = None
-        profile.sect_contribution = 0
-        profile.sect_joined_at = None
-        profile.sect_betrayal_until = cooldown_until
-        profile.last_salary_claim_at = None
-        profile.updated_at = utcnow()
-        session.flush()
-        updated_profile = serialize_profile(profile)
+        update_time = utcnow()
+        session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).update(
+            {
+                XiuxianProfile.sect_id: None,
+                XiuxianProfile.sect_role_key: None,
+                XiuxianProfile.sect_contribution: 0,
+                XiuxianProfile.sect_joined_at: None,
+                XiuxianProfile.sect_betrayal_until: cooldown_until,
+                XiuxianProfile.last_salary_claim_at: None,
+                XiuxianProfile.updated_at: update_time,
+            },
+            synchronize_session=False,
+        )
         session.commit()
+    Session.remove()
+    updated_profile = serialize_profile(get_profile(tg, create=False))
+    if updated_profile and updated_profile.get("sect_id"):
+        raise ValueError("叛出宗门状态刷新失败，请稍后重试。")
 
     sect_name = (current or {}).get("name", "未知宗门")
     create_journal(
