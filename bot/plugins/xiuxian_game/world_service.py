@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import random
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from bot.sql_helper import Session
@@ -396,6 +396,14 @@ def _parse_optional_datetime(raw: str | None) -> datetime | None:
         return None
 
 
+def _normalize_comparable_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 def _format_remaining_delta(delta: timedelta) -> str:
     total_seconds = max(int(delta.total_seconds()), 0)
     days, rem = divmod(total_seconds, 86400)
@@ -479,9 +487,10 @@ def _scene_exploration_counts(tg: int) -> dict[int, int]:
 
 
 def _eligible_for_sect(profile_data: dict[str, Any], sect: dict[str, Any], combat_power: int = 0) -> tuple[bool, str]:
-    betrayal_until = _parse_optional_datetime(profile_data.get("sect_betrayal_until"))
-    if betrayal_until and betrayal_until > utcnow():
-        return False, f"叛宗余罚未消，需再等 {_format_remaining_delta(betrayal_until - utcnow())} 方可重投山门"
+    now = utcnow()
+    betrayal_until = _normalize_comparable_datetime(_parse_optional_datetime(profile_data.get("sect_betrayal_until")))
+    if betrayal_until and betrayal_until > now:
+        return False, f"叛宗余罚未消，需再等 {_format_remaining_delta(betrayal_until - now)} 方可重投山门"
     if sect.get("min_realm_stage") and realm_index(profile_data.get("realm_stage")) < realm_index(sect.get("min_realm_stage")):
         return False, "境界不满足宗门要求"
     if profile_data.get("realm_stage") == sect.get("min_realm_stage") and int(profile_data.get("realm_layer") or 0) < int(sect.get("min_realm_layer") or 1):
@@ -598,8 +607,9 @@ def leave_sect_for_user(tg: int) -> dict[str, Any]:
             raise ValueError("你当前并未加入宗门")
 
         current_stone = max(int(profile.spiritual_stone or 0), 0)
-        joined_at = profile.sect_joined_at
-        claimed_salary = bool(profile.last_salary_claim_at and (joined_at is None or profile.last_salary_claim_at >= joined_at))
+        joined_at = _normalize_comparable_datetime(profile.sect_joined_at)
+        last_salary_claim_at = _normalize_comparable_datetime(profile.last_salary_claim_at)
+        claimed_salary = bool(last_salary_claim_at and (joined_at is None or last_salary_claim_at >= joined_at))
         penalty = _sect_betrayal_stone_penalty(current_stone) if claimed_salary else 0
         if current_stone < penalty:
             raise ValueError(f"叛出宗门需要缴纳 {penalty} 灵石供奉，你当前灵石不足。")
@@ -684,8 +694,11 @@ def claim_sect_salary_for_user(tg: int) -> dict[str, Any]:
     if not role:
         raise ValueError("当前没有宗门俸禄可领取")
     now = utcnow()
-    joined_at = profile_obj.sect_joined_at or profile_obj.last_salary_claim_at or profile_obj.created_at or now
-    last_claim = profile_obj.last_salary_claim_at
+    joined_at = _normalize_comparable_datetime(profile_obj.sect_joined_at)
+    fallback_last_claim = _normalize_comparable_datetime(profile_obj.last_salary_claim_at)
+    fallback_created_at = _normalize_comparable_datetime(profile_obj.created_at)
+    joined_at = joined_at or fallback_last_claim or fallback_created_at or now
+    last_claim = _normalize_comparable_datetime(profile_obj.last_salary_claim_at)
     if last_claim is None or last_claim < joined_at:
         min_stay = timedelta(days=_sect_salary_min_stay_days(profile_obj.sect_id))
         if now - joined_at < min_stay:
