@@ -1068,6 +1068,7 @@ function renderWorld() {
   if (!bundle) return;
 
   renderTagList("upload-permission-list", bundle.upload_permissions || [], (row) => `<span class="tag">TG ${escapeHtml(row.tg)}</span>`);
+  renderErrorLogs(bundle.error_logs || []);
 
   renderStack("artifact-list", (bundle.artifacts || []).map((item) => `
     <article class="stack-item"><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml(item.artifact_type_label || item.artifact_type)}</span></div>
@@ -1110,7 +1111,7 @@ function renderWorld() {
 
   renderStack("sect-list", (bundle.sects || []).map((item) => `
     <article class="stack-item"><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml((item.roles || []).length)} 个职位</span></div>
-    <p>${escapeHtml(item.description || "暂无宗门简介")}</p><p>门槛：${escapeHtml(item.min_realm_stage || "无限制")} ${escapeHtml(item.min_realm_layer || 1)} 层 · 灵石 ${escapeHtml(item.min_stone)}</p>
+    <p>${escapeHtml(item.description || "暂无宗门简介")}</p><p>门槛：${escapeHtml(item.min_realm_stage || "无限制")} ${escapeHtml(item.min_realm_layer || 1)} 层 · 灵石 ${escapeHtml(item.min_stone)}</p><p>考察期：${escapeHtml(item.salary_min_stay_days || 30)} 天</p>
     <div class="inline-action-buttons">${deleteButton("sect", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无宗门</strong></article>`);
 
   renderStack("task-list", (bundle.tasks || []).map((item) => `
@@ -1182,13 +1183,31 @@ function applySettings(settings = {}) {
   $("setting-slave-tribute").value = settings.slave_tribute_percent ?? 20;
   $("setting-slave-cooldown").value = settings.slave_challenge_cooldown_hours ?? 24;
   $("setting-sect-salary-stay").value = settings.sect_salary_min_stay_days ?? 30;
+  if ($("sect-salary-stay-days") && !$("sect-id")?.value) $("sect-salary-stay-days").value = settings.sect_salary_min_stay_days ?? 30;
   $("setting-sect-betrayal-cooldown").value = settings.sect_betrayal_cooldown_days ?? 7;
   $("setting-sect-betrayal-percent").value = settings.sect_betrayal_stone_percent ?? 10;
   $("setting-sect-betrayal-min").value = settings.sect_betrayal_stone_min ?? 20;
   $("setting-sect-betrayal-max").value = settings.sect_betrayal_stone_max ?? 300;
+  $("setting-error-log-retention").value = settings.error_log_retention_count ?? 500;
   applyRootQualityRules(settings);
   applyItemQualityRules(settings);
   applyDropWeightRules(settings);
+}
+
+function renderErrorLogs(rows = []) {
+  renderStack("error-log-list", (rows || []).map((item) => {
+    const who = item.display_name || (item.username ? `@${item.username}` : "") || (item.tg ? `TG ${item.tg}` : "未知用户");
+    const detail = String(item.detail || "").trim();
+    const preview = detail ? (detail.length > 800 ? `${detail.slice(0, 800)}\n...` : detail) : "无详细堆栈";
+    return `
+      <article class="stack-item">
+        <div class="stack-item-head"><strong>${escapeHtml(item.operation || "未知操作")}</strong><span class="badge badge--normal">${escapeHtml(item.level || "ERROR")}</span></div>
+        <p>${escapeHtml(who)} · ${escapeHtml(item.method || "POST")} ${escapeHtml(item.path || "")} · 状态 ${escapeHtml(item.status_code || "-")}</p>
+        <p>${escapeHtml(item.message || "未知错误")}</p>
+        <pre class="compact-copy">${escapeHtml(preview)}</pre>
+        <p class="muted compact-copy">${escapeHtml(item.created_at || "")}</p>
+      </article>`;
+  }).join("") || `<article class="stack-item"><strong>暂无错误日志</strong></article>`);
 }
 
 async function bootstrapAdmin(forceToken = false) {
@@ -1297,6 +1316,34 @@ function bindEvents() {
       sect_betrayal_stone_min: Number($("setting-sect-betrayal-min").value || 20),
       sect_betrayal_stone_max: Number($("setting-sect-betrayal-max").value || 300),
     }), "保存成功", "斗法与装备规则已更新。");
+  });
+
+  $("error-log-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await request("POST", "/plugins/xiuxian/admin-api/settings", {
+      error_log_retention_count: Number($("setting-error-log-retention").value || 500),
+    });
+    const logs = await request("POST", "/plugins/xiuxian/admin-api/error-logs", {
+      limit: Number($("error-log-limit").value || 100),
+      tg: Number($("error-log-tg").value || 0) || null,
+      level: $("error-log-level").value || null,
+      keyword: $("error-log-keyword").value.trim() || null,
+    });
+    state.bundle.error_logs = logs;
+    renderErrorLogs(logs);
+    adminStatus("错误日志设置已保存，日志列表已刷新。", "success");
+  });
+
+  $("error-log-refresh")?.addEventListener("click", async () => {
+    const logs = await request("POST", "/plugins/xiuxian/admin-api/error-logs", {
+      limit: Number($("error-log-limit").value || 100),
+      tg: Number($("error-log-tg").value || 0) || null,
+      level: $("error-log-level").value || null,
+      keyword: $("error-log-keyword").value.trim() || null,
+    });
+    state.bundle.error_logs = logs;
+    renderErrorLogs(logs);
+    adminStatus("错误日志已刷新。", "success");
   });
 
   $("artifact-form")?.addEventListener("submit", async (event) => {

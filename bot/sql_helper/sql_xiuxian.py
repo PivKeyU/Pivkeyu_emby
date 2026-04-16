@@ -200,6 +200,7 @@ DEFAULT_SETTINGS = {
     "sect_betrayal_stone_percent": 10,
     "sect_betrayal_stone_min": 20,
     "sect_betrayal_stone_max": 300,
+    "error_log_retention_count": 500,
 }
 DEFAULT_SETTINGS["duel_bet_minutes"] = 2
 STALE_DUEL_LOCK_GRACE_SECONDS = 120
@@ -507,6 +508,24 @@ class XiuxianJournal(Base):
     created_at = Column(DateTime, default=utcnow, nullable=False)
 
 
+class XiuxianErrorLog(Base):
+    __tablename__ = "xiuxian_error_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tg = Column(BigInteger, nullable=True)
+    username = Column(String(64), nullable=True)
+    display_name = Column(String(128), nullable=True)
+    scope = Column(String(32), nullable=False, default="user")
+    level = Column(String(16), nullable=False, default="ERROR")
+    operation = Column(String(128), nullable=True)
+    method = Column(String(16), nullable=True)
+    path = Column(String(255), nullable=True)
+    status_code = Column(Integer, nullable=True)
+    message = Column(Text, nullable=False)
+    detail = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
 class XiuxianTitle(Base):
     __tablename__ = "xiuxian_titles"
 
@@ -616,6 +635,7 @@ class XiuxianSect(Base):
     cultivation_bonus = Column(Integer, default=0, nullable=False)
     fortune_bonus = Column(Integer, default=0, nullable=False)
     body_movement_bonus = Column(Integer, default=0, nullable=False)
+    salary_min_stay_days = Column(Integer, default=30, nullable=False)
     entry_hint = Column(Text, nullable=True)
     enabled = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=utcnow, nullable=False)
@@ -1365,8 +1385,29 @@ def serialize_sect(sect: XiuxianSect | None) -> dict[str, Any] | None:
         "cultivation_bonus": sect.cultivation_bonus,
         "fortune_bonus": sect.fortune_bonus,
         "body_movement_bonus": sect.body_movement_bonus,
+        "salary_min_stay_days": max(int(sect.salary_min_stay_days or 0), 1),
         "entry_hint": sect.entry_hint,
         "enabled": sect.enabled,
+    }
+
+
+def serialize_error_log(row: XiuxianErrorLog | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "id": row.id,
+        "tg": row.tg,
+        "username": row.username,
+        "display_name": row.display_name,
+        "scope": row.scope,
+        "level": row.level,
+        "operation": row.operation,
+        "method": row.method,
+        "path": row.path,
+        "status_code": row.status_code,
+        "message": row.message,
+        "detail": row.detail,
+        "created_at": serialize_datetime(row.created_at),
     }
 
 
@@ -2573,6 +2614,7 @@ def _normalize_sect_fields(fields: dict[str, Any]) -> dict[str, Any]:
         "cultivation_bonus": _coerce_int(fields.get("cultivation_bonus"), 0),
         "fortune_bonus": _coerce_int(fields.get("fortune_bonus"), 0),
         "body_movement_bonus": _coerce_int(fields.get("body_movement_bonus"), 0),
+        "salary_min_stay_days": max(_coerce_int(fields.get("salary_min_stay_days"), DEFAULT_SETTINGS["sect_salary_min_stay_days"]), 1),
         "entry_hint": str(fields.get("entry_hint") or "").strip(),
         "enabled": _coerce_bool(fields.get("enabled"), True),
     }
@@ -4688,6 +4730,86 @@ def list_recent_journals(tg: int, hours: int = 24) -> list[dict[str, Any]]:
             .all()
         )
         return [serialize_journal(row) for row in rows]
+
+
+def _prune_error_logs(session, keep_count: int) -> None:
+    keep = max(int(keep_count or 0), 1)
+    stale_rows = (
+        session.query(XiuxianErrorLog)
+        .order_by(XiuxianErrorLog.id.desc())
+        .offset(keep)
+        .all()
+    )
+    for row in stale_rows:
+        session.delete(row)
+
+
+def create_error_log(
+    *,
+    tg: int | None = None,
+    username: str | None = None,
+    display_name: str | None = None,
+    scope: str = "user",
+    level: str = "ERROR",
+    operation: str | None = None,
+    method: str | None = None,
+    path: str | None = None,
+    status_code: int | None = None,
+    message: str,
+    detail: str | None = None,
+) -> dict[str, Any]:
+    Session.remove()
+    settings = get_xiuxian_settings()
+    retention = max(int(settings.get("error_log_retention_count", DEFAULT_SETTINGS["error_log_retention_count"]) or 0), 1)
+    with Session() as session:
+        row = XiuxianErrorLog(
+            tg=tg,
+            username=str(username or "").strip() or None,
+            display_name=str(display_name or "").strip() or None,
+            scope=str(scope or "user").strip() or "user",
+            level=str(level or "ERROR").strip().upper() or "ERROR",
+            operation=str(operation or "").strip() or None,
+            method=str(method or "").strip().upper() or None,
+            path=str(path or "").strip() or None,
+            status_code=int(status_code) if status_code is not None else None,
+            message=str(message or "unknown error").strip() or "unknown error",
+            detail=str(detail or "").strip() or None,
+        )
+        session.add(row)
+        session.flush()
+        payload = serialize_error_log(row)
+        _prune_error_logs(session, retention)
+        session.commit()
+        return payload
+
+
+def list_error_logs(
+    *,
+    limit: int = 100,
+    tg: int | None = None,
+    level: str | None = None,
+    keyword: str | None = None,
+) -> list[dict[str, Any]]:
+    with Session() as session:
+        query = session.query(XiuxianErrorLog)
+        if tg is not None:
+            query = query.filter(XiuxianErrorLog.tg == int(tg))
+        if level:
+            query = query.filter(XiuxianErrorLog.level == str(level).strip().upper())
+        if keyword:
+            pattern = f"%{str(keyword).strip()}%"
+            query = query.filter(
+                or_(
+                    XiuxianErrorLog.message.like(pattern),
+                    XiuxianErrorLog.detail.like(pattern),
+                    XiuxianErrorLog.operation.like(pattern),
+                    XiuxianErrorLog.path.like(pattern),
+                    XiuxianErrorLog.display_name.like(pattern),
+                    XiuxianErrorLog.username.like(pattern),
+                )
+            )
+        rows = query.order_by(XiuxianErrorLog.id.desc()).limit(max(int(limit or 0), 1)).all()
+        return [serialize_error_log(row) for row in rows]
 
 
 def create_title(**fields) -> dict[str, Any]:

@@ -4,11 +4,12 @@ import asyncio
 import json
 import re
 import time
+import traceback
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
@@ -39,6 +40,7 @@ from bot.plugins.xiuxian_game.api_models import (
     EncounterDispatchPayload,
     EncounterPayload,
     EquipArtifactPayload,
+    ErrorLogQueryPayload,
     ExchangePayload,
     ExploreClaimPayload,
     ExploreStartPayload,
@@ -197,6 +199,7 @@ from bot.sql_helper.sql_xiuxian import (
     create_achievement,
     create_artifact,
     create_artifact_set,
+    create_error_log,
     create_journal,
     create_material,
     create_pill,
@@ -223,6 +226,7 @@ from bot.sql_helper.sql_xiuxian import (
     list_materials,
     list_achievements,
     list_artifact_sets,
+    list_error_logs,
     list_pill_type_options,
     list_image_upload_permissions,
     list_pills,
@@ -445,6 +449,77 @@ def _verify_admin_credential(token: str | None, init_data: str | None) -> dict[s
         raise HTTPException(status_code=403, detail="当前 Telegram 账号没有后台权限")
 
     raise HTTPException(status_code=401, detail="缺少后台登录凭证")
+
+
+def _operation_name_from_request(request: Request) -> str:
+    path = str(request.url.path or "").strip()
+    if not path:
+        return "未知操作"
+    parts = [part for part in path.split("/") if part]
+    if len(parts) >= 2 and parts[-1].isdigit():
+        parts = parts[:-1]
+    if not parts:
+        return path
+    if len(parts) >= 2:
+        return "/".join(parts[-2:])
+    return parts[-1]
+
+
+def _extract_init_data_from_body_bytes(content_type: str, body: bytes) -> str | None:
+    if not body:
+        return None
+    if "application/json" in content_type:
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except Exception:
+            return None
+        return str(payload.get("init_data") or "").strip() or None
+    if "application/x-www-form-urlencoded" in content_type:
+        parsed = parse_qs(body.decode("utf-8", errors="ignore"), keep_blank_values=True)
+        values = parsed.get("init_data")
+        if values:
+            return str(values[0] or "").strip() or None
+    return None
+
+
+def _actor_from_request(request: Request) -> dict[str, Any]:
+    scope = "admin" if "/admin-api/" in str(request.url.path or "") else "user"
+    init_data = getattr(request.state, "xiuxian_init_data", None)
+    if not init_data:
+        init_data = request.headers.get("x-telegram-init-data")
+    if not init_data:
+        return {"scope": scope}
+    try:
+        actor = verify_init_data(init_data)
+    except Exception:
+        return {"scope": scope}
+    return {
+        "scope": scope,
+        "tg": int(actor.get("id") or 0) or None,
+        "username": str(actor.get("username") or "").strip() or None,
+        "display_name": str(actor.get("first_name") or actor.get("last_name") or "").strip() or None,
+    }
+
+
+def _record_request_error(request: Request, exc: Exception, *, status_code: int, level: str) -> None:
+    try:
+        actor = _actor_from_request(request)
+        detail = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))[:12000]
+        create_error_log(
+            tg=actor.get("tg"),
+            username=actor.get("username"),
+            display_name=actor.get("display_name"),
+            scope=actor.get("scope") or "user",
+            level=level,
+            operation=_operation_name_from_request(request),
+            method=request.method,
+            path=str(request.url.path or "")[:255] or None,
+            status_code=status_code,
+            message=str(exc) or exc.__class__.__name__,
+            detail=detail,
+        )
+    except Exception as log_exc:
+        LOGGER.warning(f"xiuxian error log persist failed: {log_exc}")
 
 
 def _can_user_upload_images(user_id: int) -> tuple[bool, str]:
@@ -1381,6 +1456,7 @@ def _admin_world_snapshot() -> dict[str, Any]:
         "artifact_sets": list_artifact_sets(),
         "achievement_metric_presets": ACHIEVEMENT_METRIC_PRESETS,
         "upload_permissions": list_image_upload_permissions(),
+        "error_logs": list_error_logs(limit=100),
     }
 
 
@@ -2563,16 +2639,53 @@ def register_web(app) -> None:
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     app.mount("/plugins/xiuxian/uploads", StaticFiles(directory=UPLOAD_DIR), name="xiuxian-uploads")
 
+    if not getattr(app.state, "xiuxian_request_context_middleware", False):
+        @app.middleware("http")
+        async def xiuxian_request_context_middleware(request: Request, call_next):
+            path = str(request.url.path or "")
+            if path.startswith("/plugins/xiuxian"):
+                init_data = request.headers.get("x-telegram-init-data")
+                if not init_data:
+                    body = await request.body()
+                    init_data = _extract_init_data_from_body_bytes(request.headers.get("content-type", ""), body)
+
+                    async def receive():
+                        return {"type": "http.request", "body": body, "more_body": False}
+
+                    request = Request(request.scope, receive)
+                request.state.xiuxian_init_data = init_data
+            return await call_next(request)
+
+        app.state.xiuxian_request_context_middleware = True
+
     if not getattr(app.state, "xiuxian_value_error_handler", False):
         @app.exception_handler(ValueError)
-        async def xiuxian_value_error_handler(_, exc: ValueError):
+        async def xiuxian_value_error_handler(request: Request, exc: ValueError):
+            if str(request.url.path or "").startswith("/plugins/xiuxian"):
+                _record_request_error(request, exc, status_code=400, level="WARNING")
             return JSONResponse(status_code=400, content={"code": 400, "message": str(exc), "detail": str(exc)})
 
         app.state.xiuxian_value_error_handler = True
 
+    if not getattr(app.state, "xiuxian_http_exception_handler", False):
+        @app.exception_handler(HTTPException)
+        async def xiuxian_http_exception_handler(request: Request, exc: HTTPException):
+            if str(request.url.path or "").startswith("/plugins/xiuxian"):
+                level = "ERROR" if int(exc.status_code or 500) >= 500 else "WARNING"
+                detail = str(exc.detail or exc.status_code)
+                _record_request_error(request, Exception(detail), status_code=int(exc.status_code or 500), level=level)
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"code": exc.status_code, "message": str(exc.detail), "detail": str(exc.detail)},
+            )
+
+        app.state.xiuxian_http_exception_handler = True
+
     if not getattr(app.state, "xiuxian_exception_handler", False):
         @app.exception_handler(Exception)
-        async def xiuxian_exception_handler(_, exc: Exception):
+        async def xiuxian_exception_handler(request: Request, exc: Exception):
+            if str(request.url.path or "").startswith("/plugins/xiuxian"):
+                _record_request_error(request, exc, status_code=500, level="ERROR")
             LOGGER.exception(f"xiuxian api unhandled error: {exc}")
             return JSONResponse(
                 status_code=500,
@@ -3003,6 +3116,21 @@ def register_web(app) -> None:
         patch = {key: value for key, value in payload.model_dump().items() if value is not None}
         return {"code": 200, "data": update_xiuxian_settings(patch)}
 
+    @admin_router.post("/error-logs")
+    async def xiuxian_error_logs_api(payload: ErrorLogQueryPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        return {
+            "code": 200,
+            "data": list_error_logs(
+                limit=payload.limit,
+                tg=payload.tg,
+                level=payload.level,
+                keyword=payload.keyword,
+            ),
+        }
+
     @admin_router.post("/upload-image")
     async def xiuxian_admin_upload_image_api(
         request: Request,
@@ -3190,12 +3318,18 @@ def register_web(app) -> None:
             min_comprehension=payload.min_comprehension,
             min_divine_sense=payload.min_divine_sense,
             min_fortune=payload.min_fortune,
+            min_willpower=payload.min_willpower,
+            min_charisma=payload.min_charisma,
+            min_karma=payload.min_karma,
+            min_body_movement=payload.min_body_movement,
+            min_combat_power=payload.min_combat_power,
             attack_bonus=payload.attack_bonus,
             defense_bonus=payload.defense_bonus,
             duel_rate_bonus=payload.duel_rate_bonus,
             cultivation_bonus=payload.cultivation_bonus,
             fortune_bonus=payload.fortune_bonus,
             body_movement_bonus=payload.body_movement_bonus,
+            salary_min_stay_days=payload.salary_min_stay_days,
             entry_hint=payload.entry_hint,
             roles=[item.model_dump() for item in payload.roles],
         )
@@ -3219,12 +3353,18 @@ def register_web(app) -> None:
             min_comprehension=payload.min_comprehension,
             min_divine_sense=payload.min_divine_sense,
             min_fortune=payload.min_fortune,
+            min_willpower=payload.min_willpower,
+            min_charisma=payload.min_charisma,
+            min_karma=payload.min_karma,
+            min_body_movement=payload.min_body_movement,
+            min_combat_power=payload.min_combat_power,
             attack_bonus=payload.attack_bonus,
             defense_bonus=payload.defense_bonus,
             duel_rate_bonus=payload.duel_rate_bonus,
             cultivation_bonus=payload.cultivation_bonus,
             fortune_bonus=payload.fortune_bonus,
             body_movement_bonus=payload.body_movement_bonus,
+            salary_min_stay_days=payload.salary_min_stay_days,
             entry_hint=payload.entry_hint,
         )
         if result is None:

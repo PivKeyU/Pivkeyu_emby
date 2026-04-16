@@ -190,6 +190,7 @@ class AdminSettingPayload(BaseModel):
     sect_betrayal_stone_percent: int | None = None
     sect_betrayal_stone_min: int | None = None
     sect_betrayal_stone_max: int | None = None
+    error_log_retention_count: int | None = None
     root_quality_value_rules: dict[str, RootQualityRulePayload] | None = None
     exploration_drop_weight_rules: DropWeightRulePayload | None = None
     item_quality_value_rules: dict[str, ItemQualityValueRulePayload] | None = None
@@ -391,8 +392,16 @@ class SectPayload(BaseModel):
     cultivation_bonus: int = 0
     fortune_bonus: int = 0
     body_movement_bonus: int = 0
+    salary_min_stay_days: int = 30
     entry_hint: str = ""
     roles: list[SectRolePayload] = Field(default_factory=list)
+
+
+class ErrorLogQueryPayload(BaseModel):
+    limit: int = 100
+    tg: int | None = None
+    level: str | None = None
+    keyword: str | None = None
 
 
 class ArtifactSetPayload(BaseModel):

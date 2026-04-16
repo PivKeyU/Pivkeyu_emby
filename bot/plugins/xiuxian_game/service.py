@@ -3254,6 +3254,7 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         "sect_betrayal_stone_percent": max(int(xiuxian_settings.get("sect_betrayal_stone_percent", DEFAULT_SETTINGS["sect_betrayal_stone_percent"]) or 0), 0),
         "sect_betrayal_stone_min": max(int(xiuxian_settings.get("sect_betrayal_stone_min", DEFAULT_SETTINGS["sect_betrayal_stone_min"]) or 0), 0),
         "sect_betrayal_stone_max": max(int(xiuxian_settings.get("sect_betrayal_stone_max", DEFAULT_SETTINGS["sect_betrayal_stone_max"]) or 0), 0),
+        "error_log_retention_count": max(int(xiuxian_settings.get("error_log_retention_count", DEFAULT_SETTINGS["error_log_retention_count"]) or 0), 1),
     }
     active_duel_lock = get_active_duel_lock(tg)
     attribute_effects = [
@@ -3817,6 +3818,15 @@ def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
                 patch["sect_betrayal_stone_max"] = min_value
             else:
                 patch["sect_betrayal_stone_min"] = max_value
+    if "error_log_retention_count" in patch and patch["error_log_retention_count"] is not None:
+        patch["error_log_retention_count"] = min(
+            _coerce_int(
+                patch["error_log_retention_count"],
+                DEFAULT_SETTINGS["error_log_retention_count"],
+                1,
+            ),
+            10000,
+        )
     if "message_auto_delete_seconds" in patch and patch["message_auto_delete_seconds"] is not None:
         patch["message_auto_delete_seconds"] = min(
             _coerce_int(

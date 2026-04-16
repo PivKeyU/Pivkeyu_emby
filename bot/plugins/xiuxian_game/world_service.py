@@ -237,6 +237,7 @@ def create_sect_with_roles(
     cultivation_bonus: int = 0,
     fortune_bonus: int = 0,
     body_movement_bonus: int = 0,
+    salary_min_stay_days: int | None = None,
     entry_hint: str = "",
     roles: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -263,6 +264,7 @@ def create_sect_with_roles(
         cultivation_bonus=int(cultivation_bonus or 0),
         fortune_bonus=int(fortune_bonus or 0),
         body_movement_bonus=int(body_movement_bonus or 0),
+        salary_min_stay_days=max(int(salary_min_stay_days or _sect_salary_min_stay_days()), 1),
         entry_hint=entry_hint,
         enabled=True,
     )
@@ -311,6 +313,7 @@ def sync_sect_with_roles_by_name(
     cultivation_bonus: int = 0,
     fortune_bonus: int = 0,
     body_movement_bonus: int = 0,
+    salary_min_stay_days: int | None = None,
     entry_hint: str = "",
     roles: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -339,6 +342,7 @@ def sync_sect_with_roles_by_name(
             cultivation_bonus=cultivation_bonus,
             fortune_bonus=fortune_bonus,
             body_movement_bonus=body_movement_bonus,
+            salary_min_stay_days=salary_min_stay_days,
             entry_hint=entry_hint,
             roles=roles,
         )
@@ -366,6 +370,7 @@ def sync_sect_with_roles_by_name(
         cultivation_bonus=cultivation_bonus,
         fortune_bonus=fortune_bonus,
         body_movement_bonus=body_movement_bonus,
+        salary_min_stay_days=max(int(salary_min_stay_days or _sect_salary_min_stay_days(int(existing["id"]))), 1),
         entry_hint=entry_hint,
         enabled=True,
     ) or existing
@@ -406,7 +411,11 @@ def _format_remaining_delta(delta: timedelta) -> str:
     return "".join(parts[:2])
 
 
-def _sect_salary_min_stay_days() -> int:
+def _sect_salary_min_stay_days(sect_id: int | None = None) -> int:
+    if sect_id:
+        sect = serialize_sect(get_sect(int(sect_id)))
+        if sect:
+            return max(int(sect.get("salary_min_stay_days") or 0), 1)
     settings = get_xiuxian_settings()
     return max(int(settings.get("sect_salary_min_stay_days", DEFAULT_SETTINGS.get("sect_salary_min_stay_days", 30)) or 0), 1)
 
@@ -568,6 +577,7 @@ def join_sect_for_user(tg: int, sect_id: int) -> dict[str, Any]:
         sect_role_key="outer_disciple",
         sect_joined_at=utcnow(),
         sect_betrayal_until=None,
+        last_salary_claim_at=None,
     )
     create_journal(tg, "sect", "加入宗门", f"重整衣冠，拜入宗门【{sect['name']}】门下。")
     return get_current_sect_bundle(tg)
@@ -588,19 +598,22 @@ def leave_sect_for_user(tg: int) -> dict[str, Any]:
             raise ValueError("你当前并未加入宗门")
 
         current_stone = max(int(profile.spiritual_stone or 0), 0)
-        penalty = _sect_betrayal_stone_penalty(current_stone)
+        joined_at = profile.sect_joined_at
+        claimed_salary = bool(profile.last_salary_claim_at and (joined_at is None or profile.last_salary_claim_at >= joined_at))
+        penalty = _sect_betrayal_stone_penalty(current_stone) if claimed_salary else 0
         if current_stone < penalty:
             raise ValueError(f"叛出宗门需要缴纳 {penalty} 灵石供奉，你当前灵石不足。")
         cooldown_until = utcnow() + timedelta(days=_sect_betrayal_cooldown_days())
         previous_contribution = int(profile.sect_contribution or 0)
-        apply_spiritual_stone_delta(
-            session,
-            tg,
-            -penalty,
-            action_text="叛出宗门",
-            allow_dead=False,
-            apply_tribute=False,
-        )
+        if penalty > 0:
+            apply_spiritual_stone_delta(
+                session,
+                tg,
+                -penalty,
+                action_text="叛出宗门",
+                allow_dead=False,
+                apply_tribute=False,
+            )
         profile.sect_id = None
         profile.sect_role_key = None
         profile.sect_contribution = 0
@@ -608,22 +621,27 @@ def leave_sect_for_user(tg: int) -> dict[str, Any]:
         profile.sect_betrayal_until = cooldown_until
         profile.last_salary_claim_at = None
         profile.updated_at = utcnow()
-        session.commit()
-        session.refresh(profile)
+        session.flush()
         updated_profile = serialize_profile(profile)
+        session.commit()
 
     sect_name = (current or {}).get("name", "未知宗门")
     create_journal(
         tg,
         "sect",
         "叛出宗门",
-        f"叛出宗门【{sect_name}】，被收回 {penalty} 灵石供奉，清空 {previous_contribution} 点宗门贡献，并禁投山门至 {cooldown_until.isoformat()}。",
+        (
+            f"叛出宗门【{sect_name}】，被收回 {penalty} 灵石供奉，清空 {previous_contribution} 点宗门贡献，并禁投山门至 {cooldown_until.isoformat()}。"
+            if penalty > 0
+            else f"叛出宗门【{sect_name}】，未曾领取宗门俸禄，本次未扣除灵石，清空 {previous_contribution} 点宗门贡献，并禁投山门至 {cooldown_until.isoformat()}。"
+        ),
     )
     return {
         "previous_sect": current,
         "profile": updated_profile,
         "betrayal": {
             "stone_penalty": penalty,
+            "claimed_salary": claimed_salary,
             "contribution_cleared": previous_contribution,
             "cooldown_until": cooldown_until.isoformat(),
             "cooldown_days": _sect_betrayal_cooldown_days(),
@@ -646,6 +664,7 @@ def set_user_sect_role(tg: int, sect_id: int, role_key: str) -> dict[str, Any]:
     if int(profile_obj.sect_id or 0) != int(sect_id):
         profile_payload["sect_joined_at"] = utcnow()
         profile_payload["sect_betrayal_until"] = None
+        profile_payload["last_salary_claim_at"] = None
     updated = upsert_profile(tg, **profile_payload)
     return {"profile": serialize_profile(updated), "role": role, "sect": sect}
 
@@ -660,7 +679,7 @@ def claim_sect_salary_for_user(tg: int) -> dict[str, Any]:
     joined_at = profile_obj.sect_joined_at or profile_obj.last_salary_claim_at or profile_obj.created_at or now
     last_claim = profile_obj.last_salary_claim_at
     if last_claim is None or last_claim < joined_at:
-        min_stay = timedelta(days=_sect_salary_min_stay_days())
+        min_stay = timedelta(days=_sect_salary_min_stay_days(profile_obj.sect_id))
         if now - joined_at < min_stay:
             remaining = min_stay - (now - joined_at)
             raise ValueError(f"新入门弟子仍在考察期，需再留宗 {_format_remaining_delta(remaining)} 才能领取俸禄。")

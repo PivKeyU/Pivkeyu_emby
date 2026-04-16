@@ -693,6 +693,10 @@
           <label>全宗修炼加成 <input id="sect-cultivation" type="number" value="0"></label>
           <label>全宗机缘加成 <input id="sect-fortune-bonus" type="number" value="0"></label>
           <label>全宗身法加成 <input id="sect-body-movement" type="number" value="0"></label>
+          <label>
+            宗门考察期（天）
+            <input id="sect-salary-stay-days" type="number" min="1" max="3650" value="30">
+          </label>
           <label class="wide-field">
             入门提示
             <textarea id="sect-entry-hint" rows="2" placeholder="例如：只收心性沉稳、愿护苍生之人"></textarea>
@@ -726,6 +730,49 @@
           </div>
         </form>
         <div id="sect-list" class="stack-list"></div>
+      </div>
+    </details>
+
+    <details class="card fold-card">
+      <summary class="fold-summary">
+        <div>
+          <p class="eyebrow" data-section-key="errors">错误日志</p>
+          <h2>错误日志</h2>
+        </div>
+        <span class="summary-tip">查看修仙用户操作失败记录，并配置保留条数</span>
+      </summary>
+      <div class="fold-body">
+        <form id="error-log-form" class="grid-form">
+          <label>
+            保留条数
+            <input id="setting-error-log-retention" type="number" min="1" max="10000" value="500">
+          </label>
+          <label>
+            TG ID
+            <input id="error-log-tg" type="number" min="1" placeholder="留空则不过滤">
+          </label>
+          <label>
+            级别
+            <select id="error-log-level">
+              <option value="">全部</option>
+              <option value="WARNING">WARNING</option>
+              <option value="ERROR">ERROR</option>
+            </select>
+          </label>
+          <label>
+            关键字
+            <input id="error-log-keyword" type="search" placeholder="路径、昵称、报错内容">
+          </label>
+          <label>
+            查询条数
+            <input id="error-log-limit" type="number" min="1" max="500" value="100">
+          </label>
+          <div class="form-actions wide-field">
+            <button type="submit">保存并查询</button>
+            <button id="error-log-refresh" type="button" class="secondary">刷新日志</button>
+          </div>
+        </form>
+        <div id="error-log-list" class="stack-list"></div>
       </div>
     </details>
 

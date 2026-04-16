@@ -670,6 +670,7 @@
       cultivation_bonus: Number($("sect-cultivation")?.value || 0),
       fortune_bonus: Number($("sect-fortune-bonus")?.value || 0),
       body_movement_bonus: Number($("sect-body-movement")?.value || 0),
+      salary_min_stay_days: Number($("sect-salary-stay-days")?.value || 30),
       entry_hint: $("sect-entry-hint")?.value?.trim() || "",
       roles: collectSectRoles(),
     };
@@ -790,6 +791,9 @@
   function resetSectForm() {
     $("sect-form")?.reset();
     clearFormEditMode("sect-form");
+    if ($("sect-salary-stay-days")) {
+      $("sect-salary-stay-days").value = state.bundle?.settings?.sect_salary_min_stay_days ?? 30;
+    }
     syncSelects();
     resetSectRoles();
   }
@@ -1202,6 +1206,7 @@
     $("sect-cultivation").value = item.cultivation_bonus || 0;
     $("sect-fortune-bonus").value = item.fortune_bonus || 0;
     $("sect-body-movement").value = item.body_movement_bonus || 0;
+    $("sect-salary-stay-days").value = item.salary_min_stay_days || (state.bundle?.settings?.sect_salary_min_stay_days ?? 30);
     $("sect-entry-hint").value = item.entry_hint || "";
     $("sect-role-rows").innerHTML = "";
     (item.roles || []).forEach((role) => addSectRoleRow(role));
