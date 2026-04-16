@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 
 from bot import LOGGER, api as config_api
+from bot.func_helper.redis_cache import get_status as get_redis_status
 from bot.func_helper.telegram_webapp import configure_chat_menu_button
 from bot.plugins import register_web_plugins
 
@@ -51,7 +52,10 @@ class Web:
 
             @self.app.get("/health", include_in_schema=False)
             async def health():
-                return {"ok": True}
+                return {
+                    "ok": True,
+                    "redis": get_redis_status(),
+                }
 
             @self.app.get("/admin", include_in_schema=False)
             async def admin_page():

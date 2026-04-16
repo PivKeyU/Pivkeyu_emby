@@ -2,7 +2,7 @@ name: pivkeyu_emby
 
 services:
   mysql:
-    image: mysql:5.7
+    image: ${PIVKEYU_MYSQL_IMAGE:-mysql:5.7}
     platform: linux/amd64
     container_name: mysql
     command: mysqld --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
@@ -28,13 +28,30 @@ services:
       retries: 20
       start_period: 30s
 
+  redis:
+    image: ${PIVKEYU_REDIS_IMAGE:-redis:7-alpine}
+    container_name: redis
+    command: redis-server --bind 127.0.0.1 --protected-mode yes --appendonly no --save "" --maxmemory 256mb --maxmemory-policy allkeys-lru
+    restart: always
+    network_mode: host
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "127.0.0.1", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
   pivkeyu_emby:
-    image: pivkeyu/pivkeyu_emby:latest
+    build:
+      context: .
+    image: ${PIVKEYU_APP_IMAGE:-pivkeyu/pivkeyu_emby:latest}
     container_name: pivkeyu_emby
     restart: always
     network_mode: host
     depends_on:
       mysql:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     environment:
       PIVKEYU_NOFILE_SOFT: 131072
@@ -54,6 +71,13 @@ services:
       PIVKEYU_EMBY_HTTP_LIMIT_PER_HOST: 64
       PIVKEYU_EMBY_HTTP_KEEPALIVE_TIMEOUT: 90
       PIVKEYU_EMBY_HTTP_DNS_CACHE_TTL: 600
+      PIVKEYU_REDIS_ENABLED: "true"
+      PIVKEYU_REDIS_HOST: 127.0.0.1
+      PIVKEYU_REDIS_PORT: 6379
+      PIVKEYU_REDIS_DB: 0
+      PIVKEYU_REDIS_PREFIX: pivkeyu_emby
+      PIVKEYU_REDIS_EMBY_TTL: 300
+      PIVKEYU_REDIS_EMBY_MISS_TTL: 60
     ulimits:
       nofile:
         soft: 131072
@@ -64,7 +88,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
 
   pivkeyu-caddy:
-    image: caddy:2-alpine
+    image: ${PIVKEYU_CADDY_IMAGE:-caddy:2-alpine}
     container_name: pivkeyu-caddy
     restart: always
     network_mode: host

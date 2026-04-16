@@ -1,11 +1,19 @@
 """
 基本的sql操作
 """
+import os
+from datetime import datetime
+
+from bot.func_helper import redis_cache
 from bot.sql_helper import Base, Session
 from sqlalchemy import Column, BigInteger, String, DateTime, Integer, case
 from sqlalchemy import func
 from sqlalchemy import or_
 from bot import LOGGER
+
+EMBY_CACHE_TTL = max(int(os.getenv("PIVKEYU_REDIS_EMBY_TTL", "300") or 300), 1)
+EMBY_CACHE_MISS_TTL = max(int(os.getenv("PIVKEYU_REDIS_EMBY_MISS_TTL", "60") or 60), 1)
+_CACHE_ABSENT = object()
 
 
 
@@ -26,6 +34,149 @@ class Emby(Base):
     iv = Column(Integer, default=0)
     ch = Column(DateTime, nullable=True)
 
+
+def _normalize_lookup_value(value) -> str:
+    if value is None:
+        return ""
+    return str(value).strip().lower()
+
+
+def _emby_record_cache_key(tg: int | str) -> str:
+    return redis_cache.build_key("emby", "record", int(tg))
+
+
+def _emby_lookup_cache_key(value) -> str:
+    return redis_cache.build_key("emby", "lookup", _normalize_lookup_value(value))
+
+
+def _serialize_emby_row(emby: Emby) -> dict:
+    return {
+        "tg": int(emby.tg),
+        "embyid": emby.embyid,
+        "name": emby.name,
+        "pwd": emby.pwd,
+        "pwd2": emby.pwd2,
+        "lv": emby.lv,
+        "cr": emby.cr.isoformat() if emby.cr else None,
+        "ex": emby.ex.isoformat() if emby.ex else None,
+        "us": int(emby.us or 0),
+        "iv": int(emby.iv or 0),
+        "ch": emby.ch.isoformat() if emby.ch else None,
+    }
+
+
+def _restore_datetime(value):
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
+def _deserialize_emby_row(payload: dict) -> Emby:
+    normalized = dict(payload or {})
+    for field in ("cr", "ex", "ch"):
+        normalized[field] = _restore_datetime(normalized.get(field))
+    if normalized.get("tg") is not None:
+        normalized["tg"] = int(normalized["tg"])
+    for field in ("us", "iv"):
+        if normalized.get(field) is not None:
+            normalized[field] = int(normalized[field])
+    return Emby(**normalized)
+
+
+def _lookup_aliases_from_payload(payload: dict | None) -> set[str]:
+    aliases: set[str] = set()
+    if not payload:
+        return aliases
+
+    for value in (payload.get("tg"), payload.get("name"), payload.get("embyid")):
+        normalized = _normalize_lookup_value(value)
+        if normalized:
+            aliases.add(normalized)
+    return aliases
+
+
+def _cache_emby_payload(payload: dict, query=None) -> None:
+    if not redis_cache.redis_enabled() or not payload:
+        return
+
+    tg = payload.get("tg")
+    if tg is None:
+        return
+
+    redis_cache.set_json(_emby_record_cache_key(tg), payload, EMBY_CACHE_TTL)
+
+    aliases = _lookup_aliases_from_payload(payload)
+    normalized_query = _normalize_lookup_value(query)
+    if normalized_query:
+        aliases.add(normalized_query)
+
+    for alias in aliases:
+        redis_cache.set_json(_emby_lookup_cache_key(alias), {"hit": True, "tg": int(tg)}, EMBY_CACHE_TTL)
+
+
+def _cache_emby_miss(query) -> None:
+    normalized = _normalize_lookup_value(query)
+    if not normalized or not redis_cache.redis_enabled():
+        return
+    redis_cache.set_json(_emby_lookup_cache_key(normalized), {"hit": False}, EMBY_CACHE_MISS_TTL)
+
+
+def _invalidate_emby_payload(payload: dict | None) -> None:
+    if not payload or not redis_cache.redis_enabled():
+        return
+
+    keys = []
+    tg = payload.get("tg")
+    if tg is not None:
+        keys.append(_emby_record_cache_key(tg))
+    keys.extend(_emby_lookup_cache_key(alias) for alias in _lookup_aliases_from_payload(payload))
+    redis_cache.delete_keys(*keys)
+
+
+def _invalidate_emby_namespace() -> None:
+    if not redis_cache.redis_enabled():
+        return
+    redis_cache.delete_pattern(
+        redis_cache.build_key("emby", "record", "*"),
+        redis_cache.build_key("emby", "lookup", "*"),
+    )
+
+
+def _get_cached_emby(query):
+    normalized = _normalize_lookup_value(query)
+    if not normalized or not redis_cache.redis_enabled():
+        return _CACHE_ABSENT
+
+    lookup_key = _emby_lookup_cache_key(normalized)
+    cached, lookup_payload = redis_cache.get_json(lookup_key)
+    if not cached:
+        return _CACHE_ABSENT
+
+    if not isinstance(lookup_payload, dict):
+        redis_cache.delete_keys(lookup_key)
+        return _CACHE_ABSENT
+
+    if lookup_payload.get("hit") is False:
+        return None
+
+    tg = lookup_payload.get("tg")
+    if tg is None:
+        redis_cache.delete_keys(lookup_key)
+        return _CACHE_ABSENT
+
+    record_key = _emby_record_cache_key(tg)
+    record_cached, record_payload = redis_cache.get_json(record_key)
+    if not record_cached or not isinstance(record_payload, dict):
+        redis_cache.delete_keys(lookup_key, record_key)
+        return _CACHE_ABSENT
+
+    return _deserialize_emby_row(record_payload)
+
 def sql_add_emby(tg: int):
     """
     添加一条emby记录，如果tg已存在则忽略
@@ -35,6 +186,7 @@ def sql_add_emby(tg: int):
             emby = Emby(tg=tg)
             session.add(emby)
             session.commit()
+            _invalidate_emby_payload({"tg": tg})
         except:
             pass
 
@@ -46,8 +198,10 @@ def sql_delete_emby_by_tg(tg):
         try:
             emby = session.query(Emby).filter(Emby.tg == tg).first()
             if emby:
+                cached_payload = _serialize_emby_row(emby)
                 session.delete(emby)
                 session.commit()
+                _invalidate_emby_payload(cached_payload)
                 LOGGER.info(f"删除数据库记录成功 {tg}")
                 return True
             else:
@@ -66,6 +220,7 @@ def sql_clear_emby_iv():
         try:
             session.query(Emby).update({Emby.iv: 0})
             session.commit()
+            _invalidate_emby_namespace()
             return True
         except Exception as e:
             LOGGER.error(f"清除所有emby的iv时发生异常 {e}")
@@ -99,10 +254,12 @@ def sql_delete_emby(tg=None, embyid=None, name=None):
             # 用filter来过滤，使用with_for_update锁定记录
             emby = session.query(Emby).filter(condition).with_for_update().first()
             if emby:
+                cached_payload = _serialize_emby_row(emby)
                 LOGGER.info(f"删除数据库记录 {emby.name} - {emby.embyid} - {emby.tg}")
                 session.delete(emby)
                 try:
                     session.commit()
+                    _invalidate_emby_payload(cached_payload)
                     LOGGER.info(f"成功删除数据库记录: tg={tg}, embyid={embyid}, name={name}")
                     return True
                 except Exception as e:
@@ -121,11 +278,25 @@ def sql_delete_emby(tg=None, embyid=None, name=None):
 def sql_update_embys(some_list: list, method=None):
     """ 根据list中的tg值批量更新一些值 ，此方法不可更新主键"""
     with Session() as session:
+        tg_values = []
+        cache_snapshots: list[dict] = []
+        if some_list:
+            try:
+                tg_values = [int(item[0]) for item in some_list if item and item[0] is not None]
+            except (TypeError, ValueError):
+                tg_values = []
+
+        if tg_values:
+            rows = session.query(Emby).filter(Emby.tg.in_(tg_values)).all()
+            cache_snapshots = [_serialize_emby_row(row) for row in rows]
+
         if method == 'iv':
             try:
                 mappings = [{"tg": c[0], "iv": c[1]} for c in some_list]
                 session.bulk_update_mappings(Emby, mappings)
                 session.commit()
+                for payload in cache_snapshots:
+                    _invalidate_emby_payload(payload)
                 return True
             except:
                 session.rollback()
@@ -135,6 +306,8 @@ def sql_update_embys(some_list: list, method=None):
                 mappings = [{"tg": c[0], "ex": c[1]} for c in some_list]
                 session.bulk_update_mappings(Emby, mappings)
                 session.commit()
+                for payload in cache_snapshots:
+                    _invalidate_emby_payload(payload)
                 return True
             except:
                 session.rollback()
@@ -145,6 +318,10 @@ def sql_update_embys(some_list: list, method=None):
                 mappings = [{"tg": c[0], "name": c[1], "embyid": c[2]} for c in some_list]
                 session.bulk_update_mappings(Emby, mappings)
                 session.commit()
+                for payload in cache_snapshots:
+                    _invalidate_emby_payload(payload)
+                for mapping in mappings:
+                    _invalidate_emby_payload(mapping)
                 return True
             except Exception as e:
                 print(e)
@@ -156,10 +333,18 @@ def sql_get_emby(tg):
     """
     查询一条emby记录，可以根据tg, embyid或者name来查询
     """
+    cached_emby = _get_cached_emby(tg)
+    if cached_emby is not _CACHE_ABSENT:
+        return cached_emby
+
     with Session() as session:
         try:
             # 使用or_方法来表示或者的逻辑，如果有tg就用tg，如果有embyid就用embyid，如果有name就用name，如果都没有就返回None
             emby = session.query(Emby).filter(or_(Emby.tg == tg, Emby.name == tg, Emby.embyid == tg)).first()
+            if emby is not None:
+                _cache_emby_payload(_serialize_emby_row(emby), query=tg)
+            else:
+                _cache_emby_miss(tg)
             return emby
         except:
             return None
@@ -207,10 +392,14 @@ def sql_update_emby(condition, **kwargs):
             emby = session.query(Emby).filter(condition).first()
             if emby is None:
                 return False
+            before_payload = _serialize_emby_row(emby)
             # 然后用setattr方法来更新其他的字段，如果有就更新，如果没有就保持原样
             for k, v in kwargs.items():
                 setattr(emby, k, v)
             session.commit()
+            after_payload = _serialize_emby_row(emby)
+            _invalidate_emby_payload(before_payload)
+            _invalidate_emby_payload(after_payload)
             return True
         except Exception as e:
             LOGGER.error(e)

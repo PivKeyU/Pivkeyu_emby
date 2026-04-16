@@ -1,6 +1,6 @@
 # pivkeyu_emby
 
-pivkeyu_emby 是一个面向 Emby 服主的 Telegram 管理系统，核心栈为 Telegram Bot + FastAPI + MySQL + Docker Compose。
+pivkeyu_emby 是一个面向 Emby 服主的 Telegram 管理系统，核心栈为 Telegram Bot + FastAPI + MySQL + Redis + Docker Compose。
 
 它不是只停留在 TG 指令层的 Emby 机器人，而是把以下几件事一起做完整了：
 
@@ -20,7 +20,7 @@ pivkeyu_emby 是一个面向 Emby 服主的 Telegram 管理系统，核心栈为
 - 插件不只是命令扩展，还可以挂 Web 路由、静态资源、Mini App 页面、后台页面
 - 运行时插件支持 ZIP 导入、数据库迁移记录、依赖检查、启停开关
 - `data/` 会持久化配置、运行时插件、插件状态，重建容器后不会丢
-- Compose 内置 MySQL、Caddy、健康检查和一组默认性能参数，开箱即可跑
+- Compose 内置 MySQL、Redis、Caddy、健康检查和一组默认性能参数，开箱即可跑
 
 ## 相较于 Sakura_embyboss 的区别
 
@@ -127,9 +127,16 @@ docker compose pull
 docker compose up -d
 ```
 
+如果你改过当前仓库源码，改用下面这条命令把本地修改重新打进镜像：
+
+```bash
+docker compose up -d --build
+```
+
 默认会启动：
 
 - `mysql`
+- `redis`
 - `pivkeyu_emby`
 - `pivkeyu-caddy`
 
@@ -153,6 +160,8 @@ docker compose logs -f pivkeyu_emby
 curl http://127.0.0.1:8838/health
 ```
 
+如果启用了默认 Compose 配置，`/health` 也会返回 Redis 的启用和连通状态，方便确认缓存层是否已经接管热点查询。
+
 默认入口：
 
 - `http://127.0.0.1:8838/admin`
@@ -167,6 +176,12 @@ curl http://127.0.0.1:8838/health
 ```bash
 docker compose pull
 docker compose up -d --force-recreate
+```
+
+如果你在当前仓库里做了二开，升级本地改动时建议使用：
+
+```bash
+docker compose up -d --build --force-recreate
 ```
 
 如果你只想更新主应用：
