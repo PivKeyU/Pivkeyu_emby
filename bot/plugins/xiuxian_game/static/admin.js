@@ -2,7 +2,7 @@ const tg = window.Telegram?.WebApp;
 const tgBackButton = tg?.BackButton || null;
 const DEFAULT_BACK_PATH = "/admin";
 
-const REALM_OPTIONS = ["凡人", "炼气", "筑基", "结丹", "元婴", "化神", "须弥", "芥子", "混元一体"];
+const REALM_OPTIONS = ["人仙", "地仙", "天仙", "金仙", "大罗金仙", "仙君", "仙王", "仙尊", "仙帝"];
 const QUALITY_OPTIONS = ["凡品", "下品", "中品", "上品", "极品", "仙品", "先天至宝"];
 const PILL_TYPES = [
   { value: "foundation", label: "突破加成", effect: "突破助力值" },
@@ -157,7 +157,7 @@ const EMBY_LEVEL_LABELS = {
   d: "未注册",
 };
 
-REALM_OPTIONS.splice(0, REALM_OPTIONS.length, "凡人", "炼气", "筑基", "结丹", "元婴", "化神", "须弥", "芥子", "混元一体");
+REALM_OPTIONS.splice(0, REALM_OPTIONS.length, "人仙", "地仙", "天仙", "金仙", "大罗金仙", "仙君", "仙王", "仙尊", "仙帝");
 QUALITY_OPTIONS.splice(0, QUALITY_OPTIONS.length, "凡品", "下品", "中品", "上品", "极品", "仙品", "先天至宝");
 PILL_TYPES.splice(0, PILL_TYPES.length, ...[
   { value: "foundation", label: "突破加成", effect: "突破增幅" },
@@ -2277,7 +2277,7 @@ async function searchPlayers(options = {}) {
     <article class="stack-item is-clickable${Number(state.selectedPlayerTg || 0) === Number(p.tg) ? " is-selected" : ""}" data-tg="${p.tg}">
       <div class="stack-item-head">
         <strong>${escapeHtml(p.display_label || p.display_name || (p.username ? "@" + p.username : "TG " + p.tg))}</strong>
-        <span class="badge">${escapeHtml(p.realm_stage || "凡人")} ${p.realm_layer || 0}层</span>
+        <span class="badge">${escapeHtml(p.realm_stage || "人仙")} ${p.realm_layer || 0}层</span>
       </div>
       <p>灵石 ${p.spiritual_stone || 0} · 修为 ${p.cultivation || 0} · 片刻碎片 ${p.emby_account?.iv ?? 0}</p>
       <p>${escapeHtml(p.emby_account?.name || "未绑定 Emby")} · ${escapeHtml(p.emby_account?.embyid || "无 Emby ID")}</p>
@@ -2451,6 +2451,83 @@ document.getElementById("player-edit-cancel")?.addEventListener("click", () => {
 document.getElementById("jump-player-editor")?.addEventListener("click", () => {
   if (!state.selectedPlayerTg) return;
   revealPlayerEditor();
+});
+
+function renderSystemOpSummary(title, lines = [], tone = "info") {
+  const root = $("system-op-summary");
+  if (!root) return;
+  const detail = (lines || []).filter(Boolean).map((line) => `<p>${escapeHtml(line)}</p>`).join("");
+  root.innerHTML = `
+    <strong>${escapeHtml(title || "最近一次系统操作")}</strong>
+    ${detail || `<p class="muted">暂无附加信息。</p>`}
+  `;
+  root.dataset.tone = tone;
+}
+
+async function withAdminButtonBusy(button, pendingText, handler) {
+  if (!button) return handler();
+  const previous = button.textContent;
+  button.disabled = true;
+  button.textContent = pendingText;
+  try {
+    return await handler();
+  } finally {
+    button.disabled = false;
+    button.textContent = previous;
+  }
+}
+
+document.getElementById("system-realm-migrate")?.addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  try {
+    const result = await withAdminButtonBusy(button, "迁移中...", () =>
+      request("POST", "/plugins/xiuxian/admin-api/system/realm-migrate")
+    );
+    await bootstrapAdmin();
+    const preview = Array.isArray(result.preview) ? result.preview : [];
+    const previewText = preview.length
+      ? `示例：${preview.slice(0, 3).map((row) => `TG ${row.tg} ${row.before_stage}${row.before_layer}层 -> ${row.after_stage}${row.after_layer}层`).join("；")}`
+      : "本次没有需要迁移或修补的角色示例。";
+    const lines = [
+      `检查角色 ${result.checked || 0} 个`,
+      `旧境界迁移 ${result.migrated || 0} 个`,
+      `异常修补 ${result.repaired || 0} 个`,
+      `无需处理 ${result.unchanged || 0} 个`,
+      previewText,
+    ];
+    renderSystemOpSummary("旧境界迁移已完成", lines, "success");
+    adminStatus(`境界迁移完成：迁移 ${result.migrated || 0}，修补 ${result.repaired || 0}。`, "success");
+    await popup("迁移完成", lines.join("\n"), "success");
+  } catch (error) {
+    const message = String(error.message || error);
+    renderSystemOpSummary("旧境界迁移失败", [message], "error");
+    adminStatus(message, "error");
+    await popup("迁移失败", message, "error");
+  }
+});
+
+document.getElementById("system-reset-player-data")?.addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  try {
+    const result = await withAdminButtonBusy(button, "清档中...", () =>
+      request("POST", "/plugins/xiuxian/admin-api/system/reset-player-data")
+    );
+    state.selectedPlayerTg = null;
+    state.selectedPlayerDetail = null;
+    $("player-edit-tg").value = "";
+    $("player-edit-panel")?.classList.add("hidden");
+    syncSelectedPlayerUI();
+    await bootstrapAdmin();
+    const lines = Object.entries(result || {}).map(([key, value]) => `${key}: ${value}`);
+    renderSystemOpSummary("玩家修仙数据已清空", lines, "warning");
+    adminStatus("所有玩家修仙数据已清空。", "warning");
+    await popup("清档完成", lines.join("\n") || "所有玩家修仙数据已清空。", "warning");
+  } catch (error) {
+    const message = String(error.message || error);
+    renderSystemOpSummary("玩家数据清档失败", [message], "error");
+    adminStatus(message, "error");
+    await popup("清档失败", message, "error");
+  }
 });
 
 ADMIN_SECTION_LABELS.titles = "称号";

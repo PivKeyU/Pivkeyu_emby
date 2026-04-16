@@ -36,6 +36,7 @@ from bot.plugins.xiuxian_game.api_models import (
     ArtifactSetPayload,
     BreakthroughPayload,
     ConsumePillPayload,
+    CommissionClaimPayload,
     CraftPayload,
     EncounterDispatchPayload,
     EncounterPayload,
@@ -81,7 +82,9 @@ from bot.plugins.xiuxian_game.api_models import (
     UserTaskPayload,
 )
 from bot.plugins.xiuxian_game.features.admin_ops import (
+    admin_clear_all_xiuxian_data,
     admin_grant_player_resource,
+    admin_migrate_all_profile_realms,
     admin_patch_player,
     admin_revoke_player_resource,
     admin_seed_demo_assets,
@@ -125,6 +128,7 @@ from bot.plugins.xiuxian_game.features.exploration import (
     start_exploration_for_user,
 )
 from bot.plugins.xiuxian_game.features.growth import (
+    claim_spirit_stone_commission,
     breakthrough_for_user,
     create_foundation_pill_for_user_if_missing,
     ensure_seed_data,
@@ -3102,6 +3106,12 @@ def register_web(app) -> None:
         result = practice_for_user(telegram_user["id"])
         return {"code": 200, "data": result}
 
+    @user_router.post("/api/commission/claim")
+    async def xiuxian_commission_claim_api(payload: CommissionClaimPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = claim_spirit_stone_commission(telegram_user["id"], payload.commission_key)
+        return {"code": 200, "data": result}
+
     @user_router.post("/api/breakthrough")
     async def xiuxian_breakthrough_api(payload: BreakthroughPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
@@ -4047,6 +4057,22 @@ def register_web(app) -> None:
             )
             for item, identity in zip(items, identities)
         ]
+        return {"code": 200, "data": result}
+
+    @admin_router.post("/system/realm-migrate")
+    async def xiuxian_admin_realm_migrate_api(request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        result = admin_migrate_all_profile_realms()
+        return {"code": 200, "data": result}
+
+    @admin_router.post("/system/reset-player-data")
+    async def xiuxian_admin_reset_player_data_api(request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        result = admin_clear_all_xiuxian_data()
         return {"code": 200, "data": result}
 
     @admin_router.get("/players/{tg}")

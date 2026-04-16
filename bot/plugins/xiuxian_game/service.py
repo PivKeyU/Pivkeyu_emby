@@ -33,6 +33,7 @@ from bot.sql_helper.sql_xiuxian import (
     ITEM_KIND_LABELS,
     PILL_TYPE_LABELS,
     REALM_ORDER,
+    REALM_STAGE_RULES,
     ROOT_QUALITY_COLORS,
     ROOT_QUALITY_LEVELS,
     ROOT_VARIANT_ELEMENTS,
@@ -42,6 +43,8 @@ from bot.sql_helper.sql_xiuxian import (
     assert_profile_alive,
     bind_user_artifact,
     bind_user_talisman,
+    calculate_realm_threshold,
+    clear_all_xiuxian_user_data,
     cancel_auction_item,
     create_journal,
     create_auction_item,
@@ -85,6 +88,8 @@ from bot.sql_helper.sql_xiuxian import (
     list_user_recipes,
     list_user_techniques,
     list_user_talismans,
+    migrate_all_profile_realms,
+    migrate_legacy_realm_state,
     normalize_realm_stage,
     finalize_auction_item as sql_finalize_auction_item,
     place_auction_bid as sql_place_auction_bid,
@@ -93,6 +98,7 @@ from bot.sql_helper.sql_xiuxian import (
     realm_index,
     search_profiles,
     serialize_artifact,
+    serialize_datetime,
     serialize_pill,
     serialize_profile,
     serialize_technique,
@@ -129,6 +135,7 @@ from bot.sql_helper.sql_xiuxian import (
     XiuxianArtifactInventory,
     XiuxianEquippedArtifact,
     XiuxianExploration,
+    XiuxianJournal,
     XiuxianMaterialInventory,
     XiuxianPillInventory,
     XiuxianTalismanInventory,
@@ -1778,15 +1785,64 @@ DEFAULT_TALISMANS.extend(
 DEFAULT_RECIPES.extend(EXTRA_RECIPES)
 DEFAULT_SCENES.extend(EXTRA_SCENES)
 
+FIRST_REALM_STAGE = REALM_ORDER[0]
 BREAKTHROUGH_BASE_RATE = {
-    "炼气": 45,
-    "筑基": 38,
-    "结丹": 32,
-    "元婴": 26,
-    "化神": 21,
-    "须弥": 17,
-    "芥子": 13,
-    "混元一体": 0,
+    stage: int(rule.get("breakthrough_base_rate", 0))
+    for stage, rule in REALM_STAGE_RULES.items()
+}
+SPIRIT_STONE_COMMISSION_ACTION = "commission"
+SPIRIT_STONE_COMMISSIONS = {
+    "work": {
+        "key": "work",
+        "name": "仙坊打工",
+        "description": "在坊市轮值、搬运灵材与看守地火，风险最低，报酬稳定。",
+        "summary": "适合所有新弟子稳定换灵石。",
+        "cooldown_hours": 4,
+        "min_realm_stage": FIRST_REALM_STAGE,
+        "min_realm_layer": 1,
+        "stone_range": (18, 36),
+        "cultivation_range": (12, 26),
+        "stone_bonus_divisors": {"fortune": 4, "body_movement": 6},
+        "cultivation_bonus_divisors": {"comprehension": 4, "willpower": 6},
+        "result_texts": [
+            "在仙坊忙完一班，账房按时结了工钱。",
+            "替商会整理完灵材库后，顺手领到了今日酬劳。",
+        ],
+    },
+    "beast_hunt": {
+        "key": "beast_hunt",
+        "name": "代捕灵兽",
+        "description": "替洞府雇主追索走失灵兽，讲究胆气、身手与追踪机缘。",
+        "summary": "偏重攻伐与机缘，报酬明显更高。",
+        "cooldown_hours": 6,
+        "min_realm_stage": "地仙",
+        "min_realm_layer": 3,
+        "stone_range": (42, 78),
+        "cultivation_range": (28, 56),
+        "stone_bonus_divisors": {"attack_power": 3, "fortune": 4, "qi_blood": 40},
+        "cultivation_bonus_divisors": {"bone": 3, "willpower": 4},
+        "result_texts": [
+            "你循着兽痕擒回暴走灵兽，雇主爽快付清了悬红。",
+            "几番腾挪后终于将灵兽困入封灵笼，拿到了不菲酬劳。",
+        ],
+    },
+    "sword_repair": {
+        "key": "sword_repair",
+        "name": "修补灵剑",
+        "description": "替剑修温养剑胚、补全剑纹与禁制，最吃悟性与神识。",
+        "summary": "偏重悟性、神识与真元，收益最厚。",
+        "cooldown_hours": 8,
+        "min_realm_stage": "天仙",
+        "min_realm_layer": 2,
+        "stone_range": (58, 108),
+        "cultivation_range": (36, 72),
+        "stone_bonus_divisors": {"comprehension": 3, "divine_sense": 4, "true_yuan": 35},
+        "cultivation_bonus_divisors": {"comprehension": 3, "divine_sense": 5},
+        "result_texts": [
+            "你补齐了灵剑缺失的剑纹，对方当场付了修剑酬金。",
+            "一番祭炼后剑鸣再起，主人满意地结清了报酬。",
+        ],
+    },
 }
 ROOT_QUALITY_ROLLS = [
     ("天灵根", 1),
@@ -1810,6 +1866,202 @@ ITEM_STAT_FIELDS = (
     "duel_rate_bonus",
     "cultivation_bonus",
 )
+
+
+def _repair_profile_realm_state(tg: int) -> XiuxianProfile | None:
+    profile = get_profile(tg, create=False)
+    if profile is None:
+        return None
+    repair = migrate_legacy_realm_state(profile.realm_stage, profile.realm_layer, profile.cultivation)
+    if not repair.get("changed"):
+        return profile
+    return upsert_profile(
+        tg,
+        realm_stage=repair["target_stage"],
+        realm_layer=int(repair["target_layer"]),
+        cultivation=int(repair["target_cultivation"]),
+    )
+
+
+def _realm_stage_rule(stage: str | None) -> dict[str, int]:
+    normalized = normalize_realm_stage(stage or FIRST_REALM_STAGE)
+    return REALM_STAGE_RULES.get(normalized, REALM_STAGE_RULES[FIRST_REALM_STAGE])
+
+
+def _commission_latest_entry(session: Session, tg: int, title: str) -> XiuxianJournal | None:
+    return (
+        session.query(XiuxianJournal)
+        .filter(
+            XiuxianJournal.tg == int(tg),
+            XiuxianJournal.action_type == SPIRIT_STONE_COMMISSION_ACTION,
+            XiuxianJournal.title == title,
+        )
+        .order_by(XiuxianJournal.created_at.desc(), XiuxianJournal.id.desc())
+        .first()
+    )
+
+
+def _format_countdown(delta: timedelta) -> str:
+    total_seconds = max(int(delta.total_seconds()), 0)
+    hours, rem = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(rem, 60)
+    if hours:
+        return f"{hours} 小时 {minutes} 分"
+    if minutes:
+        return f"{minutes} 分 {seconds} 秒"
+    return f"{seconds} 秒"
+
+
+def _commission_reward_bonus(stats: dict[str, Any], divisors: dict[str, int]) -> int:
+    total = 0
+    for key, divisor in (divisors or {}).items():
+        safe_divisor = max(int(divisor or 1), 1)
+        total += max(int(stats.get(key, 0) or 0), 0) // safe_divisor
+    return total
+
+
+def build_spirit_stone_commissions(tg: int) -> list[dict[str, Any]]:
+    profile = _repair_profile_realm_state(tg)
+    if profile is None or not profile.consented:
+        return []
+    profile_data = serialize_profile(profile) or {}
+    retreating = _is_retreating(profile)
+    duel_lock = get_active_duel_lock(tg)
+    now = utcnow()
+    rows: list[dict[str, Any]] = []
+    with Session() as session:
+        for key, config in SPIRIT_STONE_COMMISSIONS.items():
+            last_entry = _commission_latest_entry(session, tg, config["name"])
+            next_available_at = None
+            if last_entry is not None:
+                next_available_at = last_entry.created_at + timedelta(hours=int(config["cooldown_hours"]))
+
+            unlocked = realm_requirement_met(
+                profile_data,
+                config.get("min_realm_stage"),
+                config.get("min_realm_layer"),
+            )
+            available = bool(
+                not profile_data.get("is_dead")
+                and not retreating
+                and not duel_lock
+                and unlocked
+                and (next_available_at is None or next_available_at <= now)
+            )
+            reason = ""
+            if profile_data.get("is_dead"):
+                reason = "角色已死亡，只能重新踏出仙途。"
+            elif retreating:
+                reason = "闭关期间无法承接灵石委托。"
+            elif duel_lock:
+                reason = duel_lock.get("duel_mode_label", "斗法") + "结算前，禁止灵石操作"
+            elif not unlocked:
+                reason = f"需要达到 {format_realm_requirement(config.get('min_realm_stage'), config.get('min_realm_layer'))}"
+            elif next_available_at is not None and next_available_at > now:
+                reason = f"冷却中，还需 {_format_countdown(next_available_at - now)}"
+            rows.append(
+                {
+                    "key": key,
+                    "name": config["name"],
+                    "description": config["description"],
+                    "summary": config["summary"],
+                    "cooldown_hours": int(config["cooldown_hours"]),
+                    "min_realm_stage": config.get("min_realm_stage"),
+                    "min_realm_layer": int(config.get("min_realm_layer") or 1),
+                    "reward_stone_min": int(config["stone_range"][0]),
+                    "reward_stone_max": int(config["stone_range"][1]),
+                    "reward_cultivation_min": int(config["cultivation_range"][0]),
+                    "reward_cultivation_max": int(config["cultivation_range"][1]),
+                    "available": available,
+                    "reason": reason,
+                    "last_claimed_at": serialize_datetime(last_entry.created_at) if last_entry else None,
+                    "next_available_at": serialize_datetime(next_available_at) if next_available_at else None,
+                }
+            )
+    return rows
+
+
+def claim_spirit_stone_commission(tg: int, commission_key: str) -> dict[str, Any]:
+    config = SPIRIT_STONE_COMMISSIONS.get(str(commission_key or "").strip())
+    if config is None:
+        raise ValueError("未找到对应的灵石委托。")
+
+    profile = _require_alive_profile_obj(tg, f"处理{config['name']}")
+    if _is_retreating(profile):
+        raise ValueError("闭关期间无法承接灵石委托。")
+
+    profile_data = serialize_profile(profile) or {}
+    if not realm_requirement_met(profile_data, config.get("min_realm_stage"), config.get("min_realm_layer")):
+        raise ValueError(f"需要达到 {format_realm_requirement(config.get('min_realm_stage'), config.get('min_realm_layer'))} 才能承接该委托。")
+
+    active_talisman = serialize_talisman(get_talisman(profile.active_talisman_id)) if profile.active_talisman_id else None
+    current_technique = _current_technique_payload(profile_data)
+    current_title = get_current_title(tg)
+    artifact_effects = merge_artifact_effects(profile_data, collect_equipped_artifacts(tg))
+    talisman_effects = resolve_talisman_effects(profile_data, active_talisman) if active_talisman else None
+    technique_effects = resolve_technique_effects(profile_data, current_technique) if current_technique else None
+    title_effects = resolve_title_effects(profile_data, current_title) if current_title else None
+    stats = _effective_stats(profile_data, artifact_effects, talisman_effects, get_sect_effects(profile_data), technique_effects, title_effects)
+
+    stone_gain = random.randint(*config["stone_range"]) + _commission_reward_bonus(stats, config.get("stone_bonus_divisors", {}))
+    cultivation_gain = random.randint(*config["cultivation_range"]) + _commission_reward_bonus(stats, config.get("cultivation_bonus_divisors", {}))
+    stone_gain = max(int(stone_gain), int(config["stone_range"][0]))
+    cultivation_gain = max(int(cultivation_gain), int(config["cultivation_range"][0]))
+
+    cooldown_until = None
+    detail_text = random.choice(config["result_texts"])
+    with Session() as session:
+        row = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+        if row is None or not row.consented:
+            raise ValueError("你还没有踏入仙途。")
+        assert_profile_alive(row, config["name"])
+        if _is_retreating(row):
+            raise ValueError("闭关期间无法承接灵石委托。")
+        last_entry = _commission_latest_entry(session, tg, config["name"])
+        now = utcnow()
+        if last_entry is not None:
+            cooldown_until = last_entry.created_at + timedelta(hours=int(config["cooldown_hours"]))
+            if cooldown_until > now:
+                raise ValueError(f"{config['name']}仍在冷却中，还需 {_format_countdown(cooldown_until - now)}。")
+        stage = normalize_realm_stage(row.realm_stage or FIRST_REALM_STAGE)
+        layer, cultivation, upgraded_layers, remaining = apply_cultivation_gain(
+            stage,
+            int(row.realm_layer or 1),
+            int(row.cultivation or 0),
+            cultivation_gain,
+        )
+        apply_spiritual_stone_delta(
+            session,
+            tg,
+            stone_gain,
+            action_text=f"完成委托【{config['name']}】",
+            enforce_currency_lock=True,
+            allow_dead=False,
+            apply_tribute=True,
+        )
+        row.realm_layer = layer
+        row.cultivation = cultivation
+        row.updated_at = utcnow()
+        session.commit()
+
+    create_journal(
+        tg,
+        SPIRIT_STONE_COMMISSION_ACTION,
+        config["name"],
+        f"{detail_text} 获得 {stone_gain} 灵石，修为 +{cultivation_gain}。",
+    )
+    return {
+        "commission": {
+            "key": config["key"],
+            "name": config["name"],
+            "stone_gain": stone_gain,
+            "cultivation_gain": cultivation_gain,
+            "detail": detail_text,
+        },
+        "upgraded_layers": upgraded_layers,
+        "remaining": remaining,
+        "profile": serialize_full_profile(tg),
+    }
 
 
 def _coerce_float(value: Any, default: float, minimum: float | None = None) -> float:
@@ -2326,7 +2578,7 @@ def _pill_usage_reason(profile_data: dict[str, Any], pill: dict[str, Any]) -> st
         return f"需要达到 {format_realm_requirement(pill.get('min_realm_stage'), pill.get('min_realm_layer'))} 才能服用这枚丹药。"
     pill_type = str(pill.get("pill_type") or "").strip()
     if pill_type == "foundation":
-        return "筑基丹只能在突破时配合使用。"
+        return "破境丹只能在第一次大境界突破时配合使用。"
     if pill_type == "root_refine":
         effects = resolve_pill_effects(profile_data, pill)
         steps = max(int(round(float(effects.get("root_quality_gain", 0) or 0))), 0)
@@ -2347,13 +2599,13 @@ def _pill_effect_summary(before_profile: dict[str, Any], after_profile: dict[str
     parts: list[str] = []
     before_root = format_root(before_profile)
     after_root = format_root(after_profile)
-    before_stage = normalize_realm_stage(before_profile.get("realm_stage") or "炼气")
-    after_stage = normalize_realm_stage(after_profile.get("realm_stage") or "炼气")
+    before_stage = normalize_realm_stage(before_profile.get("realm_stage") or FIRST_REALM_STAGE)
+    after_stage = normalize_realm_stage(after_profile.get("realm_stage") or FIRST_REALM_STAGE)
     before_layer = max(int(before_profile.get("realm_layer") or 1), 1)
     after_layer = max(int(after_profile.get("realm_layer") or 1), 1)
 
     def cultivation_progress_total(profile: dict[str, Any]) -> int:
-        stage = normalize_realm_stage(profile.get("realm_stage") or "炼气")
+        stage = normalize_realm_stage(profile.get("realm_stage") or FIRST_REALM_STAGE)
         layer = max(int(profile.get("realm_layer") or 1), 1)
         cultivation = max(int(profile.get("cultivation") or 0), 0)
         total = cultivation
@@ -2959,7 +3211,7 @@ def immortal_touch_infuse_cultivation(actor_tg: int, target_tg: int) -> dict[str
     if actor_tg == target_tg:
         raise ValueError("请回复其他道友后再施展仙人抚顶。")
 
-    target = get_profile(target_tg, create=False)
+    target = _repair_profile_realm_state(target_tg)
     if target is None or not target.consented:
         raise ValueError("被回复的道友还没有踏入仙途。")
 
@@ -2970,7 +3222,7 @@ def immortal_touch_infuse_cultivation(actor_tg: int, target_tg: int) -> dict[str
         DEFAULT_SETTINGS["immortal_touch_infusion_layers"],
         1,
     )
-    stage = normalize_realm_stage(target.realm_stage or "炼气")
+    stage = normalize_realm_stage(target.realm_stage or FIRST_REALM_STAGE)
     current_layer = int(target.realm_layer or 1)
     current_cultivation = int(target.cultivation or 0)
     gain = _compute_immortal_touch_gain(stage, current_layer, current_cultivation, configured_layers)
@@ -3033,9 +3285,18 @@ def _compute_retreat_plan(profile) -> dict[str, int]:
         + int(title_effects.get("cultivation_bonus", 0))
         + int(profile_data.get("insight_bonus", 0) or 0)
     )
-    poison_penalty = min(int(profile.dan_poison or 0) // 4, 25)
-    gain_per_hour = max(90 + realm_index(profile.realm_stage) * 18 + int(profile.realm_layer or 1) * 10 + artifact_bonus * 2 - poison_penalty, 40)
-    cost_per_hour = max(ceil(gain_per_hour / 12), 6)
+    stage = normalize_realm_stage(profile.realm_stage or FIRST_REALM_STAGE)
+    stage_rule = _realm_stage_rule(stage)
+    poison_penalty = min(int(profile.dan_poison or 0) // 3, 45)
+    gain_per_hour = max(
+        int(stage_rule.get("retreat_hourly_base", 150))
+        + int(profile.realm_layer or 1) * 18
+        + int(realm_index(stage)) * 48
+        + artifact_bonus * 3
+        - poison_penalty * 4,
+        60,
+    )
+    cost_per_hour = max(ceil(gain_per_hour / 10), 12)
     return {
         "gain_per_minute": max(gain_per_hour // 60, 1),
         "cost_per_minute": max(cost_per_hour // 60, 1),
@@ -3107,7 +3368,7 @@ def _settle_retreat_progress(tg: int) -> dict[str, Any] | None:
     gain = affordable_minutes * gain_per_minute
     cost = affordable_minutes * cost_per_minute
     layer, cultivation, upgraded_layers, remaining = apply_cultivation_gain(
-        profile.realm_stage or "炼气",
+        normalize_realm_stage(profile.realm_stage or FIRST_REALM_STAGE),
         int(profile.realm_layer or 1),
         int(profile.cultivation or 0),
         gain,
@@ -3211,7 +3472,7 @@ def duel_keyboard(challenger_tg: int, defender_tg: int, stake: int, bet_minutes:
 
 
 def cultivation_threshold(stage: str, layer: int) -> int:
-    return 80 + realm_index(stage) * 30 + max(layer, 1) * 18
+    return calculate_realm_threshold(stage, layer)
 
 
 def next_realm_stage(stage: str) -> str | None:
@@ -3236,10 +3497,12 @@ def ensure_xiuxian_profile(tg: int) -> dict[str, Any]:
 
 def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
     ensure_seed_data()
-    profile = get_profile(tg, create=True)
+    profile = _repair_profile_realm_state(tg)
+    if profile is None:
+        profile = get_profile(tg, create=True)
     if profile and profile.consented:
         _settle_retreat_progress(tg)
-        profile = get_profile(tg, create=False)
+        profile = _repair_profile_realm_state(tg) or get_profile(tg, create=False)
 
     profile_data = serialize_profile(profile)
     if profile_data is None:
@@ -3449,7 +3712,7 @@ def _find_pill_in_inventory(tg: int, pill_type: str) -> dict[str, Any] | None:
 
 
 def _require_alive_profile_obj(tg: int, action_text: str) -> Any:
-    profile = get_profile(tg, create=False)
+    profile = _repair_profile_realm_state(tg)
     if profile is None or not profile.consented:
         raise ValueError("你还没有踏入仙途。")
     assert_profile_alive(profile, action_text)
@@ -4283,7 +4546,7 @@ def admin_seed_demo_assets(tg: int) -> dict[str, Any]:
 
 
 def maybe_gain_cultivation_from_chat(tg: int) -> dict[str, Any] | None:
-    profile = get_profile(tg, create=False)
+    profile = _repair_profile_realm_state(tg) or get_profile(tg, create=False)
     if profile is None or not profile.consented or _is_retreating(profile):
         return None
 
@@ -4305,7 +4568,7 @@ def maybe_gain_cultivation_from_chat(tg: int) -> dict[str, Any] | None:
     max_gain = max(int(settings.get("chat_cultivation_max_gain", DEFAULT_SETTINGS["chat_cultivation_max_gain"]) or min_gain), min_gain)
     gain = random.randint(min_gain, max_gain)
     layer, cultivation, upgraded_layers, remaining = apply_cultivation_gain(
-        profile.realm_stage or "炼气",
+        normalize_realm_stage(profile.realm_stage or FIRST_REALM_STAGE),
         int(profile.realm_layer or 1),
         int(profile.cultivation or 0),
         gain,
@@ -4357,6 +4620,14 @@ def search_xiuxian_players(
     page_size: int = 20,
 ) -> dict[str, Any]:
     return search_profiles(query=query, page=page, page_size=page_size)
+
+
+def admin_migrate_all_profile_realms(preview_limit: int = 20) -> dict[str, Any]:
+    return migrate_all_profile_realms(preview_limit=preview_limit)
+
+
+def admin_clear_all_xiuxian_data() -> dict[str, Any]:
+    return clear_all_xiuxian_user_data()
 
 
 def admin_patch_player(tg: int, **fields) -> dict[str, Any] | None:
@@ -4653,6 +4924,7 @@ def serialize_full_profile(tg: int) -> dict[str, Any]:
         for key, value in battle["stats"].items()
     }
     bundle["combat_power"] = int(round(battle["power"]))
+    bundle["commissions"] = build_spirit_stone_commissions(tg)
     for entry in bundle.get("attribute_effects") or []:
         key = str(entry.get("key") or "")
         if key in bundle["effective_stats"]:
@@ -4914,7 +5186,7 @@ def init_path_for_user(tg: int) -> dict[str, Any]:
         root_quality=root_payload["root_quality"],
         root_quality_level=root_payload["root_quality_level"],
         root_quality_color=root_payload["root_quality_color"],
-        realm_stage="炼气",
+        realm_stage=FIRST_REALM_STAGE,
         realm_layer=1,
         cultivation=0,
         spiritual_stone=50,
@@ -4967,12 +5239,17 @@ def practice_for_user(tg: int) -> dict[str, Any]:
     title_effects = resolve_title_effects(profile_data, current_title) if current_title else None
     stats = _effective_stats(profile_data, artifact_effects, talisman_effects, get_sect_effects(profile_data), technique_effects, title_effects)
     quality = _root_quality_payload(_normalized_root_quality(profile_data))
+    stage = normalize_realm_stage(profile.realm_stage or FIRST_REALM_STAGE)
+    stage_rule = _realm_stage_rule(stage)
     poison_penalty = max(float(profile.dan_poison or 0) - stats["bone"] * 0.45, 0.0) / 110
-    base_gain = random.randint(18, 36)
+    base_gain = random.randint(int(stage_rule["practice_gain_min"]), int(stage_rule["practice_gain_max"]))
     gain = int(round((base_gain + stats["bone"] * 0.55 + stats["comprehension"] * 0.75 + stats["cultivation_bonus"]) * quality["cultivation_rate"] * max(0.55, 1 - poison_penalty)))
-    gain = max(gain, 5)
-    stone_gain = random.randint(2, 8) + int(stats["fortune"] // 18)
-    stage = normalize_realm_stage(profile.realm_stage or "炼气")
+    gain = max(gain, max(int(stage_rule["practice_gain_min"] * 0.6), 8))
+    stone_gain = (
+        random.randint(int(stage_rule["practice_stone_min"]), int(stage_rule["practice_stone_max"]))
+        + int(stats["fortune"] // 8)
+        + int(stats["charisma"] // 10)
+    )
     layer, cultivation, upgraded_layers, remaining = apply_cultivation_gain(stage, int(profile.realm_layer or 1), int(profile.cultivation or 0), gain)
     with Session() as session:
         updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
@@ -5001,7 +5278,7 @@ def breakthrough_for_user(tg: int, use_pill: bool = False) -> dict[str, Any]:
     if int(profile.realm_layer or 0) < 9:
         raise ValueError("只有达到当前大境界九层后才能尝试突破。")
 
-    stage = normalize_realm_stage(profile.realm_stage or "炼气")
+    stage = normalize_realm_stage(profile.realm_stage or FIRST_REALM_STAGE)
     required_cultivation = cultivation_threshold(stage, 9)
     if int(profile.cultivation or 0) < required_cultivation:
         raise ValueError(f"当前修为尚未圆满，还差 {required_cultivation - int(profile.cultivation or 0)} 点修为。")
@@ -5034,10 +5311,10 @@ def breakthrough_for_user(tg: int, use_pill: bool = False) -> dict[str, Any]:
 
     pill_bonus = 0
     used_pill_name = None
-    if stage == "炼气" and use_pill:
+    if stage == FIRST_REALM_STAGE and use_pill:
         pill_row = _find_pill_in_inventory(tg, "foundation")
         if pill_row is None:
-            raise ValueError("你没有可用的筑基丹。")
+            raise ValueError("你没有可用的破境丹。")
         used_pill_name = pill_row["pill"]["name"]
         pill_effects = resolve_pill_effects(profile_data, pill_row["pill"], {"pill_uses": int(profile.breakthrough_pill_uses or 0), "base_success_rate": success_rate})
         base_bonus = max(50 - int(profile.breakthrough_pill_uses or 0) * 5, 30)
@@ -5058,7 +5335,7 @@ def breakthrough_for_user(tg: int, use_pill: bool = False) -> dict[str, Any]:
     if use_pill and used_pill_name:
         pill_row = _find_pill_in_inventory(tg, "foundation")
         if pill_row is None or not consume_user_pill(tg, pill_row["pill"]["id"], 1):
-            raise ValueError("筑基丹消耗失败，请稍后再试。")
+            raise ValueError("破境丹消耗失败，请稍后再试。")
 
     if success:
         updated = upsert_profile(
@@ -5141,7 +5418,7 @@ def consume_pill_for_user(tg: int, pill_id: int) -> dict[str, Any]:
     elif pill.pill_type in ROOT_TRANSFORM_PILL_TYPES:
         root_patch = _transformed_root_payload(profile_data, pill.pill_type, effects.get("effect_value", pill_data.get("effect_value", 0)))
 
-    layer, cultivation, _, _ = apply_cultivation_gain(normalize_realm_stage(profile.realm_stage or "炼气"), int(profile.realm_layer or 1), cultivation, 0)
+    layer, cultivation, _, _ = apply_cultivation_gain(normalize_realm_stage(profile.realm_stage or FIRST_REALM_STAGE), int(profile.realm_layer or 1), cultivation, 0)
     stone_delta = spiritual_stone - int(profile.spiritual_stone or 0)
     with Session() as session:
         updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
@@ -6035,7 +6312,7 @@ def _mark_profile_dead(row: XiuxianProfile) -> None:
     row.root_quality = None
     row.root_quality_level = 1
     row.root_quality_color = None
-    row.realm_stage = "凡人"
+    row.realm_stage = FIRST_REALM_STAGE
     row.realm_layer = 0
     row.cultivation = 0
     row.spiritual_stone = 0
@@ -6116,7 +6393,7 @@ def _apply_death_duel_outcome(session: Session, winner_tg: int, loser_tg: int) -
     inherited_cultivation = int(loser.cultivation or 0)
     if inherited_stone > 0:
         apply_spiritual_stone_delta(session, winner_tg, inherited_stone, action_text="继承生死斗遗产", allow_dead=False, apply_tribute=True)
-    cultivation_cap = cultivation_threshold(normalize_realm_stage(winner.realm_stage or "炼气"), 9)
+    cultivation_cap = cultivation_threshold(normalize_realm_stage(winner.realm_stage or FIRST_REALM_STAGE), 9)
     winner.cultivation = min(int(winner.cultivation or 0) + inherited_cultivation, cultivation_cap)
     winner.updated_at = utcnow()
     _transfer_inventory_rows(session, XiuxianArtifactInventory, "artifact_id", loser_tg, winner_tg)

@@ -122,7 +122,7 @@ def pill_usage_reason(profile_data: dict[str, Any], pill: dict[str, Any]) -> str
         )
     pill_type = str(pill.get("pill_type") or "").strip()
     if pill_type == "foundation":
-        return "筑基丹只能在突破时配合使用。"
+        return "破境丹只能在第一次大境界突破时配合使用。"
     if pill_type == "root_refine":
         effects = resolve_pill_effects(profile_data, pill)
         steps = max(int(round(float(effects.get("root_quality_gain", 0) or 0))), 0)
@@ -144,13 +144,14 @@ def pill_effect_summary(before_profile: dict[str, Any], after_profile: dict[str,
     parts: list[str] = []
     before_root = legacy_service.format_root(before_profile)
     after_root = legacy_service.format_root(after_profile)
-    before_stage = normalize_realm_stage(before_profile.get("realm_stage") or "炼气")
-    after_stage = normalize_realm_stage(after_profile.get("realm_stage") or "炼气")
+    first_stage = legacy_service.FIRST_REALM_STAGE
+    before_stage = normalize_realm_stage(before_profile.get("realm_stage") or first_stage)
+    after_stage = normalize_realm_stage(after_profile.get("realm_stage") or first_stage)
     before_layer = max(int(before_profile.get("realm_layer") or 1), 1)
     after_layer = max(int(after_profile.get("realm_layer") or 1), 1)
 
     def cultivation_progress_total(profile: dict[str, Any]) -> int:
-        stage = normalize_realm_stage(profile.get("realm_stage") or "炼气")
+        stage = normalize_realm_stage(profile.get("realm_stage") or first_stage)
         layer = max(int(profile.get("realm_layer") or 1), 1)
         cultivation = max(int(profile.get("cultivation") or 0), 0)
         total = cultivation
@@ -201,7 +202,7 @@ def pill_effect_summary(before_profile: dict[str, Any], after_profile: dict[str,
 
 def consume_pill_for_user(tg: int, pill_id: int) -> dict[str, Any]:
     legacy_service = _legacy_service()
-    profile = get_profile(tg, create=False)
+    profile = legacy_service._repair_profile_realm_state(tg) or get_profile(tg, create=False)
     if profile is None or not profile.consented:
         raise ValueError("你还没有踏入仙途。")
     if is_retreating(profile):
@@ -259,7 +260,7 @@ def consume_pill_for_user(tg: int, pill_id: int) -> dict[str, Any]:
         )
 
     layer, cultivation, _, _ = legacy_service.apply_cultivation_gain(
-        normalize_realm_stage(profile.realm_stage or "炼气"),
+        normalize_realm_stage(profile.realm_stage or legacy_service.FIRST_REALM_STAGE),
         int(profile.realm_layer or 1),
         max(cultivation, 0),
         0,

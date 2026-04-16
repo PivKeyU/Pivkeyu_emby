@@ -273,7 +273,7 @@ def claim_group_encounter(instance_id: int, tg: int) -> dict[str, Any]:
         charisma_gain = int(reward_payload.get("reward_charisma") or 0)
         karma_gain = int(reward_payload.get("reward_karma") or 0)
         layer, cultivation, upgraded_layers, remaining = legacy_service.apply_cultivation_gain(
-            profile.realm_stage or "炼气",
+            legacy_service.normalize_realm_stage(profile.realm_stage or legacy_service.FIRST_REALM_STAGE),
             int(profile.realm_layer or 1),
             int(profile.cultivation or 0),
             cultivation_gain,

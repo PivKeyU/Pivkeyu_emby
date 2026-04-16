@@ -35,6 +35,36 @@
       </details>
     </section>
 
+    <details class="card fold-card" open>
+      <summary class="fold-summary">
+        <div>
+          <p class="eyebrow" data-section-key="system">调试工具</p>
+          <h2>迁移与清档</h2>
+        </div>
+        <span class="summary-tip">处理旧境界用户，并支持一键清空所有修仙玩家数据</span>
+      </summary>
+      <div class="fold-body">
+        <div class="stack-item">
+          <strong>旧境界一键迁移 / 修补</strong>
+          <p>用于把旧版的须弥、混元一体等境界统一迁移到新人仙体系，并修补越界层数与超额修为。</p>
+          <div class="inline-action-buttons">
+            <button id="system-realm-migrate" type="button">执行境界迁移</button>
+          </div>
+        </div>
+        <div class="stack-item">
+          <strong>测试清档</strong>
+          <p>一键清空所有玩家的修仙档案、背包、日志、拍卖、任务与动态进度，方便测试结束后回到干净状态。</p>
+          <div class="inline-action-buttons">
+            <button id="system-reset-player-data" type="button" class="secondary">清空所有玩家修仙数据</button>
+          </div>
+        </div>
+        <div id="system-op-summary" class="stack-item">
+          <strong>最近一次系统操作</strong>
+          <p class="muted">尚未执行。</p>
+        </div>
+      </div>
+    </details>
+
     <details class="card fold-card">
       <summary class="fold-summary">
         <div>
@@ -1509,15 +1539,15 @@
               <label>
                 境界
                 <select id="pe-realm_stage">
-                  <option value="凡人">凡人</option>
-                  <option value="炼气">炼气</option>
-                  <option value="筑基">筑基</option>
-                  <option value="结丹">结丹</option>
-                  <option value="元婴">元婴</option>
-                  <option value="化神">化神</option>
-                  <option value="须弥">须弥</option>
-                  <option value="芥子">芥子</option>
-                  <option value="混元一体">混元一体</option>
+                  <option value="人仙">人仙</option>
+                  <option value="地仙">地仙</option>
+                  <option value="天仙">天仙</option>
+                  <option value="金仙">金仙</option>
+                  <option value="大罗金仙">大罗金仙</option>
+                  <option value="仙君">仙君</option>
+                  <option value="仙王">仙王</option>
+                  <option value="仙尊">仙尊</option>
+                  <option value="仙帝">仙帝</option>
                 </select>
               </label>
               <label>层数 <input id="pe-realm_layer" type="number" min="1" max="9"></label>

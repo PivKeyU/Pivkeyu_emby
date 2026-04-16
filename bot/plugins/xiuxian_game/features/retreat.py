@@ -55,16 +55,18 @@ def _compute_retreat_plan(profile) -> dict[str, int]:
         + int(title_effects.get("cultivation_bonus", 0))
         + int(profile_data.get("insight_bonus", 0) or 0)
     )
+    stage = legacy_service.normalize_realm_stage(profile.realm_stage or legacy_service.FIRST_REALM_STAGE)
+    stage_rule = legacy_service._realm_stage_rule(stage)
     poison_penalty = min(int(profile.dan_poison or 0) // 4, 25)
     gain_per_hour = max(
-        90
-        + legacy_service.realm_index(profile.realm_stage) * 18
-        + int(profile.realm_layer or 1) * 10
-        + artifact_bonus * 2
-        - poison_penalty,
-        40,
+        int(stage_rule["retreat_hourly_base"])
+        + int(profile.realm_layer or 1) * 18
+        + legacy_service.realm_index(stage) * 48
+        + artifact_bonus * 3
+        - poison_penalty * 4,
+        60,
     )
-    cost_per_hour = max(ceil(gain_per_hour / 12), 6)
+    cost_per_hour = max(ceil(gain_per_hour / 10), 12)
     return {
         "gain_per_minute": max(gain_per_hour // 60, 1),
         "cost_per_minute": max(cost_per_hour // 60, 1),
@@ -73,7 +75,7 @@ def _compute_retreat_plan(profile) -> dict[str, int]:
 
 def settle_retreat_progress(tg: int) -> dict[str, Any] | None:
     legacy_service = _legacy_service()
-    profile = get_profile(tg, create=False)
+    profile = legacy_service._repair_profile_realm_state(tg) or get_profile(tg, create=False)
     if profile is None or not is_retreating(profile):
         return None
 
@@ -135,7 +137,7 @@ def settle_retreat_progress(tg: int) -> dict[str, Any] | None:
     gain = affordable_minutes * gain_per_minute
     cost = affordable_minutes * cost_per_minute
     layer, cultivation, upgraded_layers, remaining = legacy_service.apply_cultivation_gain(
-        profile.realm_stage or "炼气",
+        legacy_service.normalize_realm_stage(profile.realm_stage or legacy_service.FIRST_REALM_STAGE),
         int(profile.realm_layer or 1),
         int(profile.cultivation or 0),
         gain,
@@ -227,4 +229,3 @@ def finish_retreat_for_user(tg: int) -> dict[str, Any]:
         "settled": result or {"gain": 0, "cost": 0, "upgraded_layers": [], "finished": True},
         "profile": legacy_service.serialize_full_profile(tg),
     }
-

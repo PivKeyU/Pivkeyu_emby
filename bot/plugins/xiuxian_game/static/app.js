@@ -573,14 +573,14 @@ function renderProfile(bundle) {
   const realmBadge = document.querySelector("#realm-badge");
 
   if (realmBadge) {
-    realmBadge.textContent = `${profile.realm_stage || "凡人"}${profile.realm_layer || 0}层`;
+    realmBadge.textContent = `${profile.realm_stage || "人仙"}${profile.realm_layer || 0}层`;
   }
   if (rootText) {
     rootText.textContent = `灵根：${profileRootText(profile)} · 斗法修正 ${profile.root_bonus >= 0 ? "+" : ""}${profile.root_bonus || 0}%`;
   }
   if (profileGrid) {
     profileGrid.innerHTML = `
-      <article class="profile-item"><span>境界</span><strong>${escapeHtml(profile.realm_stage || "凡人")}${escapeHtml(profile.realm_layer || 0)}层</strong></article>
+      <article class="profile-item"><span>境界</span><strong>${escapeHtml(profile.realm_stage || "人仙")}${escapeHtml(profile.realm_layer || 0)}层</strong></article>
       <article class="profile-item"><span>当前修为</span><strong>${escapeHtml(progress.current ?? profile.cultivation ?? 0)} / ${escapeHtml(progress.threshold ?? 0)}</strong></article>
       <article class="profile-item"><span>距离下一层</span><strong>${escapeHtml(progress.remaining ?? 0)}</strong></article>
       <article class="profile-item"><span>灵石</span><strong>${escapeHtml(profile.spiritual_stone ?? 0)}</strong></article>
@@ -620,7 +620,7 @@ function renderProfile(bundle) {
 
   setDisabled(document.querySelector("#train-btn"), !bundle.capabilities?.can_train, "当前无法吐纳修炼");
   setDisabled(document.querySelector("#break-btn"), !bundle.capabilities?.can_breakthrough, "当前无法尝试突破");
-  setDisabled(document.querySelector("#break-pill-btn"), !bundle.capabilities?.can_breakthrough, "当前无法使用筑基丹突破");
+  setDisabled(document.querySelector("#break-pill-btn"), !bundle.capabilities?.can_breakthrough, "当前无法使用破境丹突破");
   setDisabled(document.querySelector("#retreat-start-btn"), !bundle.capabilities?.can_retreat, "当前无法开始闭关");
   setDisabled(document.querySelector("#retreat-finish-btn"), !retreating, "当前没有进行中的闭关");
   const exchangeDisabledReason = retreating ? "闭关期间无法兑换灵石和片刻碎片。" : "";
@@ -1142,8 +1142,8 @@ function renderExploreArea(bundle) {
   const sceneRoot = document.querySelector("#scene-list");
   const activeRoot = document.querySelector("#exploration-active");
   if (!sceneRoot || !activeRoot) return;
-  const realmOrder = ["凡人", "炼气", "筑基", "结丹", "元婴", "化神", "须弥", "芥子", "混元一体"];
-  const currentStage = bundle.profile?.realm_stage || "凡人";
+  const realmOrder = ["人仙", "地仙", "天仙", "金仙", "大罗金仙", "仙君", "仙王", "仙尊", "仙帝"];
+  const currentStage = bundle.profile?.realm_stage || "人仙";
   const currentLayer = Number(bundle.profile?.realm_layer || 1);
   const currentPower = Number(bundle.combat_power || 0);
 
@@ -1593,12 +1593,12 @@ document.querySelector("#break-pill-btn").addEventListener("click", async (event
     const payload = await runButtonAction(button, "服丹突破中…", () => postJson("/plugins/xiuxian/api/breakthrough", { use_pill: true }));
     const tone = payload.success ? "success" : "warning";
     const detail = `点数 ${payload.roll} / 成功率 ${payload.success_rate}%`;
-    setStatus(`服用筑基丹后已完成突破判定：${detail}`, tone);
+    setStatus(`服用破境丹后已完成突破判定：${detail}`, tone);
     await popup(payload.success ? "突破成功" : "突破失败", detail, tone);
     await refreshBundle();
     await refreshLeaderboard("realm", 1);
   } catch (error) {
-    const message = normalizeError(error, "服用筑基丹突破失败。");
+    const message = normalizeError(error, "服用破境丹突破失败。");
     setStatus(message, "error");
     await popup("操作失败", message, "error");
   }
@@ -2856,7 +2856,7 @@ renderProfile = function renderProfileRedesigned(bundle) {
     : "无";
 
   if (realmBadge) {
-    realmBadge.textContent = `${profile.realm_stage || "凡人"}${profile.realm_layer || 0}层`;
+    realmBadge.textContent = `${profile.realm_stage || "人仙"}${profile.realm_layer || 0}层`;
   }
   if (heroRootPill) {
     heroRootPill.textContent = `${rootQuality} · ${rootLabel}`;
@@ -2919,7 +2919,7 @@ renderProfile = function renderProfileRedesigned(bundle) {
 
   setDisabled(document.querySelector("#train-btn"), !bundle.capabilities?.can_train, "当前无法吐纳修炼");
   setDisabled(document.querySelector("#break-btn"), !bundle.capabilities?.can_breakthrough, "当前无法尝试突破");
-  setDisabled(document.querySelector("#break-pill-btn"), !bundle.capabilities?.can_breakthrough, "当前无法使用筑基丹突破");
+  setDisabled(document.querySelector("#break-pill-btn"), !bundle.capabilities?.can_breakthrough, "当前无法使用破境丹突破");
   setDisabled(document.querySelector("#retreat-start-btn"), !bundle.capabilities?.can_retreat, "当前无法开始闭关");
   setDisabled(document.querySelector("#retreat-finish-btn"), !retreating, "当前没有进行中的闭关");
   setDisabled(document.querySelector("#coin-to-stone-form button[type='submit']"), Boolean(duelLockReason), duelLockReason);
@@ -3314,6 +3314,91 @@ renderSectArea = function renderSectAreaEnhanced(bundle) {
     listRoot.appendChild(card);
   }
 };
+
+function commissionRequirementText(item = {}) {
+  if (!item.min_realm_stage) return "无门槛";
+  return `${item.min_realm_stage}${item.min_realm_layer || 1}层`;
+}
+
+function renderCommissionArea(bundle) {
+  const root = document.querySelector("#commission-list");
+  if (!root) return;
+  const commissions = Array.isArray(bundle?.commissions) ? bundle.commissions : [];
+  if (!commissions.length) {
+    root.innerHTML = `<article class="stack-item"><strong>暂无可承接的坊市委托</strong><p>踏入仙途后，坊市会根据你的境界开放灵石差事。</p></article>`;
+    return;
+  }
+
+  root.innerHTML = commissions.map((item) => {
+    const requirement = commissionRequirementText(item);
+    const rewardText = `灵石 ${item.reward_stone_min || 0}-${item.reward_stone_max || 0} · 修为 ${item.reward_cultivation_min || 0}-${item.reward_cultivation_max || 0}`;
+    const cooldownText = `${item.cooldown_hours || 0} 小时`;
+    const disabled = !item.available;
+    const reason = item.available ? "" : fallbackReason(item.reason, "当前暂不可承接该委托。");
+    const timeText = item.next_available_at
+      ? `下次可接：${formatDate(item.next_available_at)}`
+      : (item.last_claimed_at ? `上次完成：${formatDate(item.last_claimed_at)}` : "首次承接无冷却");
+    return `
+      <article class="stack-item">
+        <div class="stack-item-head">
+          <strong>${escapeHtml(item.name || "未命名委托")}</strong>
+          <span class="badge badge--normal">${disabled ? "冷却/未解锁" : "可接取"}</span>
+        </div>
+        <p>${escapeHtml(item.summary || item.description || "暂无说明")}</p>
+        <div class="item-tags">
+          <span class="tag">门槛 ${escapeHtml(requirement)}</span>
+          <span class="tag">冷却 ${escapeHtml(cooldownText)}</span>
+          <span class="tag">${escapeHtml(rewardText)}</span>
+        </div>
+        ${item.description ? `<p>${escapeHtml(item.description)}</p>` : ""}
+        <p>${escapeHtml(timeText)}</p>
+        ${reason ? `<p class="reason-text">${escapeHtml(reason)}</p>` : ""}
+        <button type="button" data-commission-key="${escapeHtml(item.key || "")}" ${disabled ? "disabled" : ""}>${disabled ? "暂不可接" : "承接委托"}</button>
+      </article>
+    `;
+  }).join("");
+}
+
+const renderProfileWithCommissionBoardBase = renderProfile;
+renderProfile = function renderProfileWithCommissionBoard(bundle) {
+  renderProfileWithCommissionBoardBase(bundle);
+  const consented = Boolean(bundle?.profile?.consented);
+  ensureSectionState("#commission-card", consented);
+  if (!consented) {
+    syncFoldToolbar();
+    return;
+  }
+  renderCommissionArea(bundle);
+  syncFoldToolbar();
+};
+
+document.querySelector("#commission-list")?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-commission-key]");
+  if (!button || button.disabled) return;
+  try {
+    const payload = await runButtonAction(button, "承接中...", () => postJson("/plugins/xiuxian/api/commission/claim", {
+      commission_key: button.dataset.commissionKey || "",
+    }));
+    const result = payload.commission || {};
+    const title = result.name || "坊市委托";
+    const stoneGain = Number(result.stone_gain || 0);
+    const cultivationGain = Number(result.cultivation_gain || 0);
+    const detail = result.detail || "委托已经顺利完成。";
+    const message = `${title} 完成，灵石 +${stoneGain}，修为 +${cultivationGain}。`;
+    if (payload.profile) {
+      applyProfileBundle(payload.profile);
+    } else {
+      await refreshBundle();
+    }
+    setStatus(message, "success");
+    await popup("委托完成", `${detail}\n灵石 +${stoneGain}\n修为 +${cultivationGain}`);
+    await refreshLeaderboard(state.leaderboard.kind, state.leaderboard.page);
+  } catch (error) {
+    const message = normalizeError(error, "承接灵石委托失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
+});
 
 setupFoldToolbar();
 

@@ -41,6 +41,13 @@ def breakthrough_for_user(tg: int, use_pill: bool = False) -> dict[str, Any]:
     return _legacy_service().breakthrough_for_user(tg, use_pill=use_pill)
 
 
+def build_spirit_stone_commissions(tg: int) -> list[dict[str, Any]]:
+    return _legacy_service().build_spirit_stone_commissions(tg)
+
+
+def claim_spirit_stone_commission(tg: int, commission_key: str) -> dict[str, Any]:
+    return _legacy_service().claim_spirit_stone_commission(tg, commission_key)
+
+
 def serialize_full_profile(tg: int) -> dict[str, Any]:
     return _legacy_service().serialize_full_profile(tg)
-

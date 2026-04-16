@@ -50,6 +50,10 @@ class ExchangePayload(InitDataPayload):
     amount: int
 
 
+class CommissionClaimPayload(InitDataPayload):
+    commission_key: str
+
+
 class LeaderboardPayload(InitDataPayload):
     kind: str = "stone"
     page: int = 1

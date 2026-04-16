@@ -839,7 +839,8 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
         session.refresh(exploration)
         exploration_payload = serialize_exploration(exploration)
 
-    profile = get_profile(tg, create=False)
+    legacy_service = _legacy_service()
+    profile = legacy_service._repair_profile_realm_state(tg) or get_profile(tg, create=False)
     fatal_outcome = outcome.get("fatal_outcome") if isinstance(outcome.get("fatal_outcome"), dict) else None
     if fatal_outcome:
         if profile is None:
@@ -851,10 +852,10 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
         )
         actual_stone_loss = min(current_stone, planned_stone_loss)
 
-        stage = str(profile.realm_stage or "炼气")
+        stage = legacy_service.normalize_realm_stage(profile.realm_stage or legacy_service.FIRST_REALM_STAGE)
         current_layer = int(profile.realm_layer or 1)
         current_cultivation = int(profile.cultivation or 0)
-        threshold = _legacy_service().cultivation_threshold(stage, current_layer)
+        threshold = legacy_service.cultivation_threshold(stage, current_layer)
         planned_cultivation_loss = max(
             int(round(max(current_cultivation, threshold // 3) * int(fatal_outcome.get("cultivation_loss_percent") or 0) / 100)),
             10,

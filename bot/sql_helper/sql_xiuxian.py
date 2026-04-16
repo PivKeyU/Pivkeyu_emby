@@ -29,7 +29,119 @@ from bot.sql_helper import Base, Session
 from bot.sql_helper.sql_emby import Emby
 
 
-REALM_ORDER = ["凡人", "炼气", "筑基", "结丹", "元婴", "化神", "须弥", "芥子", "混元一体"]
+REALM_ORDER = ["人仙", "地仙", "天仙", "金仙", "大罗金仙", "仙君", "仙王", "仙尊", "仙帝"]
+LEGACY_REALM_ORDER = ["凡人", "炼气", "筑基", "结丹", "元婴", "化神", "须弥", "芥子", "混元一体", "炼虚", "合体", "渡劫", "真仙"]
+REALM_LAYER_LIMIT = 9
+LEGACY_REALM_ALIASES = {
+    "练气": "炼气",
+}
+LEGACY_TO_NEW_REALM_STAGE = {
+    "凡人": "人仙",
+    "炼气": "人仙",
+    "筑基": "地仙",
+    "结丹": "天仙",
+    "元婴": "金仙",
+    "化神": "大罗金仙",
+    "须弥": "大罗金仙",
+    "芥子": "仙君",
+    "混元一体": "仙君",
+    "炼虚": "仙王",
+    "合体": "仙尊",
+    "渡劫": "仙帝",
+    "真仙": "仙帝",
+}
+REALM_STAGE_RULES = {
+    "人仙": {
+        "threshold_base": 120,
+        "threshold_step": 36,
+        "practice_gain_min": 24,
+        "practice_gain_max": 42,
+        "practice_stone_min": 6,
+        "practice_stone_max": 12,
+        "retreat_hourly_base": 150,
+        "breakthrough_base_rate": 66,
+    },
+    "地仙": {
+        "threshold_base": 280,
+        "threshold_step": 54,
+        "practice_gain_min": 32,
+        "practice_gain_max": 54,
+        "practice_stone_min": 8,
+        "practice_stone_max": 15,
+        "retreat_hourly_base": 220,
+        "breakthrough_base_rate": 58,
+    },
+    "天仙": {
+        "threshold_base": 560,
+        "threshold_step": 78,
+        "practice_gain_min": 42,
+        "practice_gain_max": 70,
+        "practice_stone_min": 10,
+        "practice_stone_max": 18,
+        "retreat_hourly_base": 320,
+        "breakthrough_base_rate": 50,
+    },
+    "金仙": {
+        "threshold_base": 980,
+        "threshold_step": 110,
+        "practice_gain_min": 56,
+        "practice_gain_max": 90,
+        "practice_stone_min": 12,
+        "practice_stone_max": 22,
+        "retreat_hourly_base": 440,
+        "breakthrough_base_rate": 42,
+    },
+    "大罗金仙": {
+        "threshold_base": 1580,
+        "threshold_step": 148,
+        "practice_gain_min": 72,
+        "practice_gain_max": 112,
+        "practice_stone_min": 15,
+        "practice_stone_max": 28,
+        "retreat_hourly_base": 620,
+        "breakthrough_base_rate": 34,
+    },
+    "仙君": {
+        "threshold_base": 2460,
+        "threshold_step": 190,
+        "practice_gain_min": 90,
+        "practice_gain_max": 140,
+        "practice_stone_min": 18,
+        "practice_stone_max": 34,
+        "retreat_hourly_base": 860,
+        "breakthrough_base_rate": 26,
+    },
+    "仙王": {
+        "threshold_base": 3640,
+        "threshold_step": 240,
+        "practice_gain_min": 110,
+        "practice_gain_max": 170,
+        "practice_stone_min": 22,
+        "practice_stone_max": 42,
+        "retreat_hourly_base": 1140,
+        "breakthrough_base_rate": 20,
+    },
+    "仙尊": {
+        "threshold_base": 5160,
+        "threshold_step": 300,
+        "practice_gain_min": 132,
+        "practice_gain_max": 208,
+        "practice_stone_min": 26,
+        "practice_stone_max": 52,
+        "retreat_hourly_base": 1460,
+        "breakthrough_base_rate": 14,
+    },
+    "仙帝": {
+        "threshold_base": 7200,
+        "threshold_step": 380,
+        "practice_gain_min": 156,
+        "practice_gain_max": 248,
+        "practice_stone_min": 30,
+        "practice_stone_max": 60,
+        "retreat_hourly_base": 1820,
+        "breakthrough_base_rate": 0,
+    },
+}
 FIVE_ELEMENTS = ["金", "木", "水", "火", "土"]
 ELEMENT_GENERATES = {"木": "火", "火": "土", "土": "金", "金": "水", "水": "木"}
 ELEMENT_CONTROLS = {"木": "土", "土": "水", "水": "火", "火": "金", "金": "木"}
@@ -385,11 +497,138 @@ def serialize_datetime(value: datetime | None) -> str | None:
 def normalize_realm_stage(stage: str | None) -> str:
     raw = str(stage or "").strip()
     if not raw:
-        return "凡人"
-    aliases = {
-        "练气": "炼气",
+        return REALM_ORDER[0]
+    normalized = LEGACY_REALM_ALIASES.get(raw, raw)
+    if normalized in REALM_ORDER:
+        return normalized
+    return LEGACY_TO_NEW_REALM_STAGE.get(normalized, REALM_ORDER[0])
+
+
+def _normalize_legacy_realm_stage(stage: str | None) -> str:
+    raw = str(stage or "").strip()
+    if not raw:
+        return LEGACY_REALM_ORDER[0]
+    normalized = LEGACY_REALM_ALIASES.get(raw, raw)
+    return normalized if normalized in LEGACY_REALM_ORDER else LEGACY_REALM_ORDER[0]
+
+
+def normalize_realm_layer(layer: int | str | None, default: int = 1) -> int:
+    try:
+        value = int(layer or default)
+    except (TypeError, ValueError):
+        value = default
+    return max(1, min(value, REALM_LAYER_LIMIT))
+
+
+def get_realm_stage_rule(stage: str | None) -> dict[str, int]:
+    normalized = normalize_realm_stage(stage)
+    return REALM_STAGE_RULES.get(normalized, REALM_STAGE_RULES[REALM_ORDER[0]])
+
+
+def calculate_realm_threshold(stage: str | None, layer: int | str | None) -> int:
+    rule = get_realm_stage_rule(stage)
+    current_layer = normalize_realm_layer(layer)
+    return int(rule["threshold_base"]) + (current_layer - 1) * int(rule["threshold_step"])
+
+
+def calculate_legacy_realm_threshold(stage: str | None, layer: int | str | None) -> int:
+    current_stage = _normalize_legacy_realm_stage(stage)
+    current_layer = normalize_realm_layer(layer)
+    return 80 + LEGACY_REALM_ORDER.index(current_stage) * 30 + current_layer * 18
+
+
+def is_legacy_realm_stage(stage: str | None) -> bool:
+    normalized = _normalize_legacy_realm_stage(stage)
+    return normalized in LEGACY_REALM_ORDER and normalized not in REALM_ORDER
+
+
+def migrate_legacy_realm_state(stage: str | None, layer: int | str | None, cultivation: int | str | None) -> dict[str, Any]:
+    raw_stage = str(stage or "").strip()
+    target_stage = normalize_realm_stage(raw_stage)
+    normalized_layer = normalize_realm_layer(layer)
+    try:
+        current_cultivation = max(int(cultivation or 0), 0)
+    except (TypeError, ValueError):
+        current_cultivation = 0
+    try:
+        original_layer = int(layer or normalized_layer)
+    except (TypeError, ValueError):
+        original_layer = normalized_layer
+
+    if raw_stage in REALM_ORDER:
+        threshold = calculate_realm_threshold(target_stage, normalized_layer)
+        capped_cultivation = min(current_cultivation, threshold)
+        return {
+            "source_stage": raw_stage or target_stage,
+            "target_stage": target_stage,
+            "target_layer": normalized_layer,
+            "target_cultivation": capped_cultivation,
+            "changed": (
+                target_stage != raw_stage
+                or normalized_layer != original_layer
+                or capped_cultivation != current_cultivation
+            ),
+            "legacy": False,
+        }
+
+    legacy_stage = _normalize_legacy_realm_stage(raw_stage)
+    if legacy_stage not in LEGACY_REALM_ORDER:
+        threshold = calculate_realm_threshold(target_stage, normalized_layer)
+        capped_cultivation = min(current_cultivation, threshold)
+        return {
+            "source_stage": raw_stage or target_stage,
+            "target_stage": target_stage,
+            "target_layer": normalized_layer,
+            "target_cultivation": capped_cultivation,
+            "changed": (
+                target_stage != raw_stage
+                or normalized_layer != original_layer
+                or capped_cultivation != current_cultivation
+            ),
+            "legacy": False,
+        }
+
+    legacy_threshold = calculate_legacy_realm_threshold(legacy_stage, normalized_layer)
+    capped_cultivation = min(current_cultivation, legacy_threshold)
+    legacy_position = (
+        LEGACY_REALM_ORDER.index(legacy_stage) * REALM_LAYER_LIMIT
+        + (normalized_layer - 1)
+    )
+    if normalized_layer < REALM_LAYER_LIMIT:
+        legacy_progress = min(capped_cultivation / max(legacy_threshold, 1), 0.999999)
+    else:
+        legacy_progress = min(capped_cultivation / max(legacy_threshold, 1), 1.0)
+    legacy_position += legacy_progress
+
+    legacy_total_segments = len(LEGACY_REALM_ORDER) * REALM_LAYER_LIMIT
+    new_total_segments = len(REALM_ORDER) * REALM_LAYER_LIMIT
+    mapped_position = legacy_position / max(legacy_total_segments, 1) * new_total_segments
+
+    if mapped_position >= new_total_segments:
+        final_stage = REALM_ORDER[-1]
+        final_layer = REALM_LAYER_LIMIT
+        final_cultivation = calculate_realm_threshold(final_stage, final_layer)
+    else:
+        stage_index = min(int(mapped_position // REALM_LAYER_LIMIT), len(REALM_ORDER) - 1)
+        within_stage = mapped_position - stage_index * REALM_LAYER_LIMIT
+        final_stage = REALM_ORDER[stage_index]
+        final_layer = normalize_realm_layer(int(within_stage) + 1)
+        layer_progress = within_stage - int(within_stage)
+        final_threshold = calculate_realm_threshold(final_stage, final_layer)
+        final_cultivation = min(int(round(final_threshold * layer_progress)), final_threshold)
+
+    return {
+        "source_stage": legacy_stage,
+        "target_stage": final_stage,
+        "target_layer": final_layer,
+        "target_cultivation": final_cultivation,
+        "changed": (
+            final_stage != raw_stage
+            or final_layer != normalized_layer
+            or final_cultivation != current_cultivation
+        ),
+        "legacy": True,
     }
-    return aliases.get(raw, raw)
 
 
 def normalize_quality_level(level: int | str | None) -> int:
@@ -449,7 +688,7 @@ class XiuxianProfile(Base):
     root_quality = Column(String(32), nullable=True)
     root_quality_level = Column(Integer, default=1, nullable=False)
     root_quality_color = Column(String(32), nullable=True)
-    realm_stage = Column(String(32), default="凡人", nullable=False)
+    realm_stage = Column(String(32), default=REALM_ORDER[0], nullable=False)
     realm_layer = Column(Integer, default=0, nullable=False)
     cultivation = Column(Integer, default=0, nullable=False)
     spiritual_stone = Column(Integer, default=0, nullable=False)
@@ -1413,7 +1652,7 @@ def serialize_sect(sect: XiuxianSect | None) -> dict[str, Any] | None:
         "camp_label": SECT_CAMP_LABELS.get(sect.camp, sect.camp),
         "description": sect.description,
         "image_url": sect.image_url,
-        "min_realm_stage": sect.min_realm_stage,
+        "min_realm_stage": normalize_realm_stage(sect.min_realm_stage) if sect.min_realm_stage else None,
         "min_realm_layer": sect.min_realm_layer,
         "min_stone": sect.min_stone,
         "min_bone": sect.min_bone,
@@ -1732,7 +1971,7 @@ def serialize_artifact(artifact: XiuxianArtifact | None) -> dict[str, Any] | Non
         "duel_rate_bonus": artifact.duel_rate_bonus,
         "cultivation_bonus": artifact.cultivation_bonus,
         "combat_config": _normalize_combat_config(artifact.combat_config),
-        "min_realm_stage": artifact.min_realm_stage,
+        "min_realm_stage": normalize_realm_stage(artifact.min_realm_stage) if artifact.min_realm_stage else None,
         "min_realm_layer": artifact.min_realm_layer,
         "enabled": artifact.enabled,
     }
@@ -1768,7 +2007,7 @@ def serialize_pill(pill: XiuxianPill | None) -> dict[str, Any] | None:
         "qi_blood_bonus": pill.qi_blood_bonus,
         "true_yuan_bonus": pill.true_yuan_bonus,
         "body_movement_bonus": pill.body_movement_bonus,
-        "min_realm_stage": pill.min_realm_stage,
+        "min_realm_stage": normalize_realm_stage(pill.min_realm_stage) if pill.min_realm_stage else None,
         "min_realm_layer": pill.min_realm_layer,
         "enabled": pill.enabled,
     }
@@ -1801,7 +2040,7 @@ def serialize_talisman(talisman: XiuxianTalisman | None) -> dict[str, Any] | Non
         "duel_rate_bonus": talisman.duel_rate_bonus,
         "effect_uses": max(int(talisman.effect_uses or 1), 1),
         "combat_config": _normalize_combat_config(talisman.combat_config),
-        "min_realm_stage": talisman.min_realm_stage,
+        "min_realm_stage": normalize_realm_stage(talisman.min_realm_stage) if talisman.min_realm_stage else None,
         "min_realm_layer": talisman.min_realm_layer,
         "enabled": talisman.enabled,
     }
@@ -2094,6 +2333,103 @@ def upsert_profile(tg: int, **fields) -> XiuxianProfile:
         session.commit()
         session.refresh(profile)
         return profile
+
+
+def migrate_all_profile_realms(preview_limit: int = 20) -> dict[str, Any]:
+    preview: list[dict[str, Any]] = []
+    migrated = 0
+    repaired = 0
+    unchanged = 0
+    with Session() as session:
+        rows = (
+            session.query(XiuxianProfile)
+            .filter(XiuxianProfile.consented.is_(True))
+            .order_by(XiuxianProfile.updated_at.desc(), XiuxianProfile.tg.asc())
+            .all()
+        )
+        for row in rows:
+            result = migrate_legacy_realm_state(row.realm_stage, row.realm_layer, row.cultivation)
+            if not result["changed"]:
+                unchanged += 1
+                continue
+            before_stage = str(row.realm_stage or "").strip() or REALM_ORDER[0]
+            before_layer = int(row.realm_layer or 0)
+            before_cultivation = int(row.cultivation or 0)
+            row.realm_stage = result["target_stage"]
+            row.realm_layer = int(result["target_layer"])
+            row.cultivation = int(result["target_cultivation"])
+            row.updated_at = utcnow()
+            if result["legacy"]:
+                migrated += 1
+            else:
+                repaired += 1
+            if len(preview) < max(int(preview_limit or 0), 0):
+                preview.append(
+                    {
+                        "tg": int(row.tg),
+                        "before_stage": before_stage,
+                        "before_layer": before_layer,
+                        "before_cultivation": before_cultivation,
+                        "after_stage": row.realm_stage,
+                        "after_layer": int(row.realm_layer or 0),
+                        "after_cultivation": int(row.cultivation or 0),
+                        "legacy": bool(result["legacy"]),
+                    }
+                )
+        session.commit()
+    return {
+        "checked": migrated + repaired + unchanged,
+        "migrated": migrated,
+        "repaired": repaired,
+        "unchanged": unchanged,
+        "preview": preview,
+    }
+
+
+def clear_all_xiuxian_user_data() -> dict[str, Any]:
+    with Session() as session:
+        counts = {
+            "duel_bets": session.query(XiuxianDuelBet).delete(synchronize_session=False),
+            "duel_pools": session.query(XiuxianDuelBetPool).delete(synchronize_session=False),
+            "auction_bids": session.query(XiuxianAuctionBid).delete(synchronize_session=False),
+            "auction_items": session.query(XiuxianAuctionItem).delete(synchronize_session=False),
+            "equipped_artifacts": session.query(XiuxianEquippedArtifact).delete(synchronize_session=False),
+            "artifact_inventory": session.query(XiuxianArtifactInventory).delete(synchronize_session=False),
+            "pill_inventory": session.query(XiuxianPillInventory).delete(synchronize_session=False),
+            "talisman_inventory": session.query(XiuxianTalismanInventory).delete(synchronize_session=False),
+            "material_inventory": session.query(XiuxianMaterialInventory).delete(synchronize_session=False),
+            "user_titles": session.query(XiuxianUserTitle).delete(synchronize_session=False),
+            "user_techniques": session.query(XiuxianUserTechnique).delete(synchronize_session=False),
+            "user_recipes": session.query(XiuxianUserRecipe).delete(synchronize_session=False),
+            "achievement_progress": session.query(XiuxianAchievementProgress).delete(synchronize_session=False),
+            "user_achievements": session.query(XiuxianUserAchievement).delete(synchronize_session=False),
+            "explorations": session.query(XiuxianExploration).delete(synchronize_session=False),
+            "task_claims": session.query(XiuxianTaskClaim).delete(synchronize_session=False),
+            "encounter_instances": session.query(XiuxianEncounterInstance).delete(synchronize_session=False),
+            "red_envelope_claims": session.query(XiuxianRedEnvelopeClaim).delete(synchronize_session=False),
+            "red_envelopes": session.query(XiuxianRedEnvelope).delete(synchronize_session=False),
+            "journals": session.query(XiuxianJournal).delete(synchronize_session=False),
+            "duel_records": session.query(XiuxianDuelRecord).delete(synchronize_session=False),
+            "player_shop_items": session.query(XiuxianShopItem).filter(XiuxianShopItem.owner_tg.isnot(None)).delete(synchronize_session=False),
+            "player_tasks": session.query(XiuxianTask).filter(XiuxianTask.owner_tg.isnot(None)).delete(synchronize_session=False),
+            "profiles": session.query(XiuxianProfile).delete(synchronize_session=False),
+        }
+        counts["official_tasks_reset"] = (
+            session.query(XiuxianTask)
+            .filter(XiuxianTask.owner_tg.is_(None))
+            .update(
+                {
+                    XiuxianTask.claimants_count: 0,
+                    XiuxianTask.winner_tg: None,
+                    XiuxianTask.status: "open",
+                    XiuxianTask.group_message_id: None,
+                    XiuxianTask.updated_at: utcnow(),
+                },
+                synchronize_session=False,
+            )
+        )
+        session.commit()
+    return counts
 
 
 def is_profile_dead(profile: XiuxianProfile | dict[str, Any] | None) -> bool:
