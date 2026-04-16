@@ -296,6 +296,23 @@ EXTRA_MATERIALS = [
 ]
 
 
+def _merge_material_catalogs(*catalogs: list[dict[str, object]]) -> list[dict[str, object]]:
+    merged: dict[str, dict[str, object]] = {}
+    for catalog in catalogs:
+        for item in catalog:
+            merged[str(item["name"])] = dict(item)
+    return list(merged.values())
+
+
+ALL_EXTRA_MATERIALS = _merge_material_catalogs(
+    NEW_MATERIALS,
+    EXTRA_PILL_MATERIALS,
+    EXTRA_ARTIFACT_MATERIALS,
+    EXTRA_TALISMAN_MATERIALS,
+    EXTRA_MATERIALS,
+)
+
+
 EXTRA_ARTIFACTS = [
     {
         "name": "定海镇心佩",

@@ -158,9 +158,9 @@ from bot.plugins.xiuxian_game.world_service import (
     sync_sect_with_roles_by_name,
 )
 from bot.plugins.xiuxian_game.features.content_catalog import (
+    ALL_EXTRA_MATERIALS,
     DEFAULT_ENCOUNTER_TEMPLATES,
     EXTRA_ARTIFACTS,
-    EXTRA_MATERIALS,
     EXTRA_PILLS,
     EXTRA_RECIPES,
     EXTRA_SCENES,
@@ -1740,7 +1740,7 @@ DEFAULT_SCENES.extend(
     ]
 )
 
-DEFAULT_MATERIALS.extend(EXTRA_MATERIALS)
+DEFAULT_MATERIALS.extend(ALL_EXTRA_MATERIALS)
 DEFAULT_ARTIFACTS.extend(EXTRA_ARTIFACTS)
 DEFAULT_PILLS.extend(
     {
@@ -2633,6 +2633,40 @@ def _resolve_seed_result_ref_id(
     return int(lookup[name]["id"])
 
 
+def _collect_missing_seed_refs(
+    refs: list[tuple[str, str]],
+    *,
+    artifact_map: dict[str, dict[str, Any]],
+    pill_map: dict[str, dict[str, Any]],
+    talisman_map: dict[str, dict[str, Any]],
+    material_map: dict[str, dict[str, Any]],
+    technique_map: dict[str, dict[str, Any]] | None = None,
+    recipe_map: dict[str, dict[str, Any]] | None = None,
+) -> list[str]:
+    missing: list[str] = []
+    lookup_map = {
+        "artifact": artifact_map,
+        "pill": pill_map,
+        "talisman": talisman_map,
+        "material": material_map,
+        "technique": technique_map or {},
+        "recipe": recipe_map or {},
+    }
+    for kind, name in refs:
+        if name not in lookup_map.get(kind, {}):
+            missing.append(f"{kind}::{name}")
+    return missing
+
+
+def _raise_on_missing_seed_refs(context: str, refs: list[str]) -> None:
+    if not refs:
+        return
+    unique_refs = sorted(set(refs))
+    preview = ", ".join(unique_refs[:12])
+    suffix = "" if len(unique_refs) <= 12 else f" 等 {len(unique_refs)} 项"
+    raise ValueError(f"{context}存在未解析引用：{preview}{suffix}")
+
+
 def ensure_seed_data(force: bool = False) -> None:
     global SEED_DATA_READY
     if SEED_DATA_READY and not force:
@@ -2671,6 +2705,25 @@ def ensure_seed_data(force: bool = False) -> None:
     for payload in DEFAULT_MATERIALS:
         sync_material_by_name(**payload, enabled=True)
     material_map = {item["name"]: item for item in list_materials()}
+    recipe_missing_refs: list[str] = []
+    for recipe in DEFAULT_RECIPES:
+        recipe_missing_refs.extend(
+            _collect_missing_seed_refs(
+                [
+                    (str(recipe["result_kind"]), str(recipe["result_name"])),
+                    *[
+                        ("material", str(item["material_name"]))
+                        for item in recipe.get("ingredients") or []
+                    ],
+                ],
+                artifact_map=artifact_map,
+                pill_map=pill_map,
+                talisman_map=talisman_map,
+                material_map=material_map,
+                technique_map=technique_map,
+            )
+        )
+    _raise_on_missing_seed_refs("默认种子配方", recipe_missing_refs)
     settings = get_xiuxian_settings()
     sync_official_shop_name(
         str(settings.get("official_shop_name", DEFAULT_SETTINGS["official_shop_name"]) or DEFAULT_SETTINGS["official_shop_name"])
@@ -2711,6 +2764,50 @@ def ensure_seed_data(force: bool = False) -> None:
             ],
         )
     recipe_map = {item["name"]: item for item in list_recipes()}
+    content_missing_refs: list[str] = []
+    for scene in DEFAULT_SCENES:
+        content_missing_refs.extend(
+            _collect_missing_seed_refs(
+                [
+                    (
+                        str(event.get("bonus_reward_kind") or "material"),
+                        str(event.get("bonus_reward_ref_id_name")),
+                    )
+                    for event in scene.get("event_pool") or []
+                    if event.get("bonus_reward_ref_id_name")
+                ]
+                + [
+                    (
+                        str(drop.get("reward_kind") or "material"),
+                        str(drop.get("reward_ref_id_name")),
+                    )
+                    for drop in scene.get("drops") or []
+                    if drop.get("reward_ref_id_name")
+                ],
+                artifact_map=artifact_map,
+                pill_map=pill_map,
+                talisman_map=talisman_map,
+                material_map=material_map,
+                technique_map=technique_map,
+                recipe_map=recipe_map,
+            )
+        )
+    for encounter in DEFAULT_ENCOUNTER_TEMPLATES:
+        reward_item_name = str(encounter.get("reward_item_ref_name") or "").strip()
+        if not reward_item_name:
+            continue
+        content_missing_refs.extend(
+            _collect_missing_seed_refs(
+                [(str(encounter.get("reward_item_kind") or "material"), reward_item_name)],
+                artifact_map=artifact_map,
+                pill_map=pill_map,
+                talisman_map=talisman_map,
+                material_map=material_map,
+                technique_map=technique_map,
+                recipe_map=recipe_map,
+            )
+        )
+    _raise_on_missing_seed_refs("默认种子内容", content_missing_refs)
 
     for payload in DEFAULT_SECTS:
         sync_sect_with_roles_by_name(**payload)
