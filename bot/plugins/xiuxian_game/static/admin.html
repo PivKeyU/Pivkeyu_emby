@@ -46,7 +46,7 @@
       <div class="fold-body">
         <div class="stack-item">
           <strong>旧境界一键迁移 / 修补</strong>
-          <p>用于把旧版的须弥、混元一体等境界统一迁移到新人仙体系，并修补越界层数与超额修为。</p>
+          <p>用于把旧版的须弥、混元一体、真仙等境界统一迁移到当前十八境体系，并修补越界层数与超额修为。</p>
           <div class="inline-action-buttons">
             <button id="system-realm-migrate" type="button">执行境界迁移</button>
           </div>
@@ -186,13 +186,20 @@
               </div>
               <div id="setting-item-quality-rows" class="builder-list"></div>
             </div>
-            <div class="builder-section wide-field">
-              <div class="builder-head">
-                <strong>探索掉落权重修正</strong>
-                <span class="summary-tip">神识、机缘与高品质灵根额外加权</span>
+              <div class="builder-section wide-field">
+                <div class="builder-head">
+                  <strong>探索掉落权重修正</strong>
+                  <span class="summary-tip">神识、机缘与高品质灵根额外加权</span>
+                </div>
+                <div id="setting-drop-weight-rows" class="builder-list"></div>
               </div>
-              <div id="setting-drop-weight-rows" class="builder-list"></div>
-            </div>
+              <div class="builder-section wide-field">
+                <div class="builder-head">
+                  <strong>玩法属性小成长</strong>
+                  <span class="summary-tip">修炼、打工、秘境与斗法结算时的概率和单次增幅</span>
+                </div>
+                <div id="setting-activity-growth-rows" class="builder-list"></div>
+              </div>
           </section>
 
           <div class="form-actions wide-field">
@@ -1379,9 +1386,6 @@
           <label>奖励物品 <select id="encounter-item-id"></select></label>
           <label>物品最小数量 <input id="encounter-item-quantity-min" type="number" min="1" value="1"></label>
           <label>物品最大数量 <input id="encounter-item-quantity-max" type="number" min="1" value="1"></label>
-          <label>心志奖励 <input id="encounter-willpower" type="number" value="0"></label>
-          <label>魅力奖励 <input id="encounter-charisma" type="number" value="0"></label>
-          <label>因果奖励 <input id="encounter-karma" type="number" value="0"></label>
           <label class="inline-check">
             <input id="encounter-enabled" type="checkbox" checked>
             启用奇遇
@@ -1539,6 +1543,15 @@
               <label>
                 境界
                 <select id="pe-realm_stage">
+                  <option value="炼气">炼气</option>
+                  <option value="筑基">筑基</option>
+                  <option value="金丹">金丹</option>
+                  <option value="元婴">元婴</option>
+                  <option value="化神">化神</option>
+                  <option value="炼虚">炼虚</option>
+                  <option value="合体">合体</option>
+                  <option value="大乘">大乘</option>
+                  <option value="渡劫">渡劫</option>
                   <option value="人仙">人仙</option>
                   <option value="地仙">地仙</option>
                   <option value="天仙">天仙</option>

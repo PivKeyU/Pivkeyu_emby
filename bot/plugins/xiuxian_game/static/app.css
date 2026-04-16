@@ -407,6 +407,24 @@ h3 {
   flex-wrap: wrap;
 }
 
+.inline-actions > input,
+.inline-actions > select,
+.inline-actions > textarea {
+  flex: 1 1 220px;
+}
+
+.inline-actions > button,
+.stack-item-head > button {
+  width: auto;
+  min-width: 96px;
+  flex: 0 0 auto;
+}
+
+#gift-target-selected:empty,
+#gift-player-search-results:empty {
+  display: none;
+}
+
 .stack-item p {
   margin-top: 8px;
   font-size: 13px;

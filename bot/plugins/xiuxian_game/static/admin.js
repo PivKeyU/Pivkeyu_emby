@@ -2,7 +2,7 @@ const tg = window.Telegram?.WebApp;
 const tgBackButton = tg?.BackButton || null;
 const DEFAULT_BACK_PATH = "/admin";
 
-const REALM_OPTIONS = ["人仙", "地仙", "天仙", "金仙", "大罗金仙", "仙君", "仙王", "仙尊", "仙帝"];
+const REALM_OPTIONS = ["炼气", "筑基", "金丹", "元婴", "化神", "炼虚", "合体", "大乘", "渡劫", "人仙", "地仙", "天仙", "金仙", "大罗金仙", "仙君", "仙王", "仙尊", "仙帝"];
 const QUALITY_OPTIONS = ["凡品", "下品", "中品", "上品", "极品", "仙品", "先天至宝"];
 const PILL_TYPES = [
   { value: "foundation", label: "突破加成", effect: "突破助力值" },
@@ -142,6 +142,18 @@ const DEFAULT_DROP_WEIGHT_RULES = {
   high_quality_fortune_divisor: 5,
   high_quality_root_level_start: 3,
 };
+const ACTIVITY_GROWTH_FIELDS = [
+  { key: "practice", label: "吐纳修炼", tip: "每日吐纳结束后的微幅成长。" },
+  { key: "commission", label: "灵石打工", tip: "完成打工或委托结算后的微幅成长。" },
+  { key: "exploration", label: "秘境探索", tip: "领取探索奖励时的微幅成长。" },
+  { key: "duel", label: "斗法胜出", tip: "普通斗法胜者的战后感悟成长。" },
+];
+const DEFAULT_ACTIVITY_GROWTH_RULES = {
+  practice: { chance_percent: 18, gain_min: 1, gain_max: 2, attribute_count: 1 },
+  commission: { chance_percent: 22, gain_min: 1, gain_max: 2, attribute_count: 1 },
+  exploration: { chance_percent: 26, gain_min: 1, gain_max: 3, attribute_count: 1 },
+  duel: { chance_percent: 20, gain_min: 1, gain_max: 2, attribute_count: 2 },
+};
 const PLAYER_STRING_FIELDS = new Set([
   "realm_stage",
   "root_type",
@@ -157,7 +169,7 @@ const EMBY_LEVEL_LABELS = {
   d: "未注册",
 };
 
-REALM_OPTIONS.splice(0, REALM_OPTIONS.length, "人仙", "地仙", "天仙", "金仙", "大罗金仙", "仙君", "仙王", "仙尊", "仙帝");
+REALM_OPTIONS.splice(0, REALM_OPTIONS.length, "炼气", "筑基", "金丹", "元婴", "化神", "炼虚", "合体", "大乘", "渡劫", "人仙", "地仙", "天仙", "金仙", "大罗金仙", "仙君", "仙王", "仙尊", "仙帝");
 QUALITY_OPTIONS.splice(0, QUALITY_OPTIONS.length, "凡品", "下品", "中品", "上品", "极品", "仙品", "先天至宝");
 PILL_TYPES.splice(0, PILL_TYPES.length, ...[
   { value: "foundation", label: "突破加成", effect: "突破增幅" },
@@ -912,6 +924,36 @@ function ensureSettingRuleRows() {
     });
     dropRows.dataset.ready = "1";
   }
+
+  const activityRows = $("setting-activity-growth-rows");
+  if (activityRows && activityRows.dataset.ready !== "1") {
+    activityRows.innerHTML = "";
+    ACTIVITY_GROWTH_FIELDS.forEach(({ key, label, tip }) => {
+      const rule = DEFAULT_ACTIVITY_GROWTH_RULES[key];
+      const row = document.createElement("div");
+      row.className = "builder-row";
+      row.innerHTML = `
+        <label>玩法
+          <input type="text" value="${escapeHtml(label)}" disabled>
+        </label>
+        <label>触发率（%）
+          <input data-activity-growth="${escapeHtml(key)}" data-activity-rule="chance_percent" type="number" min="0" max="95" value="${escapeHtml(rule.chance_percent)}">
+        </label>
+        <label>单项最小值
+          <input data-activity-growth="${escapeHtml(key)}" data-activity-rule="gain_min" type="number" min="1" value="${escapeHtml(rule.gain_min)}">
+        </label>
+        <label>单项最大值
+          <input data-activity-growth="${escapeHtml(key)}" data-activity-rule="gain_max" type="number" min="1" value="${escapeHtml(rule.gain_max)}">
+        </label>
+        <label>抽取属性数
+          <input data-activity-growth="${escapeHtml(key)}" data-activity-rule="attribute_count" type="number" min="1" max="3" value="${escapeHtml(rule.attribute_count)}">
+        </label>
+        <p class="muted wide-field">${escapeHtml(tip)}</p>
+      `;
+      activityRows.appendChild(row);
+    });
+    activityRows.dataset.ready = "1";
+  }
 }
 
 function collectRootQualityRules() {
@@ -942,6 +984,20 @@ function collectDropWeightRules() {
   ensureSettingRuleRows();
   return DROP_WEIGHT_RULE_FIELDS.reduce((result, { key }) => {
     result[key] = Number(document.querySelector(`[data-drop-weight-rule="${key}"]`)?.value || DEFAULT_DROP_WEIGHT_RULES[key]);
+    return result;
+  }, {});
+}
+
+function collectActivityGrowthRules() {
+  ensureSettingRuleRows();
+  return ACTIVITY_GROWTH_FIELDS.reduce((result, { key }) => {
+    const fallback = DEFAULT_ACTIVITY_GROWTH_RULES[key];
+    result[key] = {
+      chance_percent: Number(document.querySelector(`[data-activity-growth="${key}"][data-activity-rule="chance_percent"]`)?.value || fallback.chance_percent),
+      gain_min: Number(document.querySelector(`[data-activity-growth="${key}"][data-activity-rule="gain_min"]`)?.value || fallback.gain_min),
+      gain_max: Number(document.querySelector(`[data-activity-growth="${key}"][data-activity-rule="gain_max"]`)?.value || fallback.gain_max),
+      attribute_count: Number(document.querySelector(`[data-activity-growth="${key}"][data-activity-rule="attribute_count"]`)?.value || fallback.attribute_count),
+    };
     return result;
   }, {});
 }
@@ -980,6 +1036,22 @@ function applyDropWeightRules(settings = {}) {
   DROP_WEIGHT_RULE_FIELDS.forEach(({ key }) => {
     const node = document.querySelector(`[data-drop-weight-rule="${key}"]`);
     if (node) node.value = rules[key] ?? DEFAULT_DROP_WEIGHT_RULES[key];
+  });
+}
+
+function applyActivityGrowthRules(settings = {}) {
+  ensureSettingRuleRows();
+  const rules = settings.activity_stat_growth_rules || DEFAULT_ACTIVITY_GROWTH_RULES;
+  ACTIVITY_GROWTH_FIELDS.forEach(({ key }) => {
+    const current = rules[key] || DEFAULT_ACTIVITY_GROWTH_RULES[key];
+    const chanceNode = document.querySelector(`[data-activity-growth="${key}"][data-activity-rule="chance_percent"]`);
+    const minNode = document.querySelector(`[data-activity-growth="${key}"][data-activity-rule="gain_min"]`);
+    const maxNode = document.querySelector(`[data-activity-growth="${key}"][data-activity-rule="gain_max"]`);
+    const countNode = document.querySelector(`[data-activity-growth="${key}"][data-activity-rule="attribute_count"]`);
+    if (chanceNode) chanceNode.value = current.chance_percent ?? DEFAULT_ACTIVITY_GROWTH_RULES[key].chance_percent;
+    if (minNode) minNode.value = current.gain_min ?? DEFAULT_ACTIVITY_GROWTH_RULES[key].gain_min;
+    if (maxNode) maxNode.value = current.gain_max ?? DEFAULT_ACTIVITY_GROWTH_RULES[key].gain_max;
+    if (countNode) countNode.value = current.attribute_count ?? DEFAULT_ACTIVITY_GROWTH_RULES[key].attribute_count;
   });
 }
 
@@ -1108,12 +1180,12 @@ function renderWorld() {
     <article class="stack-item"><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml(item.weight || 1)} 权重</span></div>
     <p>${escapeHtml(item.description || "暂无描述")}</p>
     <p>门槛：${escapeHtml(item.min_realm_stage ? `${item.min_realm_stage}${item.min_realm_layer || 1}层` : "无限制")} · 战力 ${escapeHtml(item.min_combat_power || 0)} · 持续 ${escapeHtml(item.active_seconds || 90)} 秒</p>
-    <p>奖励：灵石 ${escapeHtml(item.reward_stone_min || 0)}-${escapeHtml(item.reward_stone_max || 0)} · 修为 ${escapeHtml(item.reward_cultivation_min || 0)}-${escapeHtml(item.reward_cultivation_max || 0)} · 心志 ${escapeHtml(item.reward_willpower || 0)} · 魅力 ${escapeHtml(item.reward_charisma || 0)} · 因果 ${escapeHtml(item.reward_karma || 0)}</p>
+    <p>奖励：灵石 ${escapeHtml(item.reward_stone_min || 0)}-${escapeHtml(item.reward_stone_max || 0)} · 修为 ${escapeHtml(item.reward_cultivation_min || 0)}-${escapeHtml(item.reward_cultivation_max || 0)}${item.reward_item_kind ? ` · 物品 ${escapeHtml(item.reward_item_kind)} × ${escapeHtml(item.reward_item_quantity_min || 1)}-${escapeHtml(item.reward_item_quantity_max || 1)}` : ""}</p>
     <div class="inline-action-buttons">${encounterDispatchButton(item.id)}${deleteButton("encounter", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无奇遇</strong></article>`);
 
   renderStack("sect-list", (bundle.sects || []).map((item) => `
     <article class="stack-item"><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml((item.roles || []).length)} 个职位</span></div>
-    <p>${escapeHtml(item.description || "暂无宗门简介")}</p><p>门槛：${escapeHtml(item.min_realm_stage || "无限制")} ${escapeHtml(item.min_realm_layer || 1)} 层 · 灵石 ${escapeHtml(item.min_stone)}</p><p>考察期：${escapeHtml(item.salary_min_stay_days || 30)} 天</p>
+    <p>${escapeHtml(item.description || "暂无宗门简介")}</p><p>门槛：${escapeHtml(item.min_realm_stage || "无限制")} ${escapeHtml(item.min_realm_layer || 1)} 层 · 战力 ${escapeHtml(item.min_combat_power || 0)} · 灵石 ${escapeHtml(item.min_stone)}</p><p>考察期：${escapeHtml(item.salary_min_stay_days || 30)} 天</p>
     <div class="inline-action-buttons">${deleteButton("sect", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无宗门</strong></article>`);
 
   renderStack("task-list", (bundle.tasks || []).map((item) => `
@@ -1208,6 +1280,7 @@ function applySettings(settings = {}) {
   applyRootQualityRules(settings);
   applyItemQualityRules(settings);
   applyDropWeightRules(settings);
+  applyActivityGrowthRules(settings);
 }
 
 function renderErrorLogs(rows = []) {
@@ -1307,6 +1380,7 @@ function bindEvents() {
       root_quality_value_rules: collectRootQualityRules(),
       item_quality_value_rules: collectItemQualityRules(),
       exploration_drop_weight_rules: collectDropWeightRules(),
+      activity_stat_growth_rules: collectActivityGrowthRules(),
     }), "保存成功", "基础规则已更新。");
   });
 
@@ -1498,9 +1572,6 @@ function bindEvents() {
       reward_item_ref_id: Number($("encounter-item-id").value || 0) || null,
       reward_item_quantity_min: Number($("encounter-item-quantity-min").value || 1),
       reward_item_quantity_max: Number($("encounter-item-quantity-max").value || 1),
-      reward_willpower: Number($("encounter-willpower").value || 0),
-      reward_charisma: Number($("encounter-charisma").value || 0),
-      reward_karma: Number($("encounter-karma").value || 0),
       enabled: $("encounter-enabled").checked,
     }), "创建成功", "群内奇遇已保存。");
     form?.reset?.();
@@ -2277,7 +2348,7 @@ async function searchPlayers(options = {}) {
     <article class="stack-item is-clickable${Number(state.selectedPlayerTg || 0) === Number(p.tg) ? " is-selected" : ""}" data-tg="${p.tg}">
       <div class="stack-item-head">
         <strong>${escapeHtml(p.display_label || p.display_name || (p.username ? "@" + p.username : "TG " + p.tg))}</strong>
-        <span class="badge">${escapeHtml(p.realm_stage || "人仙")} ${p.realm_layer || 0}层</span>
+        <span class="badge">${escapeHtml(p.realm_stage || "炼气")} ${p.realm_layer || 0}层</span>
       </div>
       <p>灵石 ${p.spiritual_stone || 0} · 修为 ${p.cultivation || 0} · 片刻碎片 ${p.emby_account?.iv ?? 0}</p>
       <p>${escapeHtml(p.emby_account?.name || "未绑定 Emby")} · ${escapeHtml(p.emby_account?.embyid || "无 Emby ID")}</p>

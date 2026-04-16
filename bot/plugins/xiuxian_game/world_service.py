@@ -72,6 +72,7 @@ from bot.sql_helper.sql_xiuxian import (
     list_red_envelope_claims,
     list_scene_drops,
     list_scenes,
+    list_shop_items,
     list_equipped_artifacts,
     list_slave_profiles,
     list_sect_roles,
@@ -1254,7 +1255,46 @@ def create_recipe_with_ingredients(
     return recipe
 
 
+def _material_source_catalog() -> dict[int, list[str]]:
+    catalog: dict[int, set[str]] = {}
+    for scene in list_scenes(enabled_only=True):
+        scene_name = str(scene.get("name") or "未知秘境").strip()
+        for drop in list_scene_drops(int(scene.get("id") or 0)):
+            if str(drop.get("reward_kind") or "") != "material":
+                continue
+            material_id = int(drop.get("reward_ref_id") or 0)
+            if material_id <= 0:
+                continue
+            catalog.setdefault(material_id, set()).add(f"秘境：{scene_name}")
+        for event in scene.get("event_pool") or []:
+            if str((event or {}).get("bonus_reward_kind") or "") != "material":
+                continue
+            material_id = int((event or {}).get("bonus_reward_ref_id") or 0)
+            if material_id <= 0:
+                continue
+            catalog.setdefault(material_id, set()).add(f"事件：{scene_name}")
+    for item in list_shop_items(official_only=True, include_disabled=False):
+        if str(item.get("item_kind") or "") != "material":
+            continue
+        material_id = int(item.get("item_ref_id") or 0)
+        if material_id <= 0:
+            continue
+        catalog.setdefault(material_id, set()).add(f"官坊：{item.get('shop_name') or '官方商店'}")
+    for recipe in list_recipes(enabled_only=True):
+        if str(recipe.get("result_kind") or "") != "material":
+            continue
+        material_id = int(recipe.get("result_ref_id") or 0)
+        if material_id <= 0:
+            continue
+        catalog.setdefault(material_id, set()).add(f"炼制：{recipe.get('name') or '未知配方'}")
+    return {
+        material_id: sorted(values)
+        for material_id, values in catalog.items()
+    }
+
+
 def build_recipe_catalog(tg: int | None = None) -> list[dict[str, Any]]:
+    material_sources = _material_source_catalog()
     rows = []
     source_rows: list[dict[str, Any]]
     if tg is None:
@@ -1270,7 +1310,14 @@ def build_recipe_catalog(tg: int | None = None) -> list[dict[str, Any]]:
             recipe["obtained_note"] = row.get("obtained_note")
             source_rows.append(recipe)
     for recipe in source_rows:
-        recipe["ingredients"] = list_recipe_ingredients(recipe["id"])
+        ingredients = []
+        for ingredient in list_recipe_ingredients(recipe["id"]):
+            material = ingredient.get("material") or {}
+            source_labels = material_sources.get(int(material.get("id") or ingredient.get("material_id") or 0), [])
+            ingredient["sources"] = source_labels
+            ingredient["source_text"] = "、".join(source_labels[:4]) if source_labels else "暂未标注"
+            ingredients.append(ingredient)
+        recipe["ingredients"] = ingredients
         recipe["result_item"] = _get_item_payload(recipe["result_kind"], int(recipe["result_ref_id"]))
         recipe.setdefault("owned", True)
         rows.append(recipe)
@@ -2025,11 +2072,17 @@ def rob_player(attacker_tg: int, defender_tg: int, success_hint: float = 0.5) ->
     settings = get_xiuxian_settings()
     if int(attacker_obj.robbery_daily_count or 0) >= int(settings.get("robbery_daily_limit", DEFAULT_SETTINGS["robbery_daily_limit"]) or 0):
         raise ValueError("今日抢劫次数已用完")
+    if int(attacker_obj.spiritual_stone or 0) < 5:
+        raise ValueError("至少携带 5 灵石作为押底，才能发起抢劫。")
     from bot.plugins.xiuxian_game.service import compute_duel_odds
 
     duel = compute_duel_odds(attacker_tg, defender_tg)
     attacker = duel["challenger"]["profile"]
     defender = duel["defender"]["profile"]
+    attacker_stats = duel["challenger_snapshot"]["stats"]
+    defender_stats = duel["defender_snapshot"]["stats"]
+    attacker_power = float(duel.get("challenger_power") or 0.0)
+    defender_power = float(duel.get("defender_power") or 0.0)
     stage_diff = int(duel.get("weights", {}).get("stage_diff", 0) or 0)
     rate = float(duel.get("challenger_rate", success_hint) or success_hint)
     rate = rate * 0.85 + float(success_hint) * 0.15
@@ -2037,9 +2090,38 @@ def rob_player(attacker_tg: int, defender_tg: int, success_hint: float = 0.5) ->
     roll = random.random()
     success = roll <= rate
     steal_cap = int(settings.get("robbery_max_steal", DEFAULT_SETTINGS["robbery_max_steal"]) or 180)
+    attacker_stone = max(int(attacker_obj.spiritual_stone or 0), 0)
+    defender_stone = max(int(defender_obj.spiritual_stone or 0), 0)
+    offense_pressure = (
+        float(attacker_stats.get("attack_power") or 0) * 0.58
+        + float(attacker_stats.get("body_movement") or 0) * 0.34
+        + float(attacker_stats.get("fortune") or 0) * 0.28
+        + float(attacker_stats.get("divine_sense") or 0) * 0.22
+    )
+    defense_pressure = max(
+        float(defender_stats.get("defense_power") or 0) * 0.52
+        + float(defender_stats.get("body_movement") or 0) * 0.28
+        + float(defender_stats.get("fortune") or 0) * 0.24
+        + float(defender_stats.get("divine_sense") or 0) * 0.26,
+        24.0,
+    )
+    stat_edge = max(min(offense_pressure / defense_pressure, 2.2), 0.55)
+    power_edge = max(min((attacker_power + 180.0) / (defender_power + 180.0), 1.95), 0.65)
     artifact_plunder = None
     if success:
-        amount = max(min(steal_cap, max(int(defender_obj.spiritual_stone or 0) // 6, 20)), 0)
+        wealth_take_rate = (0.08 + rate * 0.12) * (stat_edge * 0.52 + power_edge * 0.48)
+        wealth_take_rate = max(min(wealth_take_rate, 0.34), 0.05)
+        agility_bonus = int(
+            (
+                float(attacker_stats.get("body_movement") or 0)
+                + float(attacker_stats.get("fortune") or 0)
+                + float(attacker_stats.get("attack_power") or 0) * 0.5
+            ) // 7
+        )
+        amount = int(defender_stone * wealth_take_rate) + agility_bonus
+        if defender_stone > 0:
+            amount = max(amount, min(max(8, int(offense_pressure // 8)), defender_stone))
+        amount = max(min(amount, steal_cap, defender_stone, int(defender_stone * 0.38) + 16), 0)
         with Session() as session:
             attacker_updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == attacker_tg).with_for_update().first()
             defender_updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == defender_tg).with_for_update().first()
@@ -2073,8 +2155,17 @@ def rob_player(attacker_tg: int, defender_tg: int, success_hint: float = 0.5) ->
                 artifact_name = artifact_plunder["artifact"].get("name", "未知法宝")
                 create_journal(attacker_tg, "rob", "顺手夺宝", f"抢劫得手后又夺得法宝【{artifact_name}】")
                 create_journal(defender_tg, "rob", "法宝被夺", f"抢劫失手后被夺走法宝【{artifact_name}】")
+        defender_label = defender.get("display_label") or defender.get("display_name") or f"TG {defender_tg}"
+        attacker_label = attacker.get("display_label") or attacker.get("display_name") or f"TG {attacker_tg}"
+        create_journal(attacker_tg, "rob", "抢劫得手", f"从 {defender_label} 手中夺得 {amount} 灵石。")
+        create_journal(defender_tg, "rob", "遭遇抢劫", f"被 {attacker_label} 抢走了 {amount} 灵石。")
     else:
-        penalty = max(min(int(attacker_obj.spiritual_stone or 0) // 20, 30), 5)
+        counter_edge = max(min(defense_pressure / max(offense_pressure, 18.0), 1.8), 0.85)
+        penalty_ratio = 0.035 + max(0.68 - rate, 0.0) * 0.09
+        penalty_ratio *= max(min(counter_edge * 0.55 + ((defender_power + 200.0) / (attacker_power + 200.0)) * 0.45, 1.85), 0.8)
+        penalty_bonus = max(int((float(defender_stats.get("body_movement") or 0) + float(defender_stats.get("divine_sense") or 0)) // 10), 3)
+        penalty = int(attacker_stone * penalty_ratio) + penalty_bonus
+        penalty = min(max(penalty, 5), max(steal_cap // 2, 24), attacker_stone)
         amount = -penalty
         with Session() as session:
             attacker_updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == attacker_tg).with_for_update().first()
@@ -2087,6 +2178,10 @@ def rob_player(attacker_tg: int, defender_tg: int, success_hint: float = 0.5) ->
             attacker_updated.robbery_day_key = china_day_key()
             attacker_updated.updated_at = utcnow()
             session.commit()
+        defender_label = defender.get("display_label") or defender.get("display_name") or f"TG {defender_tg}"
+        attacker_label = attacker.get("display_label") or attacker.get("display_name") or f"TG {attacker_tg}"
+        create_journal(attacker_tg, "rob", "抢劫失手", f"打劫 {defender_label} 失败，反赔 {penalty} 灵石。")
+        create_journal(defender_tg, "rob", "击退抢劫", f"击退了 {attacker_label}，获得对方赔付的 {penalty} 灵石。")
     return {
         "success": success,
         "roll": round(roll, 4),

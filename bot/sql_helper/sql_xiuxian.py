@@ -29,118 +29,89 @@ from bot.sql_helper import Base, Session
 from bot.sql_helper.sql_emby import Emby
 
 
-REALM_ORDER = ["人仙", "地仙", "天仙", "金仙", "大罗金仙", "仙君", "仙王", "仙尊", "仙帝"]
+REALM_ORDER = [
+    "炼气",
+    "筑基",
+    "金丹",
+    "元婴",
+    "化神",
+    "炼虚",
+    "合体",
+    "大乘",
+    "渡劫",
+    "人仙",
+    "地仙",
+    "天仙",
+    "金仙",
+    "大罗金仙",
+    "仙君",
+    "仙王",
+    "仙尊",
+    "仙帝",
+]
 LEGACY_REALM_ORDER = ["凡人", "炼气", "筑基", "结丹", "元婴", "化神", "须弥", "芥子", "混元一体", "炼虚", "合体", "渡劫", "真仙"]
 REALM_LAYER_LIMIT = 9
 LEGACY_REALM_ALIASES = {
     "练气": "炼气",
+    "浑元一体": "混元一体",
 }
 LEGACY_TO_NEW_REALM_STAGE = {
-    "凡人": "人仙",
-    "炼气": "人仙",
-    "筑基": "地仙",
-    "结丹": "天仙",
-    "元婴": "金仙",
-    "化神": "大罗金仙",
-    "须弥": "大罗金仙",
-    "芥子": "仙君",
-    "混元一体": "仙君",
-    "炼虚": "仙王",
-    "合体": "仙尊",
-    "渡劫": "仙帝",
-    "真仙": "仙帝",
+    "凡人": "炼气",
+    "炼气": "炼气",
+    "筑基": "筑基",
+    "结丹": "金丹",
+    "元婴": "元婴",
+    "化神": "化神",
+    "须弥": "炼虚",
+    "芥子": "合体",
+    "混元一体": "大乘",
+    "炼虚": "炼虚",
+    "合体": "合体",
+    "渡劫": "渡劫",
+    "真仙": "人仙",
 }
+REALM_STAGE_RULE_ROWS = [
+    ("炼气", 180, 36, 8, 16, 2, 4, 24, 90),
+    ("筑基", 420, 72, 10, 20, 2, 5, 34, 84),
+    ("金丹", 900, 140, 14, 26, 3, 6, 48, 78),
+    ("元婴", 1800, 260, 18, 34, 4, 8, 68, 72),
+    ("化神", 3400, 420, 24, 44, 5, 10, 96, 66),
+    ("炼虚", 6200, 680, 30, 56, 6, 12, 136, 60),
+    ("合体", 10800, 1080, 38, 70, 8, 14, 190, 54),
+    ("大乘", 18000, 1680, 48, 86, 10, 16, 260, 48),
+    ("渡劫", 29400, 2580, 60, 104, 12, 18, 350, 42),
+    ("人仙", 46800, 3900, 76, 126, 14, 22, 470, 36),
+    ("地仙", 73200, 5820, 94, 152, 16, 26, 620, 32),
+    ("天仙", 112000, 8520, 116, 182, 18, 30, 810, 28),
+    ("金仙", 168000, 12300, 140, 216, 20, 34, 1040, 24),
+    ("大罗金仙", 248000, 17400, 168, 256, 22, 38, 1320, 20),
+    ("仙君", 360000, 24600, 198, 302, 24, 42, 1660, 16),
+    ("仙王", 516000, 34200, 230, 354, 26, 48, 2060, 12),
+    ("仙尊", 730000, 47000, 264, 414, 28, 54, 2520, 8),
+    ("仙帝", 1024000, 64000, 300, 480, 32, 60, 3060, 0),
+]
 REALM_STAGE_RULES = {
-    "人仙": {
-        "threshold_base": 120,
-        "threshold_step": 36,
-        "practice_gain_min": 24,
-        "practice_gain_max": 42,
-        "practice_stone_min": 6,
-        "practice_stone_max": 12,
-        "retreat_hourly_base": 150,
-        "breakthrough_base_rate": 66,
-    },
-    "地仙": {
-        "threshold_base": 280,
-        "threshold_step": 54,
-        "practice_gain_min": 32,
-        "practice_gain_max": 54,
-        "practice_stone_min": 8,
-        "practice_stone_max": 15,
-        "retreat_hourly_base": 220,
-        "breakthrough_base_rate": 58,
-    },
-    "天仙": {
-        "threshold_base": 560,
-        "threshold_step": 78,
-        "practice_gain_min": 42,
-        "practice_gain_max": 70,
-        "practice_stone_min": 10,
-        "practice_stone_max": 18,
-        "retreat_hourly_base": 320,
-        "breakthrough_base_rate": 50,
-    },
-    "金仙": {
-        "threshold_base": 980,
-        "threshold_step": 110,
-        "practice_gain_min": 56,
-        "practice_gain_max": 90,
-        "practice_stone_min": 12,
-        "practice_stone_max": 22,
-        "retreat_hourly_base": 440,
-        "breakthrough_base_rate": 42,
-    },
-    "大罗金仙": {
-        "threshold_base": 1580,
-        "threshold_step": 148,
-        "practice_gain_min": 72,
-        "practice_gain_max": 112,
-        "practice_stone_min": 15,
-        "practice_stone_max": 28,
-        "retreat_hourly_base": 620,
-        "breakthrough_base_rate": 34,
-    },
-    "仙君": {
-        "threshold_base": 2460,
-        "threshold_step": 190,
-        "practice_gain_min": 90,
-        "practice_gain_max": 140,
-        "practice_stone_min": 18,
-        "practice_stone_max": 34,
-        "retreat_hourly_base": 860,
-        "breakthrough_base_rate": 26,
-    },
-    "仙王": {
-        "threshold_base": 3640,
-        "threshold_step": 240,
-        "practice_gain_min": 110,
-        "practice_gain_max": 170,
-        "practice_stone_min": 22,
-        "practice_stone_max": 42,
-        "retreat_hourly_base": 1140,
-        "breakthrough_base_rate": 20,
-    },
-    "仙尊": {
-        "threshold_base": 5160,
-        "threshold_step": 300,
-        "practice_gain_min": 132,
-        "practice_gain_max": 208,
-        "practice_stone_min": 26,
-        "practice_stone_max": 52,
-        "retreat_hourly_base": 1460,
-        "breakthrough_base_rate": 14,
-    },
-    "仙帝": {
-        "threshold_base": 7200,
-        "threshold_step": 380,
-        "practice_gain_min": 156,
-        "practice_gain_max": 248,
-        "practice_stone_min": 30,
-        "practice_stone_max": 60,
-        "retreat_hourly_base": 1820,
-        "breakthrough_base_rate": 0,
-    },
+    stage: {
+        "threshold_base": threshold_base,
+        "threshold_step": threshold_step,
+        "practice_gain_min": practice_gain_min,
+        "practice_gain_max": practice_gain_max,
+        "practice_stone_min": practice_stone_min,
+        "practice_stone_max": practice_stone_max,
+        "retreat_hourly_base": retreat_hourly_base,
+        "breakthrough_base_rate": breakthrough_base_rate,
+    }
+    for (
+        stage,
+        threshold_base,
+        threshold_step,
+        practice_gain_min,
+        practice_gain_max,
+        practice_stone_min,
+        practice_stone_max,
+        retreat_hourly_base,
+        breakthrough_base_rate,
+    ) in REALM_STAGE_RULE_ROWS
 }
 FIVE_ELEMENTS = ["金", "木", "水", "火", "土"]
 ELEMENT_GENERATES = {"木": "火", "火": "土", "土": "金", "金": "水", "水": "木"}
@@ -270,6 +241,12 @@ DEFAULT_ITEM_QUALITY_VALUE_RULES = {
     "仙品": {"artifact_multiplier": 1.0, "pill_multiplier": 1.0, "talisman_multiplier": 1.0},
     "先天至宝": {"artifact_multiplier": 1.0, "pill_multiplier": 1.0, "talisman_multiplier": 1.0},
 }
+DEFAULT_ACTIVITY_STAT_GROWTH_RULES = {
+    "practice": {"chance_percent": 18, "gain_min": 1, "gain_max": 2, "attribute_count": 1},
+    "commission": {"chance_percent": 22, "gain_min": 1, "gain_max": 2, "attribute_count": 1},
+    "exploration": {"chance_percent": 26, "gain_min": 1, "gain_max": 3, "attribute_count": 1},
+    "duel": {"chance_percent": 20, "gain_min": 1, "gain_max": 2, "attribute_count": 2},
+}
 DEPRECATED_XIUXIAN_SETTING_KEYS = {
     "red_packet_merit_min_stone",
     "red_packet_merit_min_count",
@@ -303,6 +280,7 @@ DEFAULT_SETTINGS = {
     "root_quality_value_rules": DEFAULT_ROOT_QUALITY_VALUE_RULES,
     "exploration_drop_weight_rules": DEFAULT_EXPLORATION_DROP_WEIGHT_RULES,
     "item_quality_value_rules": DEFAULT_ITEM_QUALITY_VALUE_RULES,
+    "activity_stat_growth_rules": DEFAULT_ACTIVITY_STAT_GROWTH_RULES,
     "immortal_touch_infusion_layers": 1,
     "encounter_spawn_chance": 5,
     "encounter_group_cooldown_minutes": 12,
@@ -447,8 +425,8 @@ ATTRIBUTE_EFFECT_HINTS = {
     "divine_sense": "影响秘境判断、掉落权重与斗法洞察",
     "fortune": "影响奇遇、夺宝与高品质掉落",
     "willpower": "影响突破成功率与持久战韧性",
-    "charisma": "影响坊市广播折扣与部分身份门槛",
-    "karma": "影响高风险机缘与斗法综合评价",
+    "charisma": "影响官坊成交折扣、坊市播报成本与部分身份门槛",
+    "karma": "影响突破把握、委托收益、秘境趋吉避凶与斗法综合评价",
     "qi_blood": "影响斗法耐久上限",
     "true_yuan": "影响斗法技能续航",
     "body_movement": "影响斗法闪避与身法门槛",
@@ -590,32 +568,11 @@ def migrate_legacy_realm_state(stage: str | None, layer: int | str | None, culti
 
     legacy_threshold = calculate_legacy_realm_threshold(legacy_stage, normalized_layer)
     capped_cultivation = min(current_cultivation, legacy_threshold)
-    legacy_position = (
-        LEGACY_REALM_ORDER.index(legacy_stage) * REALM_LAYER_LIMIT
-        + (normalized_layer - 1)
-    )
-    if normalized_layer < REALM_LAYER_LIMIT:
-        legacy_progress = min(capped_cultivation / max(legacy_threshold, 1), 0.999999)
-    else:
-        legacy_progress = min(capped_cultivation / max(legacy_threshold, 1), 1.0)
-    legacy_position += legacy_progress
-
-    legacy_total_segments = len(LEGACY_REALM_ORDER) * REALM_LAYER_LIMIT
-    new_total_segments = len(REALM_ORDER) * REALM_LAYER_LIMIT
-    mapped_position = legacy_position / max(legacy_total_segments, 1) * new_total_segments
-
-    if mapped_position >= new_total_segments:
-        final_stage = REALM_ORDER[-1]
-        final_layer = REALM_LAYER_LIMIT
-        final_cultivation = calculate_realm_threshold(final_stage, final_layer)
-    else:
-        stage_index = min(int(mapped_position // REALM_LAYER_LIMIT), len(REALM_ORDER) - 1)
-        within_stage = mapped_position - stage_index * REALM_LAYER_LIMIT
-        final_stage = REALM_ORDER[stage_index]
-        final_layer = normalize_realm_layer(int(within_stage) + 1)
-        layer_progress = within_stage - int(within_stage)
-        final_threshold = calculate_realm_threshold(final_stage, final_layer)
-        final_cultivation = min(int(round(final_threshold * layer_progress)), final_threshold)
+    legacy_progress = min(capped_cultivation / max(legacy_threshold, 1), 1.0)
+    final_stage = normalize_realm_stage(legacy_stage)
+    final_layer = normalized_layer
+    final_threshold = calculate_realm_threshold(final_stage, final_layer)
+    final_cultivation = min(int(round(final_threshold * legacy_progress)), final_threshold)
 
     return {
         "source_stage": legacy_stage,
@@ -624,7 +581,7 @@ def migrate_legacy_realm_state(stage: str | None, layer: int | str | None, culti
         "target_cultivation": final_cultivation,
         "changed": (
             final_stage != raw_stage
-            or final_layer != normalized_layer
+            or final_layer != original_layer
             or final_cultivation != current_cultivation
         ),
         "legacy": True,
@@ -1886,9 +1843,9 @@ def serialize_encounter_template(template: XiuxianEncounterTemplate | None) -> d
         "reward_item_ref_id": template.reward_item_ref_id,
         "reward_item_quantity_min": template.reward_item_quantity_min,
         "reward_item_quantity_max": template.reward_item_quantity_max,
-        "reward_willpower": template.reward_willpower,
-        "reward_charisma": template.reward_charisma,
-        "reward_karma": template.reward_karma,
+        "reward_willpower": 0,
+        "reward_charisma": 0,
+        "reward_karma": 0,
         "enabled": template.enabled,
         "created_at": serialize_datetime(template.created_at),
         "updated_at": serialize_datetime(template.updated_at),
@@ -2642,7 +2599,8 @@ def list_artifacts(enabled_only: bool = False) -> list[dict[str, Any]]:
         query = session.query(XiuxianArtifact)
         if enabled_only:
             query = query.filter(XiuxianArtifact.enabled.is_(True))
-        return [serialize_artifact(item) for item in query.order_by(XiuxianArtifact.id.desc()).all()]
+        rows = [serialize_artifact(item) for item in query.order_by(XiuxianArtifact.id.desc()).all()]
+        return sorted(rows, key=lambda item: _named_quality_sort_key(item or {}, "rarity_level"))
 
 
 def list_pills(enabled_only: bool = False) -> list[dict[str, Any]]:
@@ -2650,7 +2608,8 @@ def list_pills(enabled_only: bool = False) -> list[dict[str, Any]]:
         query = session.query(XiuxianPill)
         if enabled_only:
             query = query.filter(XiuxianPill.enabled.is_(True))
-        return [serialize_pill(item) for item in query.order_by(XiuxianPill.id.desc()).all()]
+        rows = [serialize_pill(item) for item in query.order_by(XiuxianPill.id.desc()).all()]
+        return sorted(rows, key=lambda item: _named_quality_sort_key(item or {}, "rarity_level"))
 
 
 def list_talismans(enabled_only: bool = False) -> list[dict[str, Any]]:
@@ -2658,7 +2617,8 @@ def list_talismans(enabled_only: bool = False) -> list[dict[str, Any]]:
         query = session.query(XiuxianTalisman)
         if enabled_only:
             query = query.filter(XiuxianTalisman.enabled.is_(True))
-        return [serialize_talisman(item) for item in query.order_by(XiuxianTalisman.id.desc()).all()]
+        rows = [serialize_talisman(item) for item in query.order_by(XiuxianTalisman.id.desc()).all()]
+        return sorted(rows, key=lambda item: _named_quality_sort_key(item or {}, "rarity_level"))
 
 
 def list_techniques(enabled_only: bool = False) -> list[dict[str, Any]]:
@@ -2782,6 +2742,14 @@ def _coerce_int(value: Any, default: int = 0) -> int:
         return int(value if value is not None else default)
     except (TypeError, ValueError):
         return int(default)
+
+
+def _named_quality_sort_key(payload: dict[str, Any], quality_key: str = "rarity_level") -> tuple[int, str, int]:
+    return (
+        -_coerce_int(payload.get(quality_key), 0),
+        str(payload.get("name") or ""),
+        -_coerce_int(payload.get("id"), 0),
+    )
 
 
 def _coerce_bool(value: Any, default: bool = True) -> bool:
@@ -3416,7 +3384,7 @@ def list_user_artifacts(tg: int) -> list[dict[str, Any]]:
             .order_by(XiuxianArtifact.id.desc())
             .all()
         )
-        return [
+        payload = [
             {
                 "quantity": inventory.quantity,
                 "bound_quantity": max(min(int(inventory.bound_quantity or 0), int(inventory.quantity or 0)), 0),
@@ -3424,6 +3392,10 @@ def list_user_artifacts(tg: int) -> list[dict[str, Any]]:
             }
             for inventory, artifact in rows
         ]
+        return sorted(
+            payload,
+            key=lambda row: _named_quality_sort_key((row.get("artifact") or {}), "rarity_level"),
+        )
 
 
 def list_equipped_artifacts(tg: int) -> list[dict[str, Any]]:
@@ -3547,13 +3519,17 @@ def list_user_pills(tg: int) -> list[dict[str, Any]]:
             .order_by(XiuxianPill.id.desc())
             .all()
         )
-        return [
+        payload = [
             {
                 "quantity": inventory.quantity,
                 "pill": serialize_pill(pill),
             }
             for inventory, pill in rows
         ]
+        return sorted(
+            payload,
+            key=lambda row: _named_quality_sort_key((row.get("pill") or {}), "rarity_level"),
+        )
 
 
 def list_user_talismans(tg: int) -> list[dict[str, Any]]:
@@ -3565,7 +3541,7 @@ def list_user_talismans(tg: int) -> list[dict[str, Any]]:
             .order_by(XiuxianTalisman.id.desc())
             .all()
         )
-        return [
+        payload = [
             {
                 "quantity": inventory.quantity,
                 "bound_quantity": max(min(int(inventory.bound_quantity or 0), int(inventory.quantity or 0)), 0),
@@ -3573,6 +3549,10 @@ def list_user_talismans(tg: int) -> list[dict[str, Any]]:
             }
             for inventory, talisman in rows
         ]
+        return sorted(
+            payload,
+            key=lambda row: _named_quality_sort_key((row.get("talisman") or {}), "rarity_level"),
+        )
 
 
 def consume_user_pill(tg: int, pill_id: int, quantity: int = 1) -> bool:
@@ -4677,7 +4657,13 @@ def purchase_shop_item(buyer_tg: int, item_id: int, quantity: int = 1) -> dict[s
         if buyer is None or not buyer.consented:
             raise ValueError("买家尚未踏入仙途")
 
-        total_cost = item.price_stone * amount
+        base_total_cost = item.price_stone * amount
+        charisma_discount_percent = 0
+        discount_amount = 0
+        if item.owner_tg is None:
+            charisma_discount_percent = min(max(int(buyer.charisma or 0) - 10, 0) // 4, 20)
+            discount_amount = base_total_cost * charisma_discount_percent // 100
+        total_cost = max(base_total_cost - discount_amount, 0)
         if buyer.spiritual_stone < total_cost:
             raise ValueError("灵石不足")
 
@@ -4773,6 +4759,9 @@ def purchase_shop_item(buyer_tg: int, item_id: int, quantity: int = 1) -> dict[s
         "buyer_balance": buyer_balance,
         "seller_balance": seller_balance,
         "total_cost": total_cost,
+        "base_total_cost": base_total_cost,
+        "discount_amount": discount_amount,
+        "discount_percent": charisma_discount_percent,
         "buyer_tg": buyer_tg,
         "buyer_name": name_map.get(buyer_tg, f"TG {buyer_tg}"),
         "seller_tg": seller_tg,
@@ -4938,16 +4927,48 @@ ADMIN_NULLABLE_STRING_FIELDS = {
     "root_quality",
     "root_quality_color",
 }
+ADMIN_INTEGER_PROFILE_FIELDS = ADMIN_EDITABLE_PROFILE_FIELDS - ADMIN_NULLABLE_STRING_FIELDS - {"realm_stage"}
+ADMIN_NONNEGATIVE_PROFILE_FIELDS = {
+    "spiritual_stone",
+    "cultivation",
+    "realm_layer",
+    "bone",
+    "comprehension",
+    "divine_sense",
+    "fortune",
+    "willpower",
+    "charisma",
+    "karma",
+    "qi_blood",
+    "true_yuan",
+    "body_movement",
+    "attack_power",
+    "defense_power",
+    "insight_bonus",
+    "sect_contribution",
+    "technique_capacity",
+    "root_quality_level",
+}
 
 
 def admin_patch_profile(tg: int, **fields) -> dict[str, Any] | None:
     safe = {k: v for k, v in fields.items() if k in ADMIN_EDITABLE_PROFILE_FIELDS}
     if not safe:
         raise ValueError("没有可更新的字段")
+    for key in ADMIN_INTEGER_PROFILE_FIELDS:
+        if key in safe:
+            safe[key] = _coerce_int(safe.get(key), 0)
     if "realm_stage" in safe:
         safe["realm_stage"] = normalize_realm_stage(safe.get("realm_stage"))
+    if "realm_layer" in safe:
+        safe["realm_layer"] = normalize_realm_layer(safe.get("realm_layer"), 1)
     if "technique_capacity" in safe:
         safe["technique_capacity"] = max(_coerce_int(safe.get("technique_capacity"), 3), 1)
+    for key in ADMIN_NONNEGATIVE_PROFILE_FIELDS:
+        if key in safe:
+            safe[key] = max(_coerce_int(safe.get(key), 0), 0)
+    if "dan_poison" in safe:
+        safe["dan_poison"] = max(min(_coerce_int(safe.get("dan_poison"), 0), 100), 0)
     for key in ADMIN_NULLABLE_STRING_FIELDS:
         if key in safe:
             safe[key] = None if safe[key] is None else (str(safe[key]).strip() or None)
@@ -4955,6 +4976,14 @@ def admin_patch_profile(tg: int, **fields) -> dict[str, Any] | None:
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).first()
         if profile is None or not profile.consented:
             return None
+        target_stage = safe.get("realm_stage", profile.realm_stage)
+        target_layer = safe.get("realm_layer", profile.realm_layer)
+        if {"cultivation", "realm_stage", "realm_layer"}.intersection(safe):
+            cultivation = safe.get("cultivation", profile.cultivation)
+            safe["cultivation"] = min(
+                max(_coerce_int(cultivation, 0), 0),
+                calculate_realm_threshold(target_stage, target_layer),
+            )
         for key, value in safe.items():
             setattr(profile, key, value)
         profile.updated_at = utcnow()
@@ -5046,7 +5075,8 @@ def list_materials(enabled_only: bool = False) -> list[dict[str, Any]]:
         query = session.query(XiuxianMaterial)
         if enabled_only:
             query = query.filter(XiuxianMaterial.enabled.is_(True))
-        return [serialize_material(row) for row in query.order_by(XiuxianMaterial.id.desc()).all()]
+        rows = [serialize_material(row) for row in query.order_by(XiuxianMaterial.id.desc()).all()]
+        return sorted(rows, key=lambda item: _named_quality_sort_key(item or {}, "quality_level"))
 
 
 def create_material(**fields) -> dict[str, Any]:
@@ -5138,13 +5168,17 @@ def list_user_materials(tg: int) -> list[dict[str, Any]]:
             .order_by(XiuxianMaterial.id.desc())
             .all()
         )
-        return [
+        payload = [
             {
                 "quantity": inventory.quantity,
                 "material": serialize_material(material),
             }
             for inventory, material in rows
         ]
+        return sorted(
+            payload,
+            key=lambda row: _named_quality_sort_key((row.get("material") or {}), "quality_level"),
+        )
 
 
 def consume_user_materials(tg: int, material_id: int, quantity: int = 1) -> bool:
@@ -5422,9 +5456,10 @@ def _normalize_encounter_template_fields(fields: dict[str, Any]) -> dict[str, An
     payload["reward_item_ref_id"] = _coerce_int(payload.get("reward_item_ref_id"), 0) or None
     payload["reward_item_quantity_min"] = max(_coerce_int(payload.get("reward_item_quantity_min"), 1), 1)
     payload["reward_item_quantity_max"] = max(_coerce_int(payload.get("reward_item_quantity_max"), payload["reward_item_quantity_min"]), payload["reward_item_quantity_min"])
-    payload["reward_willpower"] = _coerce_int(payload.get("reward_willpower"), 0)
-    payload["reward_charisma"] = _coerce_int(payload.get("reward_charisma"), 0)
-    payload["reward_karma"] = _coerce_int(payload.get("reward_karma"), 0)
+    # 历史版本的奇遇额外词条奖励已经退场，保留字段只做兼容，不再对外开放。
+    payload["reward_willpower"] = 0
+    payload["reward_charisma"] = 0
+    payload["reward_karma"] = 0
     payload["enabled"] = _coerce_bool(payload.get("enabled"), True)
     if not payload["name"]:
         raise ValueError("奇遇名称不能为空")

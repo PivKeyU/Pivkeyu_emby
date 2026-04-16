@@ -48,6 +48,7 @@ from bot.plugins.xiuxian_game.api_models import (
     GiftPayload,
     GrantPayload,
     InitDataPayload,
+    ItemGiftPayload,
     LeaderboardPayload,
     MaterialPayload,
     OfficialShopPatchPayload,
@@ -55,6 +56,7 @@ from bot.plugins.xiuxian_game.api_models import (
     PersonalAuctionPayload,
     PersonalShopPayload,
     PillPayload,
+    PlayerLookupPayload,
     PlayerInventoryPayload,
     PlayerPatchPayload,
     PlayerResourceGrantPayload,
@@ -108,7 +110,7 @@ from bot.plugins.xiuxian_game.features.crafting import (
     create_recipe_with_ingredients,
     patch_recipe_with_ingredients,
 )
-from bot.plugins.xiuxian_game.features.economy import gift_spirit_stone
+from bot.plugins.xiuxian_game.features.economy import gift_inventory_item, gift_spirit_stone
 from bot.plugins.xiuxian_game.features.encounters import (
     claim_group_encounter,
     create_encounter_template,
@@ -304,6 +306,9 @@ XIUXIAN_BOT_COMMANDS = (
     BotCommand("xiuxian", f"修仙玩法 v{PLUGIN_VERSION} [私聊]"),
     BotCommand("xiuxian_me", "展示修仙名帖 [群聊]"),
     BotCommand("xiuxian_rank", "查看修仙排行榜 [群聊]"),
+    BotCommand("train", "群内吐纳修炼 [群聊]"),
+    BotCommand("work", "群内承接灵石委托 [群聊]"),
+    BotCommand("salary", "群内领取宗门俸禄 [群聊]"),
     BotCommand("duel", "回复目标发起斗法 [群聊]"),
     BotCommand("deathduel", "回复目标发起生死斗 [群聊]"),
     BotCommand("servitudeduel", "回复目标发起奴役斗 [群聊]"),
@@ -311,6 +316,34 @@ XIUXIAN_BOT_COMMANDS = (
     BotCommand("rob", "回复目标发起抢劫 [群聊]"),
     BotCommand("gift", "赠送灵石给其他玩家"),
 )
+GIFT_INLINE_AMOUNT_PATTERN = re.compile(r"^[\\/!\\.](?:gift)(?:@[A-Za-z0-9_]+)?(\d+)\s*$", re.IGNORECASE)
+COMMISSION_COMMAND_ALIASES = {
+    "work": "work",
+    "打工": "work",
+    "仙坊": "work",
+    "仙坊打工": "work",
+    "spirit_field": "spirit_field",
+    "灵田": "spirit_field",
+    "灵田照料": "spirit_field",
+    "照料灵田": "spirit_field",
+    "beast_hunt": "beast_hunt",
+    "灵兽": "beast_hunt",
+    "代捕灵兽": "beast_hunt",
+    "caravan_guard": "caravan_guard",
+    "商队": "caravan_guard",
+    "护送": "caravan_guard",
+    "护送商队": "caravan_guard",
+    "formation_maintenance": "formation_maintenance",
+    "阵法": "formation_maintenance",
+    "检修护山阵": "formation_maintenance",
+    "sword_repair": "sword_repair",
+    "修剑": "sword_repair",
+    "修补灵剑": "sword_repair",
+    "rift_patrol": "rift_patrol",
+    "裂隙": "rift_patrol",
+    "前哨": "rift_patrol",
+    "镇守裂隙前哨": "rift_patrol",
+}
 DUEL_COMMAND_MODES = {
     "duel": "standard",
     "deathduel": "death",
@@ -1019,6 +1052,114 @@ def _gift_group_broadcast_text(sender_name: str, receiver: dict[str, Any], amoun
             "一份机缘已经当众完成交接。",
         ]
     )
+
+
+def _format_attribute_growth_text(changes: list[dict[str, Any]] | None, *, prefix: str = "小幅成长") -> str:
+    rows = []
+    for item in changes or []:
+        label = str(item.get("label") or item.get("key") or "属性").strip()
+        value = int(item.get("value") or 0)
+        if value <= 0:
+            continue
+        rows.append(f"{label}+{value}")
+    if not rows:
+        return ""
+    return f"{prefix}：{'、'.join(rows)}"
+
+
+def _normalize_commission_command_key(raw: str | None) -> str | None:
+    token = str(raw or "").strip()
+    if not token:
+        return None
+    normalized = token.lower()
+    return COMMISSION_COMMAND_ALIASES.get(normalized) or COMMISSION_COMMAND_ALIASES.get(token)
+
+
+def _select_group_commission(bundle: dict[str, Any], requested_key: str | None = None) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    commissions = list(bundle.get("commissions") or [])
+    if requested_key:
+        for item in commissions:
+            if str(item.get("key") or "").strip() == requested_key:
+                return item, commissions
+        return None, commissions
+    available = [item for item in commissions if item.get("available")]
+    available.sort(
+        key=lambda item: (
+            int(item.get("reward_stone_max") or 0),
+            int(item.get("reward_cultivation_max") or 0),
+            int(item.get("min_realm_layer") or 0),
+        ),
+        reverse=True,
+    )
+    return (available[0] if available else None), commissions
+
+
+def _commission_selection_error(bundle: dict[str, Any], requested_key: str | None = None) -> str:
+    selected, commissions = _select_group_commission(bundle, requested_key=requested_key)
+    if selected and selected.get("available"):
+        return ""
+    if requested_key:
+        for item in commissions:
+            if str(item.get("key") or "").strip() == requested_key:
+                reason = str(item.get("reason") or "").strip() or "当前暂不可承接。"
+                return f"{item.get('name') or '该委托'} 暂不可承接：{reason}"
+        return "未找到对应的灵石委托。可用示例：/work、/work 灵田、/work 修剑。"
+    locked_rows = commissions[:3]
+    if not locked_rows:
+        return "当前没有可承接的灵石委托。"
+    preview = "；".join(
+        f"{item.get('name') or item.get('key')}: {str(item.get('reason') or '暂不可承接').strip()}"
+        for item in locked_rows
+    )
+    return f"当前没有可承接的灵石委托。{preview}"
+
+
+def _minimal_player_lookup_payload(result: dict[str, Any], self_tg: int) -> dict[str, Any]:
+    rows = []
+    skipped_self = 0
+    for item in result.get("items") or []:
+        tg_value = int(item.get("tg") or 0)
+        if tg_value <= 0:
+            continue
+        if tg_value == int(self_tg):
+            skipped_self += 1
+            continue
+        username = str(item.get("username") or "").strip().lstrip("@")
+        display_name = str(item.get("display_name") or "").strip()
+        display_label = display_name or (f"@{username}" if username else f"TG {tg_value}")
+        rows.append(
+            {
+                "tg": tg_value,
+                "display_label": display_label,
+                "username": username or None,
+                "hint": f"@{username}" if username else f"TG {tg_value}",
+            }
+        )
+    total = max(int(result.get("total") or len(rows)) - skipped_self, 0)
+    return {
+        "items": rows,
+        "page": int(result.get("page") or 1),
+        "page_size": int(result.get("page_size") or len(rows) or 1),
+        "total": total,
+    }
+
+
+def _resolve_gift_target_and_amount(msg, inline_amount: int | None = None) -> tuple[int, int]:
+    reply_user = getattr(getattr(msg, "reply_to_message", None), "from_user", None)
+    args = [str(item).strip() for item in (msg.command or [])[1:] if str(item or "").strip()]
+    if inline_amount is not None:
+        if reply_user is None:
+            raise ValueError("请先回复收礼道友，再使用 /gift100 或 /gift 100。")
+        if getattr(reply_user, "is_bot", False):
+            raise ValueError("不能给机器人赠送灵石。")
+        return int(reply_user.id), int(inline_amount)
+    if reply_user is not None and len(args) == 1:
+        if getattr(reply_user, "is_bot", False):
+            raise ValueError("不能给机器人赠送灵石。")
+        return int(reply_user.id), int(args[0])
+    if len(args) >= 2:
+        return int(args[0]), int(args[1])
+    raise ValueError("用法：回复目标后发送 /gift <灵石数量>；或使用 /gift <TGID> <灵石数量>")
 
 
 def _build_duel_result_private_message(result: dict[str, Any], recipient_tg: int) -> str:
@@ -2225,10 +2366,12 @@ def register_bot(bot_instance) -> None:
             upgraded = ""
             if result["upgraded_layers"]:
                 upgraded = "\n层数提升：" + "、".join(f"{layer}层" for layer in result["upgraded_layers"])
+            growth_text = _format_attribute_growth_text(result.get("attribute_growth"))
+            growth_line = f"\n{growth_text}" if growth_text else ""
             text = (
                 f"吐纳修炼完成。\n"
                 f"本次获得：修为 +{result['gain']}、灵石 +{result['stone_gain']}"
-                f"{upgraded}\n\n"
+                f"{upgraded}{growth_line}\n\n"
                 f"{_format_profile_text(result['profile'])}"
             )
             await callAnswer(call, "吐纳已完成。")
@@ -2320,12 +2463,16 @@ def register_bot(bot_instance) -> None:
                 "/xiuxian - 打开修仙总览\n"
                 "/xiuxian_me - 在群里展示自己的修仙信息\n"
                 "/xiuxian_rank [stone|realm|artifact] [页码] - 查看修仙排行榜\n"
+                "/train - 群里直接完成一次吐纳修炼\n"
+                "/work [委托名] - 群里直接承接一项灵石委托\n"
+                "/salary - 群里领取一次宗门俸禄\n"
                 "/duel [赌注] - 回复某位道友发起斗法\n"
                 "/deathduel [赌注] - 回复某位道友发起生死斗\n"
                 "/servitudeduel [赌注] - 回复某位道友发起奴役斗\n"
                 "/seek - 回复某位道友探查信息\n"
                 "/rob - 回复某位道友发起抢劫\n"
-                "/gift <TGID> <灵石数量> - 赠送灵石给其他玩家\n"
+                "/gift <灵石数量> - 回复某位道友直接赠石\n"
+                "/gift <TGID> <灵石数量> - 旧版 TGID 赠石写法\n"
                 "/allow_upload - 主人回复用户后授予上传权限\n"
                 "/remove_upload - 主人回复用户后移除上传权限\n"
                 f"\n{_xiuxian_basic_guide_text(True)}\n"
@@ -2394,6 +2541,92 @@ def register_bot(bot_instance) -> None:
                 reply_markup=leaderboard_keyboard(result["kind"], result["page"], result["total_pages"]),
                 parse_mode=RICH_TEXT_MODE,
             )
+        finally:
+            await _delete_user_command_message(msg)
+
+    @bot_instance.on_message(filters.command(["train", "practice"], prefixes) & filters.chat(group))
+    async def xiuxian_train_group_command(_, msg):
+        try:
+            if not _register_command_dispatch(msg, "train"):
+                LOGGER.warning(
+                    f"xiuxian command duplicate skipped chat={getattr(getattr(msg, 'chat', None), 'id', None)} "
+                    f"message={getattr(msg, 'id', None)} command=train"
+                )
+                return
+            actor = await _require_message_user(msg, action_text="吐纳修炼")
+            if actor is None:
+                return
+            result = practice_for_user(actor.id)
+            lines = [f"吐纳完成，修为 +{result['gain']}，灵石 +{result['stone_gain']}。"]
+            if result.get("upgraded_layers"):
+                lines.append("层数提升：" + "、".join(f"{layer}层" for layer in result["upgraded_layers"]))
+            growth_text = _format_attribute_growth_text(result.get("attribute_growth"))
+            if growth_text:
+                lines.append(growth_text)
+            await _reply_text(msg, "\n".join(lines), quote=True)
+        except Exception as exc:
+            await _reply_text(msg, str(exc) or "吐纳修炼失败，请稍后重试。", quote=True)
+        finally:
+            await _delete_user_command_message(msg)
+
+    @bot_instance.on_message(filters.command(["work"], prefixes) & filters.chat(group))
+    async def xiuxian_work_group_command(_, msg):
+        try:
+            if not _register_command_dispatch(msg, "work"):
+                LOGGER.warning(
+                    f"xiuxian command duplicate skipped chat={getattr(getattr(msg, 'chat', None), 'id', None)} "
+                    f"message={getattr(msg, 'id', None)} command=work"
+                )
+                return
+            actor = await _require_message_user(msg, action_text="承接灵石委托")
+            if actor is None:
+                return
+            requested_key = _normalize_commission_command_key(msg.command[1] if len(msg.command or []) > 1 else None)
+            bundle = _full_bundle(actor.id)
+            selected, _ = _select_group_commission(bundle, requested_key=requested_key)
+            if selected is None or not selected.get("available"):
+                return await _reply_text(msg, _commission_selection_error(bundle, requested_key=requested_key), quote=True)
+            result = claim_spirit_stone_commission(actor.id, str(selected.get("key") or ""))
+            commission = result.get("commission") or {}
+            lines = [
+                f"{commission.get('name') or selected.get('name') or '灵石委托'}完成，灵石 +{commission.get('stone_gain', 0)}，修为 +{commission.get('cultivation_gain', 0)}。"
+            ]
+            detail = str(commission.get("detail") or "").strip()
+            if detail:
+                lines.append(detail)
+            growth_text = _format_attribute_growth_text(commission.get("attribute_growth"))
+            if growth_text:
+                lines.append(growth_text)
+            if result.get("upgraded_layers"):
+                lines.append("层数提升：" + "、".join(f"{layer}层" for layer in result["upgraded_layers"]))
+            await _reply_text(msg, "\n".join(lines), quote=True)
+        except Exception as exc:
+            await _reply_text(msg, str(exc) or "灵石委托结算失败，请稍后重试。", quote=True)
+        finally:
+            await _delete_user_command_message(msg)
+
+    @bot_instance.on_message(filters.command(["salary"], prefixes) & filters.chat(group))
+    async def xiuxian_salary_group_command(_, msg):
+        try:
+            if not _register_command_dispatch(msg, "salary"):
+                LOGGER.warning(
+                    f"xiuxian command duplicate skipped chat={getattr(getattr(msg, 'chat', None), 'id', None)} "
+                    f"message={getattr(msg, 'id', None)} command=salary"
+                )
+                return
+            actor = await _require_message_user(msg, action_text="领取宗门俸禄")
+            if actor is None:
+                return
+            result = claim_sect_salary_for_user(actor.id)
+            role = result.get("role") or {}
+            role_name = str(role.get("role_name") or "宗门职位").strip()
+            await _reply_text(
+                msg,
+                f"宗门俸禄已到账，本次领取 {result.get('salary', 0)} 灵石。当前身份：{role_name}。",
+                quote=True,
+            )
+        except Exception as exc:
+            await _reply_text(msg, str(exc) or "领取宗门俸禄失败，请稍后重试。", quote=True)
         finally:
             await _delete_user_command_message(msg)
 
@@ -2826,6 +3059,36 @@ def register_bot(bot_instance) -> None:
         finally:
             await _delete_user_command_message(msg)
 
+    async def _handle_xiuxian_gift_command(msg, inline_amount: int | None = None) -> None:
+        actor = await _require_message_user(msg, action_text="赠送灵石")
+        if actor is None:
+            return
+        try:
+            target_tg, amount = _resolve_gift_target_and_amount(msg, inline_amount=inline_amount)
+        except ValueError as exc:
+            return await _reply_text(msg, str(exc), quote=True)
+        if int(target_tg) == int(actor.id):
+            return await _reply_text(msg, "不能给自己赠送灵石。", quote=True)
+        try:
+            result = gift_spirit_stone(actor.id, target_tg, amount)
+            if int(getattr(getattr(msg, "chat", None), "id", 0) or 0) < 0:
+                await _send_message(
+                    bot,
+                    msg.chat.id,
+                    _gift_group_broadcast_text(actor.first_name or f"TG {actor.id}", result.get("receiver") or {}, amount),
+                    parse_mode=RICH_TEXT_MODE,
+                    persistent=True,
+                )
+            else:
+                await _reply_text(
+                    msg,
+                    f"赠送成功，已向 {result['receiver'].get('display_label') or f'TG {target_tg}'} 送出 {amount} 灵石。",
+                    quote=True,
+                )
+            await _notify_achievement_unlocks(result.get("achievement_unlocks"))
+        except Exception as exc:
+            await _reply_text(msg, str(exc) or "赠送灵石失败，请稍后重试。", quote=True)
+
     @bot_instance.on_message(filters.command(["rob"], prefixes) & filters.chat(group))
     async def xiuxian_rob_command(_, msg):
         try:
@@ -2852,13 +3115,20 @@ def register_bot(bot_instance) -> None:
             try:
                 result = rob_player(actor.id, msg.reply_to_message.from_user.id)
                 if result["success"]:
-                    lines = [f"抢劫成功，你夺得了 {result['amount']} 灵石。"]
+                    if int(result["amount"] or 0) > 0:
+                        lines = [f"抢劫成功，你夺得了 {result['amount']} 灵石。"]
+                    else:
+                        lines = ["抢劫成功，但对方身上已没剩多少灵石。"]
                     artifact_payload = ((result.get("artifact_plunder") or {}).get("artifact") or {})
                     if artifact_payload:
                         lines.append(f"你又顺手夺走了 1 件未绑定法宝：{artifact_payload.get('name', '未知法宝')}。")
+                    lines.append(f"本次判定成功率约 {round(float(result.get('success_rate', 0)) * 100, 1)}%。")
                     text = "\n".join(lines)
                 else:
-                    text = f"抢劫失败，你反而损失了 {-result['amount']} 灵石。"
+                    text = (
+                        f"抢劫失败，你反而损失了 {-result['amount']} 灵石。\n"
+                        f"本次判定成功率约 {round(float(result.get('success_rate', 0)) * 100, 1)}%。"
+                    )
                 await _reply_text(msg, text, quote=True)
                 await _notify_achievement_unlocks(result.get("achievement_unlocks"))
             except Exception as exc:
@@ -2931,34 +3201,30 @@ def register_bot(bot_instance) -> None:
     @bot_instance.on_message(filters.command(["gift"], prefixes))
     async def xiuxian_gift_command(_, msg):
         try:
-            actor = await _require_message_user(msg, action_text="赠送灵石")
-            if actor is None:
+            if not _register_command_dispatch(msg, "gift"):
+                LOGGER.warning(
+                    f"xiuxian command duplicate skipped chat={getattr(getattr(msg, 'chat', None), 'id', None)} "
+                    f"message={getattr(msg, 'id', None)} command=gift"
+                )
                 return
-            if len(msg.command) < 3:
-                return await _reply_text(msg, "用法：/gift <TGID> <灵石数量>")
-            try:
-                target_tg = int(msg.command[1])
-                amount = int(msg.command[2])
-            except ValueError:
-                return await _reply_text(msg, "赠送命令格式不正确，请填写整数 TGID 和灵石数量。")
-            try:
-                result = gift_spirit_stone(actor.id, target_tg, amount)
-                if int(getattr(getattr(msg, "chat", None), "id", 0) or 0) < 0:
-                    await _send_message(
-                        bot,
-                        msg.chat.id,
-                        _gift_group_broadcast_text(actor.first_name or f"TG {actor.id}", result.get("receiver") or {}, amount),
-                        parse_mode=RICH_TEXT_MODE,
-                        persistent=True,
-                    )
-                else:
-                    await _reply_text(
-                        msg,
-                        f"赠送成功，已向 {result['receiver'].get('display_label') or f'TG {target_tg}'} 送出 {amount} 灵石。"
-                    )
-                await _notify_achievement_unlocks(result.get("achievement_unlocks"))
-            except Exception as exc:
-                await _reply_text(msg, str(exc))
+            await _handle_xiuxian_gift_command(msg)
+        finally:
+            await _delete_user_command_message(msg)
+
+    @bot_instance.on_message(filters.regex(GIFT_INLINE_AMOUNT_PATTERN))
+    async def xiuxian_gift_inline_command(_, msg):
+        try:
+            if not _register_command_dispatch(msg, "gift"):
+                LOGGER.warning(
+                    f"xiuxian command duplicate skipped chat={getattr(getattr(msg, 'chat', None), 'id', None)} "
+                    f"message={getattr(msg, 'id', None)} command=gift-inline"
+                )
+                return
+            text = str(getattr(msg, "text", None) or "").strip()
+            match = GIFT_INLINE_AMOUNT_PATTERN.match(text)
+            if match is None:
+                return
+            await _handle_xiuxian_gift_command(msg, inline_amount=int(match.group(1)))
         finally:
             await _delete_user_command_message(msg)
 
@@ -3450,11 +3716,32 @@ def register_web(app) -> None:
                 LOGGER.warning(f"xiuxian seller notify failed: {exc}")
         return {"code": 200, "data": result}
 
+    @user_router.post("/api/player/search")
+    async def xiuxian_player_search_api(payload: PlayerLookupPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        keyword = str(payload.query or "").strip()
+        if not keyword:
+            return {"code": 200, "data": {"items": [], "page": payload.page, "page_size": payload.page_size, "total": 0}}
+        result = search_xiuxian_players(query=keyword, page=payload.page, page_size=payload.page_size)
+        return {"code": 200, "data": _minimal_player_lookup_payload(result, telegram_user["id"])}
+
     @user_router.post("/api/gift")
     async def xiuxian_gift_api(payload: GiftPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = gift_spirit_stone(telegram_user["id"], payload.target_tg, payload.amount)
         await _notify_achievement_unlocks(result.get("achievement_unlocks"))
+        return {"code": 200, "data": {"result": result, "bundle": _full_bundle(telegram_user["id"])}}
+
+    @user_router.post("/api/gift/item")
+    async def xiuxian_item_gift_api(payload: ItemGiftPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = gift_inventory_item(
+            telegram_user["id"],
+            payload.target_tg,
+            payload.item_kind,
+            payload.item_ref_id,
+            payload.quantity,
+        )
         return {"code": 200, "data": {"result": result, "bundle": _full_bundle(telegram_user["id"])}}
 
     @user_router.post("/api/journal")

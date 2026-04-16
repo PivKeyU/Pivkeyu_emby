@@ -4,7 +4,11 @@ const state = {
   initData: tg?.initData || "",
   profileBundle: null,
   leaderboard: { kind: "stone", page: 1, totalPages: 1 },
-  shopNameEditing: false
+  shopNameEditing: false,
+  giftTarget: null,
+  giftSearchQuery: "",
+  giftSearchResults: [],
+  giftSearchTimer: null,
 };
 
 function escapeHtml(value) {
@@ -213,6 +217,205 @@ function officialShopName(bundle = state.profileBundle) {
 function currentDuelLockReason(bundle = state.profileBundle) {
   const reason = bundle?.capabilities?.duel_lock_reason;
   return String(reason || "").trim();
+}
+
+function attributeGrowthText(changes = [], prefix = "小幅成长") {
+  const rows = (changes || [])
+    .map((item) => {
+      const label = String(item?.label || item?.key || "属性").trim();
+      const value = Number(item?.value || 0);
+      return value > 0 ? `${label}+${value}` : "";
+    })
+    .filter(Boolean);
+  return rows.length ? `${prefix}：${rows.join("、")}` : "";
+}
+
+function setSelectOptions(select, options = [], selectedValue = "") {
+  if (!select) return;
+  const normalizedSelected = String(selectedValue ?? "");
+  select.innerHTML = options.map((item) => `
+    <option value="${escapeHtml(item.value)}" ${String(item.value) === normalizedSelected ? "selected" : ""}>${escapeHtml(item.label)}</option>
+  `).join("");
+}
+
+function currentGiftTarget() {
+  return state.giftTarget && Number(state.giftTarget.tg || 0) > 0 ? state.giftTarget : null;
+}
+
+function renderGiftTargetSelection() {
+  const root = document.querySelector("#gift-target-selected");
+  const hidden = document.querySelector("#gift-target");
+  const target = currentGiftTarget();
+  if (!root || !hidden) return;
+  hidden.value = target ? String(target.tg) : "";
+  if (!target) {
+    root.innerHTML = "";
+    return;
+  }
+  const hint = target.username ? `@${target.username}` : `TG ${target.tg}`;
+  root.innerHTML = `
+    <article class="stack-item">
+      <div class="stack-item-head">
+        <strong>已选目标：${escapeHtml(target.display_label || hint)}</strong>
+        <button type="button" class="ghost" data-clear-gift-target>重新选择</button>
+      </div>
+      <p>当前仅展示公开昵称与用户名：${escapeHtml(hint)}。</p>
+    </article>
+  `;
+}
+
+function renderGiftSearchResults(items = state.giftSearchResults) {
+  const root = document.querySelector("#gift-player-search-results");
+  if (!root) return;
+  const keyword = String(state.giftSearchQuery || "").trim();
+  if (!keyword) {
+    root.innerHTML = "";
+    return;
+  }
+  if (!(items || []).length) {
+    root.innerHTML = `<article class="stack-item"><strong>未找到匹配道友</strong><p>试试输入 @用户名、TG ID 或昵称。</p></article>`;
+    return;
+  }
+  root.innerHTML = (items || []).map((item) => `
+    <article class="stack-item">
+      <div class="stack-item-head">
+        <strong>${escapeHtml(item.display_label || `TG ${item.tg}`)}</strong>
+        <button
+          type="button"
+          class="ghost"
+          data-gift-target-tg="${escapeHtml(item.tg)}"
+          data-gift-target-label="${escapeHtml(item.display_label || `TG ${item.tg}`)}"
+          data-gift-target-username="${escapeHtml(item.username || "")}"
+        >选择</button>
+      </div>
+      <p>${escapeHtml(item.username ? `@${item.username}` : `TG ${item.tg}`)}</p>
+    </article>
+  `).join("");
+}
+
+function setGiftTarget(target) {
+  const tgValue = Number(target?.tg || 0);
+  state.giftTarget = tgValue > 0
+    ? {
+      tg: tgValue,
+      display_label: String(target?.display_label || target?.label || `TG ${tgValue}`).trim(),
+      username: String(target?.username || "").trim().replace(/^@/, ""),
+    }
+    : null;
+  renderGiftTargetSelection();
+  syncGiftPanelState(state.profileBundle);
+}
+
+function inventoryGiftRows(kind, bundle = state.profileBundle) {
+  const profileBundle = bundle || {};
+  if (kind === "artifact") {
+    return (profileBundle.artifacts || [])
+      .map((row) => {
+        const quantity = Number(row.unbound_quantity ?? Math.max(Number(row.quantity || 0) - Number(row.bound_quantity || 0), 0));
+        return {
+          value: Number(row.artifact?.id || 0),
+          label: `${row.artifact?.name || "未命名法宝"} · 可赠 ${quantity}`,
+          quantity,
+        };
+      })
+      .filter((item) => item.value > 0 && item.quantity > 0);
+  }
+  if (kind === "talisman") {
+    return (profileBundle.talismans || [])
+      .map((row) => {
+        const quantity = Number(row.unbound_quantity ?? Math.max(Number(row.quantity || 0) - Number(row.bound_quantity || 0), 0));
+        return {
+          value: Number(row.talisman?.id || 0),
+          label: `${row.talisman?.name || "未命名符箓"} · 可赠 ${quantity}`,
+          quantity,
+        };
+      })
+      .filter((item) => item.value > 0 && item.quantity > 0);
+  }
+  if (kind === "pill") {
+    return (profileBundle.pills || [])
+      .map((row) => ({
+        value: Number(row.pill?.id || 0),
+        label: `${row.pill?.name || "未命名丹药"} · 持有 ${Number(row.quantity || 0)}`,
+        quantity: Number(row.quantity || 0),
+      }))
+      .filter((item) => item.value > 0 && item.quantity > 0);
+  }
+  return (profileBundle.materials || [])
+    .map((row) => ({
+      value: Number(row.material?.id || 0),
+      label: `${row.material?.name || "未命名材料"} · 持有 ${Number(row.quantity || 0)}`,
+      quantity: Number(row.quantity || 0),
+    }))
+    .filter((item) => item.value > 0 && item.quantity > 0);
+}
+
+function renderItemGiftInventorySelect(bundle = state.profileBundle) {
+  const kind = document.querySelector("#item-gift-kind")?.value || "artifact";
+  const select = document.querySelector("#item-gift-ref");
+  const quantityInput = document.querySelector("#item-gift-quantity");
+  const hint = document.querySelector("#item-gift-hint");
+  const previousValue = select?.value || "";
+  const rows = inventoryGiftRows(kind, bundle);
+  if (!select) return;
+  if (!rows.length) {
+    setSelectOptions(select, [{ value: "", label: "当前类型暂无可赠送物品" }], "");
+    if (quantityInput) quantityInput.value = "1";
+    if (hint && !currentGiftTarget()) {
+      hint.textContent = "先搜索并选中一位道友，再赠送背包物品。";
+    } else if (hint) {
+      hint.textContent = "当前类型没有可赠送的未绑定物品，切换类型后再试。";
+    }
+    return;
+  }
+  const selectedRow = rows.find((item) => String(item.value) === String(previousValue)) || rows[0];
+  setSelectOptions(select, rows, String(selectedRow.value));
+  if (quantityInput) {
+    const maxQuantity = Math.max(Number(selectedRow.quantity || 1), 1);
+    quantityInput.max = String(maxQuantity);
+    quantityInput.value = String(Math.min(Number(quantityInput.value || 1), maxQuantity));
+  }
+  if (hint) {
+    const target = currentGiftTarget();
+    hint.textContent = target
+      ? `当前赠送目标：${target.display_label || (target.username ? `@${target.username}` : `TG ${target.tg}`)}。不会展示对方面板信息。`
+      : "先搜索并选中一位道友，再赠送背包物品。";
+  }
+}
+
+function syncGiftPanelState(bundle = state.profileBundle) {
+  renderGiftTargetSelection();
+  renderGiftSearchResults();
+  renderItemGiftInventorySelect(bundle);
+  const duelLockReason = currentDuelLockReason(bundle);
+  const target = currentGiftTarget();
+  const giftBlockedReason = duelLockReason || (target ? "" : "先选择赠送对象。");
+  ["#gift-player-query", "#gift-player-search", "#item-gift-kind", "#item-gift-ref", "#item-gift-quantity"]
+    .forEach((selector) => setDisabled(document.querySelector(selector), Boolean(duelLockReason), duelLockReason));
+  setDisabled(document.querySelector("#gift-form button[type='submit']"), Boolean(giftBlockedReason), giftBlockedReason);
+  setDisabled(document.querySelector("#item-gift-form button[type='submit']"), Boolean(giftBlockedReason), giftBlockedReason);
+}
+
+async function searchGiftPlayers(query, page = 1) {
+  const keyword = String(query || "").trim();
+  state.giftSearchQuery = keyword;
+  if (!keyword) {
+    state.giftSearchResults = [];
+    renderGiftSearchResults([]);
+    return { items: [], page: 1, page_size: 0, total: 0 };
+  }
+  const requestKeyword = keyword;
+  const payload = await postJson("/plugins/xiuxian/api/player/search", {
+    query: keyword,
+    page,
+    page_size: 8,
+  });
+  if (state.giftSearchQuery !== requestKeyword) {
+    return payload;
+  }
+  state.giftSearchResults = payload.items || [];
+  renderGiftSearchResults(state.giftSearchResults);
+  return payload;
 }
 
 function profileRootText(profile) {
@@ -573,14 +776,14 @@ function renderProfile(bundle) {
   const realmBadge = document.querySelector("#realm-badge");
 
   if (realmBadge) {
-    realmBadge.textContent = `${profile.realm_stage || "人仙"}${profile.realm_layer || 0}层`;
+    realmBadge.textContent = `${profile.realm_stage || "炼气"}${profile.realm_layer || 0}层`;
   }
   if (rootText) {
     rootText.textContent = `灵根：${profileRootText(profile)} · 斗法修正 ${profile.root_bonus >= 0 ? "+" : ""}${profile.root_bonus || 0}%`;
   }
   if (profileGrid) {
     profileGrid.innerHTML = `
-      <article class="profile-item"><span>境界</span><strong>${escapeHtml(profile.realm_stage || "人仙")}${escapeHtml(profile.realm_layer || 0)}层</strong></article>
+      <article class="profile-item"><span>境界</span><strong>${escapeHtml(profile.realm_stage || "炼气")}${escapeHtml(profile.realm_layer || 0)}层</strong></article>
       <article class="profile-item"><span>当前修为</span><strong>${escapeHtml(progress.current ?? profile.cultivation ?? 0)} / ${escapeHtml(progress.threshold ?? 0)}</strong></article>
       <article class="profile-item"><span>距离下一层</span><strong>${escapeHtml(progress.remaining ?? 0)}</strong></article>
       <article class="profile-item"><span>灵石</span><strong>${escapeHtml(profile.spiritual_stone ?? 0)}</strong></article>
@@ -1142,8 +1345,8 @@ function renderExploreArea(bundle) {
   const sceneRoot = document.querySelector("#scene-list");
   const activeRoot = document.querySelector("#exploration-active");
   if (!sceneRoot || !activeRoot) return;
-  const realmOrder = ["人仙", "地仙", "天仙", "金仙", "大罗金仙", "仙君", "仙王", "仙尊", "仙帝"];
-  const currentStage = bundle.profile?.realm_stage || "人仙";
+  const realmOrder = ["炼气", "筑基", "金丹", "元婴", "化神", "炼虚", "合体", "大乘", "渡劫", "人仙", "地仙", "天仙", "金仙", "大罗金仙", "仙君", "仙王", "仙尊", "仙帝"];
+  const currentStage = bundle.profile?.realm_stage || "炼气";
   const currentLayer = Number(bundle.profile?.realm_layer || 1);
   const currentPower = Number(bundle.combat_power || 0);
 
@@ -1495,6 +1698,7 @@ function applyProfileBundle(bundle) {
   renderCraftArea(bundle);
   renderExploreArea(bundle);
   renderJournalArea(bundle);
+  syncGiftPanelState(bundle);
   renderRedEnvelopeClaims(state.lastRedEnvelopeClaims || []);
 
   state.shopNameEditing = false;
@@ -1559,8 +1763,9 @@ document.querySelector("#train-btn").addEventListener("click", async (event) => 
   const button = event.currentTarget;
   try {
     const payload = await runButtonAction(button, "吐纳中…", () => postJson("/plugins/xiuxian/api/train"));
-    setStatus(`本次修炼获得修为 ${payload.gain}、灵石 ${payload.stone_gain}。`, "success");
-    await popup("吐纳成功", `修为 +${payload.gain}\n灵石 +${payload.stone_gain}`);
+    const growthText = attributeGrowthText(payload.attribute_growth || []);
+    setStatus(`本次修炼获得修为 ${payload.gain}、灵石 ${payload.stone_gain}${growthText ? `，${growthText}` : ""}。`, "success");
+    await popup("吐纳成功", `修为 +${payload.gain}\n灵石 +${payload.stone_gain}${growthText ? `\n${growthText}` : ""}`);
     await refreshBundle();
     await refreshLeaderboard(state.leaderboard.kind, state.leaderboard.page);
   } catch (error) {
@@ -1860,7 +2065,8 @@ async function purchaseItem(button) {
       quantity: 1
     }));
     const itemName = payload.item?.item_name || "商品";
-    const message = `购买 ${itemName} 成功，共消耗 ${payload.total_cost} 灵石。`;
+    const discountText = payload.discount_amount ? `，魅力减免 ${payload.discount_amount} 灵石` : "";
+    const message = `购买 ${itemName} 成功，共消耗 ${payload.total_cost} 灵石${discountText}。`;
     setStatus(message, "success");
     await popup("购买成功", message);
     await refreshBundle();
@@ -2140,6 +2346,8 @@ document.querySelector("#exploration-active")?.addEventListener("click", async (
       if (typeof result.stone_delta === "number") lines.push(`灵石变化 ${result.stone_delta >= 0 ? "+" : ""}${result.stone_delta}`);
       if (result.reward_item) lines.push(`基础掉落：${grantedItemName(result.reward_item) || "已发放"}`);
       if (result.bonus_reward) lines.push(`奇遇额外：${grantedItemName(result.bonus_reward) || "已发放"}`);
+      const growthText = attributeGrowthText(result.attribute_growth || []);
+      if (growthText) lines.push(growthText);
     }
     await popup(death.died ? "探索失败" : "领取成功", lines.join("\n") || "探索奖励已发放到你的背包与档案。", death.died ? "warning" : "success");
     await refreshBundle();
@@ -2174,25 +2382,135 @@ document.querySelector("#red-envelope-form")?.addEventListener("submit", async (
   }
 });
 
+document.querySelector("#gift-target-search-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = document.querySelector("#gift-player-search");
+  const query = document.querySelector("#gift-player-query")?.value || "";
+  try {
+    await runButtonAction(button, "搜索中…", () => searchGiftPlayers(query));
+    if (!state.giftSearchResults.length) {
+      setStatus("没有找到匹配的道友。", "warning");
+    }
+  } catch (error) {
+    const message = normalizeError(error, "搜索道友失败。");
+    setStatus(message, "error");
+    await popup("搜索失败", message, "error");
+  }
+});
+
+document.querySelector("#gift-player-query")?.addEventListener("input", (event) => {
+  const keyword = event.currentTarget?.value || "";
+  if (state.giftSearchTimer) window.clearTimeout(state.giftSearchTimer);
+  if (!String(keyword).trim()) {
+    state.giftSearchQuery = "";
+    state.giftSearchResults = [];
+    renderGiftSearchResults([]);
+    return;
+  }
+  state.giftSearchTimer = window.setTimeout(() => {
+    searchGiftPlayers(keyword).catch((error) => {
+      const message = normalizeError(error, "搜索道友失败。");
+      setStatus(message, "error");
+    });
+  }, 240);
+});
+
+document.querySelector("#gift-player-search-results")?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-gift-target-tg]");
+  if (!button) return;
+  setGiftTarget({
+    tg: Number(button.dataset.giftTargetTg || 0),
+    display_label: button.dataset.giftTargetLabel || "",
+    username: button.dataset.giftTargetUsername || "",
+  });
+  state.giftSearchQuery = "";
+  state.giftSearchResults = [];
+  const queryInput = document.querySelector("#gift-player-query");
+  if (queryInput) queryInput.value = "";
+  renderGiftSearchResults([]);
+  setStatus(`已选中 ${button.dataset.giftTargetLabel || `TG ${button.dataset.giftTargetTg || ""}`}。`, "success");
+});
+
+document.querySelector("#gift-target-selected")?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-clear-gift-target]");
+  if (!button) return;
+  setGiftTarget(null);
+  setStatus("已清除赠送目标。", "warning");
+});
+
 document.querySelector("#gift-form")?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
   const button = form?.querySelector("button[type='submit']");
+  const target = currentGiftTarget();
+  if (!target) {
+    const message = "请先搜索并选择收礼道友。";
+    setStatus(message, "warning");
+    return await popup("缺少目标", message, "warning");
+  }
   try {
     const payload = await runButtonAction(button, "赠送中…", () => postJson("/plugins/xiuxian/api/gift", {
-      target_tg: Number(document.querySelector("#gift-target").value || 0),
+      target_tg: Number(target.tg || 0),
       amount: Number(document.querySelector("#gift-amount").value || 0)
     }));
-    const targetName = payload.result?.receiver?.display_label || `TG ${payload.result?.receiver?.tg || ""}`;
+    const targetName = payload.result?.receiver?.display_label || target.display_label || `TG ${target.tg}`;
     const amount = payload.result?.amount || 0;
     const message = `已向 ${targetName} 赠送 ${amount} 灵石。`;
     setStatus(message, "success");
     await popup("赠送成功", message);
-    form?.reset?.();
     document.querySelector("#gift-amount").value = "100";
     await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "灵石赠送失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
+});
+
+document.querySelector("#item-gift-kind")?.addEventListener("change", () => {
+  renderItemGiftInventorySelect(state.profileBundle);
+});
+
+document.querySelector("#item-gift-ref")?.addEventListener("change", () => {
+  renderItemGiftInventorySelect(state.profileBundle);
+});
+
+document.querySelector("#item-gift-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form?.querySelector("button[type='submit']");
+  const target = currentGiftTarget();
+  if (!target) {
+    const message = "请先搜索并选择收礼道友。";
+    setStatus(message, "warning");
+    return await popup("缺少目标", message, "warning");
+  }
+  try {
+    const giftQuantity = Number(document.querySelector("#item-gift-quantity").value || 1);
+    const payload = await runButtonAction(button, "赠送中…", () => postJson("/plugins/xiuxian/api/gift/item", {
+      target_tg: Number(target.tg || 0),
+      item_kind: document.querySelector("#item-gift-kind").value,
+      item_ref_id: Number(document.querySelector("#item-gift-ref").value || 0),
+      quantity: giftQuantity,
+    }));
+    const result = payload.result || {};
+    const itemName = result.item?.artifact?.name
+      || result.item?.pill?.name
+      || result.item?.talisman?.name
+      || result.item?.material?.name
+      || "物品";
+    const targetName = target.display_label || (target.username ? `@${target.username}` : `TG ${target.tg}`);
+    const message = `已向 ${targetName} 赠送 ${itemName} × ${giftQuantity}。`;
+    setStatus(message, "success");
+    await popup("物品赠送成功", message);
+    document.querySelector("#item-gift-quantity").value = "1";
+    if (payload.bundle) {
+      applyProfileBundle(payload.bundle);
+    } else {
+      await refreshBundle();
+    }
+  } catch (error) {
+    const message = normalizeError(error, "物品赠送失败。");
     setStatus(message, "error");
     await popup("操作失败", message, "error");
   }
@@ -2388,12 +2706,66 @@ function qualityBadgeHtml(label, color, className = "tag") {
   return `<span class="${className}" style="${style}">${safeLabel}</span>`;
 }
 
+function inventorySearchValue(selector) {
+  return String(document.querySelector(selector)?.value || "").trim().toLowerCase();
+}
+
+function inventoryMatches(item, query, extraFields = []) {
+  if (!query) return true;
+  const haystack = [
+    item?.name,
+    item?.description,
+    item?.rarity,
+    item?.quality_label,
+    item?.artifact_type_label,
+    item?.artifact_role_label,
+    item?.equip_slot_label,
+    item?.pill_type_label,
+    item?.quality_feature,
+    item?.quality_description,
+    ...extraFields.map((key) => item?.[key]),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(query);
+}
+
+function sortInventoryRowsByQuality(rows, pickItem, qualityKey = "rarity_level") {
+  return [...(rows || [])].sort((left, right) => {
+    const leftItem = pickItem(left) || {};
+    const rightItem = pickItem(right) || {};
+    const leftQuality = Number(leftItem?.[qualityKey] || 0);
+    const rightQuality = Number(rightItem?.[qualityKey] || 0);
+    if (leftQuality !== rightQuality) return rightQuality - leftQuality;
+    return String(leftItem?.name || "").localeCompare(String(rightItem?.name || ""), "zh-Hans-CN");
+  });
+}
+
+function rerenderInventoryLists() {
+  const bundle = state.profileBundle;
+  if (!bundle?.profile?.consented) return;
+  const retreating = Boolean(bundle.capabilities?.is_in_retreat);
+  const equippedArtifacts = bundle.equipped_artifacts || [];
+  const equipLimit = Number(bundle.settings?.artifact_equip_limit || bundle.capabilities?.artifact_equip_limit || 1);
+  renderArtifactList(bundle.artifacts || [], retreating, equipLimit, equippedArtifacts.length);
+  renderTalismanList(bundle.talismans || [], retreating);
+  renderPillList(bundle.pills || [], retreating);
+  renderCraftArea(bundle);
+}
+
 renderCraftArea = function renderCraftArea(bundle) {
   const materialRoot = document.querySelector("#material-list");
   const recipeRoot = document.querySelector("#recipe-list");
   if (!materialRoot || !recipeRoot) return;
 
-  const materials = bundle.materials || [];
+  const sourceMaterials = bundle.materials || [];
+  const materialQuery = inventorySearchValue("#material-search");
+  const materials = sortInventoryRowsByQuality(
+    sourceMaterials.filter((row) => inventoryMatches(row.material || {}, materialQuery, ["quality_feature", "quality_description"])),
+    (row) => row.material || {},
+    "quality_level"
+  );
   materialRoot.innerHTML = materials.length
     ? materials.map((row) => `
       <article class="stack-item">
@@ -2405,7 +2777,9 @@ renderCraftArea = function renderCraftArea(bundle) {
         <p class="muted">${escapeHtml(row.material.quality_feature || row.material.quality_description || "")}</p>
       </article>
     `).join("")
-    : `<article class="stack-item"><strong>暂无炼制材料</strong><p>可通过探索、任务或主人发放获得。</p></article>`;
+    : sourceMaterials.length
+      ? `<article class="stack-item"><strong>未找到匹配材料</strong><p>换个名称、品质或用途关键词再试。</p></article>`
+      : `<article class="stack-item"><strong>暂无炼制材料</strong><p>可通过探索、任务或主人发放获得。</p></article>`;
 
   const recipes = bundle.recipes || [];
   recipeRoot.innerHTML = "";
@@ -2414,9 +2788,16 @@ renderCraftArea = function renderCraftArea(bundle) {
     return;
   }
   for (const recipe of recipes) {
-    const ingredients = (recipe.ingredients || [])
+    const ingredientTexts = (recipe.ingredients || [])
       .map((item) => `${item.material?.name || "材料"}×${item.quantity}`)
       .join("、");
+    const sourceTexts = (recipe.ingredients || [])
+      .map((item) => {
+        const materialName = item.material?.name || "材料";
+        const sourceText = String(item.source_text || (item.sources || []).join("、") || "").trim();
+        return sourceText ? `${materialName}：${sourceText}` : `${materialName}：途径待补充`;
+      })
+      .join("；");
     const card = document.createElement("article");
     card.className = "stack-item";
     card.innerHTML = `
@@ -2425,7 +2806,8 @@ renderCraftArea = function renderCraftArea(bundle) {
         <span class="badge badge--normal">${escapeHtml(recipe.recipe_kind_label || recipe.recipe_kind)}</span>
       </div>
       <p>产出：${escapeHtml(recipe.result_item?.name || "成品")} × ${escapeHtml(recipe.result_quantity)}</p>
-      <p>材料：${escapeHtml(ingredients || "未配置")}</p>
+      <p>材料：${escapeHtml(ingredientTexts || "未配置")}</p>
+      <p>获取：${escapeHtml(sourceTexts || "暂未补充材料来源")}</p>
       <p>基础成功率：${escapeHtml(recipe.base_success_rate)}%</p>
       <button type="button" data-recipe-id="${recipe.id}">开始炼制</button>
     `;
@@ -2437,11 +2819,19 @@ renderArtifactList = function renderArtifactList(items, retreating, equipLimit, 
   const root = document.querySelector("#artifact-list");
   if (!root) return;
   root.innerHTML = "";
-  if (!items.length) {
-    root.innerHTML = `<article class="stack-item"><strong>暂无法宝</strong><p>管理后台发放或在${escapeHtml(officialShopName())}购买后会出现在这里。</p></article>`;
+  const artifactQuery = inventorySearchValue("#artifact-search");
+  const rows = sortInventoryRowsByQuality(
+    (items || []).filter((row) => inventoryMatches(row.artifact || {}, artifactQuery, ["artifact_set_name", "min_realm_stage"])),
+    (row) => row.artifact || {},
+    "rarity_level"
+  );
+  if (!rows.length) {
+    root.innerHTML = (items || []).length
+      ? `<article class="stack-item"><strong>未找到匹配法宝</strong><p>可按名称、品质、槽位或套装继续检索。</p></article>`
+      : `<article class="stack-item"><strong>暂无法宝</strong><p>管理后台发放或在${escapeHtml(officialShopName())}购买后会出现在这里。</p></article>`;
     return;
   }
-  for (const row of items) {
+  for (const row of rows) {
     const item = row.artifact;
     const effects = item.resolved_effects || {};
     const disabled = !item.usable || retreating;
@@ -2492,11 +2882,19 @@ renderTalismanList = function renderTalismanList(items, retreating) {
   const root = document.querySelector("#talisman-list");
   if (!root) return;
   root.innerHTML = "";
-  if (!items.length) {
-    root.innerHTML = `<article class="stack-item"><strong>暂无符箓</strong><p>符箓会在下一场斗法中生效，后续可通过商店、掉落或发放获得。</p></article>`;
+  const talismanQuery = inventorySearchValue("#talisman-search");
+  const rows = sortInventoryRowsByQuality(
+    (items || []).filter((row) => inventoryMatches(row.talisman || {}, talismanQuery, ["min_realm_stage"])),
+    (row) => row.talisman || {},
+    "rarity_level"
+  );
+  if (!rows.length) {
+    root.innerHTML = (items || []).length
+      ? `<article class="stack-item"><strong>未找到匹配符箓</strong><p>可以按名称、效果或境界要求搜索。</p></article>`
+      : `<article class="stack-item"><strong>暂无符箓</strong><p>符箓会在下一场斗法中生效，后续可通过商店、掉落或发放获得。</p></article>`;
     return;
   }
-  for (const row of items) {
+  for (const row of rows) {
     const item = row.talisman;
     const effects = item.resolved_effects || {};
     const disabled = item.active || !item.usable || retreating;
@@ -2540,11 +2938,19 @@ renderPillList = function renderPillList(items, retreating) {
   const root = document.querySelector("#pill-list");
   if (!root) return;
   root.innerHTML = "";
-  if (!items.length) {
-    root.innerHTML = `<article class="stack-item"><strong>暂无丹药</strong><p>${escapeHtml(officialShopName())}购买或主人发放后会出现在这里。</p></article>`;
+  const pillQuery = inventorySearchValue("#pill-search");
+  const rows = sortInventoryRowsByQuality(
+    (items || []).filter((row) => inventoryMatches(row.pill || {}, pillQuery, ["pill_type_label", "min_realm_stage"])),
+    (row) => row.pill || {},
+    "rarity_level"
+  );
+  if (!rows.length) {
+    root.innerHTML = (items || []).length
+      ? `<article class="stack-item"><strong>未找到匹配丹药</strong><p>可以按名称、丹类或效果关键词搜索。</p></article>`
+      : `<article class="stack-item"><strong>暂无丹药</strong><p>${escapeHtml(officialShopName())}购买或主人发放后会出现在这里。</p></article>`;
     return;
   }
-  for (const row of items) {
+  for (const row of rows) {
     const item = row.pill;
     const effects = item.resolved_effects || {};
     const disabled = !item.usable || retreating;
@@ -2571,6 +2977,12 @@ renderPillList = function renderPillList(items, retreating) {
     root.appendChild(card);
   }
 };
+
+["#artifact-search", "#talisman-search", "#pill-search", "#material-search"].forEach((selector) => {
+  document.querySelector(selector)?.addEventListener("input", () => {
+    rerenderInventoryLists();
+  });
+});
 
 function syncAdminEntry(bundle = state.profileBundle) {
   const root = document.querySelector("#hero-admin-entry");
@@ -2856,7 +3268,7 @@ renderProfile = function renderProfileRedesigned(bundle) {
     : "无";
 
   if (realmBadge) {
-    realmBadge.textContent = `${profile.realm_stage || "人仙"}${profile.realm_layer || 0}层`;
+    realmBadge.textContent = `${profile.realm_stage || "炼气"}${profile.realm_layer || 0}层`;
   }
   if (heroRootPill) {
     heroRootPill.textContent = `${rootQuality} · ${rootLabel}`;
@@ -2985,6 +3397,10 @@ function renderTitleAchievementArea(bundle) {
   if (!currentRoot || !titleRoot || !achievementRoot) return;
 
   const currentTitle = bundle.current_title || null;
+  const effectiveStats = bundle.effective_stats || {};
+  const charisma = Number(effectiveStats.charisma ?? bundle.profile?.charisma ?? 0);
+  const karma = Number(effectiveStats.karma ?? bundle.profile?.karma ?? 0);
+  const destinyHint = "魅力会压低官坊成交价与坊市播报成本，因果会抬高突破把握、委托收益与秘境趋吉避凶。";
   currentRoot.innerHTML = currentTitle ? `
     <article class="stack-item">
       <div class="stack-item-head">
@@ -2993,11 +3409,13 @@ function renderTitleAchievementArea(bundle) {
       </div>
       <p>${escapeHtml(currentTitle.description || "这道名帖已经烙印在你的修仙名帖上。")}</p>
       <p>${escapeHtml(titleEffectSummary(currentTitle.resolved_effects || currentTitle))}</p>
+      <p>名帖气运：魅力 ${escapeHtml(charisma)} · 因果 ${escapeHtml(karma)}</p>
+      <p class="muted">${escapeHtml(destinyHint)}</p>
       <div class="inline-action-buttons">
         <button type="button" class="ghost" data-title-clear="1">暂不佩戴</button>
       </div>
     </article>
-  ` : `<article class="stack-item"><strong>当前未佩戴称号</strong><p>获得称号后可在这里切换展示与效果。</p></article>`;
+  ` : `<article class="stack-item"><strong>当前未佩戴称号</strong><p>获得称号后可在这里切换展示与效果。</p><p>名帖气运：魅力 ${escapeHtml(charisma)} · 因果 ${escapeHtml(karma)}</p><p class="muted">${escapeHtml(destinyHint)}</p></article>`;
 
   const titles = bundle.titles || [];
   if (!titles.length) {
@@ -3167,9 +3585,21 @@ const renderArtifactListBase = renderArtifactList;
 renderArtifactList = function renderArtifactListEnhanced(items, retreating, equipLimit, equippedCount) {
   renderArtifactListBase(items, retreating, equipLimit, equippedCount);
   const root = document.querySelector("#artifact-list");
-  if (!root || !items?.length) return;
+  if (!root) return;
   root.innerHTML = "";
-  for (const row of items) {
+  const artifactQuery = inventorySearchValue("#artifact-search");
+  const rows = sortInventoryRowsByQuality(
+    (items || []).filter((row) => inventoryMatches(row.artifact || {}, artifactQuery, ["artifact_set_name", "min_realm_stage"])),
+    (row) => row.artifact || {},
+    "rarity_level"
+  );
+  if (!rows.length) {
+    root.innerHTML = (items || []).length
+      ? `<article class="stack-item"><strong>未找到匹配法宝</strong><p>可按名称、品质、槽位或套装继续检索。</p></article>`
+      : `<article class="stack-item"><strong>暂无法宝</strong><p>管理后台发放或在${escapeHtml(officialShopName())}购买后会出现在这里。</p></article>`;
+    return;
+  }
+  for (const row of rows) {
     const item = row.artifact || {};
     const effects = item.resolved_effects || {};
     const disabled = !item.usable || retreating;
@@ -3384,14 +3814,11 @@ document.querySelector("#commission-list")?.addEventListener("click", async (eve
     const stoneGain = Number(result.stone_gain || 0);
     const cultivationGain = Number(result.cultivation_gain || 0);
     const detail = result.detail || "委托已经顺利完成。";
-    const message = `${title} 完成，灵石 +${stoneGain}，修为 +${cultivationGain}。`;
-    if (payload.profile) {
-      applyProfileBundle(payload.profile);
-    } else {
-      await refreshBundle();
-    }
+    const growthText = attributeGrowthText(result.attribute_growth || []);
+    const message = `${title} 完成，灵石 +${stoneGain}，修为 +${cultivationGain}${growthText ? `，${growthText}` : ""}。`;
+    await refreshBundle();
     setStatus(message, "success");
-    await popup("委托完成", `${detail}\n灵石 +${stoneGain}\n修为 +${cultivationGain}`);
+    await popup("委托完成", `${detail}\n灵石 +${stoneGain}\n修为 +${cultivationGain}${growthText ? `\n${growthText}` : ""}`);
     await refreshLeaderboard(state.leaderboard.kind, state.leaderboard.page);
   } catch (error) {
     const message = normalizeError(error, "承接灵石委托失败。");

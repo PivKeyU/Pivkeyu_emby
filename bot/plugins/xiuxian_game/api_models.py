@@ -95,6 +95,19 @@ class GiftPayload(InitDataPayload):
     amount: int
 
 
+class ItemGiftPayload(InitDataPayload):
+    target_tg: int
+    item_kind: str
+    item_ref_id: int
+    quantity: int = 1
+
+
+class PlayerLookupPayload(InitDataPayload):
+    query: str = ""
+    page: int = 1
+    page_size: int = 8
+
+
 class TaskClaimPayload(InitDataPayload):
     task_id: int
 
@@ -173,6 +186,13 @@ class ItemQualityValueRulePayload(BaseModel):
     talisman_multiplier: float
 
 
+class ActivityStatGrowthRulePayload(BaseModel):
+    chance_percent: int
+    gain_min: int
+    gain_max: int
+    attribute_count: int = 1
+
+
 class AdminSettingPayload(BaseModel):
     coin_exchange_rate: int | None = None
     exchange_fee_percent: int | None = None
@@ -209,6 +229,7 @@ class AdminSettingPayload(BaseModel):
     root_quality_value_rules: dict[str, RootQualityRulePayload] | None = None
     exploration_drop_weight_rules: DropWeightRulePayload | None = None
     item_quality_value_rules: dict[str, ItemQualityValueRulePayload] | None = None
+    activity_stat_growth_rules: dict[str, ActivityStatGrowthRulePayload] | None = None
     immortal_touch_infusion_layers: int | None = None
 
 
@@ -526,9 +547,6 @@ class EncounterPayload(BaseModel):
     reward_item_ref_id: int | None = None
     reward_item_quantity_min: int = 1
     reward_item_quantity_max: int = 1
-    reward_willpower: int = 0
-    reward_charisma: int = 0
-    reward_karma: int = 0
     enabled: bool = True
 
 

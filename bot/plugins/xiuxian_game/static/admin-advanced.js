@@ -1330,9 +1330,6 @@
     $("encounter-item-id").value = item.reward_item_ref_id || "";
     $("encounter-item-quantity-min").value = item.reward_item_quantity_min || 1;
     $("encounter-item-quantity-max").value = item.reward_item_quantity_max || 1;
-    $("encounter-willpower").value = item.reward_willpower || 0;
-    $("encounter-charisma").value = item.reward_charisma || 0;
-    $("encounter-karma").value = item.reward_karma || 0;
     $("encounter-enabled").checked = item.enabled !== false;
     setFormEditMode("encounter-form", item);
     focusForm("encounter-form");

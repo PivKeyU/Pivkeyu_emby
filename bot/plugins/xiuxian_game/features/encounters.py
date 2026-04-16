@@ -82,9 +82,6 @@ def _encounter_reward_payload(template: dict[str, Any]) -> dict[str, Any]:
         "reward_item_kind": template.get("reward_item_kind"),
         "reward_item_ref_id": int(template.get("reward_item_ref_id") or 0) or None,
         "reward_item_quantity": random.randint(quantity_min, quantity_max) if template.get("reward_item_kind") and template.get("reward_item_ref_id") else 0,
-        "reward_willpower": int(template.get("reward_willpower") or 0),
-        "reward_charisma": int(template.get("reward_charisma") or 0),
-        "reward_karma": int(template.get("reward_karma") or 0),
     }
     return payload
 
@@ -187,12 +184,6 @@ def _encounter_reward_summary(reward_payload: dict[str, Any]) -> str:
         item = _legacy_world_service()._get_item_payload(reward_item_kind, reward_item_ref_id)
         item_name = (item or {}).get("name") or f"{reward_item_kind}#{reward_item_ref_id}"
         rows.append(f"{reward_item_quantity} 个{item_name}")
-    if int(reward_payload.get("reward_willpower") or 0):
-        rows.append(f"心志 +{int(reward_payload['reward_willpower'])}")
-    if int(reward_payload.get("reward_charisma") or 0):
-        rows.append(f"魅力 +{int(reward_payload['reward_charisma'])}")
-    if int(reward_payload.get("reward_karma") or 0):
-        rows.append(f"因果 +{int(reward_payload['reward_karma'])}")
     return "、".join(rows) if rows else "随机机缘"
 
 
@@ -269,9 +260,6 @@ def claim_group_encounter(instance_id: int, tg: int) -> dict[str, Any]:
 
         cultivation_gain = max(int(reward_payload.get("cultivation_reward") or 0), 0)
         stone_reward = max(int(reward_payload.get("stone_reward") or 0), 0)
-        willpower_gain = int(reward_payload.get("reward_willpower") or 0)
-        charisma_gain = int(reward_payload.get("reward_charisma") or 0)
-        karma_gain = int(reward_payload.get("reward_karma") or 0)
         layer, cultivation, upgraded_layers, remaining = legacy_service.apply_cultivation_gain(
             legacy_service.normalize_realm_stage(profile.realm_stage or legacy_service.FIRST_REALM_STAGE),
             int(profile.realm_layer or 1),
@@ -281,9 +269,6 @@ def claim_group_encounter(instance_id: int, tg: int) -> dict[str, Any]:
         profile.spiritual_stone = int(profile.spiritual_stone or 0) + stone_reward
         profile.cultivation = cultivation
         profile.realm_layer = layer
-        profile.willpower = int(profile.willpower or 0) + willpower_gain
-        profile.charisma = int(profile.charisma or 0) + charisma_gain
-        profile.karma = int(profile.karma or 0) + karma_gain
         profile.updated_at = now
 
         instance.status = "claimed"

@@ -928,10 +928,20 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
     current_stone = int(profile.spiritual_stone or 0) if profile else 0
     actual_stone_loss = min(current_stone, event_stone_loss)
     total_stone_delta = stone_reward + event_stone_bonus - actual_stone_loss
-    updated = upsert_profile(
-        tg,
-        spiritual_stone=max(current_stone + total_stone_delta, 0),
-    )
+    activity_growth = {"triggered": False, "changes": [], "patch": {}, "chance": 0, "roll": None}
+    with Session() as session:
+        updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+        if updated is None or not updated.consented:
+            raise ValueError("你还没有踏入仙途")
+        updated.spiritual_stone = max(current_stone + total_stone_delta, 0)
+        activity_growth = legacy_service._apply_activity_stat_growth_to_profile_row(
+            updated,
+            "exploration",
+            serialize_profile(updated),
+        )
+        updated.updated_at = utcnow()
+        session.commit()
+        session.refresh(updated)
     event_type = str((outcome.get("event") or {}).get("event_type") or "").strip()
     recipe_like_drop = bool(
         bonus_payload and bonus_payload.get("is_recipe_like")
@@ -941,12 +951,19 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
         event_type=event_type,
         recipe_drop=recipe_like_drop,
     )
+    growth_text = ""
+    if activity_growth.get("triggered"):
+        growth_text = " 属性成长：" + "、".join(
+            f"{item['label']} +{item['value']}"
+            for item in (activity_growth.get("changes") or [])
+        ) + "。"
     create_journal(
         tg,
         "explore",
         "探索结算",
         (
             f"完成探索，灵石变化 {total_stone_delta:+d}。"
+            f"{growth_text}"
             f"{' 另得机缘之物。' if bonus_reward else ''}"
         ),
     )
@@ -957,6 +974,7 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
         "stone_gain": stone_reward + event_stone_bonus,
         "stone_loss": actual_stone_loss,
         "stone_delta": total_stone_delta,
+        "attribute_growth": activity_growth.get("changes") or [],
         "profile": serialize_profile(updated),
         "achievement_unlocks": achievement_unlocks,
     }

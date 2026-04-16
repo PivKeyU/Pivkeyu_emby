@@ -1550,21 +1550,22 @@ DEFAULT_SECTS = [
         "camp": "orthodox",
         "description": "以剑问道、以护苍生为宗旨，重视根骨、心性与实战。",
         "min_realm_stage": "筑基",
-        "min_realm_layer": 2,
-        "min_bone": 18,
-        "min_comprehension": 16,
-        "attack_bonus": 10,
-        "body_movement_bonus": 8,
-        "duel_rate_bonus": 4,
+        "min_realm_layer": 3,
+        "min_bone": 20,
+        "min_comprehension": 18,
+        "min_combat_power": 760,
+        "attack_bonus": 8,
+        "body_movement_bonus": 6,
+        "duel_rate_bonus": 3,
         "entry_hint": "只收剑心端正、敢于正面斗法之人。",
         "roles": [
-            {"role_key": "leader", "role_name": "剑主", "attack_bonus": 16, "defense_bonus": 10, "duel_rate_bonus": 8, "cultivation_bonus": 6, "monthly_salary": 320, "can_publish_tasks": True, "sort_order": 1},
-            {"role_key": "elder", "role_name": "镇峰长老", "attack_bonus": 12, "defense_bonus": 8, "duel_rate_bonus": 5, "cultivation_bonus": 4, "monthly_salary": 220, "can_publish_tasks": True, "sort_order": 2},
-            {"role_key": "core", "role_name": "剑脉真传", "attack_bonus": 8, "defense_bonus": 6, "duel_rate_bonus": 4, "cultivation_bonus": 3, "monthly_salary": 150, "can_publish_tasks": False, "sort_order": 3},
-            {"role_key": "inner_deacon", "role_name": "巡山执事", "attack_bonus": 6, "defense_bonus": 6, "duel_rate_bonus": 2, "cultivation_bonus": 2, "monthly_salary": 120, "can_publish_tasks": True, "sort_order": 4},
-            {"role_key": "outer_deacon", "role_name": "护山执事", "attack_bonus": 4, "defense_bonus": 5, "duel_rate_bonus": 1, "cultivation_bonus": 2, "monthly_salary": 90, "can_publish_tasks": True, "sort_order": 5},
-            {"role_key": "inner_disciple", "role_name": "内门剑修", "attack_bonus": 4, "defense_bonus": 3, "duel_rate_bonus": 1, "cultivation_bonus": 1, "monthly_salary": 56, "can_publish_tasks": False, "sort_order": 6},
-            {"role_key": "outer_disciple", "role_name": "外门弟子", "attack_bonus": 2, "defense_bonus": 2, "duel_rate_bonus": 0, "cultivation_bonus": 1, "monthly_salary": 28, "can_publish_tasks": False, "sort_order": 7},
+            {"role_key": "leader", "role_name": "剑主", "attack_bonus": 14, "defense_bonus": 8, "duel_rate_bonus": 6, "cultivation_bonus": 5, "monthly_salary": 360, "can_publish_tasks": True, "sort_order": 1},
+            {"role_key": "elder", "role_name": "镇峰长老", "attack_bonus": 10, "defense_bonus": 7, "duel_rate_bonus": 4, "cultivation_bonus": 4, "monthly_salary": 250, "can_publish_tasks": True, "sort_order": 2},
+            {"role_key": "core", "role_name": "剑脉真传", "attack_bonus": 7, "defense_bonus": 5, "duel_rate_bonus": 3, "cultivation_bonus": 3, "monthly_salary": 180, "can_publish_tasks": False, "sort_order": 3},
+            {"role_key": "inner_deacon", "role_name": "巡山执事", "attack_bonus": 5, "defense_bonus": 5, "duel_rate_bonus": 2, "cultivation_bonus": 2, "monthly_salary": 136, "can_publish_tasks": True, "sort_order": 4},
+            {"role_key": "outer_deacon", "role_name": "护山执事", "attack_bonus": 4, "defense_bonus": 4, "duel_rate_bonus": 1, "cultivation_bonus": 2, "monthly_salary": 102, "can_publish_tasks": True, "sort_order": 5},
+            {"role_key": "inner_disciple", "role_name": "内门剑修", "attack_bonus": 3, "defense_bonus": 2, "duel_rate_bonus": 1, "cultivation_bonus": 1, "monthly_salary": 64, "can_publish_tasks": False, "sort_order": 6},
+            {"role_key": "outer_disciple", "role_name": "外门弟子", "attack_bonus": 2, "defense_bonus": 2, "duel_rate_bonus": 0, "cultivation_bonus": 1, "monthly_salary": 32, "can_publish_tasks": False, "sort_order": 7},
         ],
     },
     {
@@ -1572,43 +1573,46 @@ DEFAULT_SECTS = [
         "camp": "orthodox",
         "description": "专研灵药、丹火与气血温养，讲究持久与稳健。",
         "min_realm_stage": "炼气",
-        "min_realm_layer": 8,
-        "min_comprehension": 20,
-        "min_fortune": 16,
-        "defense_bonus": 8,
-        "cultivation_bonus": 10,
-        "fortune_bonus": 8,
+        "min_realm_layer": 9,
+        "min_comprehension": 18,
+        "min_fortune": 14,
+        "min_combat_power": 430,
+        "defense_bonus": 7,
+        "cultivation_bonus": 12,
+        "fortune_bonus": 6,
         "entry_hint": "不收浮躁好战之人，更看重悟性与药理天赋。",
         "roles": [
-            {"role_key": "leader", "role_name": "谷主", "attack_bonus": 6, "defense_bonus": 14, "duel_rate_bonus": 2, "cultivation_bonus": 8, "monthly_salary": 300, "can_publish_tasks": True, "sort_order": 1},
-            {"role_key": "elder", "role_name": "丹堂长老", "attack_bonus": 4, "defense_bonus": 10, "duel_rate_bonus": 2, "cultivation_bonus": 6, "monthly_salary": 220, "can_publish_tasks": True, "sort_order": 2},
-            {"role_key": "core", "role_name": "药炉真传", "attack_bonus": 4, "defense_bonus": 8, "duel_rate_bonus": 1, "cultivation_bonus": 5, "monthly_salary": 160, "can_publish_tasks": False, "sort_order": 3},
-            {"role_key": "inner_deacon", "role_name": "百草执事", "attack_bonus": 2, "defense_bonus": 6, "duel_rate_bonus": 1, "cultivation_bonus": 4, "monthly_salary": 120, "can_publish_tasks": True, "sort_order": 4},
-            {"role_key": "outer_deacon", "role_name": "药圃执事", "attack_bonus": 1, "defense_bonus": 4, "duel_rate_bonus": 0, "cultivation_bonus": 3, "monthly_salary": 90, "can_publish_tasks": True, "sort_order": 5},
-            {"role_key": "inner_disciple", "role_name": "内门药修", "attack_bonus": 1, "defense_bonus": 3, "duel_rate_bonus": 0, "cultivation_bonus": 2, "monthly_salary": 52, "can_publish_tasks": False, "sort_order": 6},
-            {"role_key": "outer_disciple", "role_name": "试药弟子", "attack_bonus": 0, "defense_bonus": 2, "duel_rate_bonus": 0, "cultivation_bonus": 1, "monthly_salary": 24, "can_publish_tasks": False, "sort_order": 7},
+            {"role_key": "leader", "role_name": "谷主", "attack_bonus": 5, "defense_bonus": 12, "duel_rate_bonus": 2, "cultivation_bonus": 9, "monthly_salary": 340, "can_publish_tasks": True, "sort_order": 1},
+            {"role_key": "elder", "role_name": "丹堂长老", "attack_bonus": 4, "defense_bonus": 9, "duel_rate_bonus": 1, "cultivation_bonus": 7, "monthly_salary": 240, "can_publish_tasks": True, "sort_order": 2},
+            {"role_key": "core", "role_name": "药炉真传", "attack_bonus": 3, "defense_bonus": 7, "duel_rate_bonus": 1, "cultivation_bonus": 5, "monthly_salary": 176, "can_publish_tasks": False, "sort_order": 3},
+            {"role_key": "inner_deacon", "role_name": "百草执事", "attack_bonus": 2, "defense_bonus": 5, "duel_rate_bonus": 1, "cultivation_bonus": 4, "monthly_salary": 132, "can_publish_tasks": True, "sort_order": 4},
+            {"role_key": "outer_deacon", "role_name": "药圃执事", "attack_bonus": 1, "defense_bonus": 4, "duel_rate_bonus": 0, "cultivation_bonus": 3, "monthly_salary": 98, "can_publish_tasks": True, "sort_order": 5},
+            {"role_key": "inner_disciple", "role_name": "内门药修", "attack_bonus": 1, "defense_bonus": 3, "duel_rate_bonus": 0, "cultivation_bonus": 2, "monthly_salary": 58, "can_publish_tasks": False, "sort_order": 6},
+            {"role_key": "outer_disciple", "role_name": "试药弟子", "attack_bonus": 0, "defense_bonus": 2, "duel_rate_bonus": 0, "cultivation_bonus": 1, "monthly_salary": 30, "can_publish_tasks": False, "sort_order": 7},
         ],
     },
     {
         "name": "天机阁",
         "camp": "orthodox",
         "description": "洞察天机与神识妙用并重，擅长推演与布局。",
-        "min_realm_stage": "结丹",
+        "min_realm_stage": "金丹",
         "min_realm_layer": 1,
         "min_comprehension": 24,
         "min_divine_sense": 24,
+        "min_combat_power": 1360,
         "defense_bonus": 4,
-        "cultivation_bonus": 8,
-        "fortune_bonus": 10,
+        "cultivation_bonus": 9,
+        "fortune_bonus": 8,
+        "body_movement_bonus": 4,
         "entry_hint": "只有悟性与神识都足够出众者，才看得懂门前第一幅星图。",
         "roles": [
-            {"role_key": "leader", "role_name": "阁主", "attack_bonus": 8, "defense_bonus": 8, "duel_rate_bonus": 6, "cultivation_bonus": 8, "monthly_salary": 360, "can_publish_tasks": True, "sort_order": 1},
-            {"role_key": "elder", "role_name": "星盘长老", "attack_bonus": 6, "defense_bonus": 6, "duel_rate_bonus": 5, "cultivation_bonus": 6, "monthly_salary": 240, "can_publish_tasks": True, "sort_order": 2},
-            {"role_key": "core", "role_name": "天机真传", "attack_bonus": 4, "defense_bonus": 4, "duel_rate_bonus": 4, "cultivation_bonus": 5, "monthly_salary": 170, "can_publish_tasks": False, "sort_order": 3},
-            {"role_key": "inner_deacon", "role_name": "观星执事", "attack_bonus": 3, "defense_bonus": 3, "duel_rate_bonus": 2, "cultivation_bonus": 4, "monthly_salary": 120, "can_publish_tasks": True, "sort_order": 4},
-            {"role_key": "outer_deacon", "role_name": "录图执事", "attack_bonus": 2, "defense_bonus": 2, "duel_rate_bonus": 1, "cultivation_bonus": 3, "monthly_salary": 90, "can_publish_tasks": True, "sort_order": 5},
-            {"role_key": "inner_disciple", "role_name": "内门卜修", "attack_bonus": 1, "defense_bonus": 1, "duel_rate_bonus": 1, "cultivation_bonus": 2, "monthly_salary": 54, "can_publish_tasks": False, "sort_order": 6},
-            {"role_key": "outer_disciple", "role_name": "引星弟子", "attack_bonus": 0, "defense_bonus": 1, "duel_rate_bonus": 0, "cultivation_bonus": 1, "monthly_salary": 26, "can_publish_tasks": False, "sort_order": 7},
+            {"role_key": "leader", "role_name": "阁主", "attack_bonus": 8, "defense_bonus": 8, "duel_rate_bonus": 6, "cultivation_bonus": 8, "monthly_salary": 380, "can_publish_tasks": True, "sort_order": 1},
+            {"role_key": "elder", "role_name": "星盘长老", "attack_bonus": 6, "defense_bonus": 6, "duel_rate_bonus": 5, "cultivation_bonus": 6, "monthly_salary": 260, "can_publish_tasks": True, "sort_order": 2},
+            {"role_key": "core", "role_name": "天机真传", "attack_bonus": 4, "defense_bonus": 4, "duel_rate_bonus": 4, "cultivation_bonus": 5, "monthly_salary": 190, "can_publish_tasks": False, "sort_order": 3},
+            {"role_key": "inner_deacon", "role_name": "观星执事", "attack_bonus": 3, "defense_bonus": 3, "duel_rate_bonus": 2, "cultivation_bonus": 4, "monthly_salary": 136, "can_publish_tasks": True, "sort_order": 4},
+            {"role_key": "outer_deacon", "role_name": "录图执事", "attack_bonus": 2, "defense_bonus": 2, "duel_rate_bonus": 1, "cultivation_bonus": 3, "monthly_salary": 102, "can_publish_tasks": True, "sort_order": 5},
+            {"role_key": "inner_disciple", "role_name": "内门卜修", "attack_bonus": 1, "defense_bonus": 1, "duel_rate_bonus": 1, "cultivation_bonus": 2, "monthly_salary": 62, "can_publish_tasks": False, "sort_order": 6},
+            {"role_key": "outer_disciple", "role_name": "引星弟子", "attack_bonus": 0, "defense_bonus": 1, "duel_rate_bonus": 0, "cultivation_bonus": 1, "monthly_salary": 32, "can_publish_tasks": False, "sort_order": 7},
         ],
     },
     {
@@ -1616,41 +1620,44 @@ DEFAULT_SECTS = [
         "camp": "heterodox",
         "description": "以杀养煞，重视血气、攻击与高压斗法。",
         "min_realm_stage": "筑基",
-        "min_realm_layer": 4,
+        "min_realm_layer": 5,
         "min_bone": 20,
         "min_fortune": 12,
-        "attack_bonus": 14,
-        "duel_rate_bonus": 6,
+        "min_combat_power": 920,
+        "attack_bonus": 12,
+        "duel_rate_bonus": 5,
         "entry_hint": "不怕见血、不怕被围，方能踏入魔宫大门。",
         "roles": [
-            {"role_key": "leader", "role_name": "宫主", "attack_bonus": 18, "defense_bonus": 8, "duel_rate_bonus": 10, "cultivation_bonus": 4, "monthly_salary": 340, "can_publish_tasks": True, "sort_order": 1},
-            {"role_key": "elder", "role_name": "血煞长老", "attack_bonus": 14, "defense_bonus": 6, "duel_rate_bonus": 8, "cultivation_bonus": 3, "monthly_salary": 230, "can_publish_tasks": True, "sort_order": 2},
-            {"role_key": "core", "role_name": "魔宫真种", "attack_bonus": 10, "defense_bonus": 4, "duel_rate_bonus": 6, "cultivation_bonus": 3, "monthly_salary": 160, "can_publish_tasks": False, "sort_order": 3},
-            {"role_key": "inner_deacon", "role_name": "血卫执事", "attack_bonus": 8, "defense_bonus": 4, "duel_rate_bonus": 4, "cultivation_bonus": 2, "monthly_salary": 120, "can_publish_tasks": True, "sort_order": 4},
-            {"role_key": "outer_deacon", "role_name": "煞堂执事", "attack_bonus": 6, "defense_bonus": 3, "duel_rate_bonus": 3, "cultivation_bonus": 1, "monthly_salary": 90, "can_publish_tasks": True, "sort_order": 5},
-            {"role_key": "inner_disciple", "role_name": "内宫凶徒", "attack_bonus": 4, "defense_bonus": 2, "duel_rate_bonus": 2, "cultivation_bonus": 1, "monthly_salary": 56, "can_publish_tasks": False, "sort_order": 6},
-            {"role_key": "outer_disciple", "role_name": "试煞者", "attack_bonus": 2, "defense_bonus": 1, "duel_rate_bonus": 1, "cultivation_bonus": 0, "monthly_salary": 28, "can_publish_tasks": False, "sort_order": 7},
+            {"role_key": "leader", "role_name": "宫主", "attack_bonus": 16, "defense_bonus": 7, "duel_rate_bonus": 8, "cultivation_bonus": 4, "monthly_salary": 370, "can_publish_tasks": True, "sort_order": 1},
+            {"role_key": "elder", "role_name": "血煞长老", "attack_bonus": 12, "defense_bonus": 5, "duel_rate_bonus": 6, "cultivation_bonus": 3, "monthly_salary": 250, "can_publish_tasks": True, "sort_order": 2},
+            {"role_key": "core", "role_name": "魔宫真种", "attack_bonus": 9, "defense_bonus": 4, "duel_rate_bonus": 5, "cultivation_bonus": 3, "monthly_salary": 180, "can_publish_tasks": False, "sort_order": 3},
+            {"role_key": "inner_deacon", "role_name": "血卫执事", "attack_bonus": 7, "defense_bonus": 3, "duel_rate_bonus": 3, "cultivation_bonus": 2, "monthly_salary": 132, "can_publish_tasks": True, "sort_order": 4},
+            {"role_key": "outer_deacon", "role_name": "煞堂执事", "attack_bonus": 5, "defense_bonus": 3, "duel_rate_bonus": 2, "cultivation_bonus": 1, "monthly_salary": 100, "can_publish_tasks": True, "sort_order": 5},
+            {"role_key": "inner_disciple", "role_name": "内宫凶徒", "attack_bonus": 4, "defense_bonus": 2, "duel_rate_bonus": 1, "cultivation_bonus": 1, "monthly_salary": 62, "can_publish_tasks": False, "sort_order": 6},
+            {"role_key": "outer_disciple", "role_name": "试煞者", "attack_bonus": 2, "defense_bonus": 1, "duel_rate_bonus": 1, "cultivation_bonus": 0, "monthly_salary": 32, "can_publish_tasks": False, "sort_order": 7},
         ],
     },
     {
         "name": "幽冥鬼府",
         "camp": "heterodox",
         "description": "行事诡谲，最擅影遁、摄魂与夜袭。",
-        "min_realm_stage": "结丹",
+        "min_realm_stage": "金丹",
         "min_realm_layer": 1,
         "min_divine_sense": 20,
         "min_fortune": 20,
-        "body_movement_bonus": 12,
-        "duel_rate_bonus": 6,
+        "min_combat_power": 1500,
+        "body_movement_bonus": 10,
+        "duel_rate_bonus": 5,
+        "fortune_bonus": 4,
         "entry_hint": "看得见夜色中的第二层影子，才有资格敲响鬼府阴门。",
         "roles": [
-            {"role_key": "leader", "role_name": "府君", "attack_bonus": 14, "defense_bonus": 8, "duel_rate_bonus": 10, "cultivation_bonus": 5, "monthly_salary": 330, "can_publish_tasks": True, "sort_order": 1},
-            {"role_key": "elder", "role_name": "夜巡长老", "attack_bonus": 10, "defense_bonus": 6, "duel_rate_bonus": 8, "cultivation_bonus": 4, "monthly_salary": 220, "can_publish_tasks": True, "sort_order": 2},
-            {"role_key": "core", "role_name": "摄魂真传", "attack_bonus": 8, "defense_bonus": 4, "duel_rate_bonus": 6, "cultivation_bonus": 4, "monthly_salary": 160, "can_publish_tasks": False, "sort_order": 3},
-            {"role_key": "inner_deacon", "role_name": "引魂执事", "attack_bonus": 6, "defense_bonus": 3, "duel_rate_bonus": 4, "cultivation_bonus": 2, "monthly_salary": 118, "can_publish_tasks": True, "sort_order": 4},
-            {"role_key": "outer_deacon", "role_name": "巡夜执事", "attack_bonus": 4, "defense_bonus": 2, "duel_rate_bonus": 3, "cultivation_bonus": 2, "monthly_salary": 88, "can_publish_tasks": True, "sort_order": 5},
-            {"role_key": "inner_disciple", "role_name": "夜行弟子", "attack_bonus": 3, "defense_bonus": 2, "duel_rate_bonus": 2, "cultivation_bonus": 1, "monthly_salary": 52, "can_publish_tasks": False, "sort_order": 6},
-            {"role_key": "outer_disciple", "role_name": "幽门杂徒", "attack_bonus": 1, "defense_bonus": 1, "duel_rate_bonus": 1, "cultivation_bonus": 0, "monthly_salary": 24, "can_publish_tasks": False, "sort_order": 7},
+            {"role_key": "leader", "role_name": "府君", "attack_bonus": 13, "defense_bonus": 8, "duel_rate_bonus": 8, "cultivation_bonus": 5, "monthly_salary": 360, "can_publish_tasks": True, "sort_order": 1},
+            {"role_key": "elder", "role_name": "夜巡长老", "attack_bonus": 10, "defense_bonus": 6, "duel_rate_bonus": 6, "cultivation_bonus": 4, "monthly_salary": 246, "can_publish_tasks": True, "sort_order": 2},
+            {"role_key": "core", "role_name": "摄魂真传", "attack_bonus": 7, "defense_bonus": 4, "duel_rate_bonus": 5, "cultivation_bonus": 3, "monthly_salary": 180, "can_publish_tasks": False, "sort_order": 3},
+            {"role_key": "inner_deacon", "role_name": "引魂执事", "attack_bonus": 5, "defense_bonus": 3, "duel_rate_bonus": 3, "cultivation_bonus": 2, "monthly_salary": 130, "can_publish_tasks": True, "sort_order": 4},
+            {"role_key": "outer_deacon", "role_name": "巡夜执事", "attack_bonus": 4, "defense_bonus": 2, "duel_rate_bonus": 2, "cultivation_bonus": 2, "monthly_salary": 96, "can_publish_tasks": True, "sort_order": 5},
+            {"role_key": "inner_disciple", "role_name": "夜行弟子", "attack_bonus": 3, "defense_bonus": 2, "duel_rate_bonus": 1, "cultivation_bonus": 1, "monthly_salary": 58, "can_publish_tasks": False, "sort_order": 6},
+            {"role_key": "outer_disciple", "role_name": "幽门杂徒", "attack_bonus": 1, "defense_bonus": 1, "duel_rate_bonus": 1, "cultivation_bonus": 0, "monthly_salary": 30, "can_publish_tasks": False, "sort_order": 7},
         ],
     },
     {
@@ -1661,17 +1668,18 @@ DEFAULT_SECTS = [
         "min_realm_layer": 6,
         "min_comprehension": 18,
         "min_fortune": 18,
-        "defense_bonus": 8,
-        "fortune_bonus": 10,
+        "min_combat_power": 1080,
+        "defense_bonus": 7,
+        "fortune_bonus": 8,
         "entry_hint": "若连崖前第一缕毒雾都撑不过，就不必再往上走了。",
         "roles": [
-            {"role_key": "leader", "role_name": "崖主", "attack_bonus": 8, "defense_bonus": 14, "duel_rate_bonus": 6, "cultivation_bonus": 5, "monthly_salary": 320, "can_publish_tasks": True, "sort_order": 1},
-            {"role_key": "elder", "role_name": "毒师长老", "attack_bonus": 6, "defense_bonus": 10, "duel_rate_bonus": 5, "cultivation_bonus": 4, "monthly_salary": 220, "can_publish_tasks": True, "sort_order": 2},
-            {"role_key": "core", "role_name": "百毒真传", "attack_bonus": 5, "defense_bonus": 8, "duel_rate_bonus": 4, "cultivation_bonus": 3, "monthly_salary": 150, "can_publish_tasks": False, "sort_order": 3},
-            {"role_key": "inner_deacon", "role_name": "试毒执事", "attack_bonus": 3, "defense_bonus": 6, "duel_rate_bonus": 2, "cultivation_bonus": 2, "monthly_salary": 118, "can_publish_tasks": True, "sort_order": 4},
-            {"role_key": "outer_deacon", "role_name": "药毒执事", "attack_bonus": 2, "defense_bonus": 4, "duel_rate_bonus": 1, "cultivation_bonus": 2, "monthly_salary": 88, "can_publish_tasks": True, "sort_order": 5},
-            {"role_key": "inner_disciple", "role_name": "内门毒修", "attack_bonus": 2, "defense_bonus": 3, "duel_rate_bonus": 1, "cultivation_bonus": 1, "monthly_salary": 48, "can_publish_tasks": False, "sort_order": 6},
-            {"role_key": "outer_disciple", "role_name": "试毒弟子", "attack_bonus": 1, "defense_bonus": 2, "duel_rate_bonus": 0, "cultivation_bonus": 1, "monthly_salary": 22, "can_publish_tasks": False, "sort_order": 7},
+            {"role_key": "leader", "role_name": "崖主", "attack_bonus": 7, "defense_bonus": 12, "duel_rate_bonus": 5, "cultivation_bonus": 5, "monthly_salary": 350, "can_publish_tasks": True, "sort_order": 1},
+            {"role_key": "elder", "role_name": "毒师长老", "attack_bonus": 5, "defense_bonus": 9, "duel_rate_bonus": 4, "cultivation_bonus": 4, "monthly_salary": 240, "can_publish_tasks": True, "sort_order": 2},
+            {"role_key": "core", "role_name": "百毒真传", "attack_bonus": 4, "defense_bonus": 7, "duel_rate_bonus": 3, "cultivation_bonus": 3, "monthly_salary": 170, "can_publish_tasks": False, "sort_order": 3},
+            {"role_key": "inner_deacon", "role_name": "试毒执事", "attack_bonus": 3, "defense_bonus": 5, "duel_rate_bonus": 2, "cultivation_bonus": 2, "monthly_salary": 128, "can_publish_tasks": True, "sort_order": 4},
+            {"role_key": "outer_deacon", "role_name": "药毒执事", "attack_bonus": 2, "defense_bonus": 4, "duel_rate_bonus": 1, "cultivation_bonus": 2, "monthly_salary": 96, "can_publish_tasks": True, "sort_order": 5},
+            {"role_key": "inner_disciple", "role_name": "内门毒修", "attack_bonus": 2, "defense_bonus": 3, "duel_rate_bonus": 1, "cultivation_bonus": 1, "monthly_salary": 56, "can_publish_tasks": False, "sort_order": 6},
+            {"role_key": "outer_disciple", "role_name": "试毒弟子", "attack_bonus": 1, "defense_bonus": 2, "duel_rate_bonus": 0, "cultivation_bonus": 1, "monthly_salary": 28, "can_publish_tasks": False, "sort_order": 7},
         ],
     },
 ]
@@ -1802,11 +1810,28 @@ SPIRIT_STONE_COMMISSIONS = {
         "min_realm_layer": 1,
         "stone_range": (18, 36),
         "cultivation_range": (12, 26),
-        "stone_bonus_divisors": {"fortune": 4, "body_movement": 6},
+        "stone_bonus_divisors": {"fortune": 4, "body_movement": 6, "charisma": 8},
         "cultivation_bonus_divisors": {"comprehension": 4, "willpower": 6},
         "result_texts": [
             "在仙坊忙完一班，账房按时结了工钱。",
             "替商会整理完灵材库后，顺手领到了今日酬劳。",
+        ],
+    },
+    "spirit_field": {
+        "key": "spirit_field",
+        "name": "照料灵田",
+        "description": "替药圃巡查灵田、调理地脉和分拣草木精华，讲究耐心与药理底子。",
+        "summary": "低风险稳定差事，偏重悟性、机缘与真元续航。",
+        "cooldown_hours": 4,
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 6,
+        "stone_range": (28, 52),
+        "cultivation_range": (18, 38),
+        "stone_bonus_divisors": {"fortune": 4, "charisma": 7, "true_yuan": 42},
+        "cultivation_bonus_divisors": {"comprehension": 4, "divine_sense": 7},
+        "result_texts": [
+            "你把灵田地脉梳理得井井有条，药圃管事满意地结算了工钱。",
+            "灵露与草木精气被你调配得分毫不差，药农额外添了一份酬谢。",
         ],
     },
     "beast_hunt": {
@@ -1815,15 +1840,49 @@ SPIRIT_STONE_COMMISSIONS = {
         "description": "替洞府雇主追索走失灵兽，讲究胆气、身手与追踪机缘。",
         "summary": "偏重攻伐与机缘，报酬明显更高。",
         "cooldown_hours": 6,
-        "min_realm_stage": "地仙",
-        "min_realm_layer": 3,
-        "stone_range": (42, 78),
-        "cultivation_range": (28, 56),
+        "min_realm_stage": "筑基",
+        "min_realm_layer": 4,
+        "stone_range": (52, 92),
+        "cultivation_range": (32, 62),
         "stone_bonus_divisors": {"attack_power": 3, "fortune": 4, "qi_blood": 40},
-        "cultivation_bonus_divisors": {"bone": 3, "willpower": 4},
+        "cultivation_bonus_divisors": {"bone": 3, "willpower": 4, "karma": 5},
         "result_texts": [
             "你循着兽痕擒回暴走灵兽，雇主爽快付清了悬红。",
             "几番腾挪后终于将灵兽困入封灵笼，拿到了不菲酬劳。",
+        ],
+    },
+    "caravan_guard": {
+        "key": "caravan_guard",
+        "name": "护送灵材商队",
+        "description": "替跨境商队压阵护镖、驱散沿途妖匪，既看战力也看身法和眼力。",
+        "summary": "中期高强度差事，风险更高，灵石回报明显上浮。",
+        "cooldown_hours": 6,
+        "min_realm_stage": "筑基",
+        "min_realm_layer": 8,
+        "stone_range": (68, 118),
+        "cultivation_range": (44, 82),
+        "stone_bonus_divisors": {"attack_power": 3, "defense_power": 4, "body_movement": 3},
+        "cultivation_bonus_divisors": {"willpower": 3, "body_movement": 5, "karma": 5},
+        "result_texts": [
+            "你护着商队穿过险路，压住了几波劫匪，镖头当场加了价。",
+            "一路压阵到最后一站，商会按高风险档位发下了整笔酬金。",
+        ],
+    },
+    "formation_maintenance": {
+        "key": "formation_maintenance",
+        "name": "检修护山阵",
+        "description": "替洞府和坊市修补阵纹、校准灵枢，要求悟性、神识与真元足够扎实。",
+        "summary": "偏技术路线，收益稳定且明显高于基础差事。",
+        "cooldown_hours": 8,
+        "min_realm_stage": "金丹",
+        "min_realm_layer": 1,
+        "stone_range": (82, 146),
+        "cultivation_range": (54, 98),
+        "stone_bonus_divisors": {"comprehension": 3, "divine_sense": 4, "true_yuan": 28},
+        "cultivation_bonus_divisors": {"comprehension": 3, "divine_sense": 4, "fortune": 6},
+        "result_texts": [
+            "你把护山阵断裂的灵纹补得严丝合缝，阵主爽快结清了报酬。",
+            "灵枢重启后阵光再起，对方依照高阶阵修的价码付给了酬劳。",
         ],
     },
     "sword_repair": {
@@ -1832,15 +1891,32 @@ SPIRIT_STONE_COMMISSIONS = {
         "description": "替剑修温养剑胚、补全剑纹与禁制，最吃悟性与神识。",
         "summary": "偏重悟性、神识与真元，收益最厚。",
         "cooldown_hours": 8,
-        "min_realm_stage": "天仙",
+        "min_realm_stage": "金丹",
         "min_realm_layer": 2,
-        "stone_range": (58, 108),
-        "cultivation_range": (36, 72),
-        "stone_bonus_divisors": {"comprehension": 3, "divine_sense": 4, "true_yuan": 35},
-        "cultivation_bonus_divisors": {"comprehension": 3, "divine_sense": 5},
+        "stone_range": (108, 188),
+        "cultivation_range": (66, 122),
+        "stone_bonus_divisors": {"comprehension": 3, "divine_sense": 4, "true_yuan": 35, "charisma": 10},
+        "cultivation_bonus_divisors": {"comprehension": 3, "divine_sense": 5, "karma": 4},
         "result_texts": [
             "你补齐了灵剑缺失的剑纹，对方当场付了修剑酬金。",
             "一番祭炼后剑鸣再起，主人满意地结清了报酬。",
+        ],
+    },
+    "rift_patrol": {
+        "key": "rift_patrol",
+        "name": "镇守裂隙前哨",
+        "description": "前往高危裂隙前哨清剿异兽、稳住阵脚，是当前最凶险也最赚钱的长期差事。",
+        "summary": "高门槛高回报，适合有硬实力的修士冲刺资源。",
+        "cooldown_hours": 10,
+        "min_realm_stage": "元婴",
+        "min_realm_layer": 3,
+        "stone_range": (148, 260),
+        "cultivation_range": (90, 160),
+        "stone_bonus_divisors": {"attack_power": 2, "defense_power": 3, "qi_blood": 24, "willpower": 4},
+        "cultivation_bonus_divisors": {"bone": 3, "willpower": 3, "karma": 4, "true_yuan": 36},
+        "result_texts": [
+            "你顶住裂隙前哨的连续冲击，统领按最高风险档位发放了整笔军饷。",
+            "前哨危局被你稳住，阵营库房依规补发了一份厚重的灵石与修为奖励。",
         ],
     },
 }
@@ -2007,6 +2083,7 @@ def claim_spirit_stone_commission(tg: int, commission_key: str) -> dict[str, Any
     cultivation_gain = random.randint(*config["cultivation_range"]) + _commission_reward_bonus(stats, config.get("cultivation_bonus_divisors", {}))
     stone_gain = max(int(stone_gain), int(config["stone_range"][0]))
     cultivation_gain = max(int(cultivation_gain), int(config["cultivation_range"][0]))
+    activity_growth = {"triggered": False, "changes": [], "patch": {}, "chance": 0, "roll": None}
 
     cooldown_until = None
     detail_text = random.choice(config["result_texts"])
@@ -2041,14 +2118,21 @@ def claim_spirit_stone_commission(tg: int, commission_key: str) -> dict[str, Any
         )
         row.realm_layer = layer
         row.cultivation = cultivation
+        activity_growth = _apply_activity_stat_growth_to_profile_row(row, "commission", stats)
         row.updated_at = utcnow()
         session.commit()
 
+    growth_text = ""
+    if activity_growth.get("triggered"):
+        growth_text = " 属性成长：" + "、".join(
+            f"{item['label']} +{item['value']}"
+            for item in activity_growth.get("changes") or []
+        ) + "。"
     create_journal(
         tg,
         SPIRIT_STONE_COMMISSION_ACTION,
         config["name"],
-        f"{detail_text} 获得 {stone_gain} 灵石，修为 +{cultivation_gain}。",
+        f"{detail_text} 获得 {stone_gain} 灵石，修为 +{cultivation_gain}。{growth_text}",
     )
     return {
         "commission": {
@@ -2057,6 +2141,7 @@ def claim_spirit_stone_commission(tg: int, commission_key: str) -> dict[str, Any
             "stone_gain": stone_gain,
             "cultivation_gain": cultivation_gain,
             "detail": detail_text,
+            "attribute_growth": activity_growth.get("changes") or [],
         },
         "upgraded_layers": upgraded_layers,
         "remaining": remaining,
@@ -2082,6 +2167,128 @@ def _coerce_int(value: Any, default: int, minimum: int | None = None) -> int:
     if minimum is not None:
         result = max(result, minimum)
     return result
+
+
+ACTIVITY_STAT_GROWTH_POOLS = {
+    "practice": ("bone", "comprehension", "divine_sense", "willpower", "true_yuan"),
+    "commission": ("fortune", "charisma", "karma", "body_movement", "attack_power", "defense_power", "qi_blood"),
+    "exploration": ("fortune", "divine_sense", "comprehension", "karma", "body_movement", "qi_blood"),
+    "duel": ("willpower", "attack_power", "defense_power", "qi_blood", "true_yuan", "body_movement"),
+}
+ACTIVITY_STAT_GROWTH_MULTIPLIERS = {
+    "bone": 1,
+    "comprehension": 1,
+    "divine_sense": 1,
+    "fortune": 1,
+    "willpower": 1,
+    "charisma": 1,
+    "karma": 1,
+    "body_movement": 1,
+    "attack_power": 1,
+    "defense_power": 1,
+    "qi_blood": 14,
+    "true_yuan": 12,
+}
+
+
+def _attribute_growth_label(key: str) -> str:
+    return {
+        "attack_power": "攻击",
+        "defense_power": "防御",
+        "qi_blood": "气血",
+        "true_yuan": "真元",
+    }.get(key, ATTRIBUTE_LABELS.get(f"{key}_bonus", key))
+
+
+def _normalize_activity_stat_growth_rules(raw: dict[str, Any] | None) -> dict[str, dict[str, int]]:
+    defaults = DEFAULT_SETTINGS["activity_stat_growth_rules"]
+    source = raw if isinstance(raw, dict) else {}
+    rules: dict[str, dict[str, int]] = {}
+    for key, default_rule in defaults.items():
+        current = source.get(key) if isinstance(source.get(key), dict) else {}
+        gain_min = max(_coerce_int(current.get("gain_min"), default_rule.get("gain_min", 1), 1), 1)
+        gain_max = max(_coerce_int(current.get("gain_max"), default_rule.get("gain_max", gain_min), gain_min), gain_min)
+        rules[key] = {
+            "chance_percent": min(max(_coerce_int(current.get("chance_percent"), default_rule.get("chance_percent", 0), 0), 0), 95),
+            "gain_min": gain_min,
+            "gain_max": gain_max,
+            "attribute_count": min(max(_coerce_int(current.get("attribute_count"), default_rule.get("attribute_count", 1), 1), 1), 3),
+        }
+    return rules
+
+
+def _activity_stat_growth_rules() -> dict[str, dict[str, int]]:
+    return _normalize_activity_stat_growth_rules(
+        get_xiuxian_settings().get("activity_stat_growth_rules", DEFAULT_SETTINGS["activity_stat_growth_rules"])
+    )
+
+
+def _roll_activity_stat_growth(
+    activity_key: str,
+    actor_stats: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    rules = _activity_stat_growth_rules()
+    rule = rules.get(activity_key) or DEFAULT_SETTINGS["activity_stat_growth_rules"].get(activity_key) or {}
+    chance_percent = max(min(int(rule.get("chance_percent") or 0), 95), 0)
+    if chance_percent <= 0:
+        return {"triggered": False, "changes": [], "patch": {}, "chance": 0, "roll": None}
+
+    stats = actor_stats if isinstance(actor_stats, dict) else {}
+    fortune = max(int(stats.get("fortune") or 0), 0)
+    karma = max(int(stats.get("karma") or 0), 0)
+    chance_roll = roll_probability_percent(
+        chance_percent,
+        actor_fortune=fortune + karma // 2,
+        actor_weight=0.16,
+        minimum=0,
+        maximum=95,
+    )
+    if not chance_roll["success"]:
+        return {"triggered": False, "changes": [], "patch": {}, "chance": chance_roll["chance"], "roll": chance_roll["roll"]}
+
+    pool = list(ACTIVITY_STAT_GROWTH_POOLS.get(activity_key) or [])
+    if not pool:
+        return {"triggered": False, "changes": [], "patch": {}, "chance": chance_roll["chance"], "roll": chance_roll["roll"]}
+    random.shuffle(pool)
+    count = min(max(int(rule.get("attribute_count") or 1), 1), min(len(pool), 3))
+    gain_min = max(int(rule.get("gain_min") or 1), 1)
+    gain_max = max(int(rule.get("gain_max") or gain_min), gain_min)
+
+    changes = []
+    patch: dict[str, int] = {}
+    for key in pool[:count]:
+        base_delta = random.randint(gain_min, gain_max)
+        actual_delta = base_delta * int(ACTIVITY_STAT_GROWTH_MULTIPLIERS.get(key, 1) or 1)
+        patch[key] = int(patch.get(key, 0) or 0) + actual_delta
+        changes.append(
+            {
+                "key": key,
+                "label": _attribute_growth_label(key),
+                "base_delta": base_delta,
+                "value": actual_delta,
+            }
+        )
+    return {
+        "triggered": bool(changes),
+        "changes": changes,
+        "patch": patch,
+        "chance": chance_roll["chance"],
+        "roll": chance_roll["roll"],
+    }
+
+
+def _apply_activity_stat_growth_to_profile_row(
+    profile_row: XiuxianProfile,
+    activity_key: str,
+    actor_stats: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    growth = _roll_activity_stat_growth(activity_key, actor_stats)
+    if not growth.get("triggered"):
+        return growth
+    for key, delta in (growth.get("patch") or {}).items():
+        setattr(profile_row, key, int(getattr(profile_row, key, 0) or 0) + int(delta or 0))
+    profile_row.updated_at = utcnow()
+    return growth
 
 
 def _normalize_root_quality_value_rules(raw: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
@@ -2251,20 +2458,22 @@ def _profile_growth_floor(profile: dict[str, Any]) -> dict[str, int]:
     quality_name = _normalized_root_quality(profile)
     root_type = str(profile.get("root_type") or "").strip()
     primary = str(profile.get("root_primary") or "").strip()
-    progress = _realm_progress_score(profile.get("realm_stage"), profile.get("realm_layer"))
+    stage_index = max(realm_index(profile.get("realm_stage")), 0)
+    layer = max(int(profile.get("realm_layer") or 1), 1)
+    layer_progress = max(layer - 1, 0)
     special_bonus = 2 if root_type == "天灵根" else 1 if root_type == "变异灵根" else 0
-    bone = 10 + quality_level + progress // 3 + (2 if primary in {"土", "金"} else 0) + special_bonus
-    comprehension = 10 + quality_level + progress // 3 + (2 if primary in {"木", "水"} else 0) + special_bonus
-    divine_sense = 9 + quality_level + progress // 4 + (2 if primary in {"雷", "风", "水"} else 0) + special_bonus
-    fortune = 8 + quality_level + progress // 5 + (2 if root_type in {"地灵根", "天灵根", "变异灵根"} else 0)
-    willpower = 8 + quality_level + progress // 4 + (2 if root_type in {"地灵根", "天灵根"} else 0)
-    charisma = 8 + quality_level + progress // 5 + (2 if primary in {"木", "水", "风"} else 0)
-    karma = 8 + quality_level + progress // 4 + (2 if quality_name in {"上品灵根", "极品灵根", "天灵根", "变异灵根"} else 0)
-    attack_power = 10 + quality_level * 2 + progress // 2 + (3 if primary in {"火", "金", "雷"} else 0)
-    defense_power = 10 + quality_level * 2 + progress // 2 + (3 if primary in {"土", "金", "水"} else 0)
-    body_movement = 8 + quality_level + progress // 3 + (2 if primary in {"风", "火", "雷"} else 0)
-    qi_blood = 160 + bone * 12 + defense_power * 4 + quality_level * 20 + progress * 18
-    true_yuan = 140 + comprehension * 9 + divine_sense * 6 + quality_level * 18 + progress * 16
+    bone = 10 + quality_level + stage_index * 2 + layer_progress // 2 + (2 if primary in {"土", "金"} else 0) + special_bonus
+    comprehension = 10 + quality_level + stage_index * 2 + layer_progress // 2 + (2 if primary in {"木", "水"} else 0) + special_bonus
+    divine_sense = 9 + quality_level + stage_index * 2 + layer_progress // 3 + (2 if primary in {"雷", "风", "水"} else 0) + special_bonus
+    fortune = 8 + quality_level + stage_index + layer_progress // 3 + (2 if root_type in {"地灵根", "天灵根", "变异灵根"} else 0)
+    willpower = 8 + quality_level + stage_index + layer_progress // 2 + (2 if root_type in {"地灵根", "天灵根"} else 0)
+    charisma = 8 + quality_level + stage_index + layer_progress // 3 + (2 if primary in {"木", "水", "风"} else 0)
+    karma = 8 + quality_level + stage_index + layer_progress // 2 + (2 if quality_name in {"上品灵根", "极品灵根", "天灵根", "变异灵根"} else 0)
+    attack_power = 10 + quality_level * 2 + stage_index * 3 + layer_progress + (3 if primary in {"火", "金", "雷"} else 0)
+    defense_power = 10 + quality_level * 2 + stage_index * 3 + layer_progress + (3 if primary in {"土", "金", "水"} else 0)
+    body_movement = 8 + quality_level + stage_index * 2 + layer_progress // 2 + (2 if primary in {"风", "火", "雷"} else 0)
+    qi_blood = 180 + bone * 14 + defense_power * 6 + quality_level * 28 + stage_index * 60 + layer * 18
+    true_yuan = 160 + comprehension * 10 + divine_sense * 8 + quality_level * 24 + stage_index * 54 + layer * 16
     return {
         "bone": bone,
         "comprehension": comprehension,
@@ -2278,6 +2487,37 @@ def _profile_growth_floor(profile: dict[str, Any]) -> dict[str, int]:
         "body_movement": body_movement,
         "attack_power": attack_power,
         "defense_power": defense_power,
+    }
+
+
+def _major_breakthrough_reward_patch(profile: XiuxianProfile | dict[str, Any], next_stage: str) -> dict[str, int]:
+    payload = serialize_profile(profile) if not isinstance(profile, dict) else dict(profile)
+    stage_index = max(realm_index(next_stage), 0)
+    immortal_boundary = max(realm_index("人仙"), 0)
+    immortal_bonus = 1 if stage_index >= immortal_boundary else 0
+    basic_gain = 1 + stage_index // 5 + immortal_bonus
+    perception_gain = 1 + stage_index // 6 + immortal_bonus
+    fortune_gain = 1 + stage_index // 7
+    willpower_gain = 1 + stage_index // 6 + immortal_bonus
+    charisma_gain = 1 if stage_index >= 3 else 0
+    karma_gain = 1 + stage_index // 8 + (1 if stage_index >= max(realm_index("渡劫"), 0) else 0)
+    combat_gain = 2 + stage_index // 4 + immortal_bonus
+    movement_gain = 1 + stage_index // 6 + immortal_bonus
+    vitality_gain = 24 + stage_index * 8 + immortal_bonus * 16
+    mana_gain = 20 + stage_index * 7 + immortal_bonus * 14
+    return {
+        "bone": int(payload.get("bone") or 0) + basic_gain,
+        "comprehension": int(payload.get("comprehension") or 0) + basic_gain,
+        "divine_sense": int(payload.get("divine_sense") or 0) + perception_gain,
+        "fortune": int(payload.get("fortune") or 0) + fortune_gain,
+        "willpower": int(payload.get("willpower") or 0) + willpower_gain,
+        "charisma": int(payload.get("charisma") or 0) + charisma_gain,
+        "karma": int(payload.get("karma") or 0) + karma_gain,
+        "qi_blood": int(payload.get("qi_blood") or 0) + vitality_gain,
+        "true_yuan": int(payload.get("true_yuan") or 0) + mana_gain,
+        "body_movement": int(payload.get("body_movement") or 0) + movement_gain,
+        "attack_power": int(payload.get("attack_power") or 0) + combat_gain,
+        "defense_power": int(payload.get("defense_power") or 0) + combat_gain,
     }
 
 
@@ -4178,6 +4418,59 @@ def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
             ),
             1000,
         )
+    if "chat_cultivation_chance" in patch and patch["chat_cultivation_chance"] is not None:
+        patch["chat_cultivation_chance"] = min(
+            _coerce_int(
+                patch["chat_cultivation_chance"],
+                DEFAULT_SETTINGS["chat_cultivation_chance"],
+                0,
+            ),
+            100,
+        )
+    if "chat_cultivation_min_gain" in patch and patch["chat_cultivation_min_gain"] is not None:
+        patch["chat_cultivation_min_gain"] = min(
+            _coerce_int(
+                patch["chat_cultivation_min_gain"],
+                DEFAULT_SETTINGS["chat_cultivation_min_gain"],
+                1,
+            ),
+            100000,
+        )
+    if "chat_cultivation_max_gain" in patch and patch["chat_cultivation_max_gain"] is not None:
+        patch["chat_cultivation_max_gain"] = min(
+            _coerce_int(
+                patch["chat_cultivation_max_gain"],
+                DEFAULT_SETTINGS["chat_cultivation_max_gain"],
+                1,
+            ),
+            100000,
+        )
+    if "chat_cultivation_min_gain" in patch or "chat_cultivation_max_gain" in patch:
+        min_value = int(patch.get("chat_cultivation_min_gain", DEFAULT_SETTINGS["chat_cultivation_min_gain"]) or 1)
+        max_value = int(patch.get("chat_cultivation_max_gain", DEFAULT_SETTINGS["chat_cultivation_max_gain"]) or min_value)
+        if max_value < min_value:
+            if "chat_cultivation_max_gain" in patch:
+                patch["chat_cultivation_max_gain"] = min_value
+            else:
+                patch["chat_cultivation_min_gain"] = max_value
+    if "robbery_daily_limit" in patch and patch["robbery_daily_limit"] is not None:
+        patch["robbery_daily_limit"] = min(
+            _coerce_int(
+                patch["robbery_daily_limit"],
+                DEFAULT_SETTINGS["robbery_daily_limit"],
+                0,
+            ),
+            100,
+        )
+    if "robbery_max_steal" in patch and patch["robbery_max_steal"] is not None:
+        patch["robbery_max_steal"] = min(
+            _coerce_int(
+                patch["robbery_max_steal"],
+                DEFAULT_SETTINGS["robbery_max_steal"],
+                0,
+            ),
+            1000000,
+        )
     if "equipment_unbind_cost" in patch and patch["equipment_unbind_cost"] is not None:
         patch["equipment_unbind_cost"] = min(
             _coerce_int(
@@ -4307,6 +4600,8 @@ def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
         patch["root_quality_value_rules"] = _normalize_root_quality_value_rules(patch["root_quality_value_rules"])
     if "item_quality_value_rules" in patch:
         patch["item_quality_value_rules"] = _normalize_item_quality_value_rules(patch["item_quality_value_rules"])
+    if "activity_stat_growth_rules" in patch:
+        patch["activity_stat_growth_rules"] = _normalize_activity_stat_growth_rules(patch["activity_stat_growth_rules"])
     if "exploration_drop_weight_rules" in patch:
         defaults = DEFAULT_SETTINGS["exploration_drop_weight_rules"]
         raw = patch["exploration_drop_weight_rules"] if isinstance(patch["exploration_drop_weight_rules"], dict) else {}
@@ -4825,70 +5120,33 @@ def _battle_bundle(bundle_or_profile: dict[str, Any], opponent_profile: dict[str
     title_effects = resolve_title_effects(profile, title, opponent_profile) if title else None
     stats = _effective_stats(profile, artifact_effects, talisman_effects, sect_effects, technique_effects, title_effects)
 
-    stage_index = realm_index(profile.get("realm_stage"))
-    layer = int(profile.get("realm_layer") or 0)
-    realm_base = 180 + stage_index * 220 + max(layer, 1) * 34
-    attribute_factor = (
-        1
-        + stats["bone"] / 240
-        + stats["comprehension"] / 260
-        + stats["divine_sense"] / 280
-        + stats["fortune"] / 320
-        + stats["willpower"] / 340
-        + stats["charisma"] / 420
-        + stats["karma"] / 360
+    stage_index = max(realm_index(profile.get("realm_stage")), 0)
+    layer = max(int(profile.get("realm_layer") or 0), 1)
+    realm_score = 220 + stage_index * 260 + layer * 36
+    attribute_score = (
+        stats["bone"] * 8.0
+        + stats["comprehension"] * 8.5
+        + stats["divine_sense"] * 9.0
+        + stats["fortune"] * 5.0
+        + stats["willpower"] * 6.0
+        + stats["charisma"] * 3.5
+        + stats["karma"] * 5.5
     )
-    offense_factor = 1 + stats["attack_power"] / 200
-    defense_factor = 1 + stats["defense_power"] / 220
-    vitality_factor = 1 + stats["qi_blood"] / 2200
-    mana_factor = 1 + stats["true_yuan"] / 2400
-    movement_factor = 1 + stats["body_movement"] / 240
-    artifact_factor = 1 + (
-        artifact_effects.get("attack_bonus", 0)
-        + artifact_effects.get("defense_bonus", 0)
-        + artifact_effects.get("bone_bonus", 0)
-        + artifact_effects.get("comprehension_bonus", 0)
-        + artifact_effects.get("divine_sense_bonus", 0)
-        + artifact_effects.get("fortune_bonus", 0)
-        + artifact_effects.get("qi_blood_bonus", 0) / 8
-        + artifact_effects.get("true_yuan_bonus", 0) / 8
-        + artifact_effects.get("body_movement_bonus", 0)
-    ) / 260
-    talisman_factor = 1.0
-    if talisman_effects:
-        talisman_factor += (
-            talisman_effects.get("attack_bonus", 0)
-            + talisman_effects.get("defense_bonus", 0)
-            + talisman_effects.get("bone_bonus", 0)
-            + talisman_effects.get("comprehension_bonus", 0)
-            + talisman_effects.get("divine_sense_bonus", 0)
-            + talisman_effects.get("fortune_bonus", 0)
-            + talisman_effects.get("qi_blood_bonus", 0) / 8
-            + talisman_effects.get("true_yuan_bonus", 0) / 8
-            + talisman_effects.get("body_movement_bonus", 0)
-        ) / 320
-
+    combat_score = (
+        stats["attack_power"] * 24.0
+        + stats["defense_power"] * 20.0
+        + stats["body_movement"] * 16.0
+        + stats["qi_blood"] * 0.52
+        + stats["true_yuan"] * 0.38
+    )
     root_factor = float(quality["combat_factor"])
     if opponent_profile:
         root_factor += _root_element_duel_modifier(profile, opponent_profile)
     if profile.get("root_type") == "变异灵根":
         root_factor += 0.03
-    duel_rate_factor = 1 + (stats["duel_rate_bonus"] / 100)
-    random_factor = random.uniform(0.95, 1.10) if apply_random else 1.0
-    power = (
-        realm_base
-        * attribute_factor
-        * offense_factor
-        * defense_factor
-        * vitality_factor
-        * mana_factor
-        * movement_factor
-        * max(root_factor, 0.75)
-        * max(artifact_factor, 0.8)
-        * max(talisman_factor, 0.85)
-        * max(duel_rate_factor, 0.7)
-        * random_factor
-    )
+    duel_rate_factor = 1 + max(min(stats["duel_rate_bonus"], 40), -40) / 120
+    random_factor = random.uniform(0.96, 1.06) if apply_random else 1.0
+    power = (realm_score + attribute_score + combat_score) * max(root_factor, 0.75) * max(duel_rate_factor, 0.75) * random_factor
     return {
         "profile": profile,
         "quality": quality_name,
@@ -5250,6 +5508,7 @@ def practice_for_user(tg: int) -> dict[str, Any]:
         + int(stats["fortune"] // 8)
         + int(stats["charisma"] // 10)
     )
+    activity_growth = {"triggered": False, "changes": [], "patch": {}, "chance": 0, "roll": None}
     layer, cultivation, upgraded_layers, remaining = apply_cultivation_gain(stage, int(profile.realm_layer or 1), int(profile.cultivation or 0), gain)
     with Session() as session:
         updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
@@ -5259,12 +5518,14 @@ def practice_for_user(tg: int) -> dict[str, Any]:
         updated.cultivation = cultivation
         updated.realm_layer = layer
         updated.last_train_at = utcnow()
+        activity_growth = _apply_activity_stat_growth_to_profile_row(updated, "practice", stats)
         updated.updated_at = utcnow()
         session.commit()
     _apply_profile_growth_floor(tg)
     return {
         "gain": gain,
         "stone_gain": stone_gain,
+        "attribute_growth": activity_growth.get("changes") or [],
         "upgraded_layers": upgraded_layers,
         "remaining": remaining,
         "profile": serialize_full_profile(tg),
@@ -5338,18 +5599,14 @@ def breakthrough_for_user(tg: int, use_pill: bool = False) -> dict[str, Any]:
             raise ValueError("破境丹消耗失败，请稍后再试。")
 
     if success:
+        breakthrough_patch = _major_breakthrough_reward_patch(profile, next_stage)
         updated = upsert_profile(
             tg,
             realm_stage=next_stage,
             realm_layer=1,
             cultivation=0,
             breakthrough_pill_uses=int(profile.breakthrough_pill_uses or 0) + (1 if use_pill else 0),
-            qi_blood=int(profile.qi_blood or 0) + 25 + int(stats["bone"] // 2),
-            true_yuan=int(profile.true_yuan or 0) + 20 + int(stats["comprehension"] // 2),
-            attack_power=int(profile.attack_power or 0) + 3,
-            defense_power=int(profile.defense_power or 0) + 3,
-            willpower=int(profile.willpower or 0) + 1,
-            karma=int(profile.karma or 0) + (1 if success_rate >= 60 else 0),
+            **breakthrough_patch,
         )
         _apply_profile_growth_floor(tg)
     else:
@@ -6106,7 +6363,6 @@ def format_duel_matchup_text(
 
 def _duel_odds_score(profile: dict[str, Any], state: dict[str, Any], opponent_profile: dict[str, Any] | None = None) -> float:
     stats = state["stats"]
-    realm_score = max(realm_index(profile.get("realm_stage")), 0) * 260 + max(int(profile.get("realm_layer") or 0), 0) * 38
     offense = max(float(stats.get("attack_power") or 0), 0.0)
     defense = max(float(stats.get("defense_power") or 0), 0.0)
     qi_blood = max(float(stats.get("qi_blood") or 0), 0.0)
@@ -6120,25 +6376,19 @@ def _duel_odds_score(profile: dict[str, Any], state: dict[str, Any], opponent_pr
     duel_rate_bonus = float(stats.get("duel_rate_bonus") or 0)
 
     score = (
-        realm_score
-        + offense * 26.0
-        + defense * 18.0
-        + qi_blood * 0.58
-        + true_yuan * 0.22
-        + movement * 15.0
-        + divine_sense * 8.0
-        + fortune * 5.0
-        + bone * 4.0
-        + comprehension * 3.5
-        + karma * 2.5
-        + duel_rate_bonus * 32.0
+        max(float(state.get("power") or 0.0), 1.0)
+        + offense * 5.0
+        + defense * 4.0
+        + qi_blood * 0.08
+        + true_yuan * 0.06
+        + movement * 4.2
+        + divine_sense * 2.8
+        + fortune * 1.7
+        + bone * 1.4
+        + comprehension * 1.6
+        + karma * 1.8
+        + duel_rate_bonus * 18.0
     )
-    root_factor = float(state["quality_payload"].get("combat_factor") or 1.0)
-    if opponent_profile:
-        root_factor += _root_element_duel_modifier(profile, opponent_profile)
-    if profile.get("root_type") == "变异灵根":
-        root_factor += 0.03
-    score *= max(root_factor, 0.55)
 
     if offense <= 0:
         score *= 0.42
@@ -6469,6 +6719,14 @@ def resolve_duel(challenger_tg: int, defender_tg: int, stake: int = 0, duel_mode
             mode_outcome = _apply_death_duel_outcome(session, winner_tg, loser_tg)
         session.commit()
 
+    winner_growth = {"triggered": False, "changes": [], "patch": {}, "chance": 0, "roll": None}
+    if duel_mode_value != "death":
+        with Session() as session:
+            winner_row = session.query(XiuxianProfile).filter(XiuxianProfile.tg == winner_tg).with_for_update().first()
+            if winner_row is not None and winner_row.consented:
+                winner_growth = _apply_activity_stat_growth_to_profile_row(winner_row, "duel", winner_state["stats"])
+                session.commit()
+
     artifact_plunder_roll = roll_probability_percent(
         artifact_plunder_base_chance,
         actor_fortune=winner_state["stats"]["fortune"],
@@ -6523,6 +6781,7 @@ def resolve_duel(challenger_tg: int, defender_tg: int, stake: int = 0, duel_mode
         "battle_log": simulated_battle["battle_log"],
         "round_count": int(simulated_battle["round_count"]),
         "mode_outcome": mode_outcome,
+        "winner_attribute_growth": winner_growth.get("changes") or [],
         "achievement_unlocks": achievement_unlocks,
     }
 
@@ -6606,6 +6865,22 @@ def format_duel_settlement_text(
                 "法宝掠夺：",
                 f"{winner_name} 夺取了 {loser_name} 的 {artifact_payload.get('name', '未知法宝')}",
                 f"触发概率：{artifact_plunder.get('chance', 0)}%",
+            ]
+        )
+
+    winner_growth = [
+        item for item in (result.get("winner_attribute_growth") or [])
+        if int(item.get("value") or 0) > 0
+    ]
+    if winner_growth:
+        lines.extend(
+            [
+                "",
+                "斗法感悟：",
+                f"{winner_name} 在鏖战后额外提升 " + "、".join(
+                    f"{item.get('label', item.get('key', '属性'))} +{int(item.get('value') or 0)}"
+                    for item in winner_growth
+                ),
             ]
         )
 
