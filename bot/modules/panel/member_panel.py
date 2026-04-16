@@ -765,12 +765,12 @@ async def do_store_whitelist(_, call):
             return await callAnswer(call, '❌ 未查询到账户，不许乱点！', True)
         if e.iv < _open.whitelist_cost or e.lv == 'a':
             return await callAnswer(call,
-                                    f'🏪 兑换规则：\n当前兑换白名单需要 {_open.whitelist_cost} {sakura_b}，已有白名单无法再次消费。勉励',
+                                    f'🏪 兑换规则：\n主人~当前兑换白名单需要 {_open.whitelist_cost} {sakura_b}哦~\n已经有白名单的小宝贝就不能再兑换啦，乖乖~',
                                     True)
-        await callAnswer(call, f'🏪 您已满足 {_open.whitelist_cost} {sakura_b}要求', True)
+        await callAnswer(call, f'🌸 主人~您已满足 {_open.whitelist_cost} {sakura_b}要求，正在为您晋升白名单！', True)
         sql_update_emby(Emby.tg == call.from_user.id, lv='a', iv=e.iv - _open.whitelist_cost)
         send = await call.message.edit(f'**{random.choice(Yulv.load_yulv().wh_msg)}**\n\n'
-                                       f'🎉 恭喜[{call.from_user.first_name}](tg://user?id={call.from_user.id}) 今日晋升，{ranks["logo"]}白名单')
+                                       f'🎊 恭喜小宝贝 [{call.from_user.first_name}](tg://user?id={call.from_user.id}) ~ 今日成功晋升为 {ranks["logo"]}白名单 啦！\n主人对您今日的表现非常满意，继续加油哦~ 🌟')
         await send.forward(group[0])
         LOGGER.info(f'【兑换白名单】- {call.from_user.id} 已花费 9999{sakura_b}，晋升白名单')
     else:

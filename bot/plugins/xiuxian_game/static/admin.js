@@ -76,6 +76,7 @@ const ADMIN_SECTION_LABELS = {
   scenes: "\u573a\u666f",
   encounters: "奇遇",
   tasks: "\u4efb\u52a1",
+  auctions: "拍卖行",
   grant: "\u624b\u52a8\u53d1\u653e",
   "official shop": "\u5b98\u65b9\u5546\u5e97",
   players: "\u89d2\u8272\u7ba1\u7406",
@@ -334,6 +335,7 @@ function adminSectionCount(key) {
   if (key === "scenes") return bundle.scenes?.length || 0;
   if (key === "encounters") return bundle.encounters?.length || 0;
   if (key === "tasks") return bundle.tasks?.length || 0;
+  if (key === "auctions") return bundle.auctions?.length || 0;
   if (key === "official shop") return bundle.official_shop?.length || 0;
   if (key === "grant") return bundle.upload_permissions?.length || 0;
   return null;
@@ -1127,6 +1129,18 @@ function renderWorld() {
         <button type="button" class="ghost" data-shop-toggle="${item.id}" data-next-enabled="${item.enabled ? "false" : "true"}">${item.enabled ? "下架" : "上架"}</button>
       </div>
     </article>`).join("") || `<article class="stack-item"><strong>暂无官方商品</strong></article>`);
+
+  renderStack("auction-list", (bundle.auctions || []).map((item) => `
+    <article class="stack-item">
+      <div class="stack-item-head">
+        <strong>${escapeHtml(item.item_name)} × ${escapeHtml(item.quantity)}</strong>
+        <span class="badge badge--normal">${escapeHtml(item.status_label || item.status || "未知状态")}</span>
+      </div>
+      <p>${escapeHtml(item.item_kind_label || item.item_kind)} · 卖家 ${escapeHtml(item.owner_display_name || `TG ${item.owner_tg || 0}`)}</p>
+      <p>起拍 ${escapeHtml(item.opening_price_stone)} · 当前 ${escapeHtml(item.current_display_price_stone)} · 加价 ${escapeHtml(item.bid_increment_stone)} · 一口价 ${escapeHtml(item.buyout_price_stone > 0 ? item.buyout_price_stone : "未设置")}</p>
+      <p>手续费 ${escapeHtml(item.fee_percent || 0)}% · 出价 ${escapeHtml(item.bid_count || 0)} 次 · 结束 ${escapeHtml(formatShanghaiDate(item.end_at))}</p>
+      <p>群消息：${escapeHtml(item.group_chat_id || "-")} / ${escapeHtml(item.group_message_id || "-")}</p>
+    </article>`).join("") || `<article class="stack-item"><strong>暂无拍卖记录</strong></article>`);
 }
 
 function syncSelects() {
@@ -1168,6 +1182,8 @@ function applySettings(settings = {}) {
   $("setting-unbind-cost").value = settings.equipment_unbind_cost ?? 100;
   $("setting-broadcast").value = settings.shop_broadcast_cost ?? 20;
   $("setting-shop-name").value = settings.official_shop_name ?? "官方商店";
+  $("setting-auction-fee").value = settings.auction_fee_percent ?? 5;
+  $("setting-auction-duration").value = settings.auction_duration_minutes ?? 60;
   $("setting-task-publish-cost").value = settings.task_publish_cost ?? 20;
   $("setting-user-task-daily-limit").value = settings.user_task_daily_limit ?? 3;
   $("setting-allow-user-task-publish").checked = settings.allow_user_task_publish ?? true;
@@ -1277,6 +1293,8 @@ function bindEvents() {
       message_auto_delete_seconds: Number($("setting-message-auto-delete").value || 0),
       shop_broadcast_cost: Number($("setting-broadcast").value || 20),
       official_shop_name: $("setting-shop-name").value.trim(),
+      auction_fee_percent: Number($("setting-auction-fee").value || 0),
+      auction_duration_minutes: Number($("setting-auction-duration").value || 60),
       task_publish_cost: Number($("setting-task-publish-cost").value || 0),
       user_task_daily_limit: Number($("setting-user-task-daily-limit").value || 0),
       allow_user_task_publish: $("setting-allow-user-task-publish").checked,

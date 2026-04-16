@@ -42,7 +42,9 @@ from bot.sql_helper.sql_xiuxian import (
     assert_profile_alive,
     bind_user_artifact,
     bind_user_talisman,
+    cancel_auction_item,
     create_journal,
+    create_auction_item,
     create_artifact,
     create_duel_record,
     create_pill,
@@ -66,6 +68,7 @@ from bot.sql_helper.sql_xiuxian import (
     grant_technique_to_user,
     list_artifacts,
     list_artifact_sets,
+    list_auction_items,
     list_slave_profiles,
     list_equipped_artifacts,
     list_materials,
@@ -83,6 +86,8 @@ from bot.sql_helper.sql_xiuxian import (
     list_user_techniques,
     list_user_talismans,
     normalize_realm_stage,
+    finalize_auction_item as sql_finalize_auction_item,
+    place_auction_bid as sql_place_auction_bid,
     purchase_shop_item as sql_purchase_shop_item,
     plunder_random_artifact_to_user,
     realm_index,
@@ -118,6 +123,7 @@ from bot.sql_helper.sql_xiuxian import (
     unbind_user_artifact,
     unbind_user_talisman,
     update_shop_item,
+    update_auction_item,
     upsert_profile,
     XiuxianProfile,
     XiuxianArtifactInventory,
@@ -373,7 +379,7 @@ DEFAULT_PILLS = [
     {
         "name": "筑基丹",
         "pill_type": "foundation",
-        "description": "筑基突破时使用，提高本次突破成功率。",
+        "description": "丹成之时金光满室，服用后可夯实道基，大幅提升筑基突破之成功率。传闻唯有以此丹为引，方能叩开长生第一扇门。",
         "effect_value": 50,
         "poison_delta": 12,
         "image_url": "",
@@ -382,7 +388,7 @@ DEFAULT_PILLS = [
     {
         "name": "清心丹",
         "pill_type": "clear_poison",
-        "description": "化解丹毒，服用后可降低 50 点丹毒。",
+        "description": "以九种清心草药炼制，入口如饮甘露。丹丸入腹化作一缕清凉之气，缓缓涤荡经脉，将沉积已久的丹毒杂质尽数净化。",
         "effect_value": 50,
         "poison_delta": 0,
         "image_url": "",
@@ -392,7 +398,7 @@ DEFAULT_PILLS = [
         "name": "洗髓丹",
         "rarity": "下品",
         "pill_type": "bone",
-        "description": "淬炼筋骨，永久提升 4 点根骨。",
+        "description": "丹体晶莹如雪，蕴含淬体之力。服后浑身骨髓如被天地灵泉冲刷洗涤，浊垢尽去，筋骨愈发坚韧如铁，根基亦随之稳固。",
         "effect_value": 4,
         "poison_delta": 6,
         "image_url": "",
@@ -404,7 +410,7 @@ DEFAULT_PILLS = [
         "name": "悟道丹",
         "rarity": "下品",
         "pill_type": "comprehension",
-        "description": "澄明灵台，永久提升 4 点悟性。",
+        "description": "丹成时似有道音低鸣，服后灵台一片澄明。原本晦涩的功法经义豁然贯通，悟道之路由此平坦几分，修仙百艺皆可触类旁通。",
         "effect_value": 4,
         "poison_delta": 8,
         "image_url": "",
@@ -416,7 +422,7 @@ DEFAULT_PILLS = [
         "name": "凝神丹",
         "rarity": "下品",
         "pill_type": "divine_sense",
-        "description": "凝练识海，永久提升 4 点神识。",
+        "description": "丹丸泛着淡淡幽蓝光泽，入口化为一缕清灵之气直冲识海。服后神识如经春雨润泽，渐渐凝聚成形，感知万物之能亦随之大增。",
         "effect_value": 4,
         "poison_delta": 6,
         "image_url": "",
@@ -428,7 +434,7 @@ DEFAULT_PILLS = [
         "name": "天运丹",
         "rarity": "中品",
         "pill_type": "fortune",
-        "description": "温养命数，永久提升 3 点机缘。",
+        "description": "丹中似有星辰流转，蕴含天道福祉之精粹。服后冥冥中似有天助，奇遇机缘不请自来，福运绵长且深厚。",
         "effect_value": 3,
         "poison_delta": 5,
         "image_url": "",
@@ -440,7 +446,7 @@ DEFAULT_PILLS = [
         "name": "血魄丹",
         "rarity": "下品",
         "pill_type": "qi_blood",
-        "description": "淬炼气血，永久提升 60 点气血。",
+        "description": "丹成赤红如血，散发灼热气息。入口如吞焰火，热流瞬间融入血脉，激发气血本源之力，令体魄更加强健有力。",
         "effect_value": 60,
         "poison_delta": 10,
         "image_url": "",
@@ -452,7 +458,7 @@ DEFAULT_PILLS = [
         "name": "蕴元丹",
         "rarity": "下品",
         "pill_type": "true_yuan",
-        "description": "温养丹田，永久提升 50 点真元。",
+        "description": "丹体莹润如珠玉，内蕴天地灵气精华。服后温养丹田气海，令真元如涓涓细流汇聚成河，绵延不绝，持久绵长。",
         "effect_value": 50,
         "poison_delta": 9,
         "image_url": "",
@@ -464,7 +470,7 @@ DEFAULT_PILLS = [
         "name": "轻灵丹",
         "rarity": "下品",
         "pill_type": "body_movement",
-        "description": "轻身活脉，永久提升 4 点身法。",
+        "description": "丹丸轻盈如羽，入口即有一股清风之气流转四肢百骸。服后身轻如燕，踏雪无痕，腾挪闪跃之间愈发灵动自如。",
         "effect_value": 4,
         "poison_delta": 6,
         "image_url": "",
@@ -476,7 +482,7 @@ DEFAULT_PILLS = [
         "name": "补天丹",
         "rarity": "极品",
         "pill_type": "root_refine",
-        "description": "淬炼灵根，灵根品质提升 1 阶，最高提升至极品灵根。",
+        "description": "乃上古遗方所炼，丹成时天花乱舞、地涌金莲。服后可淬炼灵根、升华资质，将低品灵根一阶阶淬炼提升，直至极品之境。",
         "effect_value": 1,
         "poison_delta": 14,
         "image_url": "",
@@ -488,7 +494,7 @@ DEFAULT_PILLS = [
         "name": "洗灵丹",
         "rarity": "极品",
         "pill_type": "root_remold",
-        "description": "重塑灵根，重新洗炼灵根属性，结果至少为中品灵根。",
+        "description": "传说中可重塑根基的逆天丹药，丹成时有异象横生。服后灵根如被天地重新造化，洗尽前尘种种，结果至少为中品灵根。",
         "effect_value": 3,
         "poison_delta": 18,
         "image_url": "",
@@ -500,7 +506,7 @@ DEFAULT_PILLS = [
         "name": "聚气丹",
         "rarity": "下品",
         "pill_type": "cultivation",
-        "description": "快速凝聚灵气，适合炼气后期补足修为缺口。",
+        "description": "丹成时有灵气氤氲，入口化为一股澎湃灵气如潮水般涌入经脉。炼气后期修士服之，可迅速补足修为缺口，冲关破境更有底气。",
         "effect_value": 120,
         "poison_delta": 8,
         "min_realm_stage": "炼气",
@@ -511,7 +517,7 @@ DEFAULT_PILLS = [
         "name": "回春丹",
         "rarity": "下品",
         "pill_type": "qi_blood",
-        "description": "药力温和，可补气回血并稳住战后亏空。",
+        "description": "丹色嫩绿如春芽初生，散发盎然生机。入口如春风拂面，药力温和地修复亏损，将气血的源头重新滋养，战后亏空亦能稳住。",
         "effect_value": 90,
         "poison_delta": 8,
         "min_realm_stage": "炼气",
@@ -522,7 +528,7 @@ DEFAULT_PILLS = [
         "name": "凝元丹",
         "rarity": "下品",
         "pill_type": "true_yuan",
-        "description": "温养丹田，适合需要多次催动功法的修士。",
+        "description": "丹体浑圆如珠，内蕴凝练真元之精华。专为本元不足、频繁催动功法者所制，服后可令丹田真元愈发凝实，消耗后恢复更快。",
         "effect_value": 80,
         "poison_delta": 8,
         "min_realm_stage": "炼气",
@@ -533,7 +539,7 @@ DEFAULT_PILLS = [
         "name": "锐金丹",
         "rarity": "中品",
         "pill_type": "attack",
-        "description": "短时间内淬出锋锐金气，永久略增攻伐之力。",
+        "description": "丹成时隐有金芒闪烁，入口即有一股锐利金气穿透经脉直抵丹田。服后攻伐之力大增，出手愈发凌厉，难撄其锋。",
         "effect_value": 6,
         "poison_delta": 10,
         "min_realm_stage": "筑基",
@@ -544,7 +550,7 @@ DEFAULT_PILLS = [
         "name": "护脉丹",
         "rarity": "中品",
         "pill_type": "defense",
-        "description": "稳固经脉与护体真元，适合偏防御路线修士。",
+        "description": "丹体温润如暖玉，入口化作一道柔和灵光包裹经脉。专为主修防御或频繁斗法者所备，服后经脉愈发坚韧，护体真元亦更加浑厚。",
         "effect_value": 6,
         "poison_delta": 9,
         "min_realm_stage": "筑基",
@@ -557,7 +563,7 @@ DEFAULT_TALISMANS = [
     {
         "name": "疾风符",
         "rarity": "凡品",
-        "description": "在下一场斗法中提高先机与攻击，增强胜率。",
+        "description": "以疾风鸟羽为引、灵力为墨绘就。符成时有风啸之声隐而不发，贴于身上可借风之力，令身法如风般飘忽不定，先发制人。",
         "attack_bonus": 6,
         "duel_rate_bonus": 4,
         "body_movement_bonus": 6,
@@ -569,7 +575,7 @@ DEFAULT_TALISMANS = [
                     "chance": 20,
                     "dodge_bonus": 12,
                     "duration": 1,
-                    "text": "符风一卷，身影轻轻一晃便错开了锋芒。",
+                    "text": "疾风符风起云涌，身形化作一缕青烟，在锋芒即将触及的刹那已飘然远引。",
                 }
             ]
         },
@@ -579,7 +585,7 @@ DEFAULT_TALISMANS = [
     {
         "name": "雷火符",
         "rarity": "下品",
-        "description": "雷火并济，命中后容易留下灼伤与麻痹余威。",
+        "description": "取雷击木配合火鸾残羽绘制，符成时隐隐有风雷涌动。引动之际雷火交加，灼热与麻痹并重，令敌人在火焰中颤抖难逃。",
         "attack_bonus": 10,
         "duel_rate_bonus": 5,
         "combat_config": {
@@ -590,7 +596,7 @@ DEFAULT_TALISMANS = [
                     "chance": 34,
                     "flat_damage": 12,
                     "duration": 2,
-                    "text": "雷火符炸开一团赤雷，火星顺着灵气扑上对手衣袍。",
+                    "text": "雷火符凌空炸裂，赤色雷芒携着火星如暴雨般倾泻而下，对手衣袍瞬间被灼热点燃，麻痹之感从四肢蔓延开来。",
                 }
             ]
         },
@@ -602,7 +608,7 @@ DEFAULT_TALISMANS = [
     {
         "name": "金钟符",
         "rarity": "下品",
-        "description": "催起一层金钟灵罩，专克正面攻势。",
+        "description": "以金精混合玄铁粉末书就，符成时隐有钟鸣之音。引动后化作金钟虚影笼罩周身，将一切攻击隔绝于钟壁之外。",
         "defense_bonus": 12,
         "duel_rate_bonus": 3,
         "combat_config": {
@@ -614,7 +620,7 @@ DEFAULT_TALISMANS = [
                     "flat_shield": 26,
                     "ratio_percent": 18,
                     "duration": 1,
-                    "text": "金钟符金光一展，钟影将周身牢牢笼住。",
+                    "text": "金钟符激发瞬间，一道古朴厚重的金色钟影拔地而起，将修士牢牢护于钟壁之内，钟身上刻满密密麻麻的防护真纹。",
                 }
             ]
         },
@@ -626,7 +632,7 @@ DEFAULT_TALISMANS = [
     {
         "name": "轻身符",
         "rarity": "下品",
-        "description": "以风脉符纹减轻身形，让对手更难锁定。",
+        "description": "以风脉灵木为基、辅以轻灵草汁描绘。符成时似有清风徐来，贴于身上可令体重如鸿毛，腾挪闪躲皆在谈笑之间。",
         "body_movement_bonus": 12,
         "duel_rate_bonus": 4,
         "combat_config": {
@@ -637,7 +643,7 @@ DEFAULT_TALISMANS = [
                     "chance": 30,
                     "dodge_bonus": 20,
                     "duration": 1,
-                    "text": "轻身符化作淡淡青烟，人已从残影中遁开。",
+                    "text": "轻身符化为一缕青烟环绕周身，下一刻人已如惊鸿掠影般闪至三丈之外，只留下一道渐散的残影。",
                 }
             ]
         },
@@ -649,7 +655,7 @@ DEFAULT_TALISMANS = [
     {
         "name": "破甲符",
         "rarity": "中品",
-        "description": "专克护体法门，命中后能撕开几分防御。",
+        "description": "取破甲虫外壳配合锐金石粉炼就，符成时锋芒内敛却锐气逼人。引动后可破开对手层层护体灵光，直击其薄弱要害。",
         "attack_bonus": 8,
         "duel_rate_bonus": 4,
         "combat_config": {
@@ -660,7 +666,7 @@ DEFAULT_TALISMANS = [
                     "chance": 28,
                     "defense_ratio_percent": 18,
                     "duration": 2,
-                    "text": "破甲符贴身即碎，一串真纹顺着护体灵气钻入缝隙。",
+                    "text": "破甲符贴身即碎，锋锐的真纹如灵蛇钻隙，顺着护体灵气的缝隙一路穿透，破开重重防御直抵本体。",
                 }
             ]
         },
@@ -1366,24 +1372,24 @@ ARTIFACT_SET_BLUEPRINTS = [
 ]
 
 PILL_BLUEPRINTS = [
-    {"name": "养元凝魄丹", "rarity": "下品", "pill_type": "cultivation", "effect_value": 160, "poison_delta": 2, "description": "适合炼气末期稳步冲关。", "materials": [("青霜铁", 1), ("寒水露", 2), ("暖玉粉", 1)], "success": 76},
-    {"name": "踏云轻身丹", "rarity": "中品", "pill_type": "body_movement", "effect_value": 18, "poison_delta": 3, "description": "服后筋骨轻灵，腾挪更快。", "materials": [("云母银丝", 1), ("霜华露珠", 2), ("灵雾草心", 1)], "success": 68},
-    {"name": "玄火锻骨丹", "rarity": "中品", "pill_type": "bone", "effect_value": 16, "poison_delta": 4, "description": "药性猛烈，适合淬骨强身。", "materials": [("赤霄铜髓", 2), ("金乌羽粉", 1), ("断雷砂", 1)], "success": 62},
-    {"name": "天机明神丹", "rarity": "上品", "pill_type": "divine_sense", "effect_value": 22, "poison_delta": 4, "description": "可短时极大活跃神识。", "materials": [("幻月晶核", 1), ("玄冰胆", 1), ("天游莲芯", 1)], "success": 54},
-    {"name": "九霄御气丹", "rarity": "极品", "pill_type": "true_yuan", "effect_value": 88, "poison_delta": 5, "description": "用于长时斗法前的真元储备。", "materials": [("九霄凤羽", 1), ("太华灵液", 1), ("璇玑星砂", 1)], "success": 46},
-    {"name": "福缘问心丹", "rarity": "极品", "pill_type": "fortune", "effect_value": 12, "poison_delta": 5, "description": "药效玄妙，偏向增机缘。", "materials": [("无垢净沙", 1), ("幽冥墨玉", 1), ("太阴寒髓", 1)], "success": 45},
-    {"name": "长生回命丹", "rarity": "仙品", "pill_type": "qi_blood", "effect_value": 168, "poison_delta": 6, "description": "可将气血与命火同时提起。", "materials": [("长生灵藤心", 1), ("造化玉露", 1), ("九转金液", 1)], "success": 38},
-    {"name": "混元开天丹", "rarity": "先天至宝", "pill_type": "foundation", "effect_value": 22, "poison_delta": 8, "description": "对突破大境界有极高增幅。", "materials": [("太初紫气晶", 1), ("玄黄母气", 1), ("无相天露", 1)], "success": 24},
+    {"name": "养元凝魄丹", "rarity": "下品", "pill_type": "cultivation", "effect_value": 160, "poison_delta": 2, "description": "丹成时灵气内敛，入口化作涓涓细流温养魂魄。专治炼气末期灵气涣散之症，服后根基愈发稳固，冲关更有成算。", "materials": [("青霜铁", 1), ("寒水露", 2), ("暖玉粉", 1)], "success": 76},
+    {"name": "踏云轻身丹", "rarity": "中品", "pill_type": "body_movement", "effect_value": 18, "poison_delta": 3, "description": "丹体轻盈如云絮，入口即有一股御风之气贯穿四肢。服后身轻如燕、足底生云，纵是悬崖峭壁亦能如履平川。", "materials": [("云母银丝", 1), ("霜华露珠", 2), ("灵雾草心", 1)], "success": 68},
+    {"name": "玄火锻骨丹", "rarity": "中品", "pill_type": "bone", "effect_value": 16, "poison_delta": 4, "description": "丹成时隐有火焰纹路流转，药性刚猛如熔岩炼狱。服后骨髓如被烈火淬炼，骨骼愈发坚硬如金铁，寻常攻击难伤分毫。", "materials": [("赤霄铜髓", 2), ("金乌羽粉", 1), ("断雷砂", 1)], "success": 62},
+    {"name": "天机明神丹", "rarity": "上品", "pill_type": "divine_sense", "effect_value": 22, "poison_delta": 4, "description": "丹成之际似有天机流转、神思涌动。入口化为一缕清凉之气直入识海深处，令神识瞬间澄澈万千，感知天地万物之能骤增。", "materials": [("幻月晶核", 1), ("玄冰胆", 1), ("天游莲芯", 1)], "success": 54},
+    {"name": "九霄御气丹", "rarity": "极品", "pill_type": "true_yuan", "effect_value": 88, "poison_delta": 5, "description": "丹成时似有九天真气萦绕，入口化为一股磅礴灵气灌入丹田。专为持久斗法所备，服后真元如九霄长风绵延不绝，取之不尽用之不竭。", "materials": [("九霄凤羽", 1), ("太华灵液", 1), ("璇玑星砂", 1)], "success": 46},
+    {"name": "福缘问心丹", "rarity": "极品", "pill_type": "fortune", "effect_value": 12, "poison_delta": 5, "description": "丹中似有命运之线隐现，玄妙至极难以言表。服后冥冥中自有天佑，奇珍异宝不请自来，绝境之中亦能逢凶化吉、遇难呈祥。", "materials": [("无垢净沙", 1), ("幽冥墨玉", 1), ("太阴寒髓", 1)], "success": 45},
+    {"name": "长生回命丹", "rarity": "仙品", "pill_type": "qi_blood", "effect_value": 168, "poison_delta": 6, "description": "乃仙人手制，丹成时满室异香、气血翻涌。入口可同时点燃命火、激活气血本源，将生机与活力同时催发至巅峰，生死关头亦能逆转乾坤。", "materials": [("长生灵藤心", 1), ("造化玉露", 1), ("九转金液", 1)], "success": 38},
+    {"name": "混元开天丹", "rarity": "先天至宝", "pill_type": "foundation", "effect_value": 22, "poison_delta": 8, "description": "传说为混沌初开时所炼之丹，丹成时天降异象、地涌金莲。入口可沟通天地初开之混元之气，对突破大境界有着不可思议之增幅，令修士脱胎换骨、返璞归真。", "materials": [("太初紫气晶", 1), ("玄黄母气", 1), ("无相天露", 1)], "success": 24},
 ]
 
 TALISMAN_BLUEPRINTS = [
-    {"name": "御风符", "rarity": "下品", "attack_bonus": 8, "body_movement_bonus": 10, "duel_rate_bonus": 2, "description": "出手前贴上，脚下更轻。", "combat_config": {"skills": [{"name": "风行一瞬", "kind": "dodge", "chance": 30, "dodge_bonus": 16, "duration": 1, "text": "御风符一燃，身形轻得像被风托起。"}]}, "materials": [("风鹤羽", 2), ("寒水露", 1), ("离火絮", 1)], "success": 74},
-    {"name": "护心符", "rarity": "中品", "defense_bonus": 14, "true_yuan_bonus": 18, "duel_rate_bonus": 2, "description": "稳住心脉与护体灵气。", "combat_config": {"skills": [{"name": "护心灵罩", "kind": "shield", "chance": 34, "flat_shield": 18, "ratio_percent": 16, "text": "护心符化作灵罩贴合胸口，挡下一轮冲击。"}]}, "materials": [("玄龟骨晶", 1), ("沧浪冰魄", 1), ("太乙木心", 1)], "success": 66},
-    {"name": "镇岳符", "rarity": "上品", "defense_bonus": 20, "qi_blood_bonus": 32, "duel_rate_bonus": 3, "description": "专门对抗重击与冲撞。", "combat_config": {"skills": [{"name": "镇岳符壁", "kind": "guard", "chance": 30, "defense_ratio_percent": 22, "duration": 1, "text": "镇岳符化出岩壁似的厚重灵障，硬吃一击也不退。"}]}, "materials": [("地脉玉髓", 1), ("龙鳞铁片", 1), ("太虚陨铁", 1)], "success": 56},
-    {"name": "摄魂符", "rarity": "极品", "attack_bonus": 22, "divine_sense_bonus": 22, "duel_rate_bonus": 4, "description": "一经引动，专攻神魂破绽。", "combat_config": {"skills": [{"name": "摄魂钉", "kind": "armor_break", "chance": 32, "defense_ratio_percent": 18, "duration": 2, "text": "摄魂符一亮，神识化作钉芒直接穿向灵台。"}]}, "materials": [("璇玑星砂", 1), ("幽冥墨玉", 1), ("玄天乌金", 1)], "success": 44},
-    {"name": "裂空符", "rarity": "仙品", "attack_bonus": 28, "body_movement_bonus": 24, "duel_rate_bonus": 6, "description": "爆发时足以撕开短暂空隙。", "combat_config": {"skills": [{"name": "裂空步", "kind": "extra_damage", "chance": 34, "flat_damage": 26, "ratio_percent": 24, "text": "裂空符燃成一线黑痕，转瞬已经逼到身前。"}]}, "materials": [("苍穹雷髓", 1), ("太清星尘", 1), ("仙凰真羽", 1)], "success": 34},
-    {"name": "化毒符", "rarity": "仙品", "defense_bonus": 18, "fortune_bonus": 10, "duel_rate_bonus": 4, "description": "可化去杂毒与一部分负面侵蚀。", "combat_config": {"skills": [{"name": "清晦灵洗", "kind": "heal", "chance": 24, "flat_heal": 30, "ratio_percent": 20, "text": "化毒符散出淡青灵光，将体内浊毒冲散大半。"}]}, "materials": [("造化玉露", 1), ("长生灵藤心", 1), ("玄冥冰魄", 1)], "success": 33},
-    {"name": "太初神雷符", "rarity": "先天至宝", "attack_bonus": 36, "divine_sense_bonus": 24, "duel_rate_bonus": 8, "description": "先天神雷所成，出手便是绝杀起势。", "combat_config": {"skills": [{"name": "太初雷殛", "kind": "extra_damage", "chance": 36, "flat_damage": 36, "ratio_percent": 30, "text": "太初神雷符撕开长空，一道神雷直落而下。"}]}, "materials": [("太初紫气晶", 1), ("大罗神铁", 1), ("周天星核", 1)], "success": 22},
+    {"name": "御风符", "rarity": "下品", "attack_bonus": 8, "body_movement_bonus": 10, "duel_rate_bonus": 2, "description": "以风鹤羽为引、寒水露调和，符成时有风卷残云之象。引动后身轻如羽、进退自如，令敌难以捕捉轨迹。", "combat_config": {"skills": [{"name": "风行一瞬", "kind": "dodge", "chance": 30, "dodge_bonus": 16, "duration": 1, "text": "御风符引动瞬间，一阵清风托起全身，身形如落叶般随风飘舞，在电光火石间已移至敌侧。"}]}, "materials": [("风鹤羽", 2), ("寒水露", 1), ("离火絮", 1)], "success": 74},
+    {"name": "护心符", "rarity": "中品", "defense_bonus": 14, "true_yuan_bonus": 18, "duel_rate_bonus": 2, "description": "取玄龟骨晶配合沧浪冰魄绘制，符成时似有海浪拍岸之声。引动后可稳固心脉、凝聚灵罩，抵挡一切外邪入侵。", "combat_config": {"skills": [{"name": "护心灵罩", "kind": "shield", "chance": 34, "flat_shield": 18, "ratio_percent": 16, "text": "护心符化作淡蓝色灵罩贴合胸口，如海浪般将周身牢牢包裹，将迎面而来的攻势尽数卸去。"}]}, "materials": [("玄龟骨晶", 1), ("沧浪冰魄", 1), ("太乙木心", 1)], "success": 66},
+    {"name": "镇岳符", "rarity": "上品", "defense_bonus": 20, "qi_blood_bonus": 32, "duel_rate_bonus": 3, "description": "以地脉玉髓为墨、龙鳞铁片为基，符成时隐有山岳镇压之势。引动后可化出巍峨灵壁，任凭敌人攻势如潮亦岿然不动。", "combat_config": {"skills": [{"name": "镇岳符壁", "kind": "guard", "chance": 30, "defense_ratio_percent": 22, "duration": 1, "text": "镇岳符引动瞬间，一座厚重如山的灵壁拔地而起，巍峨崔嵬似能镇岳压顶，将一切冲击尽数挡下。"}]}, "materials": [("地脉玉髓", 1), ("龙鳞铁片", 1), ("太虚陨铁", 1)], "success": 56},
+    {"name": "摄魂符", "rarity": "极品", "attack_bonus": 22, "divine_sense_bonus": 22, "duel_rate_bonus": 4, "description": "取璇玑星砂配合幽冥墨玉炼就，符成时幽光闪烁如鬼火飘忽。专攻神魂破绽，可令对手灵台失守、神魂震荡。", "combat_config": {"skills": [{"name": "摄魂钉", "kind": "armor_break", "chance": 32, "defense_ratio_percent": 18, "duration": 2, "text": "摄魂符幽光一闪，神识化作森寒钉芒穿透虚空，直接刺入对手灵台深处，令其神魂剧痛难当。"}]}, "materials": [("璇玑星砂", 1), ("幽冥墨玉", 1), ("玄天乌金", 1)], "success": 44},
+    {"name": "裂空符", "rarity": "仙品", "attack_bonus": 28, "body_movement_bonus": 24, "duel_rate_bonus": 6, "description": "以苍穹雷髓配合仙凰真羽绘就，符成时似有凤鸣九天、裂帛之音。引动时可短暂撕裂空间，令身形如鬼魅般穿梭于战场之间。", "combat_config": {"skills": [{"name": "裂空步", "kind": "extra_damage", "chance": 34, "flat_damage": 26, "ratio_percent": 24, "text": "裂空符燃成一道漆黑裂隙，下一瞬已从对手身后的虚空中闪出，攻势如影随形般贴脸而至。"}]}, "materials": [("苍穹雷髓", 1), ("太清星尘", 1), ("仙凰真羽", 1)], "success": 34},
+    {"name": "化毒符", "rarity": "仙品", "defense_bonus": 18, "fortune_bonus": 10, "duel_rate_bonus": 4, "description": "以造化玉露配合长生灵藤心炼就，符成时散发淡淡青芒。专克天下万毒，可将体内浊毒尽数化解，令修士百毒不侵。", "combat_config": {"skills": [{"name": "清晦灵洗", "kind": "heal", "chance": 24, "flat_heal": 30, "ratio_percent": 20, "text": "化毒符散出柔和青芒，如春风化雨般涤荡全身，浊毒在青芒中逐渐消融，经脉重归清明。"}]}, "materials": [("造化玉露", 1), ("长生灵藤心", 1), ("玄冥冰魄", 1)], "success": 33},
+    {"name": "太初神雷符", "rarity": "先天至宝", "attack_bonus": 36, "divine_sense_bonus": 24, "duel_rate_bonus": 8, "description": "以先天紫气配合大罗神铁绘制，符成时天降异象、雷声滚滚。引动可召唤太初神雷，令天地失色、鬼神辟易，是为绝杀之术。", "combat_config": {"skills": [{"name": "太初雷殛", "kind": "extra_damage", "chance": 36, "flat_damage": 36, "ratio_percent": 30, "text": "太初神雷符撕裂苍穹，一道蕴含先天之威的雷芒从天而降，雷声震百里，令天地万物尽皆失色。"}]}, "materials": [("太初紫气晶", 1), ("大罗神铁", 1), ("周天星核", 1)], "success": 22},
 ]
 
 TECHNIQUE_BLUEPRINTS = [
@@ -3229,6 +3235,9 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
     all_personal_shop = list_shop_items(official_only=False)
     personal_shop = [item for item in all_personal_shop if item["owner_tg"] == tg]
     community_shop = [item for item in all_personal_shop if item["owner_tg"] not in {None, tg}]
+    all_active_auctions = list_auction_items(status="active")
+    personal_auctions = list_auction_items(owner_tg=tg, include_inactive=True, limit=20)
+    community_auctions = [item for item in all_active_auctions if int(item.get("owner_tg") or 0) != int(tg)]
     settings = {
         **get_exchange_settings(),
         "artifact_equip_limit": equip_limit,
@@ -3244,6 +3253,8 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
             xiuxian_settings.get("duel_winner_steal_percent", DEFAULT_SETTINGS["duel_winner_steal_percent"]) or 0
         ),
         "official_shop_name": str(xiuxian_settings.get("official_shop_name", DEFAULT_SETTINGS["official_shop_name"]) or DEFAULT_SETTINGS["official_shop_name"]),
+        "auction_fee_percent": max(int(xiuxian_settings.get("auction_fee_percent", DEFAULT_SETTINGS["auction_fee_percent"]) or 0), 0),
+        "auction_duration_minutes": max(int(xiuxian_settings.get("auction_duration_minutes", DEFAULT_SETTINGS["auction_duration_minutes"]) or 0), 1),
         "allow_user_task_publish": bool(xiuxian_settings.get("allow_user_task_publish", DEFAULT_SETTINGS["allow_user_task_publish"])),
         "task_publish_cost": max(int(xiuxian_settings.get("task_publish_cost", DEFAULT_SETTINGS["task_publish_cost"]) or 0), 0),
         "user_task_daily_limit": max(int(xiuxian_settings.get("user_task_daily_limit", DEFAULT_SETTINGS["user_task_daily_limit"]) or 0), 0),
@@ -3327,6 +3338,8 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         "official_shop": list_shop_items(official_only=True),
         "community_shop": community_shop,
         "personal_shop": personal_shop,
+        "community_auctions": community_auctions,
+        "personal_auctions": personal_auctions,
     }
 
 
@@ -3629,6 +3642,86 @@ def create_personal_shop_listing(
     }
 
 
+def create_personal_auction_listing(
+    *,
+    tg: int,
+    seller_name: str,
+    item_kind: str,
+    item_ref_id: int,
+    quantity: int,
+    opening_price_stone: int,
+    bid_increment_stone: int,
+    buyout_price_stone: int | None = None,
+) -> dict[str, Any]:
+    profile = _require_alive_profile_obj(tg, "发起拍卖")
+    if _is_retreating(profile):
+        raise ValueError("闭关期间无法发起拍卖。")
+    assert_currency_operation_allowed(tg, "发起拍卖", profile=profile)
+
+    item_name = ""
+    if item_kind == "artifact":
+        artifact = get_artifact(item_ref_id)
+        if artifact is None:
+            raise ValueError("未找到目标法宝。")
+        if not use_user_artifact_listing_stock(tg, item_ref_id, quantity):
+            raise ValueError("可交易的法宝数量不足，已绑定或已装备的法宝无法拍卖。")
+        item_name = artifact.name
+    elif item_kind == "pill":
+        pill = get_pill(item_ref_id)
+        if pill is None:
+            raise ValueError("未找到目标丹药。")
+        if not use_user_pill_listing_stock(tg, item_ref_id, quantity):
+            raise ValueError("背包里的丹药数量不足。")
+        item_name = pill.name
+    elif item_kind == "material":
+        material = get_material(item_ref_id)
+        if material is None:
+            raise ValueError("未找到目标材料。")
+        if not use_user_material_listing_stock(tg, item_ref_id, quantity):
+            raise ValueError("背包里的材料数量不足。")
+        item_name = material.name
+    elif item_kind == "talisman":
+        talisman = get_talisman(item_ref_id)
+        if talisman is None:
+            raise ValueError("未找到目标符箓。")
+        if not use_user_talisman_listing_stock(tg, item_ref_id, quantity):
+            raise ValueError("可交易的符箓数量不足，已绑定的符箓无法拍卖。")
+        item_name = talisman.name
+    else:
+        raise ValueError("不支持的拍卖物品类型。")
+
+    settings = get_xiuxian_settings()
+    duration_minutes = max(
+        int(settings.get("auction_duration_minutes", DEFAULT_SETTINGS["auction_duration_minutes"]) or 0),
+        1,
+    )
+    fee_percent = max(int(settings.get("auction_fee_percent", DEFAULT_SETTINGS["auction_fee_percent"]) or 0), 0)
+    resolved_seller_name = (
+        str(seller_name or "").strip()
+        or str(profile.display_name or "").strip()
+        or (f"@{profile.username}" if str(profile.username or "").strip() else f"TG {tg}")
+    )
+
+    auction = create_auction_item(
+        owner_tg=tg,
+        owner_display_name=resolved_seller_name,
+        item_kind=item_kind,
+        item_ref_id=item_ref_id,
+        item_name=item_name,
+        quantity=quantity,
+        opening_price_stone=opening_price_stone,
+        bid_increment_stone=bid_increment_stone,
+        buyout_price_stone=buyout_price_stone,
+        fee_percent=fee_percent,
+        end_at=utcnow() + timedelta(minutes=duration_minutes),
+    )
+    return {
+        "auction": auction,
+        "duration_minutes": duration_minutes,
+        "profile": serialize_full_profile(tg),
+    }
+
+
 def create_official_shop_listing(
     *,
     item_kind: str,
@@ -3678,8 +3771,22 @@ def patch_shop_listing(item_id: int, **fields) -> dict[str, Any] | None:
     return update_shop_item(item_id, **fields)
 
 
+def patch_auction_listing(auction_id: int, **fields) -> dict[str, Any] | None:
+    return update_auction_item(auction_id, **fields)
+
+
 def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
     patch = dict(payload)
+    if "auction_fee_percent" in patch and patch["auction_fee_percent"] is not None:
+        patch["auction_fee_percent"] = min(
+            max(_coerce_int(patch["auction_fee_percent"], DEFAULT_SETTINGS["auction_fee_percent"], 0), 0),
+            100,
+        )
+    if "auction_duration_minutes" in patch and patch["auction_duration_minutes"] is not None:
+        patch["auction_duration_minutes"] = min(
+            max(_coerce_int(patch["auction_duration_minutes"], DEFAULT_SETTINGS["auction_duration_minutes"], 1), 1),
+            7 * 24 * 60,
+        )
     if "shop_broadcast_cost" in patch and patch["shop_broadcast_cost"] is not None:
         patch["shop_broadcast_cost"] = min(
             _coerce_int(
@@ -3897,6 +4004,29 @@ def grant_item_to_user(tg: int, item_kind: str, item_ref_id: int, quantity: int)
 def purchase_shop_item(tg: int, item_id: int, quantity: int = 1) -> dict[str, Any]:
     ensure_not_in_retreat(tg)
     return sql_purchase_shop_item(tg, item_id, quantity)
+
+
+def place_auction_bid(tg: int, auction_id: int, *, bidder_name: str = "", use_buyout: bool = False) -> dict[str, Any]:
+    ensure_not_in_retreat(tg)
+    profile = _require_alive_profile_obj(tg, "参与拍卖")
+    assert_currency_operation_allowed(tg, "参与拍卖", profile=profile)
+    return sql_place_auction_bid(
+        auction_id,
+        bidder_tg=tg,
+        bidder_display_name=bidder_name,
+        use_buyout=use_buyout,
+    )
+
+
+def finalize_auction_listing(auction_id: int, *, force: bool = False) -> dict[str, Any] | None:
+    return sql_finalize_auction_item(auction_id, force=force)
+
+
+def cancel_personal_auction_listing(tg: int, auction_id: int) -> dict[str, Any] | None:
+    ensure_not_in_retreat(tg)
+    profile = _require_alive_profile_obj(tg, "取消拍卖")
+    assert_currency_operation_allowed(tg, "取消拍卖", profile=profile)
+    return cancel_auction_item(auction_id, owner_tg=tg)
 
 
 def compute_artifact_score(

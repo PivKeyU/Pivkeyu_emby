@@ -51,6 +51,7 @@ from bot.plugins.xiuxian_game.api_models import (
     MaterialPayload,
     OfficialShopPatchPayload,
     OfficialShopPayload,
+    PersonalAuctionPayload,
     PersonalShopPayload,
     PillPayload,
     PlayerInventoryPayload,
@@ -154,14 +155,19 @@ from bot.plugins.xiuxian_game.features.sects import (
 )
 from bot.plugins.xiuxian_game.features.shop import (
     broadcast_shop_copy,
+    cancel_personal_auction_listing,
+    create_personal_auction_listing,
     convert_emby_coin_to_stone,
     convert_stone_to_emby_coin,
     create_official_shop_listing,
     create_personal_shop_listing,
+    finalize_auction_listing,
     generate_shop_name,
     grant_item_to_user,
     list_public_shop_items,
+    patch_auction_listing,
     patch_shop_listing,
+    place_auction_bid,
     purchase_shop_item,
     search_xiuxian_players,
 )
@@ -226,6 +232,7 @@ from bot.sql_helper.sql_xiuxian import (
     list_materials,
     list_achievements,
     list_artifact_sets,
+    list_auction_items,
     list_error_logs,
     list_pill_type_options,
     list_image_upload_permissions,
@@ -285,6 +292,7 @@ DUEL_MESSAGE_REFRESH_CACHE: dict[int, float] = {}
 DUEL_SETTLEMENT_CACHE: dict[int, dict[str, Any]] = {}
 PENDING_DUEL_INVITES: dict[tuple[int, int], dict[str, Any]] = {}
 MESSAGE_AUTO_DELETE_TASKS: dict[tuple[int, int], asyncio.Task] = {}
+AUCTION_FINALIZE_TASKS: dict[int, asyncio.Task] = {}
 COMMAND_DISPATCH_CACHE: dict[tuple[int, int, str], float] = {}
 DUEL_SETTLEMENT_PAGE_SIZE = 10
 STATIC_ASSET_PATTERN = re.compile(r'(/plugins/xiuxian/static/([A-Za-z0-9_.-]+\.(?:css|js)))')
@@ -1140,6 +1148,282 @@ def _encounter_keyboard(instance_id: int, button_text: str | None = None) -> Inl
     )
 
 
+def _auction_time_text(value: str | None) -> str:
+    dt = _parse_shanghai_datetime(value)
+    if dt is None:
+        return str(value or "未设置")
+    return dt.strftime("%m-%d %H:%M")
+
+
+def _auction_group_text(auction: dict[str, Any]) -> str:
+    auction = auction or {}
+    seller_name = str(auction.get("owner_display_name") or "").strip() or f"TG {auction.get('owner_tg', 0)}"
+    item_name = str(auction.get("item_name") or "未知拍品")
+    item_kind = str(auction.get("item_kind_label") or auction.get("item_kind") or "拍品")
+    quantity = max(int(auction.get("quantity") or 0), 0)
+    opening_price = int(auction.get("opening_price_stone") or 0)
+    current_price = int(auction.get("current_display_price_stone") or opening_price)
+    increment = max(int(auction.get("bid_increment_stone") or 0), 1)
+    buyout = int(auction.get("buyout_price_stone") or 0)
+    fee_percent = max(int(auction.get("fee_percent") or 0), 0)
+    bid_count = max(int(auction.get("bid_count") or 0), 0)
+    leader_name = str(auction.get("highest_bidder_display_name") or "").strip()
+    winner_name = str(auction.get("winner_display_name") or "").strip()
+    end_text = _auction_time_text(auction.get("end_at"))
+    status = str(auction.get("status") or "active")
+
+    if status == "sold":
+        final_price = int(auction.get("final_price_stone") or current_price)
+        fee_amount = int(auction.get("fee_amount_stone") or 0)
+        seller_income = int(auction.get("seller_income_stone") or 0)
+        winner_label = winner_name or f"TG {auction.get('winner_tg', 0)}"
+        return "\n".join(
+            [
+                "🏺 **拍卖已结束**",
+                f"📦 拍品：**{_md_escape(item_name)}** × `{quantity}`",
+                f"👤 卖家：{_md_escape(seller_name)}",
+                f"🏆 得主：{_md_escape(winner_label)}",
+                f"💰 成交价：`{final_price}` 灵石",
+                f"🧾 手续费：`{fee_amount}` 灵石（{fee_percent}%）",
+                f"📥 卖家入账：`{seller_income}` 灵石",
+            ]
+        )
+
+    if status == "expired":
+        return "\n".join(
+            [
+                "⌛ **拍卖已流拍**",
+                f"📦 拍品：**{_md_escape(item_name)}** × `{quantity}`",
+                f"👤 卖家：{_md_escape(seller_name)}",
+                "本场无人出价，拍品已原路退回卖家。",
+            ]
+        )
+
+    if status == "cancelled":
+        return "\n".join(
+            [
+                "⚠️ **拍卖已取消**",
+                f"📦 拍品：**{_md_escape(item_name)}** × `{quantity}`",
+                f"👤 卖家：{_md_escape(seller_name)}",
+                "拍品与竞拍灵石均已按规则退回。",
+            ]
+        )
+
+    leader_line = f"👑 当前领先：{_md_escape(leader_name)} `({current_price} 灵石)`" if leader_name else "👑 当前领先：暂无"
+    buyout_line = f"⚡ 一口价：`{buyout}` 灵石" if buyout > 0 else "⚡ 一口价：未设置"
+    return "\n".join(
+        [
+            "🏺 **群内拍卖**",
+            f"📦 拍品：**{_md_escape(item_name)}** × `{quantity}`",
+            f"📚 类型：{_md_escape(item_kind)}",
+            f"👤 卖家：{_md_escape(seller_name)}",
+            f"💰 起拍价：`{opening_price}` 灵石",
+            f"📈 当前价格：`{current_price}` 灵石",
+            f"🔺 每次加价：`{increment}` 灵石",
+            buyout_line,
+            f"🧾 成交手续费：`{fee_percent}%`",
+            f"🕒 结束时间：`{end_text}`",
+            f"🪧 出价次数：`{bid_count}`",
+            leader_line,
+            "",
+            "点下方按钮即可出价，系统会自动刷新竞拍面板。",
+        ]
+    )
+
+
+def _auction_bid_button_text(auction: dict[str, Any]) -> str:
+    next_bid_price = int(auction.get("next_bid_price_stone") or auction.get("opening_price_stone") or 0)
+    if int(auction.get("bid_count") or 0) <= 0:
+        return f"出价 {next_bid_price} 灵石"
+    return f"加价到 {next_bid_price} 灵石"
+
+
+def _auction_keyboard(auction: dict[str, Any]) -> InlineKeyboardMarkup | None:
+    auction = auction or {}
+    if str(auction.get("status") or "active") != "active":
+        return None
+
+    rows = [[InlineKeyboardButton(_auction_bid_button_text(auction), callback_data=f"xiuxian:auction:bid:{auction['id']}")]]
+    buyout_price = int(auction.get("buyout_price_stone") or 0)
+    current_price = int(auction.get("current_display_price_stone") or 0)
+    if buyout_price > 0 and current_price < buyout_price:
+        rows.append([InlineKeyboardButton(f"一口价 {buyout_price} 灵石", callback_data=f"xiuxian:auction:buyout:{auction['id']}")])
+    return InlineKeyboardMarkup(rows)
+
+
+async def _refresh_auction_group_message(auction: dict[str, Any]) -> None:
+    auction = auction or {}
+    chat_id = int(auction.get("group_chat_id") or 0)
+    message_id = int(auction.get("group_message_id") or 0)
+    if not chat_id or not message_id:
+        return
+    try:
+        await _edit_message_text(
+            bot,
+            chat_id,
+            message_id,
+            _auction_group_text(auction),
+            reply_markup=_auction_keyboard(auction),
+            parse_mode=RICH_TEXT_MODE,
+            persistent=True,
+        )
+    except Exception as exc:
+        LOGGER.warning(f"xiuxian auction message refresh failed auction={auction.get('id')} chat={chat_id}: {exc}")
+
+
+async def _pin_auction_group_message(chat_id: int, message_id: int) -> str | None:
+    try:
+        await bot.pin_chat_message(chat_id=chat_id, message_id=message_id, disable_notification=True)
+    except Exception as exc:
+        LOGGER.warning(f"xiuxian auction pin failed chat={chat_id} message={message_id}: {exc}")
+        return "拍卖消息已推送到群里，但置顶失败，请检查机器人是否具备置顶权限。"
+    return None
+
+
+async def _unpin_auction_group_message(auction: dict[str, Any]) -> None:
+    auction = auction or {}
+    chat_id = int(auction.get("group_chat_id") or 0)
+    message_id = int(auction.get("group_message_id") or 0)
+    if not chat_id or not message_id:
+        return
+    try:
+        await bot.unpin_chat_message(chat_id=chat_id, message_id=message_id)
+    except Exception as exc:
+        LOGGER.warning(f"xiuxian auction unpin failed auction={auction.get('id')} chat={chat_id}: {exc}")
+
+
+def _drop_auction_finalize_task(auction_id: int) -> None:
+    task = AUCTION_FINALIZE_TASKS.pop(int(auction_id), None)
+    if task is not None and not task.done():
+        task.cancel()
+
+
+async def _finalize_auction_flow(result: dict[str, Any] | None) -> None:
+    if not result:
+        return
+    auction = result.get("auction") or {}
+    if not auction:
+        return
+    _drop_auction_finalize_task(int(auction.get("id") or 0))
+    await _refresh_auction_group_message(auction)
+    await _unpin_auction_group_message(auction)
+
+    outcome = str(result.get("result") or "")
+    chat_id = int(auction.get("group_chat_id") or _main_group_chat_id() or 0)
+    winner_tg = int(result.get("winner_tg") or 0)
+    seller_tg = int(result.get("seller_tg") or 0)
+    item_name = str(auction.get("item_name") or "未知拍品")
+
+    if outcome == "sold":
+        winner_name = str(result.get("winner_display_name") or auction.get("winner_display_name") or "").strip() or f"TG {winner_tg}"
+        final_price = int(auction.get("final_price_stone") or result.get("final_price_stone") or 0)
+        seller_income = int(result.get("seller_income_stone") or auction.get("seller_income_stone") or 0)
+        fee_amount = int(result.get("fee_amount_stone") or auction.get("fee_amount_stone") or 0)
+        if chat_id:
+            await _send_message(
+                bot,
+                chat_id,
+                "\n".join(
+                    [
+                        "🎉 **拍卖成交**",
+                        f"恭喜 {_md_escape(winner_name)} 以 `{final_price}` 灵石拍得 **{_md_escape(item_name)}**。",
+                        f"🧾 手续费：`{fee_amount}` 灵石",
+                        f"📥 卖家入账：`{seller_income}` 灵石",
+                    ]
+                ),
+                parse_mode=RICH_TEXT_MODE,
+                persistent=True,
+            )
+        if winner_tg > 0:
+            try:
+                await _send_message(
+                    bot,
+                    winner_tg,
+                    f"🎉 恭喜你拍得【{item_name}】，成交价 {final_price} 灵石。",
+                    persistent=True,
+                )
+            except Exception as exc:
+                LOGGER.warning(f"xiuxian auction winner notify failed tg={winner_tg}: {exc}")
+        if seller_tg > 0:
+            try:
+                await _send_message(
+                    bot,
+                    seller_tg,
+                    f"💰 你的拍卖【{item_name}】已成交，到账 {seller_income} 灵石，手续费 {fee_amount} 灵石。",
+                    persistent=True,
+                )
+            except Exception as exc:
+                LOGGER.warning(f"xiuxian auction seller notify failed tg={seller_tg}: {exc}")
+        return
+
+    if outcome == "expired" and seller_tg > 0:
+        try:
+            await _send_message(bot, seller_tg, f"⌛ 你的拍卖【{item_name}】已流拍，拍品已退回背包。", persistent=True)
+        except Exception as exc:
+            LOGGER.warning(f"xiuxian auction expire notify failed tg={seller_tg}: {exc}")
+
+
+def _queue_auction_finalize_task(auction: dict[str, Any] | None) -> None:
+    auction = auction or {}
+    auction_id = int(auction.get("id") or 0)
+    if auction_id <= 0 or str(auction.get("status") or "") != "active":
+        return
+    existing = AUCTION_FINALIZE_TASKS.get(auction_id)
+    if existing is not None and not existing.done():
+        return
+    end_at = _parse_shanghai_datetime(auction.get("end_at"))
+    if end_at is None:
+        return
+
+    loop = asyncio.get_event_loop()
+
+    async def runner() -> None:
+        try:
+            remaining = max((end_at - datetime.now(SHANGHAI_TZ)).total_seconds(), 0)
+            if remaining > 0:
+                await asyncio.sleep(remaining)
+            result = finalize_auction_listing(auction_id, force=True)
+            if result and str(result.get("result") or "") not in {"noop", ""}:
+                await _finalize_auction_flow(result)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            LOGGER.warning(f"xiuxian auction finalize task failed auction={auction_id}: {exc}")
+        finally:
+            task = AUCTION_FINALIZE_TASKS.get(auction_id)
+            if task is asyncio.current_task():
+                AUCTION_FINALIZE_TASKS.pop(auction_id, None)
+
+    AUCTION_FINALIZE_TASKS[auction_id] = loop.create_task(runner())
+
+
+def _schedule_active_auction_finalize_tasks() -> None:
+    for auction in list_auction_items(status="active"):
+        _queue_auction_finalize_task(auction)
+
+
+async def _push_auction_to_group(auction: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+    chat_id = int(auction.get("group_chat_id") or _main_group_chat_id() or 0)
+    if not chat_id:
+        raise ValueError("未配置修仙群组，无法推送拍卖消息。")
+    sent = await _send_message(
+        bot,
+        chat_id,
+        _auction_group_text(auction),
+        reply_markup=_auction_keyboard(auction),
+        parse_mode=RICH_TEXT_MODE,
+        persistent=True,
+    )
+    updated = patch_auction_listing(int(auction["id"]), group_chat_id=chat_id, group_message_id=sent.id) or {
+        **auction,
+        "group_chat_id": chat_id,
+        "group_message_id": sent.id,
+    }
+    pin_warning = await _pin_auction_group_message(chat_id, sent.id)
+    _queue_auction_finalize_task(updated)
+    return updated, pin_warning
+
+
 def _quiz_task_text(task: dict[str, Any]) -> str:
     reward_parts = []
     if int(task.get("reward_stone") or 0):
@@ -1450,6 +1734,7 @@ def _admin_world_snapshot() -> dict[str, Any]:
         "scenes": scenes,
         "encounters": list_encounter_templates(),
         "tasks": list_tasks(),
+        "auctions": list_auction_items(include_inactive=True, limit=100),
         "techniques": list_techniques(),
         "titles": list_titles(),
         "achievements": list_achievements(),
@@ -1804,6 +2089,7 @@ async def _maybe_refresh_duel_bet_message(pool_id: int, message, remaining_secon
 def register_bot(bot_instance) -> None:
     _ensure_xiuxian_bot_commands()
     _schedule_command_refresh(bot_instance)
+    _schedule_active_auction_finalize_tasks()
 
     async def refresh_duel_bet_countdown(pool_id: int, message, bets_close_at: str | None) -> None:
         close_at = _parse_shanghai_datetime(bets_close_at)
@@ -2301,6 +2587,49 @@ def register_bot(bot_instance) -> None:
             await callAnswer(call, answer_text)
         except Exception as exc:
             await callAnswer(call, str(exc), True)
+
+    @bot_instance.on_callback_query(filters.regex(r"^xiuxian:auction:(bid|buyout):(\d+)$"))
+    async def xiuxian_auction_callback(_, call):
+        action = str(call.matches[0].group(1) or "bid").strip().lower()
+        auction_id = int(call.matches[0].group(2))
+        bidder = getattr(call, "from_user", None)
+        if bidder is None:
+            return await callAnswer(call, "当前无法识别你的 TG 身份。", True)
+
+        bidder_name = " ".join(
+            part for part in [getattr(bidder, "first_name", None), getattr(bidder, "last_name", None)] if part
+        ).strip()
+        if not bidder_name:
+            bidder_name = f"@{bidder.username}" if getattr(bidder, "username", None) else f"TG {bidder.id}"
+
+        try:
+            result = place_auction_bid(
+                bidder.id,
+                auction_id,
+                bidder_name=bidder_name,
+                use_buyout=action == "buyout",
+            )
+        except Exception as exc:
+            message = str(exc) or "竞拍失败"
+            if "拍卖已经结束" in message:
+                finalized = finalize_auction_listing(auction_id, force=True)
+                if finalized and str(finalized.get("result") or "") not in {"noop", ""}:
+                    await _finalize_auction_flow(finalized)
+                return await callAnswer(call, "这场拍卖已经结束，面板已尝试刷新。", True)
+            return await callAnswer(call, message, True)
+
+        auction = result.get("auction") or {}
+        outcome = str(result.get("result") or "")
+        if outcome == "bid":
+            await _refresh_auction_group_message(auction)
+            current_price = int(auction.get("current_display_price_stone") or 0)
+            return await callAnswer(call, f"已出价，当前价格 {current_price} 灵石。")
+
+        if outcome == "sold":
+            await _finalize_auction_flow(result)
+            return await callAnswer(call, "拍卖已成交。")
+
+        await callAnswer(call, "拍卖状态已更新。")
 
     @bot_instance.on_message(filters.text & filters.group & ~filters.regex(r"^[\\/!\\.，。]"))
     async def xiuxian_group_quiz_answer(_, msg):
@@ -3040,6 +3369,52 @@ def register_web(app) -> None:
 
         _remember_journal(telegram_user["id"], "shop", "上架商品", f"上架了【{result['listing']['item_name']}】")
         return {"code": 200, "data": result}
+
+    @user_router.post("/api/auction/personal")
+    async def xiuxian_personal_auction_api(payload: PersonalAuctionPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        seller_name = " ".join(
+            part for part in [telegram_user.get("first_name"), telegram_user.get("last_name")] if part
+        ).strip()
+        if not seller_name:
+            username = str(telegram_user.get("username") or "").strip()
+            seller_name = f"@{username}" if username else f"TG {telegram_user['id']}"
+
+        result = create_personal_auction_listing(
+            tg=telegram_user["id"],
+            seller_name=seller_name,
+            item_kind=payload.item_kind,
+            item_ref_id=payload.item_ref_id,
+            quantity=payload.quantity,
+            opening_price_stone=payload.opening_price_stone,
+            bid_increment_stone=payload.bid_increment_stone,
+            buyout_price_stone=payload.buyout_price_stone,
+        )
+        auction = dict(result.get("auction") or {})
+        push_warning = None
+        try:
+            auction, push_warning = await _push_auction_to_group(auction)
+        except Exception:
+            try:
+                cancel_personal_auction_listing(telegram_user["id"], int(auction.get("id") or 0))
+            except Exception as rollback_exc:
+                LOGGER.warning(f"xiuxian auction rollback failed auction={auction.get('id')}: {rollback_exc}")
+            raise
+
+        _remember_journal(
+            telegram_user["id"],
+            "auction",
+            "发起拍卖",
+            f"拍卖了【{auction.get('item_name') or '未知拍品'}】",
+        )
+        return {
+            "code": 200,
+            "data": {
+                "auction": auction,
+                "push_warning": push_warning,
+                "bundle": _full_bundle(telegram_user["id"]),
+            },
+        }
 
     @user_router.post("/api/shop/cancel")
     async def xiuxian_cancel_listing_api(payload: ShopCancelPayload):

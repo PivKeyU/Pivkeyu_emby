@@ -78,6 +78,14 @@
                 <input id="setting-shop-name" type="text" value="官方商店">
               </label>
               <label>
+                拍卖成交手续费（%）
+                <input id="setting-auction-fee" type="number" min="0" max="100" value="5">
+              </label>
+              <label>
+                拍卖持续时间（分钟）
+                <input id="setting-auction-duration" type="number" min="1" max="10080" value="60">
+              </label>
+              <label>
                 玩家发布任务消耗
                 <input id="setting-task-publish-cost" type="number" min="0" value="20">
               </label>
@@ -1436,6 +1444,19 @@
           </div>
         </form>
         <div id="official-shop-list" class="stack-list"></div>
+      </div>
+    </details>
+
+    <details class="card fold-card">
+      <summary class="fold-summary">
+        <div>
+          <p class="eyebrow" data-section-key="auctions">拍卖行</p>
+          <h2>群拍卖监控</h2>
+        </div>
+        <span class="summary-tip">查看玩家拍卖进度、成交结果与群消息状态</span>
+      </summary>
+      <div class="fold-body">
+        <div id="auction-list" class="stack-list"></div>
       </div>
     </details>
 

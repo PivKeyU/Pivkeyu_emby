@@ -322,6 +322,65 @@
             <h3>群修市集</h3>
             <div id="community-shop-list" class="stack-list"></div>
           </section>
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>拍卖行</h3>
+              <span class="summary-tip">群内推送、置顶竞拍、结束自动结算</span>
+            </summary>
+            <div class="mini-fold-body">
+              <form id="personal-auction-form" class="mini-form">
+                <div class="compact-grid">
+                  <label>
+                    拍卖类型
+                    <select id="auction-item-kind">
+                      <option value="artifact">法宝</option>
+                      <option value="talisman">符箓</option>
+                      <option value="pill">丹药</option>
+                      <option value="material">材料</option>
+                    </select>
+                  </label>
+                  <label>
+                    拍品
+                    <select id="auction-item-ref"></select>
+                  </label>
+                  <label>
+                    数量
+                    <input id="auction-quantity" type="number" min="1" value="1">
+                  </label>
+                  <label>
+                    起拍价
+                    <input id="auction-opening-price" type="number" min="0" value="10">
+                  </label>
+                  <label>
+                    每次加价
+                    <input id="auction-bid-increment" type="number" min="1" value="1">
+                  </label>
+                  <label>
+                    一口价
+                    <input id="auction-buyout-price" type="number" min="0" placeholder="不填则不启用">
+                  </label>
+                  <label>
+                    成交手续费
+                    <input id="auction-fee-display" type="text" value="-" readonly>
+                  </label>
+                  <label>
+                    拍卖时长
+                    <input id="auction-duration-display" type="text" value="-" readonly>
+                  </label>
+                </div>
+                <p class="section-copy">成交手续费由后台统一设定。拍卖发起后会自动推送到群里并置顶，竞拍请在群消息上点击按钮完成。</p>
+                <button type="submit">发起群内拍卖</button>
+              </form>
+              <section>
+                <h3>我的拍卖</h3>
+                <div id="personal-auction-list" class="stack-list"></div>
+              </section>
+              <section>
+                <h3>群内拍卖</h3>
+                <div id="community-auction-list" class="stack-list"></div>
+              </section>
+            </div>
+          </details>
         </div>
       </details>
 

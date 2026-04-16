@@ -173,6 +173,8 @@ DEFAULT_SETTINGS = {
     "artifact_plunder_chance": 20,
     "shop_broadcast_cost": 20,
     "official_shop_name": "官方商店",
+    "auction_fee_percent": 5,
+    "auction_duration_minutes": 60,
     "allow_user_task_publish": True,
     "task_publish_cost": 20,
     "user_task_daily_limit": 3,
@@ -1155,6 +1157,50 @@ class XiuxianShopItem(Base):
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
 
+class XiuxianAuctionItem(Base):
+    __tablename__ = "xiuxian_auction_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    owner_tg = Column(BigInteger, nullable=False)
+    owner_display_name = Column(String(128), nullable=True)
+    item_kind = Column(String(16), nullable=False)
+    item_ref_id = Column(Integer, nullable=False)
+    item_name = Column(String(64), nullable=False)
+    quantity = Column(Integer, default=1, nullable=False)
+    opening_price_stone = Column(Integer, default=0, nullable=False)
+    current_price_stone = Column(Integer, default=0, nullable=False)
+    bid_increment_stone = Column(Integer, default=1, nullable=False)
+    buyout_price_stone = Column(Integer, nullable=True)
+    fee_percent = Column(Integer, default=0, nullable=False)
+    highest_bidder_tg = Column(BigInteger, nullable=True)
+    highest_bidder_display_name = Column(String(128), nullable=True)
+    winner_tg = Column(BigInteger, nullable=True)
+    winner_display_name = Column(String(128), nullable=True)
+    bid_count = Column(Integer, default=0, nullable=False)
+    status = Column(String(16), default="active", nullable=False)
+    group_chat_id = Column(BigInteger, nullable=True)
+    group_message_id = Column(Integer, nullable=True)
+    final_price_stone = Column(Integer, nullable=True)
+    seller_income_stone = Column(Integer, nullable=True)
+    fee_amount_stone = Column(Integer, nullable=True)
+    end_at = Column(DateTime, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianAuctionBid(Base):
+    __tablename__ = "xiuxian_auction_bids"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    auction_id = Column(Integer, ForeignKey("xiuxian_auction_items.id", ondelete="CASCADE"), nullable=False)
+    bidder_tg = Column(BigInteger, nullable=False)
+    bidder_display_name = Column(String(128), nullable=True)
+    bid_amount_stone = Column(Integer, default=0, nullable=False)
+    action_type = Column(String(16), default="bid", nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
 class XiuxianDuelRecord(Base):
     __tablename__ = "xiuxian_duel_records"
 
@@ -1856,6 +1902,74 @@ def serialize_shop_item(item: XiuxianShopItem | None) -> dict[str, Any] | None:
         "price_stone": item.price_stone,
         "enabled": item.enabled,
         "is_official": item.is_official,
+        "created_at": serialize_datetime(item.created_at),
+    }
+
+
+def serialize_auction_item(item: XiuxianAuctionItem | None) -> dict[str, Any] | None:
+    if item is None:
+        return None
+
+    current_price = max(int(item.current_price_stone or 0), 0)
+    opening_price = max(int(item.opening_price_stone or 0), 0)
+    bid_increment = max(int(item.bid_increment_stone or 0), 1)
+    has_bid = current_price > 0 and int(item.bid_count or 0) > 0
+    next_bid_price = opening_price if not has_bid else current_price + bid_increment
+    buyout_price = int(item.buyout_price_stone or 0)
+    current_display_price = current_price if has_bid else opening_price
+    status_label = {
+        "active": "竞拍中",
+        "sold": "已成交",
+        "expired": "已流拍",
+        "cancelled": "已取消",
+    }.get(str(item.status or "active"), str(item.status or "active"))
+
+    return {
+        "id": item.id,
+        "owner_tg": item.owner_tg,
+        "owner_display_name": item.owner_display_name or "",
+        "item_kind": item.item_kind,
+        "item_kind_label": ITEM_KIND_LABELS.get(item.item_kind, item.item_kind),
+        "item_ref_id": item.item_ref_id,
+        "item_name": item.item_name,
+        "quantity": max(int(item.quantity or 0), 0),
+        "opening_price_stone": opening_price,
+        "current_price_stone": current_price,
+        "current_display_price_stone": current_display_price,
+        "bid_increment_stone": bid_increment,
+        "next_bid_price_stone": next_bid_price,
+        "buyout_price_stone": buyout_price,
+        "fee_percent": max(int(item.fee_percent or 0), 0),
+        "highest_bidder_tg": item.highest_bidder_tg,
+        "highest_bidder_display_name": item.highest_bidder_display_name or "",
+        "winner_tg": item.winner_tg,
+        "winner_display_name": item.winner_display_name or "",
+        "bid_count": max(int(item.bid_count or 0), 0),
+        "has_bid": has_bid,
+        "status": item.status,
+        "status_label": status_label,
+        "group_chat_id": item.group_chat_id,
+        "group_message_id": item.group_message_id,
+        "final_price_stone": int(item.final_price_stone or 0),
+        "seller_income_stone": int(item.seller_income_stone or 0),
+        "fee_amount_stone": int(item.fee_amount_stone or 0),
+        "end_at": serialize_datetime(item.end_at),
+        "completed_at": serialize_datetime(item.completed_at),
+        "created_at": serialize_datetime(item.created_at),
+        "updated_at": serialize_datetime(item.updated_at),
+    }
+
+
+def serialize_auction_bid(item: XiuxianAuctionBid | None) -> dict[str, Any] | None:
+    if item is None:
+        return None
+    return {
+        "id": item.id,
+        "auction_id": item.auction_id,
+        "bidder_tg": item.bidder_tg,
+        "bidder_display_name": item.bidder_display_name or "",
+        "bid_amount_stone": int(item.bid_amount_stone or 0),
+        "action_type": item.action_type,
         "created_at": serialize_datetime(item.created_at),
     }
 
@@ -3740,6 +3854,467 @@ def update_shop_item(item_id: int, **fields) -> dict[str, Any] | None:
         session.commit()
         session.refresh(item)
         return serialize_shop_item(item)
+
+
+def _auction_has_bid(item: XiuxianAuctionItem) -> bool:
+    return max(int(item.current_price_stone or 0), 0) > 0 and max(int(item.bid_count or 0), 0) > 0
+
+
+def _auction_next_bid_price(item: XiuxianAuctionItem) -> int:
+    opening_price = max(int(item.opening_price_stone or 0), 0)
+    current_price = max(int(item.current_price_stone or 0), 0)
+    bid_increment = max(int(item.bid_increment_stone or 0), 1)
+    return opening_price if not _auction_has_bid(item) else current_price + bid_increment
+
+
+def _grant_auction_item_to_inventory(
+    session: Session,
+    *,
+    tg: int,
+    item_kind: str,
+    item_ref_id: int,
+    quantity: int,
+) -> None:
+    amount = max(int(quantity or 0), 0)
+    if amount <= 0:
+        return
+
+    if item_kind == "artifact":
+        row = (
+            session.query(XiuxianArtifactInventory)
+            .filter(
+                XiuxianArtifactInventory.tg == int(tg),
+                XiuxianArtifactInventory.artifact_id == int(item_ref_id),
+            )
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            row = XiuxianArtifactInventory(tg=int(tg), artifact_id=int(item_ref_id), quantity=0, bound_quantity=0)
+            session.add(row)
+        row.quantity = int(row.quantity or 0) + amount
+        row.bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
+        row.updated_at = utcnow()
+        return
+
+    if item_kind == "pill":
+        row = (
+            session.query(XiuxianPillInventory)
+            .filter(
+                XiuxianPillInventory.tg == int(tg),
+                XiuxianPillInventory.pill_id == int(item_ref_id),
+            )
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            row = XiuxianPillInventory(tg=int(tg), pill_id=int(item_ref_id), quantity=0)
+            session.add(row)
+        row.quantity = int(row.quantity or 0) + amount
+        row.updated_at = utcnow()
+        return
+
+    if item_kind == "talisman":
+        row = (
+            session.query(XiuxianTalismanInventory)
+            .filter(
+                XiuxianTalismanInventory.tg == int(tg),
+                XiuxianTalismanInventory.talisman_id == int(item_ref_id),
+            )
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            row = XiuxianTalismanInventory(tg=int(tg), talisman_id=int(item_ref_id), quantity=0, bound_quantity=0)
+            session.add(row)
+        row.quantity = int(row.quantity or 0) + amount
+        row.bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
+        row.updated_at = utcnow()
+        return
+
+    if item_kind == "material":
+        row = (
+            session.query(XiuxianMaterialInventory)
+            .filter(
+                XiuxianMaterialInventory.tg == int(tg),
+                XiuxianMaterialInventory.material_id == int(item_ref_id),
+            )
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            row = XiuxianMaterialInventory(tg=int(tg), material_id=int(item_ref_id), quantity=0)
+            session.add(row)
+        row.quantity = int(row.quantity or 0) + amount
+        row.updated_at = utcnow()
+        return
+
+    raise ValueError("不支持的拍卖物品类型")
+
+
+def list_auction_items(
+    owner_tg: int | None = None,
+    *,
+    status: str | None = None,
+    include_inactive: bool = False,
+    exclude_owner_tg: int | None = None,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    with Session() as session:
+        query = session.query(XiuxianAuctionItem)
+        if owner_tg is not None:
+            query = query.filter(XiuxianAuctionItem.owner_tg == int(owner_tg))
+        if exclude_owner_tg is not None:
+            query = query.filter(XiuxianAuctionItem.owner_tg != int(exclude_owner_tg))
+        if status:
+            query = query.filter(XiuxianAuctionItem.status == str(status))
+        elif not include_inactive:
+            query = query.filter(XiuxianAuctionItem.status == "active")
+        query = query.order_by(XiuxianAuctionItem.id.desc())
+        if limit is not None:
+            query = query.limit(max(int(limit or 0), 1))
+        return [serialize_auction_item(item) for item in query.all()]
+
+
+def get_auction_item(auction_id: int) -> dict[str, Any] | None:
+    with Session() as session:
+        row = session.query(XiuxianAuctionItem).filter(XiuxianAuctionItem.id == int(auction_id)).first()
+        return serialize_auction_item(row)
+
+
+def create_auction_item(
+    *,
+    owner_tg: int,
+    owner_display_name: str,
+    item_kind: str,
+    item_ref_id: int,
+    item_name: str,
+    quantity: int,
+    opening_price_stone: int,
+    bid_increment_stone: int,
+    buyout_price_stone: int | None,
+    fee_percent: int,
+    end_at: datetime,
+    group_chat_id: int | None = None,
+    group_message_id: int | None = None,
+) -> dict[str, Any]:
+    opening_price = max(int(opening_price_stone or 0), 0)
+    bid_increment = max(int(bid_increment_stone or 0), 1)
+    buyout_price = max(int(buyout_price_stone or 0), 0) or None
+    if buyout_price is not None and buyout_price < opening_price:
+        raise ValueError("一口价不能低于起拍价")
+
+    with Session() as session:
+        item = XiuxianAuctionItem(
+            owner_tg=int(owner_tg),
+            owner_display_name=str(owner_display_name or "").strip(),
+            item_kind=str(item_kind or "").strip(),
+            item_ref_id=int(item_ref_id),
+            item_name=str(item_name or "").strip(),
+            quantity=max(int(quantity or 0), 1),
+            opening_price_stone=opening_price,
+            current_price_stone=0,
+            bid_increment_stone=bid_increment,
+            buyout_price_stone=buyout_price,
+            fee_percent=max(int(fee_percent or 0), 0),
+            status="active",
+            group_chat_id=int(group_chat_id) if group_chat_id is not None else None,
+            group_message_id=int(group_message_id) if group_message_id is not None else None,
+            end_at=end_at,
+        )
+        session.add(item)
+        session.commit()
+        session.refresh(item)
+        return serialize_auction_item(item)
+
+
+def update_auction_item(auction_id: int, **fields) -> dict[str, Any] | None:
+    with Session() as session:
+        item = session.query(XiuxianAuctionItem).filter(XiuxianAuctionItem.id == int(auction_id)).first()
+        if item is None:
+            return None
+        for key, value in fields.items():
+            if not hasattr(item, key):
+                continue
+            setattr(item, key, value)
+        item.updated_at = utcnow()
+        session.commit()
+        session.refresh(item)
+        return serialize_auction_item(item)
+
+
+def list_auction_bids(auction_id: int, *, limit: int = 50) -> list[dict[str, Any]]:
+    with Session() as session:
+        rows = (
+            session.query(XiuxianAuctionBid)
+            .filter(XiuxianAuctionBid.auction_id == int(auction_id))
+            .order_by(XiuxianAuctionBid.id.desc())
+            .limit(max(int(limit or 50), 1))
+            .all()
+        )
+        return [serialize_auction_bid(item) for item in rows]
+
+
+def _settle_auction_row(session: Session, auction: XiuxianAuctionItem) -> dict[str, Any]:
+    now = utcnow()
+    current_price = max(int(auction.current_price_stone or 0), 0)
+    fee_percent = max(int(auction.fee_percent or 0), 0)
+    has_bid = _auction_has_bid(auction)
+
+    auction.updated_at = now
+    auction.completed_at = now
+
+    if not has_bid:
+        _grant_auction_item_to_inventory(
+            session,
+            tg=int(auction.owner_tg),
+            item_kind=str(auction.item_kind or ""),
+            item_ref_id=int(auction.item_ref_id),
+            quantity=int(auction.quantity or 0),
+        )
+        auction.status = "expired"
+        auction.winner_tg = None
+        auction.winner_display_name = None
+        auction.final_price_stone = 0
+        auction.seller_income_stone = 0
+        auction.fee_amount_stone = 0
+        return {
+            "result": "expired",
+            "auction": serialize_auction_item(auction),
+            "winner_tg": None,
+            "winner_display_name": None,
+            "seller_tg": int(auction.owner_tg),
+        }
+
+    fee_amount = current_price * fee_percent // 100
+    seller_income = max(current_price - fee_amount, 0)
+
+    winner_tg = int(auction.highest_bidder_tg or 0)
+    if winner_tg <= 0:
+        raise ValueError("拍卖状态异常，缺少最高出价者")
+
+    seller = (
+        session.query(XiuxianProfile)
+        .filter(XiuxianProfile.tg == int(auction.owner_tg))
+        .with_for_update()
+        .first()
+    )
+    if seller is not None and seller_income > 0:
+        seller.spiritual_stone = int(seller.spiritual_stone or 0) + seller_income
+        seller.updated_at = now
+
+    _grant_auction_item_to_inventory(
+        session,
+        tg=winner_tg,
+        item_kind=str(auction.item_kind or ""),
+        item_ref_id=int(auction.item_ref_id),
+        quantity=int(auction.quantity or 0),
+    )
+
+    auction.status = "sold"
+    auction.winner_tg = winner_tg
+    auction.winner_display_name = str(auction.highest_bidder_display_name or "").strip() or None
+    auction.final_price_stone = current_price
+    auction.seller_income_stone = seller_income
+    auction.fee_amount_stone = fee_amount
+
+    return {
+        "result": "sold",
+        "auction": serialize_auction_item(auction),
+        "winner_tg": winner_tg,
+        "winner_display_name": auction.winner_display_name or "",
+        "seller_tg": int(auction.owner_tg),
+        "seller_income_stone": seller_income,
+        "fee_amount_stone": fee_amount,
+    }
+
+
+def finalize_auction_item(auction_id: int, *, force: bool = False) -> dict[str, Any] | None:
+    with Session() as session:
+        auction = (
+            session.query(XiuxianAuctionItem)
+            .filter(XiuxianAuctionItem.id == int(auction_id))
+            .with_for_update()
+            .first()
+        )
+        if auction is None:
+            return None
+        if str(auction.status or "") != "active":
+            return {
+                "result": "noop",
+                "auction": serialize_auction_item(auction),
+                "winner_tg": int(auction.winner_tg or 0) or None,
+                "winner_display_name": str(auction.winner_display_name or ""),
+                "seller_tg": int(auction.owner_tg or 0) or None,
+            }
+        if not force and auction.end_at > utcnow():
+            raise ValueError("拍卖尚未结束")
+        payload = _settle_auction_row(session, auction)
+        session.commit()
+        return payload
+
+
+def cancel_auction_item(auction_id: int, *, owner_tg: int | None = None) -> dict[str, Any] | None:
+    with Session() as session:
+        auction = (
+            session.query(XiuxianAuctionItem)
+            .filter(XiuxianAuctionItem.id == int(auction_id))
+            .with_for_update()
+            .first()
+        )
+        if auction is None:
+            return None
+        if owner_tg is not None and int(auction.owner_tg or 0) != int(owner_tg):
+            raise ValueError("你无权取消这场拍卖")
+        if str(auction.status or "") != "active":
+            return {
+                "result": "noop",
+                "auction": serialize_auction_item(auction),
+            }
+
+        now = utcnow()
+        current_price = max(int(auction.current_price_stone or 0), 0)
+        current_bidder_tg = int(auction.highest_bidder_tg or 0)
+        if current_bidder_tg > 0 and current_price > 0:
+            bidder = (
+                session.query(XiuxianProfile)
+                .filter(XiuxianProfile.tg == current_bidder_tg)
+                .with_for_update()
+                .first()
+            )
+            if bidder is not None:
+                bidder.spiritual_stone = int(bidder.spiritual_stone or 0) + current_price
+                bidder.updated_at = now
+
+        _grant_auction_item_to_inventory(
+            session,
+            tg=int(auction.owner_tg),
+            item_kind=str(auction.item_kind or ""),
+            item_ref_id=int(auction.item_ref_id),
+            quantity=int(auction.quantity or 0),
+        )
+
+        auction.status = "cancelled"
+        auction.updated_at = now
+        auction.completed_at = now
+        auction.final_price_stone = 0
+        auction.seller_income_stone = 0
+        auction.fee_amount_stone = 0
+        auction.winner_tg = None
+        auction.winner_display_name = None
+
+        session.commit()
+        return {
+            "result": "cancelled",
+            "auction": serialize_auction_item(auction),
+            "refunded_bidder_tg": current_bidder_tg or None,
+        }
+
+
+def place_auction_bid(
+    auction_id: int,
+    *,
+    bidder_tg: int,
+    bidder_display_name: str = "",
+    use_buyout: bool = False,
+) -> dict[str, Any]:
+    with Session() as session:
+        auction = (
+            session.query(XiuxianAuctionItem)
+            .filter(XiuxianAuctionItem.id == int(auction_id))
+            .with_for_update()
+            .first()
+        )
+        if auction is None:
+            raise ValueError("拍卖不存在")
+        if str(auction.status or "") != "active":
+            raise ValueError("拍卖已经结束")
+        if auction.end_at <= utcnow():
+            raise ValueError("拍卖已经结束")
+        if int(auction.owner_tg or 0) == int(bidder_tg):
+            raise ValueError("不能给自己发起的拍卖加价")
+
+        current_bidder_tg = int(auction.highest_bidder_tg or 0)
+        current_price = max(int(auction.current_price_stone or 0), 0)
+        buyout_price = max(int(auction.buyout_price_stone or 0), 0)
+        next_price = _auction_next_bid_price(auction)
+        is_buyout = bool(use_buyout)
+        if is_buyout:
+            if buyout_price <= 0:
+                raise ValueError("这场拍卖没有设置一口价")
+            next_price = buyout_price
+        elif buyout_price > 0 and next_price >= buyout_price:
+            next_price = buyout_price
+            is_buyout = True
+
+        bidder = (
+            session.query(XiuxianProfile)
+            .filter(XiuxianProfile.tg == int(bidder_tg))
+            .with_for_update()
+            .first()
+        )
+        if bidder is None or not bidder.consented:
+            raise ValueError("你还没有踏入仙途")
+
+        now = utcnow()
+        bidder_name = str(bidder_display_name or "").strip()
+        bid_action = "buyout" if is_buyout else "bid"
+
+        if current_bidder_tg == int(bidder_tg):
+            if not is_buyout:
+                raise ValueError("你已经是当前领先者，无需重复加价")
+            additional_cost = max(next_price - current_price, 0)
+            if additional_cost <= 0:
+                raise ValueError("当前价格已经达到一口价")
+            if int(bidder.spiritual_stone or 0) < additional_cost:
+                raise ValueError("灵石不足，无法完成一口价")
+            bidder.spiritual_stone = int(bidder.spiritual_stone or 0) - additional_cost
+            bidder.updated_at = now
+        else:
+            if int(bidder.spiritual_stone or 0) < next_price:
+                raise ValueError("灵石不足，无法完成出价")
+            bidder.spiritual_stone = int(bidder.spiritual_stone or 0) - next_price
+            bidder.updated_at = now
+            if current_bidder_tg > 0 and current_price > 0:
+                previous_bidder = (
+                    session.query(XiuxianProfile)
+                    .filter(XiuxianProfile.tg == current_bidder_tg)
+                    .with_for_update()
+                    .first()
+                )
+                if previous_bidder is not None:
+                    previous_bidder.spiritual_stone = int(previous_bidder.spiritual_stone or 0) + current_price
+                    previous_bidder.updated_at = now
+
+        auction.current_price_stone = next_price
+        auction.highest_bidder_tg = int(bidder_tg)
+        auction.highest_bidder_display_name = bidder_name or auction.highest_bidder_display_name
+        auction.bid_count = max(int(auction.bid_count or 0), 0) + 1
+        auction.updated_at = now
+
+        session.add(
+            XiuxianAuctionBid(
+                auction_id=int(auction.id),
+                bidder_tg=int(bidder_tg),
+                bidder_display_name=bidder_name or None,
+                bid_amount_stone=next_price,
+                action_type=bid_action,
+            )
+        )
+
+        if is_buyout:
+            payload = _settle_auction_row(session, auction)
+            session.commit()
+            return payload
+
+        session.commit()
+        return {
+            "result": "bid",
+            "auction": serialize_auction_item(auction),
+            "winner_tg": None,
+            "winner_display_name": None,
+            "seller_tg": int(auction.owner_tg or 0) or None,
+        }
 
 
 def purchase_shop_item(buyer_tg: int, item_id: int, quantity: int = 1) -> dict[str, Any]:

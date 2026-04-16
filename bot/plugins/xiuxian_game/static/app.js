@@ -319,32 +319,52 @@ function ensureSectionState(selector, visible, openWhenVisible = false) {
   syncFoldToolbar();
 }
 
-function renderInventorySelect() {
-  const select = document.querySelector("#shop-item-ref");
-  const kind = document.querySelector("#shop-item-kind").value;
-  const bundle = state.profileBundle;
-  if (!bundle) return;
+function inventoryRowsByKind(kind, bundle = state.profileBundle) {
+  const source = bundle || {};
+  if (kind === "artifact") return source.artifacts || [];
+  if (kind === "pill") return source.pills || [];
+  if (kind === "talisman") return source.talismans || [];
+  if (kind === "material") return source.materials || [];
+  return [];
+}
 
-  let rows = [];
-  if (kind === "artifact") rows = bundle.artifacts;
-  if (kind === "pill") rows = bundle.pills;
-  if (kind === "talisman") rows = bundle.talismans;
-  if (kind === "material") rows = bundle.materials;
+function tradeableInventoryRows(kind, bundle = state.profileBundle) {
+  return inventoryRowsByKind(kind, bundle).filter((row) => Number(row.tradeable_quantity ?? row.quantity ?? 0) > 0);
+}
 
+function populateTradeableInventorySelect(select, kind, emptyText) {
+  if (!select) return;
+  const previousValue = select.value;
+  const rows = tradeableInventoryRows(kind);
   select.innerHTML = "";
-  const available = rows.filter((row) => Number(row.tradeable_quantity ?? row.quantity ?? 0) > 0);
-  if (!available.length) {
-    select.innerHTML = `<option value="">暂无可上架物品</option>`;
+  if (!rows.length) {
+    select.innerHTML = `<option value="">${emptyText}</option>`;
     return;
   }
 
-  for (const row of available) {
+  rows.forEach((row) => {
     const item = row[kind];
     const option = document.createElement("option");
     option.value = item.id;
     option.textContent = `${item.name} · 可交易 ${row.tradeable_quantity ?? row.quantity}`;
     select.appendChild(option);
+  });
+
+  if ([...select.options].some((option) => String(option.value) === String(previousValue))) {
+    select.value = previousValue;
   }
+}
+
+function renderInventorySelect() {
+  const select = document.querySelector("#shop-item-ref");
+  const kind = document.querySelector("#shop-item-kind")?.value || "artifact";
+  populateTradeableInventorySelect(select, kind, "暂无可上架物品");
+}
+
+function renderAuctionInventorySelect() {
+  const select = document.querySelector("#auction-item-ref");
+  const kind = document.querySelector("#auction-item-kind")?.value || "artifact";
+  populateTradeableInventorySelect(select, kind, "暂无可拍卖物品");
 }
 
 function taskRequirementRows(kind) {
@@ -812,6 +832,82 @@ function renderCommunityShop(items, retreating) {
     `;
     root.appendChild(card);
   }
+}
+
+function auctionStatusText(item) {
+  return String(item?.status_label || item?.status || "未知状态");
+}
+
+function auctionBuyoutText(item) {
+  const price = Number(item?.buyout_price_stone || 0);
+  return price > 0 ? `${price} 灵石` : "未设置";
+}
+
+function auctionLeaderText(item) {
+  return String(item?.highest_bidder_display_name || "").trim()
+    || (item?.highest_bidder_tg ? `TG ${item.highest_bidder_tg}` : "暂无");
+}
+
+function renderPersonalAuctions(items = []) {
+  const root = document.querySelector("#personal-auction-list");
+  if (!root) return;
+  root.innerHTML = "";
+  if (!items.length) {
+    root.innerHTML = `<article class="stack-item"><strong>你还没有发起拍卖</strong><p>从背包中挑选可交易物品后，可以直接推送到群里开拍。</p></article>`;
+    return;
+  }
+
+  items.forEach((item) => {
+    const card = document.createElement("article");
+    card.className = "stack-item";
+    let extraText = `当前价 ${item.current_display_price_stone} 灵石 · 下次出价 ${item.next_bid_price_stone} 灵石`;
+    if (item.status === "sold") {
+      extraText = `成交 ${item.final_price_stone} 灵石 · 入账 ${item.seller_income_stone} 灵石 · 手续费 ${item.fee_amount_stone} 灵石`;
+    } else if (item.status === "expired") {
+      extraText = "无人出价，拍品已经退回背包。";
+    } else if (item.status === "cancelled") {
+      extraText = "拍卖已取消，拍品与竞价灵石均已退回。";
+    }
+    card.innerHTML = `
+      <div class="stack-item-head">
+        <strong>${escapeHtml(item.item_name)} × ${escapeHtml(item.quantity)}</strong>
+        <span class="badge badge--normal">${escapeHtml(auctionStatusText(item))}</span>
+      </div>
+      <p>${escapeHtml(item.item_kind_label || item.item_kind)} · 结束 ${escapeHtml(formatDate(item.end_at))}</p>
+      <p>加价 ${escapeHtml(item.bid_increment_stone)} 灵石 · 一口价 ${escapeHtml(auctionBuyoutText(item))}</p>
+      <p>领先者：${escapeHtml(auctionLeaderText(item))} · 出价 ${escapeHtml(item.bid_count || 0)} 次</p>
+      <p>${escapeHtml(extraText)}</p>
+      ${item.group_message_id ? `<p class="section-copy">群消息已推送${item.status === "active" ? "并置顶" : ""}，竞拍请在群里点击按钮完成。</p>` : ""}
+    `;
+    root.appendChild(card);
+  });
+}
+
+function renderCommunityAuctions(items = []) {
+  const root = document.querySelector("#community-auction-list");
+  if (!root) return;
+  root.innerHTML = "";
+  if (!items.length) {
+    root.innerHTML = `<article class="stack-item"><strong>群内暂时没有进行中的拍卖</strong><p>等其他道友开拍后，这里会显示当前竞拍情况。</p></article>`;
+    return;
+  }
+
+  items.forEach((item) => {
+    const card = document.createElement("article");
+    card.className = "stack-item";
+    card.innerHTML = `
+      <div class="stack-item-head">
+        <strong>${escapeHtml(item.item_name)} × ${escapeHtml(item.quantity)}</strong>
+        <span class="badge badge--vip">${escapeHtml(item.current_display_price_stone)} 灵石</span>
+      </div>
+      <p>${escapeHtml(item.item_kind_label || item.item_kind)} · 卖家 ${escapeHtml(item.owner_display_name || `TG ${item.owner_tg || 0}`)}</p>
+      <p>下次出价 ${escapeHtml(item.next_bid_price_stone)} 灵石 · 每次加价 ${escapeHtml(item.bid_increment_stone)} 灵石</p>
+      <p>一口价 ${escapeHtml(auctionBuyoutText(item))} · 结束 ${escapeHtml(formatDate(item.end_at))}</p>
+      <p>当前领先：${escapeHtml(auctionLeaderText(item))} · 出价 ${escapeHtml(item.bid_count || 0)} 次</p>
+      <p class="section-copy">请前往群里的置顶拍卖消息点击按钮竞拍，群消息会随出价自动刷新。</p>
+    `;
+    root.appendChild(card);
+  });
 }
 
 function taskRewardText(task) {
@@ -1584,6 +1680,7 @@ document.querySelector("#stone-to-coin-form").addEventListener("submit", async (
 });
 
 document.querySelector("#shop-item-kind").addEventListener("change", renderInventorySelect);
+document.querySelector("#auction-item-kind")?.addEventListener("change", renderAuctionInventorySelect);
 
 document.querySelector("#shop-name-toggle")?.addEventListener("click", () => {
   state.shopNameEditing = !state.shopNameEditing;
@@ -1613,6 +1710,37 @@ document.querySelector("#personal-shop-form").addEventListener("submit", async (
     await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "上架个人店铺失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
+});
+
+document.querySelector("#personal-auction-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector("button[type='submit']");
+  try {
+    const payload = await runButtonAction(button, "发起中…", () => postJson("/plugins/xiuxian/api/auction/personal", {
+      item_kind: document.querySelector("#auction-item-kind").value,
+      item_ref_id: Number(document.querySelector("#auction-item-ref").value || 0),
+      quantity: Number(document.querySelector("#auction-quantity").value || 1),
+      opening_price_stone: Number(document.querySelector("#auction-opening-price").value || 0),
+      bid_increment_stone: Number(document.querySelector("#auction-bid-increment").value || 1),
+      buyout_price_stone: Number(document.querySelector("#auction-buyout-price").value || 0) || null,
+    }));
+    const itemName = payload.auction?.item_name || "拍品";
+    const buyoutPrice = Number(payload.auction?.buyout_price_stone || 0);
+    const pushWarning = String(payload.push_warning || "").trim();
+    const message = `${itemName} 已发起群拍，起拍价 ${payload.auction?.opening_price_stone || 0} 灵石，单次加价 ${payload.auction?.bid_increment_stone || 1} 灵石${buyoutPrice > 0 ? `，一口价 ${buyoutPrice} 灵石` : ""}。${pushWarning || "群消息已推送并置顶。"}`
+      .trim();
+    if (payload.bundle) {
+      applyProfileBundle(payload.bundle);
+    } else {
+      await refreshBundle();
+    }
+    setStatus(message, pushWarning ? "warning" : "success");
+    await popup(pushWarning ? "拍卖已创建，但置顶失败" : "拍卖已发起", message, pushWarning ? "warning" : "success");
+  } catch (error) {
+    const message = normalizeError(error, "发起拍卖失败。");
     setStatus(message, "error");
     await popup("操作失败", message, "error");
   }
@@ -2683,6 +2811,7 @@ renderProfile = function renderProfileRedesigned(bundle) {
   const rootText = document.querySelector("#root-text");
   const heroRootPill = document.querySelector("#hero-root-pill");
   const profileGrid = document.querySelector("#profile-grid");
+  const officialShopTitle = document.querySelector("#official-shop-title");
 
   if (!consented) {
     const deathAt = profile.death_at ? formatDate(profile.death_at) : "";
@@ -2734,6 +2863,9 @@ renderProfile = function renderProfileRedesigned(bundle) {
   }
   if (rootText) {
     rootText.textContent = `灵根：${rootLabel}，五行修正 ${rootBonus >= 0 ? "+" : ""}${rootBonus}%`;
+  }
+  if (officialShopTitle) {
+    officialShopTitle.textContent = officialShopName(bundle);
   }
   if (profileGrid) {
     profileGrid.innerHTML = `
@@ -2798,8 +2930,21 @@ renderProfile = function renderProfileRedesigned(bundle) {
     .forEach((selector) => setDisabled(document.querySelector(selector), retreating || Boolean(duelLockReason), shopDisabledReason));
   setDisabled(document.querySelector("#shop-name-toggle"), retreating || Boolean(duelLockReason), shopDisabledReason);
   setDisabled(document.querySelector("#personal-shop-form button[type='submit']"), retreating || Boolean(duelLockReason), shopDisabledReason);
+  const auctionDisabledReason = retreating ? "闭关期间无法发起拍卖。" : duelLockReason;
+  ["#auction-item-kind", "#auction-item-ref", "#auction-quantity", "#auction-opening-price", "#auction-bid-increment", "#auction-buyout-price"]
+    .forEach((selector) => setDisabled(document.querySelector(selector), retreating || Boolean(duelLockReason), auctionDisabledReason));
+  setDisabled(document.querySelector("#personal-auction-form button[type='submit']"), retreating || Boolean(duelLockReason), auctionDisabledReason);
   setDisabled(document.querySelector("#gift-form button[type='submit']"), Boolean(duelLockReason), duelLockReason);
   setDisabled(document.querySelector("#red-envelope-form button[type='submit']"), Boolean(duelLockReason), duelLockReason);
+
+  const auctionFeeDisplay = document.querySelector("#auction-fee-display");
+  if (auctionFeeDisplay) {
+    auctionFeeDisplay.value = `${Number(settings.auction_fee_percent || 0)}%（后台设定）`;
+  }
+  const auctionDurationDisplay = document.querySelector("#auction-duration-display");
+  if (auctionDurationDisplay) {
+    auctionDurationDisplay.value = `${Number(settings.auction_duration_minutes || 60)} 分钟`;
+  }
 
   renderArtifactList(bundle.artifacts || [], retreating, equipLimit, equippedArtifacts.length);
   renderTalismanList(bundle.talismans || [], retreating);
@@ -2808,6 +2953,9 @@ renderProfile = function renderProfileRedesigned(bundle) {
   renderPersonalShop(bundle.personal_shop || []);
   renderCommunityShop(bundle.community_shop || [], retreating);
   renderInventorySelect();
+  renderAuctionInventorySelect();
+  renderPersonalAuctions(bundle.personal_auctions || []);
+  renderCommunityAuctions(bundle.community_auctions || []);
   renderJournalArea(bundle);
   syncAdminEntry(bundle);
   syncUserTaskComposer();

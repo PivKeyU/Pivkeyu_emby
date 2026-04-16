@@ -64,6 +64,15 @@ class PersonalShopPayload(InitDataPayload):
     broadcast: bool = False
 
 
+class PersonalAuctionPayload(InitDataPayload):
+    item_kind: str
+    item_ref_id: int
+    quantity: int
+    opening_price_stone: int
+    bid_increment_stone: int
+    buyout_price_stone: int | None = None
+
+
 class PurchasePayload(InitDataPayload):
     item_id: int
     quantity: int = 1
@@ -172,6 +181,8 @@ class AdminSettingPayload(BaseModel):
     equipment_unbind_cost: int | None = None
     shop_broadcast_cost: int | None = None
     official_shop_name: str | None = None
+    auction_fee_percent: int | None = None
+    auction_duration_minutes: int | None = None
     allow_user_task_publish: bool | None = None
     task_publish_cost: int | None = None
     user_task_daily_limit: int | None = None
