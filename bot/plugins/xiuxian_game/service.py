@@ -3508,7 +3508,7 @@ def start_retreat_for_user(tg: int, hours: int) -> dict[str, Any]:
         "hours": retreat_hours,
         "estimated_gain": plan["gain_per_minute"] * total_minutes,
         "estimated_cost": total_cost,
-        "profile": serialize_full_profile(updated.tg),
+        "profile": serialize_full_profile(tg),
     }
 
 
@@ -4710,7 +4710,7 @@ def init_path_for_user(tg: int) -> dict[str, Any]:
         rebirth_count=int(profile.rebirth_count or 0) + (1 if is_rebirth else 0),
         **stats,
     )
-    return serialize_full_profile(updated.tg)
+    return serialize_full_profile(tg)
 
 
 def practice_for_user(tg: int) -> dict[str, Any]:
@@ -4753,7 +4753,7 @@ def practice_for_user(tg: int) -> dict[str, Any]:
         "stone_gain": stone_gain,
         "upgraded_layers": upgraded_layers,
         "remaining": remaining,
-        "profile": serialize_full_profile(updated.tg),
+        "profile": serialize_full_profile(tg),
     }
 
 
@@ -4851,7 +4851,7 @@ def breakthrough_for_user(tg: int, use_pill: bool = False) -> dict[str, Any]:
         "success_rate": success_rate,
         "pill_bonus": pill_bonus,
         "used_pill": used_pill_name,
-        "profile": serialize_full_profile(updated.tg),
+        "profile": serialize_full_profile(tg),
     }
 
 

@@ -21,6 +21,7 @@ from pyrogram.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarku
 from bot import LOGGER, admin_p, api as api_config, bot, config, group, owner, owner_p, prefixes, user_p
 from bot.func_helper.msg_utils import callAnswer
 from bot.plugins import list_plugins
+from bot.sql_helper import Session
 from bot.plugins.xiuxian_game.api_models import (
     AchievementPayload,
     AchievementProgressPayload,
@@ -780,6 +781,7 @@ async def _notify_achievement_unlocks(unlocks: list[dict[str, Any]] | None) -> N
 
 
 def _full_bundle(tg: int) -> dict[str, Any]:
+    Session.remove()
     bundle = serialize_full_profile(tg)
     world_bundle = build_world_bundle(tg)
     bundle.update({key: value for key, value in world_bundle.items() if key != "settings"})

@@ -577,6 +577,7 @@ def leave_sect_for_user(tg: int) -> dict[str, Any]:
     current = get_current_sect_bundle(tg)
     if not current:
         raise ValueError("你当前并未加入宗门")
+    updated_profile = None
     with Session() as session:
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if profile is None or not profile.consented:
@@ -608,6 +609,8 @@ def leave_sect_for_user(tg: int) -> dict[str, Any]:
         profile.last_salary_claim_at = None
         profile.updated_at = utcnow()
         session.commit()
+        session.refresh(profile)
+        updated_profile = serialize_profile(profile)
 
     sect_name = (current or {}).get("name", "未知宗门")
     create_journal(
@@ -618,7 +621,7 @@ def leave_sect_for_user(tg: int) -> dict[str, Any]:
     )
     return {
         "previous_sect": current,
-        "profile": serialize_profile(get_profile(tg, create=False)),
+        "profile": updated_profile,
         "betrayal": {
             "stone_penalty": penalty,
             "contribution_cleared": previous_contribution,
