@@ -122,7 +122,7 @@ def pill_usage_reason(profile_data: dict[str, Any], pill: dict[str, Any]) -> str
         )
     pill_type = str(pill.get("pill_type") or "").strip()
     if pill_type == "foundation":
-        return "破境丹只能在第一次大境界突破时配合使用。"
+        return "破境丹只能在对应的大境界突破时配合使用。"
     if pill_type == "root_refine":
         effects = resolve_pill_effects(profile_data, pill)
         steps = max(int(round(float(effects.get("root_quality_gain", 0) or 0))), 0)

@@ -113,6 +113,10 @@ REALM_STAGE_RULES = {
         breakthrough_base_rate,
     ) in REALM_STAGE_RULE_ROWS
 }
+IMMORTAL_REBASE_START_STAGE = "人仙"
+IMMORTAL_REBASE_START_INDEX = REALM_ORDER.index(IMMORTAL_REBASE_START_STAGE)
+IMMORTAL_REBASE_SOURCE_STAGES = REALM_ORDER[IMMORTAL_REBASE_START_INDEX:]
+IMMORTAL_REBASE_TARGET_STAGES = REALM_ORDER[: len(IMMORTAL_REBASE_SOURCE_STAGES)]
 FIVE_ELEMENTS = ["金", "木", "水", "火", "土"]
 ELEMENT_GENERATES = {"木": "火", "火": "土", "土": "金", "金": "水", "水": "木"}
 ELEMENT_CONTROLS = {"木": "土", "土": "水", "水": "火", "火": "金", "金": "木"}
@@ -585,6 +589,56 @@ def migrate_legacy_realm_state(stage: str | None, layer: int | str | None, culti
             or final_cultivation != current_cultivation
         ),
         "legacy": True,
+    }
+
+
+def rebase_immortal_realm_state(stage: str | None, layer: int | str | None, cultivation: int | str | None) -> dict[str, Any]:
+    raw_stage = str(stage or "").strip()
+    target_stage = normalize_realm_stage(raw_stage)
+    normalized_layer = normalize_realm_layer(layer)
+    try:
+        current_cultivation = max(int(cultivation or 0), 0)
+    except (TypeError, ValueError):
+        current_cultivation = 0
+    try:
+        original_layer = int(layer or normalized_layer)
+    except (TypeError, ValueError):
+        original_layer = normalized_layer
+
+    if target_stage not in IMMORTAL_REBASE_SOURCE_STAGES:
+        threshold = calculate_realm_threshold(target_stage, normalized_layer)
+        capped_cultivation = min(current_cultivation, threshold)
+        return {
+            "source_stage": raw_stage or target_stage,
+            "target_stage": target_stage,
+            "target_layer": normalized_layer,
+            "target_cultivation": capped_cultivation,
+            "changed": (
+                target_stage != raw_stage
+                or normalized_layer != original_layer
+                or capped_cultivation != current_cultivation
+            ),
+            "rebased": False,
+        }
+
+    source_index = IMMORTAL_REBASE_SOURCE_STAGES.index(target_stage)
+    final_stage = IMMORTAL_REBASE_TARGET_STAGES[source_index]
+    source_threshold = calculate_realm_threshold(target_stage, normalized_layer)
+    capped_cultivation = min(current_cultivation, source_threshold)
+    progress_ratio = min(capped_cultivation / max(source_threshold, 1), 1.0)
+    final_threshold = calculate_realm_threshold(final_stage, normalized_layer)
+    final_cultivation = min(int(round(final_threshold * progress_ratio)), final_threshold)
+    return {
+        "source_stage": raw_stage or target_stage,
+        "target_stage": final_stage,
+        "target_layer": normalized_layer,
+        "target_cultivation": final_cultivation,
+        "changed": (
+            final_stage != raw_stage
+            or normalized_layer != original_layer
+            or final_cultivation != current_cultivation
+        ),
+        "rebased": True,
     }
 
 
@@ -2307,6 +2361,8 @@ def migrate_all_profile_realms(preview_limit: int = 20) -> dict[str, Any]:
         for row in rows:
             result = migrate_legacy_realm_state(row.realm_stage, row.realm_layer, row.cultivation)
             if not result["changed"]:
+                result = rebase_immortal_realm_state(row.realm_stage, row.realm_layer, row.cultivation)
+            if not result["changed"]:
                 unchanged += 1
                 continue
             before_stage = str(row.realm_stage or "").strip() or REALM_ORDER[0]
@@ -2316,7 +2372,7 @@ def migrate_all_profile_realms(preview_limit: int = 20) -> dict[str, Any]:
             row.realm_layer = int(result["target_layer"])
             row.cultivation = int(result["target_cultivation"])
             row.updated_at = utcnow()
-            if result["legacy"]:
+            if result.get("legacy"):
                 migrated += 1
             else:
                 repaired += 1
@@ -2330,7 +2386,8 @@ def migrate_all_profile_realms(preview_limit: int = 20) -> dict[str, Any]:
                         "after_stage": row.realm_stage,
                         "after_layer": int(row.realm_layer or 0),
                         "after_cultivation": int(row.cultivation or 0),
-                        "legacy": bool(result["legacy"]),
+                        "legacy": bool(result.get("legacy")),
+                        "rebased": bool(result.get("rebased")),
                     }
                 )
         session.commit()
@@ -3435,11 +3492,24 @@ def plunder_random_artifact_to_user(receiver_tg: int, owner_tg: int) -> dict[str
         if not owner_rows:
             return None
 
+        equipped_rows = (
+            session.query(XiuxianEquippedArtifact)
+            .filter(XiuxianEquippedArtifact.tg == owner_tg)
+            .order_by(XiuxianEquippedArtifact.slot.asc(), XiuxianEquippedArtifact.id.asc())
+            .with_for_update()
+            .all()
+        )
+        equipped_count_map: dict[int, int] = {}
+        for row in equipped_rows:
+            artifact_id = int(row.artifact_id or 0)
+            equipped_count_map[artifact_id] = equipped_count_map.get(artifact_id, 0) + 1
+
         weighted_ids: list[int] = []
         for row in owner_rows:
             total_quantity = int(row.quantity or 0)
             bound_quantity = max(min(int(row.bound_quantity or 0), total_quantity), 0)
-            weighted_ids.extend([int(row.artifact_id)] * max(total_quantity - bound_quantity, 0))
+            protected_quantity = min(total_quantity, bound_quantity + equipped_count_map.get(int(row.artifact_id), 0))
+            weighted_ids.extend([int(row.artifact_id)] * max(total_quantity - protected_quantity, 0))
         if not weighted_ids:
             return None
 
@@ -3448,24 +3518,9 @@ def plunder_random_artifact_to_user(receiver_tg: int, owner_tg: int) -> dict[str
         if owner_row is None:
             return None
 
-        equipped_rows = (
-            session.query(XiuxianEquippedArtifact)
-            .filter(XiuxianEquippedArtifact.tg == owner_tg)
-            .order_by(XiuxianEquippedArtifact.slot.asc(), XiuxianEquippedArtifact.id.asc())
-            .with_for_update()
-            .all()
-        )
-        equipped_row = next((row for row in equipped_rows if int(row.artifact_id) == artifact_id), None)
-
         owner_row.quantity = max(int(owner_row.quantity or 0) - 1, 0)
         owner_row.bound_quantity = max(min(int(owner_row.bound_quantity or 0), int(owner_row.quantity or 0)), 0)
         owner_row.updated_at = utcnow()
-
-        was_equipped = False
-        if equipped_row is not None and int(owner_row.quantity or 0) < 1:
-            session.delete(equipped_row)
-            session.flush()
-            was_equipped = True
 
         if int(owner_row.quantity or 0) <= 0:
             session.delete(owner_row)
@@ -3504,7 +3559,7 @@ def plunder_random_artifact_to_user(receiver_tg: int, owner_tg: int) -> dict[str
         session.commit()
         return {
             "artifact": serialize_artifact(artifact),
-            "was_equipped": was_equipped,
+            "was_equipped": False,
             "owner_remaining": owner_remaining,
             "receiver_quantity": receiver_quantity,
         }

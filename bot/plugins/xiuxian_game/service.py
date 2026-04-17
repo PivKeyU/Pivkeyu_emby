@@ -91,6 +91,7 @@ from bot.sql_helper.sql_xiuxian import (
     migrate_all_profile_realms,
     migrate_legacy_realm_state,
     normalize_realm_stage,
+    rebase_immortal_realm_state,
     finalize_auction_item as sql_finalize_auction_item,
     place_auction_bid as sql_place_auction_bid,
     purchase_shop_item as sql_purchase_shop_item,
@@ -1798,6 +1799,146 @@ BREAKTHROUGH_BASE_RATE = {
     stage: int(rule.get("breakthrough_base_rate", 0))
     for stage, rule in REALM_STAGE_RULES.items()
 }
+BREAKTHROUGH_PILL_NAME_OVERRIDES = {
+    "炼气": "筑基丹",
+    "渡劫": "天罚破境丹",
+}
+BREAKTHROUGH_QUALITY_LABELS = ["下品", "中品", "上品", "极品", "仙品", "先天至宝"]
+BREAKTHROUGH_SCENE_NAME_SUFFIX = "破境秘境"
+
+
+def _breakthrough_target_stage(stage: str) -> str | None:
+    index = realm_index(stage)
+    if index < 0 or index >= len(REALM_ORDER) - 1:
+        return None
+    return REALM_ORDER[index + 1]
+
+
+def _breakthrough_requirement(stage: str | None) -> dict[str, Any] | None:
+    current_stage = normalize_realm_stage(stage or FIRST_REALM_STAGE)
+    target_stage = _breakthrough_target_stage(current_stage)
+    if target_stage is None:
+        return None
+    source_index = max(realm_index(current_stage), 0)
+    quality_index = min((source_index * len(BREAKTHROUGH_QUALITY_LABELS)) // max(len(REALM_ORDER) - 1, 1), len(BREAKTHROUGH_QUALITY_LABELS) - 1)
+    quality_label = BREAKTHROUGH_QUALITY_LABELS[quality_index]
+    pool = SEED_MATERIAL_BLUEPRINTS[quality_label]
+    offset = source_index % len(pool)
+    material_names = [pool[(offset + step * 3) % len(pool)] for step in range(3)]
+    pill_name = BREAKTHROUGH_PILL_NAME_OVERRIDES.get(current_stage, f"{target_stage}破境丹")
+    recipe_name = f"{pill_name}丹谱"
+    scene_name = f"{target_stage}{BREAKTHROUGH_SCENE_NAME_SUFFIX}"
+    success_floor = min(58 + source_index * 2, 88)
+    min_power = 180 + source_index * 320
+    return {
+        "source_stage": current_stage,
+        "target_stage": target_stage,
+        "pill_name": pill_name,
+        "recipe_name": recipe_name,
+        "scene_name": scene_name,
+        "quality_label": quality_label,
+        "material_names": material_names,
+        "success_floor": success_floor,
+        "min_power": min_power,
+    }
+
+
+def _build_breakthrough_seed_payloads() -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    pills: list[dict[str, Any]] = []
+    recipes: list[dict[str, Any]] = []
+    scenes: list[dict[str, Any]] = []
+    for stage in REALM_ORDER[:-1]:
+        requirement = _breakthrough_requirement(stage)
+        if requirement is None:
+            continue
+        source_index = max(realm_index(requirement["source_stage"]), 0)
+        target_stage = requirement["target_stage"]
+        pill_name = requirement["pill_name"]
+        recipe_name = requirement["recipe_name"]
+        scene_name = requirement["scene_name"]
+        material_names = requirement["material_names"]
+        rarity = requirement["quality_label"]
+        effect_value = 48 + source_index * 4
+        poison_delta = 6 + min(source_index, 8)
+        pills.append(
+            {
+                "name": pill_name,
+                "rarity": rarity,
+                "pill_type": "foundation",
+                "description": f"专为 {target_stage} 大境界突破炼制的破境丹，药力会在冲关一刻稳住灵台与经脉，适合 {requirement['source_stage']} 圆满修士服用。",
+                "effect_value": effect_value,
+                "poison_delta": poison_delta,
+                "min_realm_stage": requirement["source_stage"],
+                "min_realm_layer": 9,
+                "enabled": True,
+            }
+        )
+        recipes.append(
+            {
+                "name": recipe_name,
+                "recipe_kind": "pill",
+                "result_kind": "pill",
+                "result_name": pill_name,
+                "result_quantity": 1,
+                "base_success_rate": max(72 - source_index * 2, 28),
+                "broadcast_on_success": False,
+                "ingredients": [{"material_name": item_name, "quantity": 1} for item_name in material_names],
+            }
+        )
+        scenes.append(
+            {
+                "name": scene_name,
+                "description": f"为 {requirement['source_stage']} 修士准备的破境试炼地，产出 {pill_name} 所需主材，也有机会直接找到丹谱。",
+                "max_minutes": min(32 + source_index * 2, 60),
+                "min_realm_stage": requirement["source_stage"],
+                "min_realm_layer": 8,
+                "min_combat_power": requirement["min_power"],
+                "event_pool": [
+                    {
+                        "name": "破境残诀",
+                        "description": f"残阵之中残留着前辈冲击 {target_stage} 的心得，你顺势找到了关键丹谱。",
+                        "event_type": "recipe",
+                        "weight": 3,
+                        "bonus_reward_kind": "recipe",
+                        "bonus_reward_ref_id_name": recipe_name,
+                        "bonus_quantity_min": 1,
+                        "bonus_quantity_max": 1,
+                        "bonus_chance": min(34 + source_index, 68),
+                    }
+                ],
+                "drops": [
+                    {
+                        "reward_kind": "material",
+                        "reward_ref_id_name": item_name,
+                        "quantity_min": 1,
+                        "quantity_max": 2 if index == 0 else 1,
+                        "weight": max(6 - index, 2),
+                        "stone_reward": 4 + source_index * 2,
+                        "event_text": f"你在 {scene_name} 中觅得一份【{item_name}】。",
+                    }
+                    for index, item_name in enumerate(material_names)
+                ]
+                + [
+                    {
+                        "reward_kind": "recipe",
+                        "reward_ref_id_name": recipe_name,
+                        "quantity_min": 1,
+                        "quantity_max": 1,
+                        "weight": 1,
+                        "stone_reward": 6 + source_index * 2,
+                        "event_text": f"你在 {scene_name} 的核心残阵中找到一页【{recipe_name}】。",
+                    }
+                ],
+            }
+        )
+    return pills, recipes, scenes
+
+
+BREAKTHROUGH_PILLS, BREAKTHROUGH_RECIPES, BREAKTHROUGH_SCENES = _build_breakthrough_seed_payloads()
+DEFAULT_PILLS.extend(BREAKTHROUGH_PILLS)
+DEFAULT_RECIPES.extend(BREAKTHROUGH_RECIPES)
+DEFAULT_SCENES.extend(BREAKTHROUGH_SCENES)
+
 SPIRIT_STONE_COMMISSION_ACTION = "commission"
 SPIRIT_STONE_COMMISSIONS = {
     "work": {
@@ -1949,6 +2090,8 @@ def _repair_profile_realm_state(tg: int) -> XiuxianProfile | None:
     if profile is None:
         return None
     repair = migrate_legacy_realm_state(profile.realm_stage, profile.realm_layer, profile.cultivation)
+    if not repair.get("changed"):
+        repair = rebase_immortal_realm_state(profile.realm_stage, profile.realm_layer, profile.cultivation)
     if not repair.get("changed"):
         return profile
     return upsert_profile(
@@ -2818,7 +2961,7 @@ def _pill_usage_reason(profile_data: dict[str, Any], pill: dict[str, Any]) -> st
         return f"需要达到 {format_realm_requirement(pill.get('min_realm_stage'), pill.get('min_realm_layer'))} 才能服用这枚丹药。"
     pill_type = str(pill.get("pill_type") or "").strip()
     if pill_type == "foundation":
-        return "破境丹只能在第一次大境界突破时配合使用。"
+        return "破境丹只能在对应的大境界突破时配合使用。"
     if pill_type == "root_refine":
         effects = resolve_pill_effects(profile_data, pill)
         steps = max(int(round(float(effects.get("root_quality_gain", 0) or 0))), 0)
@@ -3868,6 +4011,7 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         "error_log_retention_count": max(int(xiuxian_settings.get("error_log_retention_count", DEFAULT_SETTINGS["error_log_retention_count"]) or 0), 1),
     }
     active_duel_lock = get_active_duel_lock(tg)
+    breakthrough_requirement = _breakthrough_requirement(profile_data.get("realm_stage"))
     attribute_effects = [
         {
             "key": key,
@@ -3897,6 +4041,8 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         "train_reason": "角色已死亡，只能重新踏出仙途" if profile_data["is_dead"] else ("" if not retreating and not is_same_china_day(profile.last_train_at, utcnow()) else ("闭关期间无法吐纳修炼" if retreating else "今日已经完成过吐纳修炼了")),
         "can_breakthrough": profile_data["consented"] and not profile_data["is_dead"] and not retreating and int(profile_data["realm_layer"] or 0) >= 9 and bool(progress["breakthrough_ready"]),
         "breakthrough_reason": "角色已死亡，只能重新踏出仙途" if profile_data["is_dead"] else ("" if not retreating and int(profile_data["realm_layer"] or 0) >= 9 and progress["breakthrough_ready"] else ("闭关期间无法突破" if retreating else "只有达到当前境界九层且满修为后才能突破")),
+        "required_breakthrough_pill_name": (breakthrough_requirement or {}).get("pill_name"),
+        "required_breakthrough_scene_name": (breakthrough_requirement or {}).get("scene_name"),
         "can_retreat": profile_data["consented"] and not profile_data["is_dead"] and not retreating,
         "retreat_reason": "角色已死亡，只能重新踏出仙途" if profile_data["is_dead"] else ("" if not retreating else "你正在闭关中"),
         "is_in_retreat": retreating,
@@ -3947,6 +4093,17 @@ def _find_pill_in_inventory(tg: int, pill_type: str) -> dict[str, Any] | None:
     for row in list_user_pills(tg):
         pill = row["pill"]
         if pill["pill_type"] == pill_type and row["quantity"] > 0:
+            return row
+    return None
+
+
+def _find_pill_in_inventory_by_name(tg: int, pill_name: str) -> dict[str, Any] | None:
+    target_name = str(pill_name or "").strip()
+    if not target_name:
+        return None
+    for row in list_user_pills(tg):
+        pill = row["pill"] or {}
+        if str(pill.get("name") or "").strip() == target_name and int(row.get("quantity") or 0) > 0:
             return row
     return None
 
@@ -5546,6 +5703,10 @@ def breakthrough_for_user(tg: int, use_pill: bool = False) -> dict[str, Any]:
     next_stage = next_realm_stage(stage)
     if next_stage is None:
         raise ValueError("你已经走到当前修炼体系的尽头。")
+    requirement = _breakthrough_requirement(stage)
+    required_pill_name = str((requirement or {}).get("pill_name") or "").strip()
+    if required_pill_name and not use_pill:
+        raise ValueError(f"突破至 {next_stage} 需要先服用对应破境丹【{required_pill_name}】。")
 
     profile_data = serialize_profile(profile)
     artifact_effects = merge_artifact_effects(profile_data, collect_equipped_artifacts(tg))
@@ -5572,13 +5733,14 @@ def breakthrough_for_user(tg: int, use_pill: bool = False) -> dict[str, Any]:
 
     pill_bonus = 0
     used_pill_name = None
-    if stage == FIRST_REALM_STAGE and use_pill:
-        pill_row = _find_pill_in_inventory(tg, "foundation")
+    pill_row = None
+    if use_pill and required_pill_name:
+        pill_row = _find_pill_in_inventory_by_name(tg, required_pill_name)
         if pill_row is None:
-            raise ValueError("你没有可用的破境丹。")
+            raise ValueError(f"你还没有对应的破境丹【{required_pill_name}】。")
         used_pill_name = pill_row["pill"]["name"]
-        pill_effects = resolve_pill_effects(profile_data, pill_row["pill"], {"pill_uses": int(profile.breakthrough_pill_uses or 0), "base_success_rate": success_rate})
-        base_bonus = max(50 - int(profile.breakthrough_pill_uses or 0) * 5, 30)
+        pill_effects = resolve_pill_effects(profile_data, pill_row["pill"], {"base_success_rate": success_rate})
+        base_bonus = max(int((requirement or {}).get("success_floor") or 0) - success_rate, 12)
         pill_bonus = max(int(round(pill_effects.get("success_rate_bonus", 0))), base_bonus)
         success_rate += pill_bonus
 
@@ -5594,7 +5756,6 @@ def breakthrough_for_user(tg: int, use_pill: bool = False) -> dict[str, Any]:
     roll = success_roll["roll"]
     success = bool(success_roll["success"])
     if use_pill and used_pill_name:
-        pill_row = _find_pill_in_inventory(tg, "foundation")
         if pill_row is None or not consume_user_pill(tg, pill_row["pill"]["id"], 1):
             raise ValueError("破境丹消耗失败，请稍后再试。")
 

@@ -194,6 +194,32 @@ function setDisabled(button, disabled, reason = "") {
   button.title = disabled ? reason : "";
 }
 
+function applyBreakthroughActionState(bundle, fallbackReason = "当前无法尝试突破") {
+  const canBreakthrough = Boolean(bundle?.capabilities?.can_breakthrough);
+  const requiredPillName = String(bundle?.capabilities?.required_breakthrough_pill_name || "").trim();
+  const requiredSceneName = String(bundle?.capabilities?.required_breakthrough_scene_name || "").trim();
+  const breakButton = document.querySelector("#break-btn");
+  const breakPillButton = document.querySelector("#break-pill-btn");
+  if (breakPillButton) {
+    breakPillButton.textContent = requiredPillName ? `服用${requiredPillName}突破` : "服用破境丹突破";
+  }
+  if (breakButton) {
+    if (requiredPillName) {
+      const reason = requiredSceneName
+        ? `当前版本突破必须服用【${requiredPillName}】；丹方与材料可在【${requiredSceneName}】获取。`
+        : `当前版本突破必须服用【${requiredPillName}】。`;
+      setDisabled(breakButton, true, reason);
+    } else {
+      setDisabled(breakButton, !canBreakthrough, fallbackReason);
+    }
+  }
+  setDisabled(
+    breakPillButton,
+    !canBreakthrough,
+    !canBreakthrough ? (bundle?.capabilities?.breakthrough_reason || fallbackReason) : "",
+  );
+}
+
 function parseShanghaiDate(value) {
   if (!value) return null;
   const normalized = typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(value)
@@ -716,8 +742,7 @@ function renderProfile(bundle) {
     `当前比例：1 片刻碎片 = ${bundle.settings.rate} 灵石，手续费 ${bundle.settings.fee_percent}%，灵石兑换碎片最低 ${bundle.settings.min_coin_exchange} 灵石。`;
 
   setDisabled(document.querySelector("#train-btn"), !bundle.capabilities?.can_train, "当前无法吐纳修炼");
-  setDisabled(document.querySelector("#break-btn"), !bundle.capabilities?.can_breakthrough, "当前无法尝试突破");
-  setDisabled(document.querySelector("#break-pill-btn"), !bundle.capabilities?.can_breakthrough, "当前无法尝试突破");
+  applyBreakthroughActionState(bundle, "当前无法尝试突破");
   setDisabled(document.querySelector("#retreat-start-btn"), !bundle.capabilities?.can_retreat, "当前无法开始闭关");
   setDisabled(document.querySelector("#retreat-finish-btn"), !retreating, "当前没有进行中的闭关");
 
@@ -822,8 +847,7 @@ function renderProfile(bundle) {
   }
 
   setDisabled(document.querySelector("#train-btn"), !bundle.capabilities?.can_train, "当前无法吐纳修炼");
-  setDisabled(document.querySelector("#break-btn"), !bundle.capabilities?.can_breakthrough, "当前无法尝试突破");
-  setDisabled(document.querySelector("#break-pill-btn"), !bundle.capabilities?.can_breakthrough, "当前无法使用破境丹突破");
+  applyBreakthroughActionState(bundle, "当前无法尝试突破");
   setDisabled(document.querySelector("#retreat-start-btn"), !bundle.capabilities?.can_retreat, "当前无法开始闭关");
   setDisabled(document.querySelector("#retreat-finish-btn"), !retreating, "当前没有进行中的闭关");
   const exchangeDisabledReason = retreating ? "闭关期间无法兑换灵石和片刻碎片。" : "";
@@ -3330,8 +3354,7 @@ renderProfile = function renderProfileRedesigned(bundle) {
   }
 
   setDisabled(document.querySelector("#train-btn"), !bundle.capabilities?.can_train, "当前无法吐纳修炼");
-  setDisabled(document.querySelector("#break-btn"), !bundle.capabilities?.can_breakthrough, "当前无法尝试突破");
-  setDisabled(document.querySelector("#break-pill-btn"), !bundle.capabilities?.can_breakthrough, "当前无法使用破境丹突破");
+  applyBreakthroughActionState(bundle, "当前无法尝试突破");
   setDisabled(document.querySelector("#retreat-start-btn"), !bundle.capabilities?.can_retreat, "当前无法开始闭关");
   setDisabled(document.querySelector("#retreat-finish-btn"), !retreating, "当前没有进行中的闭关");
   setDisabled(document.querySelector("#coin-to-stone-form button[type='submit']"), Boolean(duelLockReason), duelLockReason);

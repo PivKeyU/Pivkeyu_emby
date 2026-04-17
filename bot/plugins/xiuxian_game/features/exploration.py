@@ -216,6 +216,9 @@ def _drop_success_rate(
     fortune: int,
     divine_sense: int,
     scene_quality: int,
+    combat_power: int,
+    min_combat_power: int,
+    requirements_met: bool,
 ) -> int:
     duration_ratio = max(min(float(duration) / float(max(max_minutes, 1)), 1.0), 0.05)
     rate = _base_drop_success_rate(quality_level)
@@ -223,6 +226,15 @@ def _drop_success_rate(
     rate += max(fortune - 10, 0) // 4
     rate += max(divine_sense - 10, 0) // 5
     rate -= max(scene_quality - quality_level, 0) * 3
+    power_gap = max(int(min_combat_power or 0) - max(int(combat_power or 0), 0), 0)
+    if power_gap > 0:
+        gap_ratio = power_gap / max(int(min_combat_power or 0), 1)
+        rate -= 12 + min(int(round(gap_ratio * 28)), 20)
+    elif requirements_met:
+        power_surplus = max(int(combat_power or 0) - max(int(min_combat_power or 0), 0), 0)
+        surplus_ratio = power_surplus / max(int(min_combat_power or 0), 1) if int(min_combat_power or 0) > 0 else 1.0
+        rate += 14 + min(int(round(surplus_ratio * 22)), 22)
+        rate = max(rate, 72 + min(int(round(surplus_ratio * 10)), 12))
     return max(min(rate, 95), 3)
 
 
@@ -586,38 +598,38 @@ def _drop_random_unbound_artifacts(tg: int, count: int) -> list[dict[str, Any]]:
                 .with_for_update()
                 .all()
             )
-            weighted_ids: list[int] = []
+            equipped_rows = (
+                session.query(XiuxianEquippedArtifact)
+                .filter(XiuxianEquippedArtifact.tg == tg)
+                .order_by(XiuxianEquippedArtifact.slot.desc(), XiuxianEquippedArtifact.id.desc())
+                .with_for_update()
+                .all()
+            )
+            equipped_count_map: dict[int, int] = {}
+            for equipped_row in equipped_rows:
+                artifact_id = int(equipped_row.artifact_id or 0)
+                equipped_count_map[artifact_id] = equipped_count_map.get(artifact_id, 0) + 1
+
+            weighted_rows: list[tuple[int, int]] = []
             for row in owner_rows:
                 total_quantity = int(row.quantity or 0)
                 bound_quantity = max(min(int(row.bound_quantity or 0), total_quantity), 0)
-                weighted_ids.extend([int(row.artifact_id)] * max(total_quantity - bound_quantity, 0))
-            if not weighted_ids:
+                protected_quantity = min(total_quantity, bound_quantity + equipped_count_map.get(int(row.artifact_id), 0))
+                droppable_quantity = max(total_quantity - protected_quantity, 0)
+                if droppable_quantity > 0:
+                    weighted_rows.append((int(row.artifact_id), droppable_quantity))
+            if not weighted_rows:
                 break
 
+            weighted_ids = [artifact_id for artifact_id, quantity in weighted_rows for _ in range(quantity)]
             artifact_id = random.choice(weighted_ids)
             row = next((item for item in owner_rows if int(item.artifact_id) == artifact_id), None)
             if row is None:
                 continue
 
-            equipped_rows = (
-                session.query(XiuxianEquippedArtifact)
-                .filter(
-                    XiuxianEquippedArtifact.tg == tg,
-                    XiuxianEquippedArtifact.artifact_id == artifact_id,
-                )
-                .order_by(XiuxianEquippedArtifact.slot.desc(), XiuxianEquippedArtifact.id.desc())
-                .with_for_update()
-                .all()
-            )
-
             row.quantity = max(int(row.quantity or 0) - 1, 0)
             row.bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
             row.updated_at = utcnow()
-
-            was_equipped = False
-            if len(equipped_rows) > int(row.quantity or 0):
-                session.delete(equipped_rows[0])
-                was_equipped = True
 
             if int(row.quantity or 0) <= 0:
                 session.delete(row)
@@ -638,7 +650,7 @@ def _drop_random_unbound_artifacts(tg: int, count: int) -> list[dict[str, Any]]:
             dropped.append(
                 {
                     "artifact": serialize_artifact(artifact),
-                    "was_equipped": was_equipped,
+                    "was_equipped": False,
                 }
             )
 
@@ -716,6 +728,9 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
         fortune=fortune,
         divine_sense=divine_sense,
         scene_quality=scene_quality,
+        combat_power=int(bundle.get("combat_power") or 0),
+        min_combat_power=int(requirement_state.get("min_combat_power") or 0),
+        requirements_met=bool(requirement_state.get("requirements_met")),
     )
     drop_succeeded = roll_probability_percent(drop_success_rate)["success"]
     if not drop_succeeded:
@@ -840,21 +855,22 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
         exploration_payload = serialize_exploration(exploration)
 
     legacy_service = _legacy_service()
-    profile = legacy_service._repair_profile_realm_state(tg) or get_profile(tg, create=False)
+    profile_row = legacy_service._repair_profile_realm_state(tg) or get_profile(tg, create=False)
+    profile = serialize_profile(profile_row) if profile_row is not None else None
     fatal_outcome = outcome.get("fatal_outcome") if isinstance(outcome.get("fatal_outcome"), dict) else None
     if fatal_outcome:
         if profile is None:
             raise ValueError("用户不存在")
-        current_stone = int(profile.spiritual_stone or 0)
+        current_stone = int(profile.get("spiritual_stone") or 0)
         planned_stone_loss = max(
             int(round(current_stone * int(fatal_outcome.get("stone_loss_percent") or 0) / 100)),
             12 if current_stone > 0 else 0,
         )
         actual_stone_loss = min(current_stone, planned_stone_loss)
 
-        stage = legacy_service.normalize_realm_stage(profile.realm_stage or legacy_service.FIRST_REALM_STAGE)
-        current_layer = int(profile.realm_layer or 1)
-        current_cultivation = int(profile.cultivation or 0)
+        stage = legacy_service.normalize_realm_stage(profile.get("realm_stage") or legacy_service.FIRST_REALM_STAGE)
+        current_layer = int(profile.get("realm_layer") or 1)
+        current_cultivation = int(profile.get("cultivation") or 0)
         threshold = legacy_service.cultivation_threshold(stage, current_layer)
         planned_cultivation_loss = max(
             int(round(max(current_cultivation, threshold // 3) * int(fatal_outcome.get("cultivation_loss_percent") or 0) / 100)),
@@ -876,6 +892,7 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
             realm_layer=next_layer,
             cultivation=next_cultivation,
         )
+        updated_profile = serialize_profile(updated)
         death_reasons = list(fatal_outcome.get("reasons") or [])
         reason_text = "；".join(death_reasons) if death_reasons else "误入凶险秘境"
         create_journal(
@@ -893,7 +910,7 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
             "stone_delta": -actual_stone_loss,
             "cultivation_loss": actual_cultivation_loss,
             "artifact_losses": artifact_losses,
-            "profile": serialize_profile(updated),
+            "profile": updated_profile,
             "death": {
                 "died": True,
                 "reasons": death_reasons,
@@ -925,10 +942,11 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
 
     event_stone_bonus = max(int(outcome.get("stone_bonus") or 0), 0)
     event_stone_loss = max(int(outcome.get("stone_loss") or 0), 0)
-    current_stone = int(profile.spiritual_stone or 0) if profile else 0
+    current_stone = int(profile.get("spiritual_stone") or 0) if profile else 0
     actual_stone_loss = min(current_stone, event_stone_loss)
     total_stone_delta = stone_reward + event_stone_bonus - actual_stone_loss
     activity_growth = {"triggered": False, "changes": [], "patch": {}, "chance": 0, "roll": None}
+    updated_profile = None
     with Session() as session:
         updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if updated is None or not updated.consented:
@@ -942,6 +960,7 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
         updated.updated_at = utcnow()
         session.commit()
         session.refresh(updated)
+        updated_profile = serialize_profile(updated)
     event_type = str((outcome.get("event") or {}).get("event_type") or "").strip()
     recipe_like_drop = bool(
         bonus_payload and bonus_payload.get("is_recipe_like")
@@ -975,6 +994,6 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
         "stone_loss": actual_stone_loss,
         "stone_delta": total_stone_delta,
         "attribute_growth": activity_growth.get("changes") or [],
-        "profile": serialize_profile(updated),
+        "profile": updated_profile,
         "achievement_unlocks": achievement_unlocks,
     }
