@@ -687,11 +687,39 @@ function touch(tone = "success") {
   tg.HapticFeedback.notificationOccurred("success");
 }
 
+const TG_POPUP_TITLE_LIMIT = 64;
+const TG_POPUP_MESSAGE_LIMIT = 256;
+const TG_POPUP_FALLBACK_MESSAGE = {
+  success: "操作已完成。",
+  warning: "操作已完成，请留意页面提示。",
+  error: "操作失败，请稍后再试。",
+};
+
+function safeTelegramPopupText(value, limit, fallback = "") {
+  const text = String(value ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  const normalized = text || fallback;
+  if (!normalized) return "";
+  if (normalized.length <= limit) return normalized;
+  return `${normalized.slice(0, Math.max(limit - 1, 1)).trimEnd()}…`;
+}
+
 async function popup(title, message, tone = "success") {
   touch(tone);
   if (tg?.showPopup) {
-    await tg.showPopup({ title, message, buttons: [{ type: "close", text: "知道了" }] });
-    return;
+    try {
+      await tg.showPopup({
+        title: safeTelegramPopupText(title, TG_POPUP_TITLE_LIMIT, "提示"),
+        message: safeTelegramPopupText(
+          message,
+          TG_POPUP_MESSAGE_LIMIT,
+          TG_POPUP_FALLBACK_MESSAGE[tone] || TG_POPUP_FALLBACK_MESSAGE.success,
+        ),
+        buttons: [{ type: "close", text: "知道了" }],
+      });
+      return;
+    } catch (error) {
+      console.warn("Telegram popup failed, fallback to alert", error);
+    }
   }
   window.alert(`${title}\n\n${message}`);
 }
@@ -3039,9 +3067,10 @@ document.getElementById("system-reset-player-data")?.addEventListener("click", a
     syncSelectedPlayerUI();
     await bootstrapAdmin();
     const lines = Object.entries(result || {}).map(([key, value]) => `${key}: ${value}`);
+    const profileCount = Number(result?.profiles || 0);
     renderSystemOpSummary("玩家修仙数据已清空", lines, "warning");
     adminStatus("所有玩家修仙数据已清空。", "warning");
-    await popup("清档完成", lines.join("\n") || "所有玩家修仙数据已清空。", "warning");
+    await popup("清档完成", profileCount > 0 ? `已清空 ${profileCount} 个玩家档案，详细统计已写入页面。` : "所有玩家修仙数据已清空，详细统计已写入页面。", "warning");
   } catch (error) {
     const message = String(error.message || error);
     renderSystemOpSummary("玩家数据清档失败", [message], "error");

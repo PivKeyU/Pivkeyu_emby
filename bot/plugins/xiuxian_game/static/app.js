@@ -131,15 +131,39 @@ function normalizeErrorLegacy(error, fallback) {
   return message;
 }
 
+const TG_POPUP_TITLE_LIMIT = 64;
+const TG_POPUP_MESSAGE_LIMIT = 256;
+const TG_POPUP_FALLBACK_MESSAGE = {
+  success: "操作已完成。",
+  warning: "操作已完成，请留意页面提示。",
+  error: "操作失败，请稍后再试。",
+};
+
+function safeTelegramPopupText(value, limit, fallback = "") {
+  const text = String(value ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  const normalized = text || fallback;
+  if (!normalized) return "";
+  if (normalized.length <= limit) return normalized;
+  return `${normalized.slice(0, Math.max(limit - 1, 1)).trimEnd()}…`;
+}
+
 async function popupLegacy(title, message, tone = "success") {
   touchFeedback(tone);
   if (tg?.showPopup) {
-    await tg.showPopup({
-      title,
-      message,
-      buttons: [{ type: "close", text: "知道了" }]
-    });
-    return;
+    try {
+      await tg.showPopup({
+        title: safeTelegramPopupText(title, TG_POPUP_TITLE_LIMIT, "提示"),
+        message: safeTelegramPopupText(
+          message,
+          TG_POPUP_MESSAGE_LIMIT,
+          TG_POPUP_FALLBACK_MESSAGE[tone] || TG_POPUP_FALLBACK_MESSAGE.success,
+        ),
+        buttons: [{ type: "close", text: "知道了" }]
+      });
+      return;
+    } catch (error) {
+      console.warn("Telegram popup failed, fallback to alert", error);
+    }
   }
   window.alert(`${title}\n\n${message}`);
 }
@@ -194,12 +218,20 @@ function normalizeError(error, fallback) {
 async function popup(title, message, tone = "success") {
   touchFeedback(tone);
   if (tg?.showPopup) {
-    await tg.showPopup({
-      title,
-      message,
-      buttons: [{ type: "close", text: "知道了" }]
-    });
-    return;
+    try {
+      await tg.showPopup({
+        title: safeTelegramPopupText(title, TG_POPUP_TITLE_LIMIT, "提示"),
+        message: safeTelegramPopupText(
+          message,
+          TG_POPUP_MESSAGE_LIMIT,
+          TG_POPUP_FALLBACK_MESSAGE[tone] || TG_POPUP_FALLBACK_MESSAGE.success,
+        ),
+        buttons: [{ type: "close", text: "知道了" }]
+      });
+      return;
+    } catch (error) {
+      console.warn("Telegram popup failed, fallback to alert", error);
+    }
   }
   window.alert(`${title}\n\n${message}`);
 }
