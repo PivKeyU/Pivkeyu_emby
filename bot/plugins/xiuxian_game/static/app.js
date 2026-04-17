@@ -389,6 +389,84 @@ function wikiFilterMatches(entry, filter) {
   return keys.includes(String(filter || ""));
 }
 
+const WIKI_FILTER_LABELS = {
+  tutorial: "玩法",
+  starter: "入门",
+  explore: "探索",
+  crafting: "炼制",
+  combat: "战斗",
+  task: "任务",
+  social: "社交",
+  sect: "宗门",
+  material: "材料",
+  artifact: "法宝",
+  pill: "丹药",
+  talisman: "符箓",
+  technique: "功法",
+  title: "称号",
+  recipe: "配方",
+  achievement: "成就",
+};
+
+function normalizeWikiDisplayText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function wikiCardSubtitle(entry) {
+  const title = normalizeWikiDisplayText(entry?.title);
+  const subtitle = normalizeWikiDisplayText(entry?.subtitle);
+  if (!subtitle || title === subtitle) return "";
+  if (String(entry?.group || "") === "tutorial" && title.startsWith(`${subtitle} · `)) return "";
+  return subtitle;
+}
+
+function wikiCardTags(entry) {
+  if (String(entry?.group || "") === "tutorial") {
+    const filterKeys = Array.isArray(entry?.filter_keys) ? entry.filter_keys : [];
+    return filterKeys
+      .filter((key) => key && key !== "tutorial")
+      .map((key) => WIKI_FILTER_LABELS[String(key)] || "")
+      .filter(Boolean)
+      .slice(0, 3);
+  }
+  return (Array.isArray(entry?.tags) ? entry.tags : []).filter(Boolean).slice(0, 4);
+}
+
+function wikiCardLines(entry) {
+  const lines = Array.isArray(entry?.body_lines) ? entry.body_lines : [];
+  const seen = new Set();
+  const skipValues = [
+    entry?.title,
+    entry?.subtitle,
+    entry?.description,
+  ].map((value) => normalizeWikiDisplayText(value).toLowerCase()).filter(Boolean);
+  skipValues.forEach((value) => seen.add(value));
+  const visible = [];
+  for (const line of lines) {
+    const text = normalizeWikiDisplayText(line);
+    if (!text) continue;
+    const normalized = text.toLowerCase();
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    visible.push(text);
+  }
+  return visible.slice(0, String(entry?.group || "") === "tutorial" ? 1 : 2);
+}
+
+function wikiPopupLines(entry) {
+  const rows = [];
+  const subtitle = wikiCardSubtitle(entry);
+  if (subtitle) rows.push(subtitle);
+  for (const value of [entry?.description, ...(Array.isArray(entry?.body_lines) ? entry.body_lines : [])]) {
+    const text = normalizeWikiDisplayText(value);
+    if (!text) continue;
+    const normalized = text.toLowerCase();
+    if (rows.some((item) => normalizeWikiDisplayText(item).toLowerCase() === normalized)) continue;
+    rows.push(text);
+  }
+  return rows;
+}
+
 function renderWikiCards(root, entries, { emptyTitle, emptyText } = {}) {
   if (!root) return;
   if (!Array.isArray(entries) || !entries.length) {
@@ -396,10 +474,10 @@ function renderWikiCards(root, entries, { emptyTitle, emptyText } = {}) {
     return;
   }
   root.innerHTML = entries.map((entry) => {
-    const tags = (Array.isArray(entry?.tags) ? entry.tags : []).filter(Boolean).slice(0, 4);
-    const lines = (Array.isArray(entry?.body_lines) ? entry.body_lines : []).filter(Boolean).slice(0, 2);
-    const subtitle = String(entry?.subtitle || "").trim();
-    const description = String(entry?.description || "").trim();
+    const tags = wikiCardTags(entry);
+    const lines = wikiCardLines(entry);
+    const subtitle = wikiCardSubtitle(entry);
+    const description = normalizeWikiDisplayText(entry?.description);
     return `
       <article class="stack-item">
         <div class="stack-item-head">
@@ -488,9 +566,7 @@ async function openWikiEntry(entryId) {
   const rows = Array.isArray(state.wikiBundle?.search_index) ? state.wikiBundle.search_index : [];
   const entry = rows.find((item) => String(item?.id || "") === String(entryId || ""));
   if (!entry) return;
-  const lines = [entry.subtitle, entry.description, ...(Array.isArray(entry.body_lines) ? entry.body_lines : [])]
-    .filter(Boolean)
-    .map((line) => String(line || "").trim());
+  const lines = wikiPopupLines(entry);
   await popup(entry.title || "修仙 Wiki", lines.join("\n\n"), "success");
 }
 
@@ -4336,6 +4412,8 @@ popup = async function popupRefined(title, message, tone = "success") {
   layer.classList.remove("hidden");
   layer.setAttribute("aria-hidden", "false");
   document.body.classList.add("is-modal-open");
+  layer.scrollTop = 0;
+  messageNode.scrollTop = 0;
   return new Promise((resolve) => {
     popupResolver = resolve;
   });

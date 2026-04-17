@@ -804,7 +804,8 @@ button.is-blocked:not(:disabled) {
   z-index: 50;
   display: grid;
   place-items: center;
-  padding: 18px;
+  padding: max(18px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+  overflow-y: auto;
 }
 
 .modal-scrim {
@@ -819,10 +820,14 @@ button.is-blocked:not(:disabled) {
   z-index: 1;
   width: min(480px, calc(100vw - 36px));
   padding: 18px;
+  max-height: min(720px, calc(100dvh - 36px));
+  display: flex;
+  flex-direction: column;
   border-radius: 26px;
   border: 1px solid var(--line);
   background: rgba(255, 252, 246, 0.98);
   box-shadow: var(--shadow-strong);
+  overflow: hidden;
 }
 
 .modal-label {
@@ -851,6 +856,11 @@ button.is-blocked:not(:disabled) {
 
 .modal-message {
   margin-top: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
 }
 
 .modal-actions {
