@@ -25,6 +25,7 @@ from sqlalchemy import (
     UniqueConstraint,
     or_,
 )
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
 from bot.plugins.xiuxian_game import cache as xiuxian_cache
@@ -4151,11 +4152,18 @@ def _sync_named_entity(model_cls, serializer, fields: dict[str, Any], *, catalog
         if row is None:
             row = model_cls(**fields)
             session.add(row)
-            if catalog_key:
-                _queue_catalog_cache_invalidation(session, catalog_key)
-            session.commit()
-            session.refresh(row)
-            return serializer(row)
+            try:
+                if catalog_key:
+                    _queue_catalog_cache_invalidation(session, catalog_key)
+                session.commit()
+                session.refresh(row)
+                return serializer(row)
+            except IntegrityError:
+                # 多实例并发初始化时，另一方可能已先插入同名种子；回滚后改为读取并同步现有行。
+                session.rollback()
+                row = session.query(model_cls).filter(model_cls.name == fields["name"]).first()
+                if row is None:
+                    raise
 
         changed = False
         for key, value in fields.items():
