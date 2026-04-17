@@ -2101,20 +2101,6 @@ function bindEvents() {
     syncSelects();
   });
 
-  $("task-admin-form")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/task", {
-      title: $("admin-task-title").value.trim(), description: $("admin-task-description").value.trim(), task_scope: $("admin-task-scope").value,
-      task_type: $("admin-task-type").value, question_text: $("admin-task-question").value.trim(), answer_text: $("admin-task-answer").value.trim(),
-      image_url: $("admin-task-image").value.trim(), reward_stone: Number($("admin-task-stone").value || 0),
-      reward_item_kind: $("admin-task-item-kind").value || null, reward_item_ref_id: Number($("admin-task-item-id").value || 0) || null,
-      reward_item_quantity: Number($("admin-task-item-quantity").value || 0), max_claimants: Number($("admin-task-max-claimants").value || 1),
-      sect_id: Number($("admin-task-sect-id").value || 0) || null, active_in_group: $("admin-task-push-group").checked,
-    }), "发布成功", "任务已经创建并按配置推送。");
-    form?.reset?.();
-  });
-
   $("grant-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const tg = Number($("grant-tg").value || 0);
@@ -2351,10 +2337,11 @@ function bindAttributeAwareSubmitters() {
     }
   }, true);
 
-  $("task-admin-form")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    const form = event.currentTarget;
+$("task-admin-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const form = event.currentTarget;
+  try {
     const result = await request("POST", "/plugins/xiuxian/admin-api/task", {
       title: $("admin-task-title").value.trim(),
       description: $("admin-task-description").value.trim(),
@@ -2383,7 +2370,12 @@ function bindAttributeAwareSubmitters() {
     await popup(pushWarning ? "创建已完成，但推送失败" : "发布成功", message, pushWarning ? "warning" : "success");
     form?.reset?.();
     syncSelects();
-  }, true);
+  } catch (error) {
+    const message = String(error?.message || error || "任务发布失败");
+    adminStatus(message, "error");
+    await popup("发布失败", message, "error");
+  }
+}, true);
 
   $("upload-permission-grant")?.addEventListener("click", async () => {
     try {
@@ -3382,7 +3374,7 @@ document.getElementById("title-form")?.addEventListener("submit", async (event) 
       cultivation_bonus: Number($("title-cultivation").value || 0),
       breakthrough_bonus: Number($("title-breakthrough").value || 0),
       enabled: $("title-enabled").checked,
-    }), "创建成功", "称号已加入修仙系统。");
+    }), "保存成功", "称号已写入修仙系统。");
   } catch (error) {
     await popup("提交失败", String(error.message || error), "error");
   }

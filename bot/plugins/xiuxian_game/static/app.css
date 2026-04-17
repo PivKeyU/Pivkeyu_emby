@@ -767,6 +767,11 @@ button.is-blocked:not(:disabled) {
   background: var(--accent-soft);
 }
 
+.bottom-nav a.is-active {
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent-strong), var(--accent));
+}
+
 .toast-stack {
   position: fixed;
   top: 14px;

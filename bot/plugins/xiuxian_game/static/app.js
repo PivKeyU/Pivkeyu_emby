@@ -412,11 +412,20 @@ function normalizeWikiDisplayText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
 
+function wikiCardTitle(entry) {
+  const title = normalizeWikiDisplayText(entry?.title);
+  const subtitle = normalizeWikiDisplayText(entry?.subtitle);
+  if (!title) return "";
+  if (String(entry?.group || "") === "tutorial" && subtitle && title.startsWith(`${subtitle} · `)) {
+    return title.slice(subtitle.length + 3).trim();
+  }
+  return title;
+}
+
 function wikiCardSubtitle(entry) {
   const title = normalizeWikiDisplayText(entry?.title);
   const subtitle = normalizeWikiDisplayText(entry?.subtitle);
   if (!subtitle || title === subtitle) return "";
-  if (String(entry?.group || "") === "tutorial" && title.startsWith(`${subtitle} · `)) return "";
   return subtitle;
 }
 
@@ -476,12 +485,13 @@ function renderWikiCards(root, entries, { emptyTitle, emptyText } = {}) {
   root.innerHTML = entries.map((entry) => {
     const tags = wikiCardTags(entry);
     const lines = wikiCardLines(entry);
+    const title = wikiCardTitle(entry);
     const subtitle = wikiCardSubtitle(entry);
     const description = normalizeWikiDisplayText(entry?.description);
     return `
       <article class="stack-item">
         <div class="stack-item-head">
-          <strong>${escapeHtml(entry?.title || "未命名词条")}</strong>
+          <strong>${escapeHtml(title || entry?.title || "未命名词条")}</strong>
           <button type="button" class="ghost" data-wiki-entry="${escapeHtml(entry?.id || "")}">查看全文</button>
         </div>
         <div class="wiki-meta-line">
@@ -567,7 +577,7 @@ async function openWikiEntry(entryId) {
   const entry = rows.find((item) => String(item?.id || "") === String(entryId || ""));
   if (!entry) return;
   const lines = wikiPopupLines(entry);
-  await popup(entry.title || "修仙 Wiki", lines.join("\n\n"), "success");
+  await popup(wikiCardTitle(entry) || entry.title || "修仙 Wiki", lines.join("\n\n"), "success");
 }
 
 async function refreshWikiBundle() {
@@ -1068,11 +1078,17 @@ function profileRootText(profile) {
 
 function renderBottomNav(items = []) {
   const nav = document.querySelector("#bottom-nav");
+  if (!nav) return;
+  const currentPath = window.location.pathname;
   nav.innerHTML = "";
-  for (const item of items) {
+  nav.classList.toggle("hidden", !(items || []).length);
+  for (const item of items || []) {
     const link = document.createElement("a");
     link.href = item.path;
-    link.textContent = item.label;
+    link.textContent = `${item.icon || ""} ${item.label}`.trim();
+    if (item.path === currentPath) {
+      link.classList.add("is-active");
+    }
     nav.appendChild(link);
   }
 }

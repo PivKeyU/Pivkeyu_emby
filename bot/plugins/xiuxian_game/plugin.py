@@ -273,7 +273,6 @@ from bot.sql_helper.sql_xiuxian import (
     create_material,
     create_pill,
     create_talisman,
-    create_title,
     delete_artifact,
     delete_artifact_set,
     delete_achievement,
@@ -326,6 +325,7 @@ from bot.sql_helper.sql_xiuxian import (
     replace_sect_roles,
     revoke_image_upload_permission,
     serialize_profile,
+    sync_title_by_name,
 )
 from bot.plugins.xiuxian_game.achievement_service import (
     ACHIEVEMENT_METRIC_PRESETS,
@@ -4650,7 +4650,7 @@ def register_web(app) -> None:
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
-        return {"code": 200, "data": create_title(**payload.model_dump())}
+        return {"code": 200, "data": sync_title_by_name(**payload.model_dump())}
 
     @admin_router.patch("/title/{title_id}")
     async def xiuxian_patch_title_api(title_id: int, payload: TitlePayload, request: Request):

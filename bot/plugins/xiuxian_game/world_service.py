@@ -865,10 +865,12 @@ def create_bounty_task(
         required_qty = 0
 
     if reward_kind:
-        if reward_kind not in {"artifact", "pill", "talisman", "material"}:
+        if reward_kind not in {"artifact", "pill", "talisman", "material", "recipe", "technique"}:
             raise ValueError("任务奖励物类型不支持")
         if reward_ref is None:
             raise ValueError("请选择任务奖励物")
+        if reward_kind in {"recipe", "technique"} and reward_qty <= 0:
+            reward_qty = 1
         if reward_qty <= 0:
             raise ValueError("任务奖励物数量必须大于 0")
         if _get_item_payload(reward_kind, reward_ref) is None:
