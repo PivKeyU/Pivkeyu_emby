@@ -11,6 +11,8 @@ const state = {
   giftSearchTimer: null,
 };
 
+const REALM_ORDER = ["炼气", "筑基", "金丹", "元婴", "化神", "炼虚", "合体", "大乘", "渡劫", "人仙", "地仙", "天仙", "金仙", "大罗金仙", "仙君", "仙王", "仙尊", "仙帝"];
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -680,12 +682,15 @@ function renderProfile(bundle) {
       "#technique-card",
       "#official-shop-card",
       "#market-card",
+      "#auction-card",
       "#leaderboard-card",
       "#sect-card",
       "#task-card",
       "#craft-card",
       "#explore-card",
-      "#red-envelope-card"
+      "#red-envelope-card",
+      "#journal-card",
+      "#gift-card"
     ].forEach((selector) => ensureSectionState(selector, false));
     setStatus("你还没有踏入仙途，确认后会立即抽取灵根并创建修仙档案。", "warning");
     return;
@@ -699,12 +704,15 @@ function renderProfile(bundle) {
   ensureSectionState("#technique-card", true);
   ensureSectionState("#official-shop-card", true);
   ensureSectionState("#market-card", true);
+  ensureSectionState("#auction-card", true);
   ensureSectionState("#leaderboard-card", true);
   ensureSectionState("#sect-card", true);
   ensureSectionState("#task-card", true);
   ensureSectionState("#craft-card", true);
   ensureSectionState("#explore-card", true);
   ensureSectionState("#red-envelope-card", true);
+  ensureSectionState("#journal-card", true);
+  ensureSectionState("#gift-card", true);
 
   const progress = bundle.progress || {};
   const retreating = bundle.capabilities?.is_in_retreat;
@@ -774,6 +782,7 @@ function renderProfile(bundle) {
     "#technique-card",
     "#official-shop-card",
     "#market-card",
+    "#auction-card",
     "#leaderboard-card",
     "#sect-card",
     "#task-card",
@@ -781,6 +790,7 @@ function renderProfile(bundle) {
     "#explore-card",
     "#red-envelope-card",
     "#journal-card",
+    "#gift-card",
   ].forEach((selector) => ensureSectionState(selector, consented));
 
   if (!consented) {
@@ -819,6 +829,8 @@ function renderProfile(bundle) {
       <article class="profile-item"><span>待生效符箓</span><strong>${escapeHtml(talismanName)}</strong></article>
       <article class="profile-item"><span>闭关状态</span><strong>${escapeHtml(retreatStatus)}</strong></article>
       <article class="profile-item"><span>宗门贡献</span><strong>${escapeHtml(profile.sect_contribution ?? 0)}</strong></article>
+      <article class="profile-item"><span>魅力</span><strong>${escapeHtml(bundle.effective_stats?.charisma ?? profile.charisma ?? 0)}</strong></article>
+      <article class="profile-item"><span>机缘</span><strong>${escapeHtml(bundle.effective_stats?.fortune ?? profile.fortune ?? 0)}</strong></article>
     `;
   }
 
@@ -1172,7 +1184,12 @@ function renderSectArea(bundle) {
   }
 
   listRoot.innerHTML = "";
-  const sects = bundle.sects || [];
+  const sects = [...(bundle.sects || [])].sort((left, right) => {
+    if (Boolean(left.joinable) !== Boolean(right.joinable)) return left.joinable ? -1 : 1;
+    const realmCompare = compareRealmRequirement(left.min_realm_stage, left.min_realm_layer, right.min_realm_stage, right.min_realm_layer);
+    if (realmCompare !== 0) return realmCompare;
+    return String(left.name || "").localeCompare(String(right.name || ""), "zh-Hans-CN");
+  });
   if (!sects.length) {
     listRoot.innerHTML = `<article class="stack-item"><strong>暂无可加入宗门</strong></article>`;
     return;
@@ -1365,36 +1382,44 @@ function renderCraftArea(bundle) {
   }
 }
 
+function compareRealmRequirement(leftStage, leftLayer, rightStage, rightLayer) {
+  const leftIndex = REALM_ORDER.indexOf(leftStage || "");
+  const rightIndex = REALM_ORDER.indexOf(rightStage || "");
+  if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+  return Number(leftLayer || 1) - Number(rightLayer || 1);
+}
+
+function sceneDisplayMeta(scene, currentStage, currentLayer, currentPower) {
+  const minStage = scene.min_realm_stage || "";
+  const minLayer = Number(scene.min_realm_layer || 1);
+  const minPower = Number(scene.min_combat_power || 0);
+  const currentStageIndex = REALM_ORDER.indexOf(currentStage || "");
+  const minStageIndex = REALM_ORDER.indexOf(minStage || "");
+  const realmQualified = !minStage || minStageIndex < 0 || currentStageIndex > minStageIndex || (currentStageIndex === minStageIndex && currentLayer >= minLayer);
+  const powerQualified = minPower <= 0 || currentPower >= minPower;
+  const warnings = [];
+  if (minPower > 0 && !powerQualified) warnings.push("当前战力偏低，阵亡概率会明显提高");
+  if (minStage && !realmQualified) warnings.push("当前境界不足，阵亡概率会明显提高");
+  return { minStage, minLayer, minPower, realmQualified, powerQualified, qualified: realmQualified && powerQualified, warnings };
+}
+
+function buildSceneSearchText(scene = {}) {
+  return [
+    scene.name,
+    scene.description,
+    (scene.drops || []).map((drop) => drop.reward_name || drop.reward_ref_id_name || drop.reward_kind_label || drop.reward_kind),
+    (scene.event_pool || []).map((event) => [event.name, event.description, event.bonus_reward_name, event.bonus_reward_kind_label || event.bonus_reward_kind]),
+  ];
+}
+
 function renderExploreArea(bundle) {
   const sceneRoot = document.querySelector("#scene-list");
   const activeRoot = document.querySelector("#exploration-active");
   if (!sceneRoot || !activeRoot) return;
-  const realmOrder = ["炼气", "筑基", "金丹", "元婴", "化神", "炼虚", "合体", "大乘", "渡劫", "人仙", "地仙", "天仙", "金仙", "大罗金仙", "仙君", "仙王", "仙尊", "仙帝"];
   const currentStage = bundle.profile?.realm_stage || "炼气";
   const currentLayer = Number(bundle.profile?.realm_layer || 1);
   const currentPower = Number(bundle.combat_power || 0);
-
-  const sceneRiskRows = (scene) => {
-    const rows = [];
-    const minStage = scene.min_realm_stage || "";
-    const minLayer = Number(scene.min_realm_layer || 1);
-    const minPower = Number(scene.min_combat_power || 0);
-    if (minStage) {
-      rows.push(`境界要求 ${minStage}${minLayer}层`);
-      const currentStageIndex = realmOrder.indexOf(currentStage);
-      const minStageIndex = realmOrder.indexOf(minStage);
-      if (currentStageIndex < minStageIndex || (currentStageIndex === minStageIndex && currentLayer < minLayer)) {
-        rows.push("当前境界不足，阵亡概率会明显提高");
-      }
-    }
-    if (minPower > 0) {
-      rows.push(`战力要求 ${minPower}`);
-      if (currentPower < minPower) {
-        rows.push("当前战力偏低，阵亡概率会明显提高");
-      }
-    }
-    return rows;
-  };
+  const sceneQuery = inventorySearchValue("#scene-search");
 
   const active = bundle.active_exploration;
   activeRoot.innerHTML = "";
@@ -1416,12 +1441,6 @@ function renderExploreArea(bundle) {
     activeRoot.innerHTML = `<article class="stack-item"><strong>当前没有待领取探索</strong></article>`;
   }
 
-  sceneRoot.innerHTML = "";
-  const scenes = bundle.scenes || [];
-  if (!scenes.length) {
-    sceneRoot.innerHTML = `<article class="stack-item"><strong>暂无探索场景</strong></article>`;
-    return;
-  }
   const buildDurationOptions = (maxMinutesRaw) => {
     const maxMinutes = Math.max(Number(maxMinutesRaw) || 1, 1);
     const candidates = maxMinutes <= 10
@@ -1436,26 +1455,64 @@ function renderExploreArea(bundle) {
       .map((value) => `<option value="${value}">${value} 分钟</option>`)
       .join("");
   };
-  for (const scene of scenes) {
-    const riskRows = sceneRiskRows(scene);
-    const risky = riskRows.some((row) => row.includes("阵亡概率"));
+
+  sceneRoot.innerHTML = "";
+  const sourceScenes = bundle.scenes || [];
+  const scenes = sourceScenes
+    .filter((scene) => textQueryMatches(sceneQuery, buildSceneSearchText(scene)))
+    .map((scene) => ({ scene, meta: sceneDisplayMeta(scene, currentStage, currentLayer, currentPower) }))
+    .sort((left, right) => {
+      if (left.meta.qualified !== right.meta.qualified) return left.meta.qualified ? -1 : 1;
+      if (left.meta.powerQualified !== right.meta.powerQualified) return left.meta.powerQualified ? -1 : 1;
+      if (left.meta.minPower !== right.meta.minPower) return left.meta.minPower - right.meta.minPower;
+      const realmCompare = compareRealmRequirement(left.meta.minStage, left.meta.minLayer, right.meta.minStage, right.meta.minLayer);
+      if (realmCompare !== 0) return realmCompare;
+      return String(left.scene.name || "").localeCompare(String(right.scene.name || ""), "zh-Hans-CN");
+    });
+  if (!scenes.length) {
+    sceneRoot.innerHTML = sourceScenes.length
+      ? `<article class="stack-item"><strong>未找到匹配秘境</strong><p>可按秘境名、掉落、功法或材料关键词继续搜索。</p></article>`
+      : `<article class="stack-item"><strong>暂无探索场景</strong></article>`;
+    return;
+  }
+  for (const { scene, meta } of scenes) {
     const explorationCount = Number(scene.user_exploration_count || 0);
+    const rewardCards = (scene.drops || []).slice(0, 6).map((drop) => `
+      <article class="scene-drop-item">
+        <strong>${escapeHtml(drop.reward_name || drop.reward_ref_id_name || drop.reward_kind_label || "未知掉落")}</strong>
+        <p>${escapeHtml(drop.event_text || `${drop.quantity_min || 1}~${drop.quantity_max || 1} 件掉落`)}</p>
+      </article>
+    `).join("");
     const card = document.createElement("article");
-    card.className = "stack-item";
+    card.className = `stack-item scene-card ${meta.qualified ? "is-qualified" : "is-risky"}`;
     card.innerHTML = `
       <div class="stack-item-head">
         <strong>${escapeHtml(scene.name)}</strong>
-        <span class="badge badge--normal">最多 ${escapeHtml(scene.max_minutes)} 分钟</span>
+        <span class="badge ${meta.qualified ? "badge--normal" : "badge--pending"}">${meta.qualified ? "战力达标优先" : "谨慎进入"}</span>
       </div>
       <p>${escapeHtml(scene.description || "暂无场景描述")}</p>
-      <p>已探索 ${escapeHtml(explorationCount)} 次</p>
-      <p>${escapeHtml(riskRows.join(" · ") || "当前秘境无额外门槛")}</p>
+      <div class="info-grid">
+        <article class="info-chip">
+          <span>战力门槛</span>
+          <strong>${escapeHtml(meta.minPower > 0 ? `${meta.minPower}（当前 ${currentPower}）` : `无限制（当前 ${currentPower}）`)}</strong>
+        </article>
+        <article class="info-chip">
+          <span>境界门槛</span>
+          <strong>${escapeHtml(meta.minStage ? `${meta.minStage}${meta.minLayer}层` : "无限制")}</strong>
+        </article>
+        <article class="info-chip">
+          <span>历练记录</span>
+          <strong>已探索 ${escapeHtml(explorationCount)} 次</strong>
+        </article>
+      </div>
+      ${meta.warnings.length ? `<p class="reason-text">${escapeHtml(meta.warnings.join(" · "))}</p>` : `<p>当前实力已基本覆盖此处风险，可优先刷取所需材料与功法。</p>`}
+      <div class="scene-drop-list">${rewardCards || `<article class="scene-drop-item"><strong>掉落待补充</strong><p>当前秘境尚未配置可展示的奖励。</p></article>`}</div>
       <label>探索时长
         <select data-scene-minutes="${scene.id}">
           ${buildDurationOptions(scene.max_minutes)}
         </select>
       </label>
-      <button type="button" data-scene-id="${scene.id}">${risky ? "冒险进入" : "开始探索"}</button>
+      <button type="button" data-scene-id="${scene.id}">${meta.qualified ? "开始探索" : "冒险进入"}</button>
     `;
     sceneRoot.appendChild(card);
   }
@@ -1656,7 +1713,7 @@ function renderRedEnvelopeClaims(claims = []) {
 function renderJournalArea(bundle) {
   const root = document.querySelector("#journal-list");
   if (!root) return;
-  const rows = bundle.journal || [];
+  const rows = (bundle.journal || []).filter((row) => row.title !== "主人修改");
   if (!rows.length) {
     root.innerHTML = `<article class="stack-item"><strong>最近 24 小时还没有新记录</strong><p>修炼、交易、任务、红包和宗门往来都会记在这里。</p></article>`;
     return;
@@ -1739,6 +1796,8 @@ function applyProfileBundle(bundle) {
 
   ensureSectionState("#journal-card", Boolean(bundle?.profile?.consented));
   ensureSectionState("#technique-card", Boolean(bundle?.profile?.consented));
+  ensureSectionState("#auction-card", Boolean(bundle?.profile?.consented));
+  ensureSectionState("#gift-card", Boolean(bundle?.profile?.consented));
 }
 
 async function refreshBundle() {
@@ -2734,6 +2793,16 @@ function inventorySearchValue(selector) {
   return String(document.querySelector(selector)?.value || "").trim().toLowerCase();
 }
 
+function textQueryMatches(query, values = []) {
+  if (!query) return true;
+  const haystack = values
+    .flatMap((value) => Array.isArray(value) ? value : [value])
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(query);
+}
+
 function inventoryMatches(item, query, extraFields = []) {
   if (!query) return true;
   const haystack = [
@@ -2806,22 +2875,35 @@ renderCraftArea = function renderCraftArea(bundle) {
       : `<article class="stack-item"><strong>暂无炼制材料</strong><p>可通过探索、任务或主人发放获得。</p></article>`;
 
   const recipes = bundle.recipes || [];
+  const recipeQuery = inventorySearchValue("#recipe-search");
+  const filteredRecipes = recipes.filter((recipe) => textQueryMatches(recipeQuery, [
+    recipe.name,
+    recipe.recipe_kind_label,
+    recipe.result_item?.name,
+    (recipe.ingredients || []).map((item) => item.material?.name),
+    (recipe.ingredients || []).map((item) => item.source_text),
+    recipe.source,
+    recipe.obtained_note,
+  ]));
   recipeRoot.innerHTML = "";
-  if (!recipes.length) {
-    recipeRoot.innerHTML = `<article class="stack-item"><strong>暂无配方</strong></article>`;
+  if (!filteredRecipes.length) {
+    recipeRoot.innerHTML = recipes.length
+      ? `<article class="stack-item"><strong>未找到匹配配方</strong><p>可按配方名、成品、材料或获取途径继续搜索。</p></article>`
+      : `<article class="stack-item"><strong>暂无配方</strong></article>`;
     return;
   }
-  for (const recipe of recipes) {
-    const ingredientTexts = (recipe.ingredients || [])
-      .map((item) => `${item.material?.name || "材料"}×${item.quantity}`)
-      .join("、");
-    const sourceTexts = (recipe.ingredients || [])
-      .map((item) => {
-        const materialName = item.material?.name || "材料";
-        const sourceText = String(item.source_text || (item.sources || []).join("、") || "").trim();
-        return sourceText ? `${materialName}：${sourceText}` : `${materialName}：途径待补充`;
-      })
-      .join("；");
+  for (const recipe of filteredRecipes) {
+    const ingredientTags = (recipe.ingredients || [])
+      .map((item) => `<span class="tag">${escapeHtml(item.material?.name || "材料")} × ${escapeHtml(item.quantity)}</span>`)
+      .join("");
+    const sourceCards = (recipe.ingredients || [])
+      .map((item) => `
+        <article class="recipe-source-item">
+          <strong>${escapeHtml(item.material?.name || "材料")} × ${escapeHtml(item.quantity)}</strong>
+          <p>${escapeHtml(item.source_text || (item.sources || []).join("、") || "暂未补充获取路径")}</p>
+        </article>
+      `)
+      .join("");
     const card = document.createElement("article");
     card.className = "stack-item";
     card.innerHTML = `
@@ -2829,10 +2911,23 @@ renderCraftArea = function renderCraftArea(bundle) {
         <strong>${escapeHtml(recipe.name)}</strong>
         <span class="badge badge--normal">${escapeHtml(recipe.recipe_kind_label || recipe.recipe_kind)}</span>
       </div>
-      <p>产出：${escapeHtml(recipe.result_item?.name || "成品")} × ${escapeHtml(recipe.result_quantity)}</p>
-      <p>材料：${escapeHtml(ingredientTexts || "未配置")}</p>
-      <p>获取：${escapeHtml(sourceTexts || "暂未补充材料来源")}</p>
-      <p>基础成功率：${escapeHtml(recipe.base_success_rate)}%</p>
+      <p>${escapeHtml(recipe.source ? `来源：${recipe.source}${recipe.obtained_note ? ` · ${recipe.obtained_note}` : ""}` : "已掌握配方，可随时开炉。")}</p>
+      <div class="info-grid">
+        <article class="info-chip">
+          <span>炼成目标</span>
+          <strong>${escapeHtml(recipe.result_item?.name || "成品")} × ${escapeHtml(recipe.result_quantity)}</strong>
+        </article>
+        <article class="info-chip">
+          <span>基础成功率</span>
+          <strong>${escapeHtml(recipe.base_success_rate)}%</strong>
+        </article>
+        <article class="info-chip">
+          <span>所需材料数</span>
+          <strong>${escapeHtml((recipe.ingredients || []).length)}</strong>
+        </article>
+      </div>
+      <div class="item-tags">${ingredientTags || `<span class="tag">未配置材料</span>`}</div>
+      <div class="recipe-source-list">${sourceCards || `<article class="recipe-source-item"><strong>获取路径待补充</strong><p>当前配方没有记录材料来源。</p></article>`}</div>
       <button type="button" data-recipe-id="${recipe.id}">开始炼制</button>
     `;
     recipeRoot.appendChild(card);
@@ -3005,6 +3100,14 @@ renderPillList = function renderPillList(items, retreating) {
 ["#artifact-search", "#talisman-search", "#pill-search", "#material-search"].forEach((selector) => {
   document.querySelector(selector)?.addEventListener("input", () => {
     rerenderInventoryLists();
+  });
+});
+
+["#recipe-search", "#scene-search"].forEach((selector) => {
+  document.querySelector(selector)?.addEventListener("input", () => {
+    if (!state.profileBundle?.profile?.consented) return;
+    renderCraftArea(state.profileBundle);
+    renderExploreArea(state.profileBundle);
   });
 });
 
@@ -3234,6 +3337,7 @@ renderProfile = function renderProfileRedesigned(bundle) {
     "#technique-card",
     "#official-shop-card",
     "#market-card",
+    "#auction-card",
     "#leaderboard-card",
     "#sect-card",
     "#task-card",
@@ -3241,6 +3345,7 @@ renderProfile = function renderProfileRedesigned(bundle) {
     "#explore-card",
     "#red-envelope-card",
     "#journal-card",
+    "#gift-card",
   ].forEach((selector) => ensureSectionState(selector, consented));
 
   const realmBadge = document.querySelector("#realm-badge");
@@ -3669,16 +3774,15 @@ renderArtifactList = function renderArtifactListEnhanced(items, retreating, equi
 function sectRequirementSummary(sect = {}) {
   const rows = [];
   if (sect.min_realm_stage) rows.push(`境界 ${sect.min_realm_stage}${sect.min_realm_layer || 1}层`);
-  if (Number(sect.min_stone || 0) > 0) rows.push(`灵石 ${sect.min_stone}`);
   if (Number(sect.min_bone || 0) > 0) rows.push(`根骨 ${sect.min_bone}`);
   if (Number(sect.min_comprehension || 0) > 0) rows.push(`悟性 ${sect.min_comprehension}`);
   if (Number(sect.min_divine_sense || 0) > 0) rows.push(`神识 ${sect.min_divine_sense}`);
   if (Number(sect.min_fortune || 0) > 0) rows.push(`机缘 ${sect.min_fortune}`);
-  if (Number(sect.min_willpower || 0) > 0) rows.push(`心志 ${sect.min_willpower}`);
   if (Number(sect.min_charisma || 0) > 0) rows.push(`魅力 ${sect.min_charisma}`);
+  if (Number(sect.min_willpower || 0) > 0) rows.push(`心志 ${sect.min_willpower}`);
   if (Number(sect.min_karma || 0) > 0) rows.push(`因果 ${sect.min_karma}`);
   if (Number(sect.min_body_movement || 0) > 0) rows.push(`身法 ${sect.min_body_movement}`);
-  if (Number(sect.min_combat_power || 0) > 0) rows.push(`战力 ${sect.min_combat_power}`);
+  if (Number(sect.min_stone || 0) > 0) rows.push(`灵石 ${sect.min_stone}`);
   return rows.join(" · ") || "几乎无门槛";
 }
 
@@ -3725,6 +3829,7 @@ renderSectArea = function renderSectAreaEnhanced(bundle) {
           <span class="tag">成员 ${escapeHtml((current.roster || []).length)}</span>
           <span class="tag">贡献 ${escapeHtml(contribution)}</span>
           <span class="tag">月俸 ${escapeHtml(role?.monthly_salary ?? 0)} 灵石</span>
+          ${current.entry_technique_name ? `<span class="tag">入门功法 ${escapeHtml(current.entry_technique_name)}</span>` : ""}
         </div>
         <p>宗门加成：${escapeHtml(sectBonusSummary(current, role))}</p>
         ${current.entry_hint ? `<p>${escapeHtml(current.entry_hint)}</p>` : ""}
@@ -3758,6 +3863,7 @@ renderSectArea = function renderSectAreaEnhanced(bundle) {
       <div class="item-tags">
         <span class="tag">${escapeHtml(sectRequirementSummary(sect))}</span>
         <span class="tag">成员 ${escapeHtml(sect.member_count ?? 0)}</span>
+        ${sect.entry_technique_name ? `<span class="tag">入门赠 ${escapeHtml(sect.entry_technique_name)}</span>` : ""}
       </div>
       <p>宗门加成：${escapeHtml(sectBonusSummary(sect))}</p>
       ${sect.entry_hint ? `<p>${escapeHtml(sect.entry_hint)}</p>` : ""}

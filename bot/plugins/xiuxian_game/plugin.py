@@ -726,7 +726,7 @@ def _format_group_profile_showcase(payload: dict[str, Any], fallback_name: str |
             f"👤 道友：{_md_escape(display_name)}",
             f"🌱 灵根：{_md_escape(format_root(profile))}",
             f"🏯 境界：{_md_escape(str(profile['realm_stage']) + str(profile['realm_layer']) + '层')}",
-            f"📈 修为：`{profile['cultivation']} / {progress.get('threshold', 0)}`（还差 `{progress.get('remaining', 0)}`）",
+            f"📈 修为：`{profile['cultivation']} / {progress.get('threshold', 0)}` ｜ 距下一层还差 `{progress.get('remaining', 0)}`",
             f"💎 灵石：`{profile['spiritual_stone']}` ｜ ☠️ 丹毒：`{profile['dan_poison']}/100`",
             f"🏷️ 称号：{_md_escape(current_title.get('name') or '未佩戴称号')}",
             (
@@ -740,7 +740,8 @@ def _format_group_profile_showcase(payload: dict[str, Any], fallback_name: str |
                 f"`根骨 {effective_stats.get('bone', profile.get('bone', 0))}` ｜ "
                 f"`悟性 {effective_stats.get('comprehension', profile.get('comprehension', 0))}` ｜ "
                 f"`神识 {effective_stats.get('divine_sense', profile.get('divine_sense', 0))}` ｜ "
-                f"`机缘 {effective_stats.get('fortune', profile.get('fortune', 0))}`"
+                f"`机缘 {effective_stats.get('fortune', profile.get('fortune', 0))}` ｜ "
+                f"`魅力 {effective_stats.get('charisma', profile.get('charisma', 0))}`"
             ),
             "🛡️ 法宝：",
             *[_md_escape(line) for line in artifact_lines],

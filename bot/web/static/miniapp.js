@@ -2,13 +2,13 @@ const LEVEL_META = {
   a: {
     text: "白名单用户",
     shortText: "白名单",
-    description: "拥有更高权限和更稳定线路的高级用户。",
+    description: "主人亲自盖章的小宝贝，享有更稳定线路与更完整的观影体验。",
     tone: "vip"
   },
   b: {
     text: "正常用户",
     shortText: "正常",
-    description: "已开通并可正常使用的大多数用户。",
+    description: "已领取观影资格的小可爱，可以正常解锁日常观影体验。",
     tone: "normal"
   },
   c: {

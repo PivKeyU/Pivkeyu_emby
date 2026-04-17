@@ -693,8 +693,9 @@ DEFAULT_TECHNIQUES = [
         "description": "循序吐纳、温养经脉的入门功法，适合刚踏入仙途的修士稳扎稳打。",
         "comprehension_bonus": 2,
         "true_yuan_bonus": 18,
-        "cultivation_bonus": 8,
-        "breakthrough_bonus": 4,
+        "cultivation_bonus": 10,
+        "breakthrough_bonus": 5,
+        "defense_bonus": 2,
         "combat_config": {
             "passives": [
                 {
@@ -716,10 +717,10 @@ DEFAULT_TECHNIQUES = [
         "rarity": "下品",
         "technique_type": "combat",
         "description": "以气血催动筋骨，重攻重势，适合偏战斗路线的修士。",
-        "attack_bonus": 10,
-        "defense_bonus": 6,
-        "qi_blood_bonus": 36,
-        "duel_rate_bonus": 5,
+        "attack_bonus": 12,
+        "defense_bonus": 8,
+        "qi_blood_bonus": 42,
+        "duel_rate_bonus": 6,
         "combat_config": {
             "skills": [
                 {
@@ -742,11 +743,11 @@ DEFAULT_TECHNIQUES = [
         "rarity": "下品",
         "technique_type": "balanced",
         "description": "偏重神识与悟性，可兼顾突破与斗法，是中前期泛用功法。",
-        "comprehension_bonus": 4,
-        "divine_sense_bonus": 5,
-        "attack_bonus": 4,
-        "defense_bonus": 4,
-        "breakthrough_bonus": 6,
+        "comprehension_bonus": 5,
+        "divine_sense_bonus": 6,
+        "attack_bonus": 5,
+        "defense_bonus": 5,
+        "breakthrough_bonus": 8,
         "combat_config": {
             "skills": [
                 {
@@ -769,9 +770,9 @@ DEFAULT_TECHNIQUES = [
         "rarity": "中品",
         "technique_type": "attack",
         "description": "将离火之气压入经脉，出手霸道，善于叠加灼伤。",
-        "attack_bonus": 16,
-        "true_yuan_bonus": 28,
-        "duel_rate_bonus": 6,
+        "attack_bonus": 18,
+        "true_yuan_bonus": 30,
+        "duel_rate_bonus": 7,
         "combat_config": {
             "opening_text": "离火自掌心涌起，四周空气都被烤得扭曲。",
             "skills": [
@@ -796,9 +797,9 @@ DEFAULT_TECHNIQUES = [
         "rarity": "中品",
         "technique_type": "movement",
         "description": "以身法见长，讲究腾挪借势，最擅把对手的重击引空。",
-        "defense_bonus": 4,
-        "body_movement_bonus": 18,
-        "duel_rate_bonus": 7,
+        "defense_bonus": 6,
+        "body_movement_bonus": 22,
+        "duel_rate_bonus": 8,
         "combat_config": {
             "skills": [
                 {
@@ -821,9 +822,9 @@ DEFAULT_TECHNIQUES = [
         "rarity": "中品",
         "technique_type": "defense",
         "description": "护体厚重如山，真元越稳，挨打时反而越显难缠。",
-        "defense_bonus": 18,
-        "qi_blood_bonus": 60,
-        "duel_rate_bonus": 4,
+        "defense_bonus": 20,
+        "qi_blood_bonus": 72,
+        "duel_rate_bonus": 5,
         "combat_config": {
             "skills": [
                 {
@@ -847,11 +848,11 @@ DEFAULT_TECHNIQUES = [
         "rarity": "中品",
         "technique_type": "divine",
         "description": "重神识与悟性，擅长看穿破绽，以小代价打出致命空隙。",
-        "comprehension_bonus": 5,
-        "divine_sense_bonus": 8,
-        "attack_bonus": 6,
-        "duel_rate_bonus": 5,
-        "breakthrough_bonus": 4,
+        "comprehension_bonus": 6,
+        "divine_sense_bonus": 10,
+        "attack_bonus": 7,
+        "duel_rate_bonus": 6,
+        "breakthrough_bonus": 5,
         "combat_config": {
             "skills": [
                 {
@@ -867,6 +868,246 @@ DEFAULT_TECHNIQUES = [
         },
         "min_realm_stage": "筑基",
         "min_realm_layer": 4,
+        "enabled": True,
+    },
+    {
+        "name": "太玄剑经",
+        "rarity": "中品",
+        "technique_type": "attack",
+        "description": "剑意正大开阖，兼顾身法与攻势，是太玄剑宗的入门真传。",
+        "attack_bonus": 12,
+        "body_movement_bonus": 8,
+        "duel_rate_bonus": 5,
+        "comprehension_bonus": 4,
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "太玄斩岳",
+                    "kind": "extra_damage",
+                    "chance": 28,
+                    "flat_damage": 16,
+                    "ratio_percent": 22,
+                    "cost_true_yuan": 16,
+                    "text": "太玄剑经剑意一振，剑光如山势压落。",
+                }
+            ]
+        },
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 4,
+        "enabled": True,
+    },
+    {
+        "name": "青木长生诀",
+        "rarity": "中品",
+        "technique_type": "cultivation",
+        "description": "药息与木灵相生，擅长养元续航与稳步破关。",
+        "cultivation_bonus": 12,
+        "true_yuan_bonus": 36,
+        "defense_bonus": 6,
+        "breakthrough_bonus": 5,
+        "fortune_bonus": 4,
+        "combat_config": {
+            "passives": [
+                {
+                    "name": "木息回春",
+                    "kind": "heal",
+                    "chance": 24,
+                    "flat_heal": 12,
+                    "ratio_percent": 10,
+                    "text": "青木药息在经脉间回转，带起一阵温润生机。",
+                }
+            ]
+        },
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 3,
+        "enabled": True,
+    },
+    {
+        "name": "天机观星术",
+        "rarity": "上品",
+        "technique_type": "divine",
+        "description": "以星轨推演斗法节奏，兼顾神识、机缘与突破。",
+        "comprehension_bonus": 8,
+        "divine_sense_bonus": 12,
+        "fortune_bonus": 6,
+        "breakthrough_bonus": 6,
+        "duel_rate_bonus": 4,
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "观星破隙",
+                    "kind": "armor_break",
+                    "chance": 30,
+                    "defense_ratio_percent": 18,
+                    "duration": 2,
+                    "cost_true_yuan": 16,
+                    "text": "星盘倒映敌手破绽，一线灵机直取护体薄处。",
+                }
+            ]
+        },
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 6,
+        "enabled": True,
+    },
+    {
+        "name": "血煞战典",
+        "rarity": "上品",
+        "technique_type": "combat",
+        "description": "以战养煞，攻势凌厉，越是短兵相接越能打出压迫感。",
+        "attack_bonus": 16,
+        "qi_blood_bonus": 48,
+        "duel_rate_bonus": 6,
+        "body_movement_bonus": 6,
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "血煞追击",
+                    "kind": "extra_damage",
+                    "chance": 32,
+                    "flat_damage": 20,
+                    "ratio_percent": 24,
+                    "cost_true_yuan": 18,
+                    "text": "血煞战典催得煞气翻涌，趁对手失衡再补上一击。",
+                }
+            ]
+        },
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 5,
+        "enabled": True,
+    },
+    {
+        "name": "幽冥夜行录",
+        "rarity": "上品",
+        "technique_type": "movement",
+        "description": "身入夜色，步法与神识相辅相成，极擅游走切后。",
+        "body_movement_bonus": 16,
+        "divine_sense_bonus": 8,
+        "duel_rate_bonus": 6,
+        "defense_bonus": 4,
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "夜行借影",
+                    "kind": "dodge",
+                    "chance": 30,
+                    "dodge_bonus": 24,
+                    "duration": 1,
+                    "cost_true_yuan": 14,
+                    "text": "幽冥夜行录一转，整个人像被夜色拢进阴影里。",
+                }
+            ]
+        },
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 6,
+        "enabled": True,
+    },
+    {
+        "name": "万毒归元经",
+        "rarity": "上品",
+        "technique_type": "balanced",
+        "description": "将毒息驯作己用，守中有攻，擅长拖长战线后反制。",
+        "defense_bonus": 10,
+        "fortune_bonus": 5,
+        "true_yuan_bonus": 24,
+        "attack_bonus": 6,
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "毒息侵骨",
+                    "kind": "burn",
+                    "chance": 28,
+                    "flat_damage": 12,
+                    "ratio_percent": 16,
+                    "duration": 2,
+                    "cost_true_yuan": 14,
+                    "text": "万毒归元经放出一缕缠骨毒息，缓缓侵蚀对手护体。",
+                }
+            ]
+        },
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 5,
+        "enabled": True,
+    },
+    {
+        "name": "星罗潮生诀",
+        "rarity": "上品",
+        "technique_type": "balanced",
+        "description": "引星潮入体，擅长在攻守之间平顺切换。",
+        "attack_bonus": 8,
+        "defense_bonus": 8,
+        "fortune_bonus": 5,
+        "true_yuan_bonus": 24,
+        "duel_rate_bonus": 4,
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "潮生回浪",
+                    "kind": "guard",
+                    "chance": 26,
+                    "defense_ratio_percent": 18,
+                    "flat_shield": 20,
+                    "duration": 1,
+                    "cost_true_yuan": 14,
+                    "text": "潮声回卷，一层层浪纹护在周身，将来势卸去大半。",
+                }
+            ]
+        },
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 5,
+        "enabled": True,
+    },
+    {
+        "name": "灵傀百炼篇",
+        "rarity": "上品",
+        "technique_type": "defense",
+        "description": "擅借器意稳固自身，真元与悟性并重，适合长线经营成长。",
+        "defense_bonus": 12,
+        "comprehension_bonus": 6,
+        "true_yuan_bonus": 30,
+        "cultivation_bonus": 6,
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "傀丝护身",
+                    "kind": "guard",
+                    "chance": 28,
+                    "defense_ratio_percent": 22,
+                    "flat_shield": 18,
+                    "duration": 1,
+                    "cost_true_yuan": 12,
+                    "text": "灵傀丝线瞬间交错成网，将冲击层层卸开。",
+                }
+            ]
+        },
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 4,
+        "enabled": True,
+    },
+    {
+        "name": "栖凰离火录",
+        "rarity": "上品",
+        "technique_type": "attack",
+        "description": "火意灵动，不只重爆发，也能提升修炼时的气机运转。",
+        "attack_bonus": 14,
+        "true_yuan_bonus": 34,
+        "cultivation_bonus": 8,
+        "duel_rate_bonus": 5,
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "凰羽焚风",
+                    "kind": "burn",
+                    "chance": 30,
+                    "flat_damage": 16,
+                    "ratio_percent": 22,
+                    "duration": 2,
+                    "cost_true_yuan": 16,
+                    "text": "离火化作凰羽掠过战场，余焰紧贴护体灵光燃烧。",
+                }
+            ]
+        },
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 5,
         "enabled": True,
     },
 ]
@@ -1549,16 +1790,17 @@ DEFAULT_SECTS = [
     {
         "name": "太玄剑宗",
         "camp": "orthodox",
-        "description": "以剑问道、以护苍生为宗旨，重视根骨、心性与实战。",
-        "min_realm_stage": "筑基",
-        "min_realm_layer": 3,
-        "min_bone": 20,
+        "description": "以剑问道、以护苍生为宗旨，重视根骨、悟性与敢战之心。",
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 4,
+        "min_bone": 22,
         "min_comprehension": 18,
-        "min_combat_power": 760,
+        "min_willpower": 16,
+        "min_combat_power": 0,
         "attack_bonus": 8,
         "body_movement_bonus": 6,
         "duel_rate_bonus": 3,
-        "entry_hint": "只收剑心端正、敢于正面斗法之人。",
+        "entry_hint": "赠入门功法《太玄剑经》，只收剑心端正、敢于正面斗法之人。",
         "roles": [
             {"role_key": "leader", "role_name": "剑主", "attack_bonus": 14, "defense_bonus": 8, "duel_rate_bonus": 6, "cultivation_bonus": 5, "monthly_salary": 360, "can_publish_tasks": True, "sort_order": 1},
             {"role_key": "elder", "role_name": "镇峰长老", "attack_bonus": 10, "defense_bonus": 7, "duel_rate_bonus": 4, "cultivation_bonus": 4, "monthly_salary": 250, "can_publish_tasks": True, "sort_order": 2},
@@ -1572,16 +1814,17 @@ DEFAULT_SECTS = [
     {
         "name": "药王谷",
         "camp": "orthodox",
-        "description": "专研灵药、丹火与气血温养，讲究持久与稳健。",
+        "description": "专研灵药、丹火与养元之道，讲究稳健续航与长期成长。",
         "min_realm_stage": "炼气",
-        "min_realm_layer": 9,
-        "min_comprehension": 18,
-        "min_fortune": 14,
-        "min_combat_power": 430,
+        "min_realm_layer": 3,
+        "min_comprehension": 20,
+        "min_fortune": 16,
+        "min_charisma": 12,
+        "min_combat_power": 0,
         "defense_bonus": 7,
         "cultivation_bonus": 12,
         "fortune_bonus": 6,
-        "entry_hint": "不收浮躁好战之人，更看重悟性与药理天赋。",
+        "entry_hint": "赠入门功法《青木长生诀》，不收浮躁好战之人，更看重悟性与药理天赋。",
         "roles": [
             {"role_key": "leader", "role_name": "谷主", "attack_bonus": 5, "defense_bonus": 12, "duel_rate_bonus": 2, "cultivation_bonus": 9, "monthly_salary": 340, "can_publish_tasks": True, "sort_order": 1},
             {"role_key": "elder", "role_name": "丹堂长老", "attack_bonus": 4, "defense_bonus": 9, "duel_rate_bonus": 1, "cultivation_bonus": 7, "monthly_salary": 240, "can_publish_tasks": True, "sort_order": 2},
@@ -1595,17 +1838,18 @@ DEFAULT_SECTS = [
     {
         "name": "天机阁",
         "camp": "orthodox",
-        "description": "洞察天机与神识妙用并重，擅长推演与布局。",
-        "min_realm_stage": "金丹",
-        "min_realm_layer": 1,
-        "min_comprehension": 24,
+        "description": "洞察天机与神识妙用并重，擅长推演、布局与把握机缘。",
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 6,
+        "min_comprehension": 26,
         "min_divine_sense": 24,
-        "min_combat_power": 1360,
+        "min_fortune": 18,
+        "min_combat_power": 0,
         "defense_bonus": 4,
         "cultivation_bonus": 9,
         "fortune_bonus": 8,
         "body_movement_bonus": 4,
-        "entry_hint": "只有悟性与神识都足够出众者，才看得懂门前第一幅星图。",
+        "entry_hint": "赠入门功法《天机观星术》，只有悟性与神识都足够出众者，才看得懂门前第一幅星图。",
         "roles": [
             {"role_key": "leader", "role_name": "阁主", "attack_bonus": 8, "defense_bonus": 8, "duel_rate_bonus": 6, "cultivation_bonus": 8, "monthly_salary": 380, "can_publish_tasks": True, "sort_order": 1},
             {"role_key": "elder", "role_name": "星盘长老", "attack_bonus": 6, "defense_bonus": 6, "duel_rate_bonus": 5, "cultivation_bonus": 6, "monthly_salary": 260, "can_publish_tasks": True, "sort_order": 2},
@@ -1619,15 +1863,16 @@ DEFAULT_SECTS = [
     {
         "name": "血煞魔宫",
         "camp": "heterodox",
-        "description": "以杀养煞，重视血气、攻击与高压斗法。",
-        "min_realm_stage": "筑基",
+        "description": "以战养煞，重视血气、胆魄与持续压制的斗法风格。",
+        "min_realm_stage": "炼气",
         "min_realm_layer": 5,
-        "min_bone": 20,
+        "min_bone": 22,
+        "min_willpower": 18,
         "min_fortune": 12,
-        "min_combat_power": 920,
+        "min_combat_power": 0,
         "attack_bonus": 12,
         "duel_rate_bonus": 5,
-        "entry_hint": "不怕见血、不怕被围，方能踏入魔宫大门。",
+        "entry_hint": "赠入门功法《血煞战典》，不怕见血、不怕被围，方能踏入魔宫大门。",
         "roles": [
             {"role_key": "leader", "role_name": "宫主", "attack_bonus": 16, "defense_bonus": 7, "duel_rate_bonus": 8, "cultivation_bonus": 4, "monthly_salary": 370, "can_publish_tasks": True, "sort_order": 1},
             {"role_key": "elder", "role_name": "血煞长老", "attack_bonus": 12, "defense_bonus": 5, "duel_rate_bonus": 6, "cultivation_bonus": 3, "monthly_salary": 250, "can_publish_tasks": True, "sort_order": 2},
@@ -1641,16 +1886,17 @@ DEFAULT_SECTS = [
     {
         "name": "幽冥鬼府",
         "camp": "heterodox",
-        "description": "行事诡谲，最擅影遁、摄魂与夜袭。",
-        "min_realm_stage": "金丹",
-        "min_realm_layer": 1,
-        "min_divine_sense": 20,
+        "description": "行事诡谲，最擅影遁、摄魂与夜袭，要求身法与神识兼修。",
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 6,
+        "min_divine_sense": 22,
         "min_fortune": 20,
-        "min_combat_power": 1500,
+        "min_body_movement": 20,
+        "min_combat_power": 0,
         "body_movement_bonus": 10,
         "duel_rate_bonus": 5,
         "fortune_bonus": 4,
-        "entry_hint": "看得见夜色中的第二层影子，才有资格敲响鬼府阴门。",
+        "entry_hint": "赠入门功法《幽冥夜行录》，看得见夜色中的第二层影子，才有资格敲响鬼府阴门。",
         "roles": [
             {"role_key": "leader", "role_name": "府君", "attack_bonus": 13, "defense_bonus": 8, "duel_rate_bonus": 8, "cultivation_bonus": 5, "monthly_salary": 360, "can_publish_tasks": True, "sort_order": 1},
             {"role_key": "elder", "role_name": "夜巡长老", "attack_bonus": 10, "defense_bonus": 6, "duel_rate_bonus": 6, "cultivation_bonus": 4, "monthly_salary": 246, "can_publish_tasks": True, "sort_order": 2},
@@ -1664,15 +1910,16 @@ DEFAULT_SECTS = [
     {
         "name": "万毒崖",
         "camp": "heterodox",
-        "description": "百毒并修，重视耐毒、韧性与反制手段。",
-        "min_realm_stage": "筑基",
-        "min_realm_layer": 6,
+        "description": "百毒并修，重视耐性、机缘与反制节奏，越拖越显凶险。",
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 5,
         "min_comprehension": 18,
-        "min_fortune": 18,
-        "min_combat_power": 1080,
+        "min_fortune": 20,
+        "min_willpower": 16,
+        "min_combat_power": 0,
         "defense_bonus": 7,
         "fortune_bonus": 8,
-        "entry_hint": "若连崖前第一缕毒雾都撑不过，就不必再往上走了。",
+        "entry_hint": "赠入门功法《万毒归元经》，若连崖前第一缕毒雾都撑不过，就不必再往上走了。",
         "roles": [
             {"role_key": "leader", "role_name": "崖主", "attack_bonus": 7, "defense_bonus": 12, "duel_rate_bonus": 5, "cultivation_bonus": 5, "monthly_salary": 350, "can_publish_tasks": True, "sort_order": 1},
             {"role_key": "elder", "role_name": "毒师长老", "attack_bonus": 5, "defense_bonus": 9, "duel_rate_bonus": 4, "cultivation_bonus": 4, "monthly_salary": 240, "can_publish_tasks": True, "sort_order": 2},
@@ -1681,6 +1928,78 @@ DEFAULT_SECTS = [
             {"role_key": "outer_deacon", "role_name": "药毒执事", "attack_bonus": 2, "defense_bonus": 4, "duel_rate_bonus": 1, "cultivation_bonus": 2, "monthly_salary": 96, "can_publish_tasks": True, "sort_order": 5},
             {"role_key": "inner_disciple", "role_name": "内门毒修", "attack_bonus": 2, "defense_bonus": 3, "duel_rate_bonus": 1, "cultivation_bonus": 1, "monthly_salary": 56, "can_publish_tasks": False, "sort_order": 6},
             {"role_key": "outer_disciple", "role_name": "试毒弟子", "attack_bonus": 1, "defense_bonus": 2, "duel_rate_bonus": 0, "cultivation_bonus": 1, "monthly_salary": 28, "can_publish_tasks": False, "sort_order": 7},
+        ],
+    },
+    {
+        "name": "星罗海阁",
+        "camp": "orthodox",
+        "description": "临海观潮、夜观群星的海阁，擅长平衡攻守与把握机缘。",
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 5,
+        "min_comprehension": 22,
+        "min_fortune": 20,
+        "min_charisma": 16,
+        "min_combat_power": 0,
+        "attack_bonus": 6,
+        "defense_bonus": 6,
+        "fortune_bonus": 6,
+        "entry_hint": "赠入门功法《星罗潮生诀》，需在静观潮声与夜色星轨中都能守住心神。",
+        "roles": [
+            {"role_key": "leader", "role_name": "海阁之主", "attack_bonus": 10, "defense_bonus": 10, "duel_rate_bonus": 5, "cultivation_bonus": 6, "monthly_salary": 350, "can_publish_tasks": True, "sort_order": 1},
+            {"role_key": "elder", "role_name": "观潮长老", "attack_bonus": 8, "defense_bonus": 8, "duel_rate_bonus": 4, "cultivation_bonus": 5, "monthly_salary": 238, "can_publish_tasks": True, "sort_order": 2},
+            {"role_key": "core", "role_name": "星潮真传", "attack_bonus": 6, "defense_bonus": 6, "duel_rate_bonus": 3, "cultivation_bonus": 4, "monthly_salary": 170, "can_publish_tasks": False, "sort_order": 3},
+            {"role_key": "inner_deacon", "role_name": "巡潮执事", "attack_bonus": 4, "defense_bonus": 4, "duel_rate_bonus": 2, "cultivation_bonus": 3, "monthly_salary": 126, "can_publish_tasks": True, "sort_order": 4},
+            {"role_key": "outer_deacon", "role_name": "望海执事", "attack_bonus": 3, "defense_bonus": 3, "duel_rate_bonus": 1, "cultivation_bonus": 2, "monthly_salary": 96, "can_publish_tasks": True, "sort_order": 5},
+            {"role_key": "inner_disciple", "role_name": "潮汐弟子", "attack_bonus": 2, "defense_bonus": 2, "duel_rate_bonus": 1, "cultivation_bonus": 1, "monthly_salary": 58, "can_publish_tasks": False, "sort_order": 6},
+            {"role_key": "outer_disciple", "role_name": "海阁外门", "attack_bonus": 1, "defense_bonus": 1, "duel_rate_bonus": 0, "cultivation_bonus": 1, "monthly_salary": 30, "can_publish_tasks": False, "sort_order": 7},
+        ],
+    },
+    {
+        "name": "灵傀山",
+        "camp": "orthodox",
+        "description": "擅制灵傀与机关，重耐心、悟性与真元的细腻运转。",
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 4,
+        "min_comprehension": 22,
+        "min_willpower": 18,
+        "min_bone": 18,
+        "min_combat_power": 0,
+        "defense_bonus": 8,
+        "cultivation_bonus": 8,
+        "body_movement_bonus": 4,
+        "entry_hint": "赠入门功法《灵傀百炼篇》，心志不稳者连第一根傀丝都牵不住。",
+        "roles": [
+            {"role_key": "leader", "role_name": "山主", "attack_bonus": 8, "defense_bonus": 12, "duel_rate_bonus": 4, "cultivation_bonus": 7, "monthly_salary": 346, "can_publish_tasks": True, "sort_order": 1},
+            {"role_key": "elder", "role_name": "百炼长老", "attack_bonus": 6, "defense_bonus": 10, "duel_rate_bonus": 3, "cultivation_bonus": 5, "monthly_salary": 236, "can_publish_tasks": True, "sort_order": 2},
+            {"role_key": "core", "role_name": "灵傀真传", "attack_bonus": 4, "defense_bonus": 8, "duel_rate_bonus": 2, "cultivation_bonus": 4, "monthly_salary": 168, "can_publish_tasks": False, "sort_order": 3},
+            {"role_key": "inner_deacon", "role_name": "机巧执事", "attack_bonus": 3, "defense_bonus": 6, "duel_rate_bonus": 2, "cultivation_bonus": 3, "monthly_salary": 124, "can_publish_tasks": True, "sort_order": 4},
+            {"role_key": "outer_deacon", "role_name": "傀坊执事", "attack_bonus": 2, "defense_bonus": 4, "duel_rate_bonus": 1, "cultivation_bonus": 2, "monthly_salary": 94, "can_publish_tasks": True, "sort_order": 5},
+            {"role_key": "inner_disciple", "role_name": "内门傀修", "attack_bonus": 1, "defense_bonus": 3, "duel_rate_bonus": 1, "cultivation_bonus": 1, "monthly_salary": 56, "can_publish_tasks": False, "sort_order": 6},
+            {"role_key": "outer_disciple", "role_name": "试线弟子", "attack_bonus": 1, "defense_bonus": 2, "duel_rate_bonus": 0, "cultivation_bonus": 1, "monthly_salary": 28, "can_publish_tasks": False, "sort_order": 7},
+        ],
+    },
+    {
+        "name": "栖凰山",
+        "camp": "orthodox",
+        "description": "山中离火常明，擅长以温烈并济的方式兼顾修炼与斗法。",
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 5,
+        "min_comprehension": 20,
+        "min_charisma": 18,
+        "min_fortune": 18,
+        "min_combat_power": 0,
+        "attack_bonus": 10,
+        "cultivation_bonus": 6,
+        "fortune_bonus": 4,
+        "entry_hint": "赠入门功法《栖凰离火录》，火脉不只看爆发，也看你能否将烈意养成风骨。",
+        "roles": [
+            {"role_key": "leader", "role_name": "凰主", "attack_bonus": 14, "defense_bonus": 6, "duel_rate_bonus": 6, "cultivation_bonus": 5, "monthly_salary": 352, "can_publish_tasks": True, "sort_order": 1},
+            {"role_key": "elder", "role_name": "焰羽长老", "attack_bonus": 11, "defense_bonus": 5, "duel_rate_bonus": 5, "cultivation_bonus": 4, "monthly_salary": 240, "can_publish_tasks": True, "sort_order": 2},
+            {"role_key": "core", "role_name": "离火真传", "attack_bonus": 8, "defense_bonus": 4, "duel_rate_bonus": 4, "cultivation_bonus": 3, "monthly_salary": 174, "can_publish_tasks": False, "sort_order": 3},
+            {"role_key": "inner_deacon", "role_name": "焚霞执事", "attack_bonus": 6, "defense_bonus": 3, "duel_rate_bonus": 3, "cultivation_bonus": 2, "monthly_salary": 128, "can_publish_tasks": True, "sort_order": 4},
+            {"role_key": "outer_deacon", "role_name": "栖焰执事", "attack_bonus": 4, "defense_bonus": 3, "duel_rate_bonus": 2, "cultivation_bonus": 2, "monthly_salary": 98, "can_publish_tasks": True, "sort_order": 5},
+            {"role_key": "inner_disciple", "role_name": "焰羽弟子", "attack_bonus": 3, "defense_bonus": 2, "duel_rate_bonus": 1, "cultivation_bonus": 1, "monthly_salary": 58, "can_publish_tasks": False, "sort_order": 6},
+            {"role_key": "outer_disciple", "role_name": "山门弟子", "attack_bonus": 1, "defense_bonus": 1, "duel_rate_bonus": 1, "cultivation_bonus": 1, "monthly_salary": 30, "can_publish_tasks": False, "sort_order": 7},
         ],
     },
 ]
@@ -1793,6 +2112,154 @@ DEFAULT_TALISMANS.extend(
 )
 DEFAULT_RECIPES.extend(EXTRA_RECIPES)
 DEFAULT_SCENES.extend(EXTRA_SCENES)
+DEFAULT_SCENES.extend(
+    [
+        {
+            "name": "太玄剑冢",
+            "description": "旧剑意未散的山门剑冢，适合炼气修士磨剑与悟势。",
+            "max_minutes": 38,
+            "min_realm_stage": "炼气",
+            "min_realm_layer": 4,
+            "min_combat_power": 620,
+            "event_pool": [
+                {"name": "剑纹回响", "description": "残剑共鸣间，有一段太玄剑意在石壁上浮现。", "event_type": "oddity", "weight": 3, "bonus_reward_kind": "technique", "bonus_reward_ref_id_name": "太玄剑经", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 24},
+                {"name": "剑碑残拓", "description": "你从半断石碑上拓下几笔清晰剑痕。", "event_type": "recipe", "weight": 2, "bonus_reward_kind": "material", "bonus_reward_ref_id_name": "青罡剑谱残页", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 42},
+            ],
+            "drops": [
+                {"reward_kind": "material", "reward_ref_id_name": "寒铁矿", "quantity_min": 2, "quantity_max": 4, "weight": 5, "stone_reward": 6, "event_text": "剑冢裂隙中埋着锋芒未失的寒铁矿。"},
+                {"reward_kind": "material", "reward_ref_id_name": "青霜铁", "quantity_min": 1, "quantity_max": 2, "weight": 4, "stone_reward": 8, "event_text": "你在古剑堆下翻出一块泛着霜光的青霜铁。"},
+            ],
+        },
+        {
+            "name": "百草灵圃",
+            "description": "药王谷旧药圃灵气温和，兼产草木药材与养元心得。",
+            "max_minutes": 38,
+            "min_realm_stage": "炼气",
+            "min_realm_layer": 3,
+            "min_combat_power": 560,
+            "event_pool": [
+                {"name": "木息丹纹", "description": "藤蔓缠绕的药案上留着一段温养真元的口诀。", "event_type": "oddity", "weight": 3, "bonus_reward_kind": "technique", "bonus_reward_ref_id_name": "青木长生诀", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 26},
+                {"name": "药谱旧页", "description": "你在废弃药柜深处翻到一张残页。", "event_type": "recipe", "weight": 2, "bonus_reward_kind": "material", "bonus_reward_ref_id_name": "回春丹谱残页", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 46},
+            ],
+            "drops": [
+                {"reward_kind": "material", "reward_ref_id_name": "归元草", "quantity_min": 2, "quantity_max": 4, "weight": 6, "stone_reward": 5, "event_text": "灵圃药垄中长着一片养元用的归元草。"},
+                {"reward_kind": "material", "reward_ref_id_name": "灵雾草心", "quantity_min": 1, "quantity_max": 2, "weight": 4, "stone_reward": 8, "event_text": "你在薄雾中央采到一份灵雾草心。"},
+            ],
+        },
+        {
+            "name": "观星残台",
+            "description": "天机阁废弃观星台仍保留些许星图痕迹，适合悟性高的修士参悟。",
+            "max_minutes": 42,
+            "min_realm_stage": "炼气",
+            "min_realm_layer": 6,
+            "min_combat_power": 980,
+            "event_pool": [
+                {"name": "星图映照", "description": "残台上方忽然显出一角运转中的星图。", "event_type": "oddity", "weight": 3, "bonus_reward_kind": "technique", "bonus_reward_ref_id_name": "天机观星术", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 22},
+                {"name": "流星碎辉", "description": "一缕陨辉落入盘中，化成几粒星砂。", "event_type": "fortune", "weight": 3},
+            ],
+            "drops": [
+                {"reward_kind": "material", "reward_ref_id_name": "星辉砂", "quantity_min": 1, "quantity_max": 2, "weight": 5, "stone_reward": 10, "event_text": "观星盘边缘滚落出几粒星辉砂。"},
+                {"reward_kind": "material", "reward_ref_id_name": "星河砂", "quantity_min": 1, "quantity_max": 2, "weight": 4, "stone_reward": 12, "event_text": "你在残台缝隙里刮下一份星河砂。"},
+            ],
+        },
+        {
+            "name": "血煞试炼场",
+            "description": "魔宫外门旧试炼场血气未散，专为好战修士磨砺胆魄。",
+            "max_minutes": 42,
+            "min_realm_stage": "炼气",
+            "min_realm_layer": 5,
+            "min_combat_power": 920,
+            "event_pool": [
+                {"name": "煞纹战书", "description": "血色石柱上刻着一段魔宫战典。", "event_type": "oddity", "weight": 3, "bonus_reward_kind": "technique", "bonus_reward_ref_id_name": "血煞战典", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 22},
+                {"name": "杀伐回音", "description": "旧战场杀意回卷，让你的护体灵光狠狠一震。", "event_type": "danger", "weight": 3, "stone_bonus_min": 14, "stone_bonus_max": 28, "stone_loss_min": 8, "stone_loss_max": 16},
+            ],
+            "drops": [
+                {"reward_kind": "material", "reward_ref_id_name": "赤炎晶砂", "quantity_min": 1, "quantity_max": 3, "weight": 5, "stone_reward": 8, "event_text": "旧兵刃与地火摩擦，炼出一撮赤炎晶砂。"},
+                {"reward_kind": "material", "reward_ref_id_name": "赤流砂", "quantity_min": 1, "quantity_max": 2, "weight": 4, "stone_reward": 10, "event_text": "你在兵坑里翻出一份杀意未散的赤流砂。"},
+            ],
+        },
+        {
+            "name": "夜影回廊",
+            "description": "幽冥鬼府外的回廊层层叠影，身法稍慢就会被黑影反扑。",
+            "max_minutes": 44,
+            "min_realm_stage": "炼气",
+            "min_realm_layer": 6,
+            "min_combat_power": 1080,
+            "event_pool": [
+                {"name": "夜行残页", "description": "你在阴影交叠处看到一篇完整夜行法门。", "event_type": "oddity", "weight": 3, "bonus_reward_kind": "technique", "bonus_reward_ref_id_name": "幽冥夜行录", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 20},
+                {"name": "影门错位", "description": "回廊中的影门忽然换位，险些把你困在原地。", "event_type": "danger", "weight": 3, "stone_bonus_min": 16, "stone_bonus_max": 30, "stone_loss_min": 8, "stone_loss_max": 16},
+            ],
+            "drops": [
+                {"reward_kind": "material", "reward_ref_id_name": "云纹丝", "quantity_min": 2, "quantity_max": 4, "weight": 5, "stone_reward": 7, "event_text": "夜风卷来几束柔韧的云纹丝。"},
+                {"reward_kind": "material", "reward_ref_id_name": "风鹤羽", "quantity_min": 1, "quantity_max": 2, "weight": 4, "stone_reward": 10, "event_text": "影廊尽头飘着一片极轻的风鹤羽。"},
+            ],
+        },
+        {
+            "name": "毒瘴古泽",
+            "description": "古泽瘴气层叠，耐性不够的修士很难久留。",
+            "max_minutes": 44,
+            "min_realm_stage": "炼气",
+            "min_realm_layer": 5,
+            "min_combat_power": 960,
+            "event_pool": [
+                {"name": "毒经浮字", "description": "瘴云散开一瞬，露出一段收毒归元的古经。", "event_type": "oddity", "weight": 3, "bonus_reward_kind": "technique", "bonus_reward_ref_id_name": "万毒归元经", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 22},
+                {"name": "瘴浪逼身", "description": "毒雾突然翻卷，逼得你以真元硬抗。", "event_type": "danger", "weight": 3, "stone_bonus_min": 15, "stone_bonus_max": 28, "stone_loss_min": 8, "stone_loss_max": 15},
+            ],
+            "drops": [
+                {"reward_kind": "material", "reward_ref_id_name": "凝露花", "quantity_min": 1, "quantity_max": 3, "weight": 5, "stone_reward": 7, "event_text": "古泽边缘竟开着几朵耐毒的凝露花。"},
+                {"reward_kind": "material", "reward_ref_id_name": "玄松脂", "quantity_min": 1, "quantity_max": 2, "weight": 4, "stone_reward": 10, "event_text": "毒瘴深处的古松渗出一份玄松脂。"},
+            ],
+        },
+        {
+            "name": "潮音洞天",
+            "description": "洞天潮声日夜不绝，最适合参悟潮汐转换与攻守平衡。",
+            "max_minutes": 46,
+            "min_realm_stage": "炼气",
+            "min_realm_layer": 5,
+            "min_combat_power": 1020,
+            "event_pool": [
+                {"name": "潮生心法", "description": "潮声鼓荡之间，你听出了一段完整心法。", "event_type": "oddity", "weight": 3, "bonus_reward_kind": "technique", "bonus_reward_ref_id_name": "星罗潮生诀", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 20},
+                {"name": "海潮倒卷", "description": "洞中潮势忽快忽慢，险些把你拍进石壁。", "event_type": "danger", "weight": 3, "stone_bonus_min": 18, "stone_bonus_max": 32, "stone_loss_min": 8, "stone_loss_max": 18},
+            ],
+            "drops": [
+                {"reward_kind": "material", "reward_ref_id_name": "寒水露", "quantity_min": 1, "quantity_max": 3, "weight": 5, "stone_reward": 8, "event_text": "潮音石壁上凝出了几滴寒水露。"},
+                {"reward_kind": "material", "reward_ref_id_name": "云母银丝", "quantity_min": 1, "quantity_max": 2, "weight": 4, "stone_reward": 11, "event_text": "洞天潮眼里卷出一缕云母银丝。"},
+            ],
+        },
+        {
+            "name": "傀丝遗坊",
+            "description": "遗坊里遍布断线机关与旧灵傀残件，考验耐心与细致操控。",
+            "max_minutes": 46,
+            "min_realm_stage": "炼气",
+            "min_realm_layer": 4,
+            "min_combat_power": 880,
+            "event_pool": [
+                {"name": "百炼傀谱", "description": "旧工坊正厅里悬着一页傀术总纲。", "event_type": "oddity", "weight": 3, "bonus_reward_kind": "technique", "bonus_reward_ref_id_name": "灵傀百炼篇", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 24},
+                {"name": "乱线回弹", "description": "一根断裂傀丝突然回弹，在你手臂上割出一道血线。", "event_type": "danger", "weight": 3, "stone_bonus_min": 14, "stone_bonus_max": 26, "stone_loss_min": 6, "stone_loss_max": 14},
+            ],
+            "drops": [
+                {"reward_kind": "material", "reward_ref_id_name": "灵木芯", "quantity_min": 1, "quantity_max": 3, "weight": 5, "stone_reward": 6, "event_text": "遗坊残架中还留着几枚灵木芯。"},
+                {"reward_kind": "material", "reward_ref_id_name": "九曲灵丝", "quantity_min": 1, "quantity_max": 2, "weight": 4, "stone_reward": 11, "event_text": "你顺着遗坊地槽抽出一缕九曲灵丝。"},
+            ],
+        },
+        {
+            "name": "栖凰焰谷",
+            "description": "焰谷火意灵动，比纯粹爆裂更重节奏与火势回转。",
+            "max_minutes": 48,
+            "min_realm_stage": "炼气",
+            "min_realm_layer": 5,
+            "min_combat_power": 1100,
+            "event_pool": [
+                {"name": "凰羽离火", "description": "山谷深处落下一片离火凰羽，内里藏着完整真意。", "event_type": "oddity", "weight": 3, "bonus_reward_kind": "technique", "bonus_reward_ref_id_name": "栖凰离火录", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 20},
+                {"name": "焰流暴走", "description": "谷底火流骤然暴走，只能以真元强行压住。", "event_type": "danger", "weight": 3, "stone_bonus_min": 20, "stone_bonus_max": 34, "stone_loss_min": 10, "stone_loss_max": 18},
+            ],
+            "drops": [
+                {"reward_kind": "material", "reward_ref_id_name": "赤炎晶砂", "quantity_min": 2, "quantity_max": 3, "weight": 5, "stone_reward": 8, "event_text": "焰谷风口卷出一簇赤炎晶砂。"},
+                {"reward_kind": "material", "reward_ref_id_name": "紫焰琉砂", "quantity_min": 1, "quantity_max": 2, "weight": 4, "stone_reward": 12, "event_text": "你在火脉交汇处采到一份紫焰琉砂。"},
+            ],
+        },
+    ]
+)
 
 FIRST_REALM_STAGE = REALM_ORDER[0]
 BREAKTHROUGH_BASE_RATE = {
@@ -3240,7 +3707,7 @@ def _current_technique_payload(profile_data: dict[str, Any]) -> dict[str, Any] |
     return technique
 
 
-SEED_DATA_VERSION = "2026-04-14-default-content-v2"
+SEED_DATA_VERSION = "2026-04-17-default-content-v3"
 SEED_DATA_READY = False
 
 

@@ -119,6 +119,28 @@ RARITY_LEVEL_MAP = {
     "天品": 5,
 }
 
+SECT_ENTRY_TECHNIQUES = {
+    "太玄剑宗": "太玄剑经",
+    "药王谷": "青木长生诀",
+    "天机阁": "天机观星术",
+    "血煞魔宫": "血煞战典",
+    "幽冥鬼府": "幽冥夜行录",
+    "万毒崖": "万毒归元经",
+    "星罗海阁": "星罗潮生诀",
+    "灵傀山": "灵傀百炼篇",
+    "栖凰山": "栖凰离火录",
+}
+
+
+def _sect_entry_technique_payload(sect_name: str) -> dict[str, Any] | None:
+    technique_name = str(SECT_ENTRY_TECHNIQUES.get(sect_name) or "").strip()
+    if not technique_name:
+        return None
+    for row in list_techniques(enabled_only=True):
+        if str(row.get("name") or "").strip() == technique_name:
+            return row
+    return None
+
 
 def china_now():
     return utcnow() + timedelta(hours=8)
@@ -514,8 +536,6 @@ def _eligible_for_sect(profile_data: dict[str, Any], sect: dict[str, Any], comba
         return False, "因果不满足宗门要求"
     if int(profile_data.get("body_movement") or 0) < int(sect.get("min_body_movement") or 0):
         return False, "身法不满足宗门要求"
-    if int(combat_power or 0) < int(sect.get("min_combat_power") or 0):
-        return False, "战力不满足宗门要求"
     return True, ""
 
 
@@ -531,6 +551,9 @@ def list_sects_for_user(tg: int) -> list[dict[str, Any]]:
     for sect in list_sects(enabled_only=True):
         sect["roles"] = list_sect_roles(sect["id"])
         sect["member_count"] = _count_sect_members(sect["id"])
+        entry_technique = _sect_entry_technique_payload(str(sect.get("name") or ""))
+        sect["entry_technique_name"] = (entry_technique or {}).get("name")
+        sect["entry_technique_rarity"] = (entry_technique or {}).get("rarity")
         allowed, reason = _eligible_for_sect(profile, sect, combat_power=combat_power)
         sect["joinable"] = profile.get("sect_id") in {None, sect["id"]} and allowed
         sect["join_reason"] = "" if sect["joinable"] else reason or ("你已经加入其他宗门" if profile.get("sect_id") not in {None, sect["id"]} else "")
@@ -559,6 +582,9 @@ def get_current_sect_bundle(tg: int) -> dict[str, Any] | None:
     sect["roles"] = list_sect_roles(sect["id"])
     sect["roster"] = _get_sect_roster(sect["id"])
     sect["current_role"] = get_sect_role_payload(sect["id"], profile.get("sect_role_key"))
+    entry_technique = _sect_entry_technique_payload(str(sect.get("name") or ""))
+    sect["entry_technique_name"] = (entry_technique or {}).get("name")
+    sect["entry_technique_rarity"] = (entry_technique or {}).get("rarity")
     sect["leave_preview"] = {
         "stone_penalty": _sect_betrayal_stone_penalty(int(profile.get("spiritual_stone") or 0)),
         "cooldown_days": _sect_betrayal_cooldown_days(),
@@ -589,6 +615,18 @@ def join_sect_for_user(tg: int, sect_id: int) -> dict[str, Any]:
         sect_betrayal_until=None,
         last_salary_claim_at=None,
     )
+    entry_technique = _sect_entry_technique_payload(str(sect.get("name") or ""))
+    if entry_technique and not any(int((row.get("technique") or {}).get("id") or 0) == int(entry_technique["id"]) for row in list_user_techniques(tg, enabled_only=False)):
+        try:
+            grant_technique_to_user(
+                tg,
+                int(entry_technique["id"]),
+                source="sect",
+                obtained_note=f"拜入{sect['name']}所得",
+                auto_equip_if_empty=True,
+            )
+        except ValueError:
+            pass
     create_journal(tg, "sect", "加入宗门", f"重整衣冠，拜入宗门【{sect['name']}】门下。")
     return get_current_sect_bundle(tg)
 
@@ -2589,6 +2627,13 @@ def build_world_bundle(tg: int) -> dict[str, Any]:
     exploration_counts = _scene_exploration_counts(tg)
     for scene in scenes:
         scene["drops"] = list_scene_drops(scene["id"])
+        for drop in scene["drops"]:
+            item = _get_item_payload(str(drop.get("reward_kind") or ""), int(drop.get("reward_ref_id") or 0))
+            drop["reward_name"] = (item or {}).get("name") or f"{drop.get('reward_kind_label') or drop.get('reward_kind')}"
+        for event in scene.get("event_pool") or []:
+            if int((event or {}).get("bonus_reward_ref_id") or 0) > 0:
+                item = _get_item_payload(str(event.get("bonus_reward_kind") or ""), int(event.get("bonus_reward_ref_id") or 0))
+                event["bonus_reward_name"] = (item or {}).get("name")
         scene["user_exploration_count"] = exploration_counts.get(int(scene["id"]), 0)
     recipes = build_recipe_catalog(tg)
     return {

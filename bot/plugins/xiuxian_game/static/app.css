@@ -438,6 +438,76 @@ h3 {
   margin-top: 10px;
 }
 
+.info-grid,
+.recipe-source-list,
+.scene-drop-list {
+  display: grid;
+  gap: 10px;
+}
+
+.info-grid {
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  margin-top: 10px;
+}
+
+.info-chip {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(240, 253, 250, 0.92), rgba(255, 255, 255, 0.98));
+}
+
+.info-chip span {
+  display: block;
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.info-chip strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+.recipe-source-list,
+.scene-drop-list {
+  margin-top: 10px;
+}
+
+.recipe-source-item,
+.scene-drop-item {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(248, 250, 252, 0.9);
+}
+
+.recipe-source-item strong,
+.scene-drop-item strong {
+  display: block;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.recipe-source-item p,
+.scene-drop-item p {
+  margin-top: 6px;
+}
+
+.scene-card.is-qualified {
+  border-color: rgba(15, 118, 110, 0.22);
+  box-shadow: 0 8px 24px rgba(15, 118, 110, 0.08);
+}
+
+.scene-card.is-risky {
+  border-color: rgba(180, 83, 9, 0.24);
+}
+
 .badge {
   white-space: nowrap;
 }
@@ -753,6 +823,10 @@ button:disabled {
   }
 
   .inventory-columns {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .info-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
