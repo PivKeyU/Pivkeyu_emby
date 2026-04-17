@@ -61,6 +61,68 @@
       <div id="fold-shortcuts" class="fold-shortcuts" aria-label="模块快捷跳转"></div>
     </section>
 
+    <details id="wiki-card" class="card fold-card" open>
+      <summary class="fold-summary">
+        <div>
+          <p class="eyebrow">修仙 Wiki</p>
+          <h2>玩法手册与掉落检索</h2>
+        </div>
+        <span class="summary-tip">首页随时可查教程、材料、法宝、丹药、符箓、功法、称号、成就与配方来源</span>
+      </summary>
+      <div class="fold-body">
+        <article class="stack-item">
+          <div class="stack-item-head">
+            <strong>搜索修仙玩法</strong>
+            <span id="wiki-counts" class="summary-tip">正在整理词条...</span>
+          </div>
+          <label>
+            关键词
+            <input id="wiki-search" type="search" placeholder="可搜：闭关、补天丹、玄龟盾炼制图、长青诀、初入仙途、承道出山">
+          </label>
+          <p id="wiki-search-hint" class="section-copy">可搜索玩法教程、材料来源、法宝、丹药、符箓、功法、称号、成就与配方获取方式，也可按入门、探索、炼制、战斗、任务、社交、宗门筛选。</p>
+          <div id="wiki-filter-row" class="wiki-filter-row">
+            <button type="button" class="ghost is-active" data-wiki-filter="all">全部</button>
+            <button type="button" class="ghost" data-wiki-filter="tutorial">玩法</button>
+            <button type="button" class="ghost" data-wiki-filter="starter">入门</button>
+            <button type="button" class="ghost" data-wiki-filter="explore">探索</button>
+            <button type="button" class="ghost" data-wiki-filter="crafting">炼制</button>
+            <button type="button" class="ghost" data-wiki-filter="combat">战斗</button>
+            <button type="button" class="ghost" data-wiki-filter="task">任务</button>
+            <button type="button" class="ghost" data-wiki-filter="social">社交</button>
+            <button type="button" class="ghost" data-wiki-filter="sect">宗门</button>
+            <button type="button" class="ghost" data-wiki-filter="material">材料</button>
+            <button type="button" class="ghost" data-wiki-filter="artifact">法宝</button>
+            <button type="button" class="ghost" data-wiki-filter="pill">丹药</button>
+            <button type="button" class="ghost" data-wiki-filter="talisman">符箓</button>
+            <button type="button" class="ghost" data-wiki-filter="technique">功法</button>
+            <button type="button" class="ghost" data-wiki-filter="title">称号</button>
+            <button type="button" class="ghost" data-wiki-filter="recipe">配方</button>
+            <button type="button" class="ghost" data-wiki-filter="achievement">成就</button>
+          </div>
+        </article>
+
+        <details class="mini-fold" open>
+          <summary class="mini-fold-summary">
+            <h3>新手必看</h3>
+            <span class="summary-tip">先看节奏，再看路线与指令</span>
+          </summary>
+          <div class="mini-fold-body">
+            <div id="wiki-featured-list" class="stack-list"></div>
+          </div>
+        </details>
+
+        <details class="mini-fold" open>
+          <summary class="mini-fold-summary">
+            <h3>搜索结果</h3>
+            <span class="summary-tip">点击词条可展开完整说明</span>
+          </summary>
+          <div class="mini-fold-body">
+            <div id="wiki-result-list" class="stack-list"></div>
+          </div>
+        </details>
+      </div>
+    </details>
+
     <details id="enter-card" class="card fold-card hidden" open>
       <summary class="fold-summary">
         <div>
@@ -806,6 +868,16 @@
             <div class="mini-fold-body">
               <input id="material-search" type="search" placeholder="搜索材料名称或品质">
               <div id="material-list" class="stack-list"></div>
+            </div>
+          </details>
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>残页参悟</h3>
+              <span class="summary-tip">消耗残页补全缺失配方</span>
+            </summary>
+            <div class="mini-fold-body">
+              <p class="section-copy">残页可先参悟成完整配方，再进入下方炼制列表开炉。</p>
+              <div id="recipe-fragment-synthesis-list" class="stack-list"></div>
             </div>
           </details>
           <details class="mini-fold" open>

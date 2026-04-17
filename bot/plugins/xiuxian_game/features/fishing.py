@@ -84,7 +84,7 @@ FISHING_SPOTS: dict[str, dict[str, Any]] = {
     },
 }
 
-PREVIEW_REWARD_LIMIT = 6
+PREVIEW_REWARD_LIMIT = 8
 
 
 def _legacy_service():

@@ -118,8 +118,14 @@ def search_xiuxian_players(
     query: str | None = None,
     page: int = 1,
     page_size: int = 20,
+    include_secluded: bool = True,
 ) -> dict[str, Any]:
-    return _legacy_service().search_xiuxian_players(query=query, page=page, page_size=page_size)
+    return _legacy_service().search_xiuxian_players(
+        query=query,
+        page=page,
+        page_size=page_size,
+        include_secluded=include_secluded,
+    )
 
 
 def generate_shop_name(first_name: str) -> str:

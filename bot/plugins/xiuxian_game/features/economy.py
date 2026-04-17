@@ -5,6 +5,7 @@ from typing import Any
 from bot.sql_helper import Session
 from bot.sql_helper.sql_xiuxian import (
     XiuxianProfile,
+    _marriage_partner_tg,
     apply_spiritual_stone_delta,
     assert_currency_operation_allowed,
     assert_profile_alive,
@@ -39,6 +40,14 @@ def _legacy_service():
     return legacy_service
 
 
+def _is_active_spouse_pair(session: Session, actor_tg: int, target_tg: int) -> bool:
+    actor_id = int(actor_tg or 0)
+    target_id = int(target_tg or 0)
+    if actor_id <= 0 or target_id <= 0 or actor_id == target_id:
+        return False
+    return int(_marriage_partner_tg(session, actor_id, for_update=True) or 0) == target_id
+
+
 def gift_spirit_stone(sender_tg: int, target_tg: int, amount: int) -> dict[str, Any]:
     if int(sender_tg) == int(target_tg):
         raise ValueError("不能给自己赠送灵石")
@@ -59,6 +68,8 @@ def gift_spirit_stone(sender_tg: int, target_tg: int, amount: int) -> dict[str, 
         legacy_service._assert_gender_ready(sender, "赠送灵石")
         legacy_service._assert_gender_ready(receiver, "接收灵石")
         legacy_service.assert_social_action_allowed(sender, receiver, "赠送灵石")
+        if _is_active_spouse_pair(session, sender_tg, target_tg):
+            raise ValueError("道侣之间灵石共享，不能互相赠送灵石。")
         assert_currency_operation_allowed(sender_tg, "赠送灵石", session=session, profile=sender)
         assert_currency_operation_allowed(target_tg, "接收灵石", session=session, profile=receiver)
         apply_spiritual_stone_delta(

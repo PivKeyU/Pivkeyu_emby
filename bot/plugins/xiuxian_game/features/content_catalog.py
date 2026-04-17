@@ -175,6 +175,19 @@ EXTRA_MATERIALS = [
     {"name": "离魄藤种", "quality_level": 4, "description": "埋在阴阳交汇处的古藤种子，外壳漆黑如墨，既可封脉也可守窍。"},
     {"name": "曜金雷髓", "quality_level": 5, "description": "雷火同炼后的曜金精髓，金红交织、雷电缭绕，最适合打造高压攻伐灵物。"},
     {"name": "烬天火纹石", "quality_level": 5, "description": "被天火烙出天然火纹的异石，石面火纹流转、炽热难当，蕴含持久炽烈的爆发力。"},
+    # ========== 新增：垂钓主题材料 ==========
+    {"name": "溪纹石", "quality_level": 1, "description": "常年浸在浅溪中的卵石，石面自生水纹灵痕，是初学炼器时常见的温润辅材。"},
+    {"name": "银鳞藻", "quality_level": 1, "description": "细长如丝的浅水灵藻，叶面泛着鱼鳞般微光，可入丹也可作符墨辅料。"},
+    {"name": "月魄蚌珠", "quality_level": 2, "description": "寒月灵湖深处老蚌所孕之珠，珠内含一缕柔寒月华，常用于宁神养识。"},
+    {"name": "寒潭藻心", "quality_level": 2, "description": "生于冷潭暗流中央的藻心，触手冰凉，最适合炼制寒性丹药与凝神符水。"},
+    {"name": "熔鳞砂", "quality_level": 3, "description": "火鳞熔潭边缘析出的赤金细砂，摸上去仍有余温，是火土双属灵材。"},
+    {"name": "潮音珊瑚", "quality_level": 3, "description": "吸纳潮声灵韵而生的珊瑚枝，贴耳可闻若有若无的海潮回响。"},
+    {"name": "星潮玄砂", "quality_level": 4, "description": "只在夜潮最盛时浮上水面的幽蓝砂砾，兼具星辉与潮汐气机，善养神识。"},
+    {"name": "龙涡骨片", "quality_level": 4, "description": "深水妖兽遗骨被漩涡磨成的骨片，表面遍布旋流纹，最擅承载卸力护身之势。"},
+    {"name": "海眼寒晶", "quality_level": 5, "description": "星渊古海海眼喷涌后凝成的寒晶，内外温差极端，常被用来炼制重宝。"},
+    {"name": "赤髓炎珀", "quality_level": 5, "description": "熔潭最深处浮出的炎珀，内部似有熔火髓液缓缓流动，极适合攻伐类灵物。"},
+    {"name": "星渊潮核", "quality_level": 6, "description": "由星潮与古海灵压共同压成的潮汐核心，握于手中仿佛能牵动整片海面。"},
+    {"name": "归墟道纹贝", "quality_level": 7, "description": "极少自归墟暗流中漂出的古贝，道纹天然成环，内蕴深海大道余韵。"},
     # ========== 新增：凡品材料 ==========
     {"name": "灵露滴", "quality_level": 1, "description": "晨露凝聚的灵力露珠，晶莹剔透，最基础的灵材之一。"},
     {"name": "枯叶草", "quality_level": 1, "description": "随处可见的灵草，枯黄叶片却蕴含微弱灵气，适合新手练手用。"},
@@ -426,6 +439,79 @@ ALL_EXTRA_MATERIALS = apply_farmable_material_overrides(_merge_material_catalogs
 
 
 EXTRA_ARTIFACTS = [
+    {
+        "name": "潮音珊瑚佩",
+        "rarity": "中品",
+        "artifact_type": "support",
+        "artifact_role": "guardian",
+        "equip_slot": "bracelet",
+        "description": "以潮音珊瑚打磨成佩，入手清凉，佩之可稳心定气，斗法时更擅借势卸力。",
+        "defense_bonus": 12,
+        "true_yuan_bonus": 18,
+        "fortune_bonus": 2,
+        "min_realm_stage": "筑基",
+        "min_realm_layer": 2,
+        "enabled": True,
+    },
+    {
+        "name": "听潮玉壶",
+        "rarity": "上品",
+        "artifact_type": "support",
+        "artifact_role": "support",
+        "equip_slot": "necklace",
+        "description": "玉壶内藏一缕海潮回音，斗法前摇动壶身，便能借潮息润养真元、澄明神识。",
+        "defense_bonus": 10,
+        "divine_sense_bonus": 12,
+        "true_yuan_bonus": 28,
+        "fortune_bonus": 4,
+        "cultivation_bonus": 4,
+        "min_realm_stage": "结丹",
+        "min_realm_layer": 1,
+        "enabled": True,
+    },
+    {
+        "name": "月魄垂纶钩",
+        "rarity": "极品",
+        "artifact_type": "battle",
+        "artifact_role": "battle",
+        "equip_slot": "weapon",
+        "description": "以月魄蚌珠与海眼寒晶共炼而成，钩锋极细却锋芒内敛，最擅破开护体灵光后追击。",
+        "attack_bonus": 22,
+        "body_movement_bonus": 16,
+        "fortune_bonus": 8,
+        "duel_rate_bonus": 4,
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "垂纶裂波",
+                    "kind": "armor_break",
+                    "chance": 28,
+                    "defense_ratio_percent": 16,
+                    "duration": 2,
+                    "text": "月魄垂纶钩一点即收，护体灵波被硬生生扯开一道裂口。",
+                }
+            ]
+        },
+        "min_realm_stage": "结丹",
+        "min_realm_layer": 5,
+        "enabled": True,
+    },
+    {
+        "name": "星潮引灵灯",
+        "rarity": "仙品",
+        "artifact_type": "support",
+        "artifact_role": "support",
+        "equip_slot": "bracelet",
+        "description": "灯芯以星渊潮核点燃，燃起时如一盏悬在海上的孤灯，最擅引聚灵机与海潮气数。",
+        "comprehension_bonus": 12,
+        "divine_sense_bonus": 14,
+        "fortune_bonus": 12,
+        "true_yuan_bonus": 40,
+        "cultivation_bonus": 8,
+        "min_realm_stage": "化神",
+        "min_realm_layer": 2,
+        "enabled": True,
+    },
     {
         "name": "定海镇心佩",
         "rarity": "上品",
@@ -1244,6 +1330,56 @@ EXTRA_ARTIFACTS = [
 
 EXTRA_PILLS = [
     {
+        "name": "碧波养元丹",
+        "rarity": "下品",
+        "pill_type": "cultivation",
+        "effect_value": 42,
+        "poison_delta": 1,
+        "description": "以浅溪灵韵炼成的温和小丹，药力如细浪拍岸，适合日常稳步增补修为。",
+        "materials": [("溪纹石", 1), ("银鳞藻", 2), ("归元草", 1)],
+        "success": 74,
+    },
+    {
+        "name": "寒月澄心丹",
+        "rarity": "中品",
+        "pill_type": "divine_sense",
+        "effect_value": 9,
+        "poison_delta": 2,
+        "description": "月魄蚌珠与寒潭藻心同炉，服下后识海如被月光洗过一般清澈安宁。",
+        "materials": [("月魄蚌珠", 1), ("寒潭藻心", 1), ("净水莲心", 1)],
+        "success": 66,
+    },
+    {
+        "name": "海魄归元丹",
+        "rarity": "上品",
+        "pill_type": "true_yuan",
+        "effect_value": 16,
+        "poison_delta": 3,
+        "description": "丹中蕴着沉静海息，服后真元回流如潮，最适合久战之后温养经脉与丹田。",
+        "materials": [("潮音珊瑚", 1), ("龙门真水", 1), ("星潮玄砂", 1)],
+        "success": 54,
+    },
+    {
+        "name": "潮生承运丹",
+        "rarity": "极品",
+        "pill_type": "fortune",
+        "effect_value": 12,
+        "poison_delta": 4,
+        "description": "药力一涨一落，仿佛潮生潮退，服下后冥冥中更易与机缘暗合。",
+        "materials": [("海眼寒晶", 1), ("星潮玄砂", 1), ("承运木心", 1)],
+        "success": 46,
+    },
+    {
+        "name": "星渊悟道丹",
+        "rarity": "仙品",
+        "pill_type": "comprehension",
+        "effect_value": 18,
+        "poison_delta": 4,
+        "description": "以星渊潮核为主药，服下后念头如群星映海，最适合在瓶颈前参悟大道。",
+        "materials": [("星渊潮核", 1), ("海眼寒晶", 1), ("天道精华", 1)],
+        "success": 30,
+    },
+    {
         "name": "定心明台丹",
         "rarity": "上品",
         "pill_type": "willpower",
@@ -1786,6 +1922,112 @@ EXTRA_PILLS = [
 
 EXTRA_TALISMANS = [
     {
+        "name": "逐浪符",
+        "rarity": "下品",
+        "body_movement_bonus": 8,
+        "description": "符纹细长如水痕，激发后脚下如有浪头托行，身法会明显变得轻快。",
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "踏浪错步",
+                    "kind": "dodge",
+                    "chance": 18,
+                    "dodge_bonus": 10,
+                    "duration": 1,
+                    "text": "逐浪符一闪，身形像踩着一层薄浪横移出去。",
+                }
+            ]
+        },
+        "materials": [("银鳞藻", 1), ("月魄蚌珠", 1), ("黄纸符", 1)],
+        "success": 70,
+    },
+    {
+        "name": "凝潮符",
+        "rarity": "中品",
+        "defense_bonus": 14,
+        "true_yuan_bonus": 18,
+        "description": "以潮音珊瑚调墨绘成，激发后身前会汇起一层层重叠潮幕。",
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "叠潮护身",
+                    "kind": "shield",
+                    "chance": 24,
+                    "flat_shield": 18,
+                    "ratio_percent": 14,
+                    "text": "凝潮符化作几重潮幕，把来势尽数缓了下来。",
+                }
+            ]
+        },
+        "materials": [("潮音珊瑚", 1), ("龙涡骨片", 1), ("朱砂", 1)],
+        "success": 60,
+    },
+    {
+        "name": "寒月映波符",
+        "rarity": "上品",
+        "defense_bonus": 12,
+        "divine_sense_bonus": 10,
+        "body_movement_bonus": 10,
+        "description": "符成时如一轮寒月倒映水面，最擅迷惑目力、偏转对手判断。",
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "月影偏潮",
+                    "kind": "dodge",
+                    "chance": 28,
+                    "dodge_bonus": 18,
+                    "duration": 1,
+                    "text": "寒月映波符投下一层冷月倒影，对手的判断被水光带偏了一瞬。",
+                }
+            ]
+        },
+        "materials": [("月魄蚌珠", 1), ("星潮玄砂", 1), ("白虎胡须", 1)],
+        "success": 52,
+    },
+    {
+        "name": "沸海裂岸符",
+        "rarity": "极品",
+        "attack_bonus": 24,
+        "defense_bonus": 8,
+        "description": "以熔鳞砂和赤髓炎珀绘成，符火炸开时像整片海岸被灼浪掀翻。",
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "裂岸炎潮",
+                    "kind": "armor_break",
+                    "chance": 32,
+                    "defense_ratio_percent": 20,
+                    "duration": 2,
+                    "text": "沸海裂岸符炸开一道炎潮，对手护体灵光被当场冲散。",
+                }
+            ]
+        },
+        "materials": [("熔鳞砂", 1), ("赤髓炎珀", 1), ("曜金雷髓", 1)],
+        "success": 42,
+    },
+    {
+        "name": "星渊牵机符",
+        "rarity": "仙品",
+        "attack_bonus": 18,
+        "divine_sense_bonus": 16,
+        "duel_rate_bonus": 5,
+        "description": "星海牵机、潮线引命，最适合抢夺斗法先机与捕捉转瞬即逝的破绽。",
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "牵星引机",
+                    "kind": "extra_damage",
+                    "chance": 34,
+                    "flat_damage": 26,
+                    "ratio_percent": 22,
+                    "text": "星渊牵机符轻轻一振，像有无形潮线提前把攻势送到了对手身前。",
+                }
+            ]
+        },
+        "materials": [("星渊潮核", 1), ("海眼寒晶", 1), ("天眷符骨", 1)],
+        "success": 34,
+    },
+    {
         "name": "回澜符",
         "rarity": "上品",
         "defense_bonus": 18,
@@ -2303,6 +2545,94 @@ EXTRA_TALISMANS = [
 
 EXTRA_RECIPES = [
     {
+        "name": "听潮玉壶炼制图",
+        "recipe_kind": "artifact",
+        "result_kind": "artifact",
+        "result_name": "听潮玉壶",
+        "result_quantity": 1,
+        "base_success_rate": 52,
+        "broadcast_on_success": False,
+        "ingredients": [
+            {"material_name": "潮音珊瑚", "quantity": 2},
+            {"material_name": "龙门真水", "quantity": 1},
+            {"material_name": "星潮玄砂", "quantity": 1},
+        ],
+    },
+    {
+        "name": "月魄垂纶钩炼制图",
+        "recipe_kind": "artifact",
+        "result_kind": "artifact",
+        "result_name": "月魄垂纶钩",
+        "result_quantity": 1,
+        "base_success_rate": 42,
+        "broadcast_on_success": True,
+        "ingredients": [
+            {"material_name": "月魄蚌珠", "quantity": 2},
+            {"material_name": "海眼寒晶", "quantity": 1},
+            {"material_name": "天雷符骨", "quantity": 1},
+        ],
+    },
+    {
+        "name": "碧波养元丹丹谱",
+        "recipe_kind": "pill",
+        "result_kind": "pill",
+        "result_name": "碧波养元丹",
+        "result_quantity": 1,
+        "base_success_rate": 74,
+        "broadcast_on_success": False,
+        "description": "药性温和如春溪细流，最适合打坐前服下，慢慢把散乱灵气收拢归元。",
+        "ingredients": [
+            {"material_name": "溪纹石", "quantity": 1},
+            {"material_name": "银鳞藻", "quantity": 2},
+            {"material_name": "归元草", "quantity": 1},
+        ],
+    },
+    {
+        "name": "潮生承运丹丹谱",
+        "recipe_kind": "pill",
+        "result_kind": "pill",
+        "result_name": "潮生承运丹",
+        "result_quantity": 1,
+        "base_success_rate": 46,
+        "broadcast_on_success": False,
+        "description": "以潮汐涨落之理温养运势，丹成后往往伴有潮声回响，是少见的承运灵丹。",
+        "ingredients": [
+            {"material_name": "海眼寒晶", "quantity": 1},
+            {"material_name": "星潮玄砂", "quantity": 1},
+            {"material_name": "承运木心", "quantity": 1},
+        ],
+    },
+    {
+        "name": "凝潮符符谱",
+        "recipe_kind": "talisman",
+        "result_kind": "talisman",
+        "result_name": "凝潮符",
+        "result_quantity": 2,
+        "base_success_rate": 60,
+        "broadcast_on_success": False,
+        "description": "潮音珊瑚调墨、龙涡骨片压符，激发后会层层叠起潮幕，最擅缓冲硬拼冲击。",
+        "ingredients": [
+            {"material_name": "潮音珊瑚", "quantity": 1},
+            {"material_name": "龙涡骨片", "quantity": 1},
+            {"material_name": "朱砂", "quantity": 1},
+        ],
+    },
+    {
+        "name": "沸海裂岸符符谱",
+        "recipe_kind": "talisman",
+        "result_kind": "talisman",
+        "result_name": "沸海裂岸符",
+        "result_quantity": 2,
+        "base_success_rate": 42,
+        "broadcast_on_success": False,
+        "description": "熔鳞砂与炎珀同绘，符成似有赤潮翻岸，最适合以爆裂火浪压碎对手护体。",
+        "ingredients": [
+            {"material_name": "熔鳞砂", "quantity": 1},
+            {"material_name": "赤髓炎珀", "quantity": 1},
+            {"material_name": "曜金雷髓", "quantity": 1},
+        ],
+    },
+    {
         "name": "定海镇心佩炼制图",
         "recipe_kind": "artifact",
         "result_kind": "artifact",
@@ -2366,7 +2696,7 @@ EXTRA_RECIPES = [
         "result_kind": "pill",
         "result_name": "定心明台丹",
         "result_quantity": 1,
-        "base_success_rate": 60,
+        "base_success_rate": 58,
         "broadcast_on_success": False,
         "description": "丹成时似有清泉流过心田，服后心如止水、杂念全消，专治神识动摇与心魔丛生之症，令灵台始终保持清明无垢。",
         "ingredients": [
@@ -2381,7 +2711,7 @@ EXTRA_RECIPES = [
         "result_kind": "pill",
         "result_name": "流霞驻颜丹",
         "result_quantity": 1,
-        "base_success_rate": 58,
+        "base_success_rate": 56,
         "broadcast_on_success": False,
         "description": "丹成时隐有流光溢彩，如朝霞映雪、晚霞漫天。服后可保青春永驻、容颜不改，纵是岁月流转亦不改分毫，是修仙界最受欢迎的驻颜灵丹。",
         "ingredients": [
@@ -2396,13 +2726,73 @@ EXTRA_RECIPES = [
         "result_kind": "pill",
         "result_name": "承运问天丹",
         "result_quantity": 1,
-        "base_success_rate": 48,
+        "base_success_rate": 46,
         "broadcast_on_success": True,
         "description": "丹成时似有天命所归之象，星辰流转其中。服用者可借天地气运于一身，于冥冥中洞察天机、感悟天命，寻得那一线突破的契机。",
         "ingredients": [
             {"material_name": "承运木心", "quantity": 1},
             {"material_name": "星命玉枝", "quantity": 1},
             {"material_name": "太华灵液", "quantity": 1},
+        ],
+    },
+    {
+        "name": "太和解厄丹丹谱",
+        "recipe_kind": "pill",
+        "result_kind": "pill",
+        "result_name": "太和解厄丹",
+        "result_quantity": 1,
+        "base_success_rate": 44,
+        "broadcast_on_success": False,
+        "description": "丹成时清气回旋，似有山河浊晦尽数洗去。服后可借太和之意化解体内丹毒与外来浊气，最适合久服灵药或深陷毒瘴者调息复元。",
+        "ingredients": [
+            {"material_name": "龙门真水", "quantity": 1},
+            {"material_name": "造化玉露", "quantity": 1},
+            {"material_name": "无垢净沙", "quantity": 1},
+        ],
+    },
+    {
+        "name": "聚宝含光丹丹谱",
+        "recipe_kind": "pill",
+        "result_kind": "pill",
+        "result_name": "聚宝含光丹",
+        "result_quantity": 1,
+        "base_success_rate": 68,
+        "broadcast_on_success": False,
+        "description": "丹成时星砂流光内敛，似有财气汇拢成珠。服后可将散落灵机化作可感的灵石收益，最适合外出历练后回补囊中所需。",
+        "ingredients": [
+            {"material_name": "星河砂", "quantity": 1},
+            {"material_name": "暖玉粉", "quantity": 1},
+            {"material_name": "寒水露", "quantity": 1},
+        ],
+    },
+    {
+        "name": "补天丹丹谱",
+        "recipe_kind": "pill",
+        "result_kind": "pill",
+        "result_name": "补天丹",
+        "result_quantity": 1,
+        "base_success_rate": 30,
+        "broadcast_on_success": True,
+        "description": "取天道精华调和五行本源，再以玉髓稳固药性，成丹后最善补缀灵根缺漏、稳步拔升资质层次。",
+        "ingredients": [
+            {"material_name": "天道精华", "quantity": 1},
+            {"material_name": "五行本源", "quantity": 1},
+            {"material_name": "天道玉髓", "quantity": 1},
+        ],
+    },
+    {
+        "name": "洗灵丹丹谱",
+        "recipe_kind": "pill",
+        "result_kind": "pill",
+        "result_name": "洗灵丹",
+        "result_quantity": 1,
+        "base_success_rate": 24,
+        "broadcast_on_success": True,
+        "description": "以天道玉髓为骨、命运之种为引、时空源晶为锋，成丹后可洗去旧根旧障，为灵根重塑留出一线天机。",
+        "ingredients": [
+            {"material_name": "天道玉髓", "quantity": 1},
+            {"material_name": "命运之种", "quantity": 1},
+            {"material_name": "时空源晶", "quantity": 1},
         ],
     },
     {
@@ -2469,7 +2859,7 @@ EXTRA_RECIPES = [
         "result_kind": "pill",
         "result_name": "镜心澄神丹",
         "result_quantity": 1,
-        "base_success_rate": 50,
+        "base_success_rate": 48,
         "broadcast_on_success": False,
         "description": "丹成时澄澈如镜，可照见本心。服后神识如经明镜之水洗涤，杂念不生、心魔不染，于修炼之中时刻保持通透明澈，悟道速度倍增。",
         "ingredients": [
@@ -2484,7 +2874,7 @@ EXTRA_RECIPES = [
         "result_kind": "pill",
         "result_name": "离魄归元丹",
         "result_quantity": 1,
-        "base_success_rate": 48,
+        "base_success_rate": 46,
         "broadcast_on_success": False,
         "description": "专治神魂离散、元气溃散之症。丹成时有灵光萦绕，服后散乱的神魂重新凝聚、游离的元气复归丹田，令修士恢复完整状态。",
         "ingredients": [
@@ -2499,7 +2889,7 @@ EXTRA_RECIPES = [
         "result_kind": "pill",
         "result_name": "曜金焚脉丹",
         "result_quantity": 1,
-        "base_success_rate": 42,
+        "base_success_rate": 40,
         "broadcast_on_success": True,
         "description": "丹成时金火交织、烈芒逼人。服后经脉如被金色火焰淬炼，锐金之气贯穿体脉，令出招时带有灼热难当的金系伤害，令人防不胜防。",
         "ingredients": [
@@ -3762,7 +4152,7 @@ EXTRA_RECIPES = [
         "result_kind": "pill",
         "result_name": "聚灵丹",
         "result_quantity": 1,
-        "base_success_rate": 80,
+        "base_success_rate": 78,
         "broadcast_on_success": False,
         "description": "最适合入门修士的聚灵丹方，可将零散灵气温和收束为可吸纳药力。",
         "ingredients": [
@@ -3777,7 +4167,7 @@ EXTRA_RECIPES = [
         "result_kind": "pill",
         "result_name": "疗伤丹",
         "result_quantity": 1,
-        "base_success_rate": 74,
+        "base_success_rate": 72,
         "broadcast_on_success": False,
         "description": "续骨藤配合回气药引所成的常用疗伤丹方，最适合历练后的应急恢复。",
         "ingredients": [
@@ -3807,7 +4197,7 @@ EXTRA_RECIPES = [
         "result_kind": "pill",
         "result_name": "强骨丹",
         "result_quantity": 1,
-        "base_success_rate": 66,
+        "base_success_rate": 64,
         "broadcast_on_success": False,
         "description": "将骨血药力沉入骨髓的淬体丹方，适合早期稳步提升根骨底子。",
         "ingredients": [
@@ -3822,7 +4212,7 @@ EXTRA_RECIPES = [
         "result_kind": "pill",
         "result_name": "化毒丹",
         "result_quantity": 1,
-        "base_success_rate": 68,
+        "base_success_rate": 66,
         "broadcast_on_success": False,
         "description": "专用于化去体内丹毒与杂毒的稳妥丹方，药性清灵不伤根基。",
         "ingredients": [
@@ -3837,7 +4227,7 @@ EXTRA_RECIPES = [
         "result_kind": "pill",
         "result_name": "冰魄寒光丹",
         "result_quantity": 1,
-        "base_success_rate": 52,
+        "base_success_rate": 50,
         "broadcast_on_success": True,
         "description": "冰魄珠与玄冰精髓同炼，丹成时寒光横空，最善淬出冷冽锋芒。",
         "ingredients": [
@@ -3852,7 +4242,7 @@ EXTRA_RECIPES = [
         "result_kind": "pill",
         "result_name": "火鸾炽心丹",
         "result_quantity": 1,
-        "base_success_rate": 50,
+        "base_success_rate": 48,
         "broadcast_on_success": True,
         "description": "火鸾羽、凤尾草与烈凤心血共熬，丹成若心火腾跃，最宜走攻伐一路。",
         "ingredients": [
@@ -3882,7 +4272,7 @@ EXTRA_RECIPES = [
         "result_kind": "pill",
         "result_name": "玄冰破天丹",
         "result_quantity": 1,
-        "base_success_rate": 38,
+        "base_success_rate": 36,
         "broadcast_on_success": True,
         "description": "玄冰与九幽寒意同炉，丹成后寒势直指天阙，是极重杀伐的高阶冰丹。",
         "ingredients": [
@@ -3897,7 +4287,7 @@ EXTRA_RECIPES = [
         "result_kind": "pill",
         "result_name": "凤涅槃丹",
         "result_quantity": 1,
-        "base_success_rate": 36,
+        "base_success_rate": 34,
         "broadcast_on_success": True,
         "description": "借涅槃火羽引动凤血生机，丹成后火意不烈不散，专主浴火续命。",
         "ingredients": [
@@ -3927,7 +4317,7 @@ EXTRA_RECIPES = [
         "result_kind": "pill",
         "result_name": "九幽轮回丹",
         "result_quantity": 1,
-        "base_success_rate": 34,
+        "base_success_rate": 32,
         "broadcast_on_success": True,
         "description": "九幽寒意与轮回真痕交织，成丹后可温养识海并稳固神魂本源。",
         "ingredients": [
@@ -3942,7 +4332,7 @@ EXTRA_RECIPES = [
         "result_kind": "pill",
         "result_name": "万木逢春丹",
         "result_quantity": 1,
-        "base_success_rate": 32,
+        "base_success_rate": 30,
         "broadcast_on_success": True,
         "description": "建木灵种配合乙木生机炼就，丹成时草木回春之象自炉中升起。",
         "ingredients": [
@@ -3957,7 +4347,7 @@ EXTRA_RECIPES = [
         "result_kind": "pill",
         "result_name": "天罚破境丹",
         "result_quantity": 1,
-        "base_success_rate": 28,
+        "base_success_rate": 26,
         "broadcast_on_success": True,
         "description": "借天罚雷威撕开境界瓶颈的雷系丹方，丹成时常有雷声滚动炉外。",
         "ingredients": [
@@ -3972,7 +4362,7 @@ EXTRA_RECIPES = [
         "result_kind": "pill",
         "result_name": "鸿蒙混沌丹",
         "result_quantity": 1,
-        "base_success_rate": 22,
+        "base_success_rate": 20,
         "broadcast_on_success": True,
         "description": "鸿蒙紫意与混沌本源一同归炉，成丹后最利于拓宽悟境、参修大道。",
         "ingredients": [
@@ -3987,7 +4377,7 @@ EXTRA_RECIPES = [
         "result_kind": "pill",
         "result_name": "轮回证道丹",
         "result_quantity": 1,
-        "base_success_rate": 24,
+        "base_success_rate": 22,
         "broadcast_on_success": True,
         "description": "轮回祖符和天道玉髓共熬，丹成者往往更易从生死轮转中窥见证道契机。",
         "ingredients": [
@@ -4002,7 +4392,7 @@ EXTRA_RECIPES = [
         "result_kind": "pill",
         "result_name": "天道大同丹",
         "result_quantity": 1,
-        "base_success_rate": 18,
+        "base_success_rate": 16,
         "broadcast_on_success": True,
         "description": "融通五行本源与天道法则的先天丹方，成丹后有大道和鸣之异象。",
         "ingredients": [
@@ -4017,7 +4407,7 @@ EXTRA_RECIPES = [
         "result_kind": "pill",
         "result_name": "开天辟地丹",
         "result_quantity": 1,
-        "base_success_rate": 16,
+        "base_success_rate": 14,
         "broadcast_on_success": True,
         "description": "盘古精血与开天神石同炉，丹成时隐有混沌开辟、天地初分之象。",
         "ingredients": [
@@ -4032,7 +4422,7 @@ EXTRA_RECIPES = [
         "result_kind": "pill",
         "result_name": "天道永恒丹",
         "result_quantity": 1,
-        "base_success_rate": 14,
+        "base_success_rate": 12,
         "broadcast_on_success": True,
         "description": "天道玉髓、时空源晶与命运之种并炼，药成后自有永恒不坏之意流转。",
         "ingredients": [
@@ -4184,6 +4574,53 @@ EXTRA_SCENES = [
             {"reward_kind": "material", "reward_ref_id_name": "镜尘玄晶", "quantity_min": 1, "quantity_max": 2, "weight": 5, "stone_reward": 12, "event_text": "镜湖碎光在你足下沉淀，化作几枚晶莹剔透的镜尘玄晶，折射出迷离的七色光芒。"},
             {"reward_kind": "material", "reward_ref_id_name": "星命玉枝", "quantity_min": 1, "quantity_max": 2, "weight": 4, "stone_reward": 12, "event_text": "遗台裂隙间泄出幽蓝星芒，你探手入内，抽出一截温润如玉的星命玉枝。"},
             {"reward_kind": "recipe", "reward_ref_id_name": "镜心澄神丹丹谱", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 18, "event_text": "湖底淤泥中微光浮动，你拨开泥沙，意外发现一页保存完好的镜心澄神丹丹谱。"},
+        ],
+    },
+    {
+        "name": "逆流龙门涧",
+        "description": "断崖古涧之中灵潮倒灌、飞瀑逆卷，传说真龙曾在此借势越门而上，残留的龙门真水与归元秘法至今仍在潮心翻涌不息。",
+        "max_minutes": 64,
+        "min_realm_stage": "化神",
+        "min_realm_layer": 2,
+        "min_combat_power": 5400,
+        "event_pool": [
+            {
+                "name": "龙门残谱",
+                "description": "逆流瀑布忽然裂开一道水幕，幕后的石壁上残留着一页清气流转的丹谱，像是专为解厄而留。",
+                "event_type": "recipe",
+                "weight": 3,
+                "bonus_reward_kind": "recipe",
+                "bonus_reward_ref_id_name": "太和解厄丹丹谱",
+                "bonus_quantity_min": 1,
+                "bonus_quantity_max": 1,
+                "bonus_chance": 24,
+            },
+            {
+                "name": "归元旧卷",
+                "description": "潭心旋流卷起一只封存多年的玉匣，匣中旧卷仍带着归元镇魂的气机，似乎正等待后来者续写丹道。",
+                "event_type": "recipe",
+                "weight": 2,
+                "bonus_reward_kind": "recipe",
+                "bonus_reward_ref_id_name": "离魄归元丹丹谱",
+                "bonus_quantity_min": 1,
+                "bonus_quantity_max": 1,
+                "bonus_chance": 22,
+            },
+            {
+                "name": "逆潮拍岸",
+                "description": "古涧深处忽起万丈逆潮，飞瀑如龙尾横扫崖壁，护体灵光在轰鸣声中被拍得摇摇欲散。",
+                "event_type": "danger",
+                "weight": 3,
+                "stone_bonus_min": 34,
+                "stone_bonus_max": 62,
+                "stone_loss_min": 18,
+                "stone_loss_max": 32,
+            },
+        ],
+        "drops": [
+            {"reward_kind": "material", "reward_ref_id_name": "龙门真水", "quantity_min": 1, "quantity_max": 1, "weight": 4, "stone_reward": 22, "event_text": "逆流瀑心忽然裂开一道灵缝，一滴晶莹剔透的龙门真水自浪心升起，你以玉瓶将其封存。"},
+            {"reward_kind": "material", "reward_ref_id_name": "无垢净沙", "quantity_min": 1, "quantity_max": 2, "weight": 3, "stone_reward": 18, "event_text": "飞瀑反复冲刷崖底石槽，淘出一捧洁白无瑕的净沙，落入掌心时仍带着细微潮声。"},
+            {"reward_kind": "material", "reward_ref_id_name": "玄龟骨晶", "quantity_min": 1, "quantity_max": 1, "weight": 2, "stone_reward": 20, "event_text": "深潭底部埋着一截玄龟遗骨，潮水磨尽泥沙后露出温润如玉的玄龟骨晶。"},
         ],
     },
     {
@@ -4536,7 +4973,9 @@ EXTRA_SCENES = [
             {"reward_kind": "material", "reward_ref_id_name": "玄武岩", "quantity_min": 1, "quantity_max": 2, "weight": 5, "stone_reward": 16, "event_text": "你劈开冰底岩层，层层叠叠的玄武岩赫然在目，入手沉重如山岳。"},
             {"reward_kind": "material", "reward_ref_id_name": "净水莲心", "quantity_min": 1, "quantity_max": 1, "weight": 4, "stone_reward": 18, "event_text": "冰缝深处滴下一滴清冽寒露，这便是传说中的净水莲心，入手如握寒月。"},
             {"reward_kind": "material", "reward_ref_id_name": "龙涎香", "quantity_min": 1, "quantity_max": 1, "weight": 3, "stone_reward": 22, "event_text": "在万年冰层之中，你意外发现一块散发异香的龙涎香，沁人心脾。"},
+            {"reward_kind": "material", "reward_ref_id_name": "地龙髓", "quantity_min": 1, "quantity_max": 1, "weight": 2, "stone_reward": 24, "event_text": "冰窟底部的冻裂地脉忽然渗出一缕金黄髓光，你顺着裂缝剥离出一团温热厚重的地龙髓。"},
             {"reward_kind": "recipe", "reward_ref_id_name": "冰魄寒光丹丹谱", "quantity_min": 1, "quantity_max": 1, "weight": 2, "stone_reward": 20, "event_text": "古修坐化之处，周围的冰层尽数融化，唯余一页丹谱在寒冰之中微微发光。"},
+            {"reward_kind": "recipe", "reward_ref_id_name": "龙髓丹丹谱", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 24, "event_text": "冰层深处封着一只玉匣，你破开寒封后发现其中静静躺着一页完整的龙髓丹丹谱。"},
         ],
     },
     {
@@ -4945,6 +5384,7 @@ EXTRA_SCENES = [
             {"reward_kind": "material", "reward_ref_id_name": "天雷符骨", "quantity_min": 1, "quantity_max": 2, "weight": 5, "stone_reward": 45, "event_text": "雷击岩层之中，你劈开被雷劫反复轰击的岩石，获得数块蕴含天雷之力的符骨。"},
             {"reward_kind": "material", "reward_ref_id_name": "天道雷种", "quantity_min": 1, "quantity_max": 1, "weight": 2, "stone_reward": 80, "event_text": "雷渊最深处，你发现一枚超越天罚的雷种，其上缠绕着天道法则的纹路。"},
             {"reward_kind": "material", "reward_ref_id_name": "混沌雷种", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 90, "event_text": "传说之中，唯有在混沌之中方能诞生的混沌雷种，竟在雷渊最深处被你寻得。"},
+            {"reward_kind": "material", "reward_ref_id_name": "本源雷种", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 110, "event_text": "万雷归寂的一瞬，雷渊中心浮现出一枚古老雷核，你屏息将其摄入掌心，正是雷道最本源的本源雷种。"},
             {"reward_kind": "material", "reward_ref_id_name": "天罚雷竹", "quantity_min": 1, "quantity_max": 1, "weight": 3, "stone_reward": 55, "event_text": "雷竹林中，竹子在万载雷劫中屹立不倒，你选取其中雷痕最深的获取一根天罚雷竹。"},
             {"reward_kind": "recipe", "reward_ref_id_name": "天罚破境丹丹谱", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 75, "event_text": "古修士渡劫坐化之处，一页丹谱在雷光中微微发亮，你小心翼翼地将它拾起。"},
         ],
@@ -5051,6 +5491,7 @@ EXTRA_SCENES = [
             {"reward_kind": "material", "reward_ref_id_name": "天道玉髓", "quantity_min": 1, "quantity_max": 1, "weight": 2, "stone_reward": 95, "event_text": "神殿至深处，一块散发天道法则波动的玉髓静静躺在轮回之光中，你伸手将其拾起。"},
             {"reward_kind": "material", "reward_ref_id_name": "命运之种", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 110, "event_text": "传说中，唯有与命运有缘者方能在轮回之地深处获得这枚命运之种，你竟在此处寻得。"},
             {"reward_kind": "recipe", "reward_ref_id_name": "轮回证道丹丹谱", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 105, "event_text": "古仙传承之地，一页散发轮回光泽的丹谱在虚空中浮现，你将其完整拓印于神魂之中。"},
+            {"reward_kind": "recipe", "reward_ref_id_name": "轮回天道丹丹谱", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 115, "event_text": "轮回天盘转到极尽之刻，一页兼具轮回与天道纹路的丹谱自虚空缓缓落下，被你完整收入识海。"},
         ],
     },
     {
@@ -5102,6 +5543,7 @@ EXTRA_SCENES = [
             {"reward_kind": "material", "reward_ref_id_name": "天外玄铁", "quantity_min": 1, "quantity_max": 1, "weight": 3, "stone_reward": 95, "event_text": "天外坠落之地，一块散发混沌气息的玄铁深深嵌入大地之中，你以灵力将它连根拔起。"},
             {"reward_kind": "material", "reward_ref_id_name": "五行本源", "quantity_min": 1, "quantity_max": 1, "weight": 2, "stone_reward": 110, "event_text": "五行交汇之处，一缕散发五彩光芒的本源之力缠绕指尖，你将这一丝五行本源郑重收起。"},
             {"reward_kind": "recipe", "reward_ref_id_name": "天道大同丹丹谱", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 115, "event_text": "天道遗迹核心之地，一页散发大道光泽的丹谱在虚空中缓缓浮现，你将其完整映入神魂。"},
+            {"reward_kind": "recipe", "reward_ref_id_name": "补天丹丹谱", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 125, "event_text": "遗迹深处忽现五色霞光，一页记载补天丹秘法的古丹谱自法则潮汐中缓缓显形，被你稳稳收入袖中。"},
         ],
     },
     # ========== 新增：先天至宝秘境 ==========
@@ -5207,6 +5649,7 @@ EXTRA_SCENES = [
             {"reward_kind": "material", "reward_ref_id_name": "鸿蒙紫莲", "quantity_min": 1, "quantity_max": 1, "weight": 3, "stone_reward": 140, "event_text": "鸿蒙交汇之处，数朵散发紫色神光的圣莲在水面上绽放，你将它们一一采摘。"},
             {"reward_kind": "material", "reward_ref_id_name": "混沌灵根", "quantity_min": 1, "quantity_max": 1, "weight": 2, "stone_reward": 155, "event_text": "万法归宗之处，一株散发着混沌气息的灵根在虚空中摇曳，你小心翼翼地将它连根拔起。"},
             {"reward_kind": "recipe", "reward_ref_id_name": "天道永恒丹丹谱", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 200, "event_text": "天道本源核心之地，一页散发永恒光泽的丹谱在虚空最深处缓缓浮现，你凝神将其完整映入神魂。"},
+            {"reward_kind": "recipe", "reward_ref_id_name": "洗灵丹丹谱", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 210, "event_text": "本源长河忽然回溯，一页写满洗灵秘纹的丹谱自时空褶皱中显现，被你完整烙入识海。"},
         ],
     },
 ]

@@ -23,5 +23,13 @@ def build_recipe_catalog(tg: int | None = None) -> list[dict[str, Any]]:
     return append_farm_source_labels(_legacy_world_service().build_recipe_catalog(tg))
 
 
+def build_recipe_fragment_synthesis_catalog(tg: int) -> list[dict[str, Any]]:
+    return _legacy_world_service().build_recipe_fragment_synthesis_catalog(tg)
+
+
 def craft_recipe_for_user(tg: int, recipe_id: int) -> dict[str, Any]:
     return _legacy_world_service().craft_recipe_for_user(tg, recipe_id)
+
+
+def synthesize_recipe_fragment_for_user(tg: int, recipe_id: int) -> dict[str, Any]:
+    return _legacy_world_service().synthesize_recipe_fragment_for_user(tg, recipe_id)

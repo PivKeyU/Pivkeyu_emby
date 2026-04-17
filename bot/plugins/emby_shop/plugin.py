@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -309,8 +310,9 @@ def register_web(app) -> None:
 
     @user_router.post("/api/bootstrap")
     async def shop_bootstrap(payload: InitDataPayload):
-        user = _verify_user_from_init_data(payload.init_data)
-        return {"code": 200, "data": _serialize_shop_bundle(int(user["id"]))}
+        user = await run_in_threadpool(_verify_user_from_init_data, payload.init_data)
+        bundle = await run_in_threadpool(_serialize_shop_bundle, int(user["id"]))
+        return {"code": 200, "data": bundle}
 
     @user_router.post("/api/listing")
     async def shop_create_listing(payload: UserListingPayload):
@@ -367,12 +369,13 @@ def register_web(app) -> None:
 
     @admin_router.post("/bootstrap")
     async def shop_admin_bootstrap(payload: AdminBootstrapPayload):
-        admin_user = _verify_admin_credential(payload.token, payload.init_data)
+        admin_user = await run_in_threadpool(_verify_admin_credential, payload.token, payload.init_data)
+        bundle = await run_in_threadpool(lambda: _serialize_shop_bundle(admin_user.get("id"), include_orders=True))
         return {
             "code": 200,
             "data": {
                 "admin_user": admin_user,
-                **_serialize_shop_bundle(admin_user.get("id"), include_orders=True),
+                **bundle,
             },
         }
 

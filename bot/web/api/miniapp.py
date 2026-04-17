@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 from hashlib import sha256
@@ -7,10 +8,11 @@ from time import time
 from urllib.parse import parse_qsl
 
 from fastapi import APIRouter, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from bot import admins, api as api_config, bot_token, config, owner, pivkeyu, ranks
-from bot.plugins import list_plugins
+from bot.plugins import list_miniapp_plugins
 from bot.sql_helper.sql_bot_access import find_bot_access_block
 from bot.sql_helper.sql_emby import sql_get_emby
 from bot.web.presenters import serialize_emby_user
@@ -70,11 +72,14 @@ def verify_init_data(init_data: str) -> dict:
 
 @router.post("/bootstrap")
 async def bootstrap(payload: MiniAppInitRequest):
-    verified = verify_init_data(payload.init_data)
+    verified = await run_in_threadpool(verify_init_data, payload.init_data)
     telegram_user = verified["user"]
-    account = sql_get_emby(telegram_user["id"])
+    account, plugins = await asyncio.gather(
+        run_in_threadpool(sql_get_emby, telegram_user["id"]),
+        run_in_threadpool(list_miniapp_plugins),
+    )
     is_admin = is_admin_user_id(telegram_user["id"])
-    plugins = [plugin for plugin in list_plugins() if plugin.get("enabled")]
+    plugins = [plugin for plugin in plugins if plugin.get("enabled")]
     bottom_nav = [
         {
             "id": "home",

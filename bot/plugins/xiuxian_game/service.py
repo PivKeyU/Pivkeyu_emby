@@ -65,6 +65,7 @@ from bot.sql_helper.sql_xiuxian import (
     get_technique,
     get_talisman,
     get_xiuxian_settings,
+    invalidate_xiuxian_user_view_cache,
     grant_artifact_to_user,
     grant_starter_artifact_once,
     grant_material_to_user,
@@ -215,12 +216,18 @@ ROOT_SPECIAL_BONUS = {
 ROOT_COMMON_QUALITY_ORDER = ["废灵根", "下品灵根", "中品灵根", "上品灵根", "极品灵根"]
 ROOT_SPECIAL_QUALITIES = {"天灵根", "变异灵根"}
 ROOT_TRANSFORM_PILL_TYPES = {"root_single", "root_double", "root_earth", "root_heaven", "root_variant"}
+ROOT_COMBAT_BASELINE_QUALITY = "中品灵根"
+ROOT_COMBAT_FACTOR_MIN = 0.97
+ROOT_COMBAT_FACTOR_MAX = 1.06
+ROOT_ELEMENT_FACTOR_WEIGHT = 0.35
+ROOT_VARIANT_FACTOR_BONUS = 0.01
 
 PERSONAL_SHOP_NAME = "游仙小铺"
 IMMORTAL_STONE_NAME = "仙界奇石"
 GAMBLING_SUPPORTED_ITEM_KINDS = {"artifact", "pill", "talisman", "material"}
 STARTER_TECHNIQUE_NAME = "长青诀"
 STARTER_TITLE_NAME = "初入仙途"
+STARTER_FOUNDATION_PILL_NAME = "筑基丹"
 
 DEFAULT_ARTIFACTS = [
     {
@@ -1290,28 +1297,47 @@ DEFAULT_SCENES = [
 DEFAULT_ACHIEVEMENTS = [
     {"achievement_key": "envelope_novice", "name": "福泽初现", "description": "累计发放 1 次灵石红包。", "metric_key": "red_envelope_sent_count", "target_value": 1, "sort_order": 10, "reward_config": {"spiritual_stone": 20}},
     {"achievement_key": "envelope_generous", "name": "散财有道", "description": "累计通过红包发出 500 灵石。", "metric_key": "red_envelope_sent_stone", "target_value": 500, "sort_order": 11, "reward_config": {"cultivation": 80, "reward_title_names": ["红尘初行者"]}},
+    {"achievement_key": "envelope_rainfall", "name": "灵雨满楼", "description": "累计发放 12 次灵石红包。", "metric_key": "red_envelope_sent_count", "target_value": 12, "sort_order": 12, "reward_config": {"spiritual_stone": 88, "cultivation": 88}},
+    {"achievement_key": "envelope_bless_all", "name": "福泽八方", "description": "累计通过红包发出 5000 灵石。", "metric_key": "red_envelope_sent_stone", "target_value": 5000, "sort_order": 13, "reward_config": {"cultivation": 260, "reward_title_names": ["福缘广施"]}},
     {"achievement_key": "duel_rookie", "name": "试锋一战", "description": "累计发起 1 场斗法。", "metric_key": "duel_initiated_count", "target_value": 1, "sort_order": 20, "reward_config": {"spiritual_stone": 18}},
     {"achievement_key": "duel_veteran", "name": "斗法常客", "description": "累计发起 20 场斗法。", "metric_key": "duel_initiated_count", "target_value": 20, "sort_order": 21, "reward_config": {"cultivation": 160, "reward_title_names": ["斗法常客"]}},
     {"achievement_key": "duel_first_win", "name": "首战告捷", "description": "累计赢下 1 场斗法。", "metric_key": "duel_win_count", "target_value": 1, "sort_order": 22, "reward_config": {"spiritual_stone": 30}},
     {"achievement_key": "duel_ten_wins", "name": "胜势渐成", "description": "累计赢下 10 场斗法。", "metric_key": "duel_win_count", "target_value": 10, "sort_order": 23, "reward_config": {"cultivation": 180, "reward_title_names": ["小有机缘"]}},
     {"achievement_key": "duel_hardened", "name": "百折不挠", "description": "累计经历 10 场斗法失利。", "metric_key": "duel_loss_count", "target_value": 10, "sort_order": 24, "reward_config": {"spiritual_stone": 66, "reward_title_names": ["百折不挠"]}},
+    {"achievement_key": "duel_many_battles", "name": "鏖战不息", "description": "累计参与 50 场斗法。", "metric_key": "duel_total_count", "target_value": 50, "sort_order": 25, "reward_config": {"spiritual_stone": 120, "cultivation": 120}},
+    {"achievement_key": "duel_hundred_battles", "name": "百战称雄", "description": "累计参与 150 场斗法。", "metric_key": "duel_total_count", "target_value": 150, "sort_order": 26, "reward_config": {"cultivation": 280, "reward_title_names": ["百战无双"]}},
+    {"achievement_key": "duel_fifty_wins", "name": "连胜成势", "description": "累计赢下 50 场斗法。", "metric_key": "duel_win_count", "target_value": 50, "sort_order": 27, "reward_config": {"spiritual_stone": 188, "cultivation": 260, "reward_title_names": ["斗战宗师"]}},
     {"achievement_key": "rob_novice", "name": "顺手牵机缘", "description": "累计尝试偷窃 1 次。", "metric_key": "rob_attempt_count", "target_value": 1, "sort_order": 30, "reward_config": {"spiritual_stone": 16}},
     {"achievement_key": "rob_success", "name": "夺宝老手", "description": "累计偷窃成功 10 次。", "metric_key": "rob_success_count", "target_value": 10, "sort_order": 31, "reward_config": {"cultivation": 180, "reward_title_names": ["夺宝老手"]}},
+    {"achievement_key": "rob_fail_twenty", "name": "失手亦修行", "description": "累计偷窃失败 20 次。", "metric_key": "rob_fail_count", "target_value": 20, "sort_order": 32, "reward_config": {"spiritual_stone": 96, "cultivation": 96}},
+    {"achievement_key": "rob_stone_hunter", "name": "黑夜敛财", "description": "累计通过偷窃获得 800 灵石。", "metric_key": "rob_stone_total", "target_value": 800, "sort_order": 33, "reward_config": {"spiritual_stone": 128, "cultivation": 128}},
+    {"achievement_key": "rob_shadow_hand", "name": "劫运无声", "description": "累计通过偷窃获得 3000 灵石。", "metric_key": "rob_stone_total", "target_value": 3000, "sort_order": 34, "reward_config": {"cultivation": 240, "reward_title_names": ["劫运之手"]}},
     {"achievement_key": "gift_kindness", "name": "同道相助", "description": "累计赠送 300 灵石。", "metric_key": "gift_sent_stone", "target_value": 300, "sort_order": 40, "reward_config": {"cultivation": 100}},
+    {"achievement_key": "gift_often", "name": "同道有情", "description": "累计赠送灵石 10 次。", "metric_key": "gift_sent_count", "target_value": 10, "sort_order": 41, "reward_config": {"spiritual_stone": 96, "cultivation": 96}},
+    {"achievement_key": "gift_grand_benefactor", "name": "义贯仙途", "description": "累计赠送 2000 灵石。", "metric_key": "gift_sent_stone", "target_value": 2000, "sort_order": 42, "reward_config": {"cultivation": 220, "reward_title_names": ["义薄云天"]}},
     {"achievement_key": "mentor_first", "name": "杏坛开讲", "description": "累计成功收下 1 名徒弟。", "metric_key": "mentor_accept_count", "target_value": 1, "sort_order": 45, "reward_config": {"spiritual_stone": 48, "reward_title_names": ["杏坛初开"]}},
     {"achievement_key": "mentor_teach_many", "name": "言传身教", "description": "累计完成 10 次传道。", "metric_key": "mentor_teach_count", "target_value": 10, "sort_order": 46, "reward_config": {"cultivation": 140}},
     {"achievement_key": "mentor_graduate", "name": "桃李成行", "description": "累计带出 3 名出师弟子。", "metric_key": "mentor_graduate_count", "target_value": 3, "sort_order": 47, "reward_config": {"cultivation": 220, "reward_title_names": ["桃李满门"]}},
     {"achievement_key": "disciple_seek", "name": "勤学不辍", "description": "累计完成 8 次问道。", "metric_key": "disciple_consult_count", "target_value": 8, "sort_order": 48, "reward_config": {"spiritual_stone": 80}},
     {"achievement_key": "disciple_graduate", "name": "承道出山", "description": "累计成功出师 1 次。", "metric_key": "disciple_graduate_count", "target_value": 1, "sort_order": 49, "reward_config": {"cultivation": 180, "reward_title_names": ["门下高徒"]}},
+    {"achievement_key": "mentor_teach_master", "name": "传道不倦", "description": "累计完成 30 次传道。", "metric_key": "mentor_teach_count", "target_value": 30, "sort_order": 46, "reward_config": {"cultivation": 200, "reward_title_names": ["传道名宿"]}},
+    {"achievement_key": "mentor_lineage_master", "name": "一门桃李", "description": "累计带出 8 名出师弟子。", "metric_key": "mentor_graduate_count", "target_value": 8, "sort_order": 47, "reward_config": {"cultivation": 320, "reward_title_names": ["桃李宗师"]}},
     {"achievement_key": "craft_first_success", "name": "炉火初明", "description": "累计成功炼制 1 次。", "metric_key": "craft_success_count", "target_value": 1, "sort_order": 50, "reward_config": {"spiritual_stone": 28}},
     {"achievement_key": "craft_ten_success", "name": "炼器熟手", "description": "累计成功炼制 10 次。", "metric_key": "craft_success_count", "target_value": 10, "sort_order": 51, "reward_config": {"cultivation": 180, "reward_title_names": ["炼器熟手"]}},
     {"achievement_key": "repair_master", "name": "残器归真", "description": "累计成功修复 1 件破损法宝。", "metric_key": "repair_success_count", "target_value": 1, "sort_order": 52, "reward_config": {"spiritual_stone": 120, "titles": []}},
+    {"achievement_key": "craft_attempt_thirty", "name": "百炼不殆", "description": "累计尝试炼制 30 次。", "metric_key": "craft_attempt_count", "target_value": 30, "sort_order": 50, "reward_config": {"spiritual_stone": 108, "cultivation": 108}},
+    {"achievement_key": "craft_grandmaster", "name": "炉火归一", "description": "累计成功炼制 40 次。", "metric_key": "craft_success_count", "target_value": 40, "sort_order": 51, "reward_config": {"cultivation": 260, "reward_title_names": ["万炉归一"]}},
+    {"achievement_key": "repair_five_master", "name": "天工回春", "description": "累计成功修复 5 件破损法宝。", "metric_key": "repair_success_count", "target_value": 5, "sort_order": 52, "reward_config": {"spiritual_stone": 188, "cultivation": 188, "reward_title_names": ["天工妙手"]}},
     {"achievement_key": "explore_ten", "name": "秘境行者", "description": "累计完成 10 次秘境探索。", "metric_key": "exploration_count", "target_value": 10, "sort_order": 60, "reward_config": {"cultivation": 120, "reward_title_names": ["秘境行者"]}},
     {"achievement_key": "explore_recipe", "name": "残页搜罗者", "description": "累计获得 5 次配方残页。", "metric_key": "exploration_recipe_drop_count", "target_value": 5, "sort_order": 61, "reward_config": {"spiritual_stone": 88}},
+    {"achievement_key": "explore_danger_survivor", "name": "险中求活", "description": "累计在秘境中遭遇危险事件 15 次并活着归来。", "metric_key": "exploration_danger_count", "target_value": 15, "sort_order": 62, "reward_config": {"spiritual_stone": 150, "reward_title_names": ["险境还生"]}},
+    {"achievement_key": "explore_treasure_hunter", "name": "洞天搜珍", "description": "累计完成 40 次秘境探索。", "metric_key": "exploration_count", "target_value": 40, "sort_order": 63, "reward_config": {"cultivation": 240, "reward_title_names": ["洞天寻珍客"]}},
     {"achievement_key": "arena_founder", "name": "开坛立擂", "description": "累计开启 1 次群擂台。", "metric_key": "arena_open_count", "target_value": 1, "sort_order": 70, "reward_config": {"spiritual_stone": 36}},
     {"achievement_key": "arena_crowned", "name": "初登擂主", "description": "累计成为 1 次擂主。", "metric_key": "arena_crowned_count", "target_value": 1, "sort_order": 71, "reward_config": {"cultivation": 96}},
     {"achievement_key": "arena_defender", "name": "擂上留名", "description": "累计守擂成功 3 次。", "metric_key": "arena_defend_win_count", "target_value": 3, "sort_order": 72, "reward_config": {"spiritual_stone": 120, "cultivation": 120}},
     {"achievement_key": "arena_final_winner", "name": "擂台终主", "description": "累计以最终擂主身份完成 1 次擂台结算。", "metric_key": "arena_final_win_count", "target_value": 1, "sort_order": 73, "reward_config": {"spiritual_stone": 188, "cultivation": 188}},
+    {"achievement_key": "arena_defend_ten", "name": "擂台铁壁", "description": "累计守擂成功 10 次。", "metric_key": "arena_defend_win_count", "target_value": 10, "sort_order": 72, "reward_config": {"spiritual_stone": 220, "cultivation": 180}},
+    {"achievement_key": "arena_final_five", "name": "擂主镇场", "description": "累计以最终擂主身份完成 5 次擂台结算。", "metric_key": "arena_final_win_count", "target_value": 5, "sort_order": 73, "reward_config": {"spiritual_stone": 300, "cultivation": 300, "reward_title_names": ["擂台霸主"]}},
 ]
 
 SEED_QUALITY_LEVELS = {
@@ -1834,6 +1860,18 @@ DEFAULT_TITLES.extend(
         {"name": "魔宫行者", "description": "能在血煞中保持清醒，杀意更利。", "color": "#b91c1c", "attack_bonus": 8, "duel_rate_bonus": 4},
         {"name": "鬼府夜游", "description": "行走于阴影之间，出手总在死角。", "color": "#4c1d95", "body_movement_bonus": 8, "divine_sense_bonus": 4, "fortune_bonus": 4},
         {"name": "万毒不侵", "description": "毒息难侵，体内百脉更显稳固。", "color": "#15803d", "defense_bonus": 6, "qi_blood_bonus": 72, "fortune_bonus": 3},
+        {"name": "福缘广施", "description": "灵石散去，善缘却汇成更大的机运，所行之处总有人念你一分好。", "color": "#f59e0b", "fortune_bonus": 6, "true_yuan_bonus": 24, "cultivation_bonus": 4},
+        {"name": "百战无双", "description": "历经百战仍能稳住锋芒，越是强敌临身，越能逼出你体内的战意。", "color": "#dc2626", "attack_bonus": 8, "defense_bonus": 6, "qi_blood_bonus": 48, "duel_rate_bonus": 4},
+        {"name": "斗战宗师", "description": "斗法节奏已入骨髓，举手投足皆是攻守转换的最佳时机。", "color": "#b91c1c", "attack_bonus": 10, "defense_bonus": 8, "body_movement_bonus": 6, "duel_rate_bonus": 5},
+        {"name": "劫运之手", "description": "总能在最乱的局势里截住最值钱的一缕气运，出手悄无声息。", "color": "#7c3aed", "attack_bonus": 6, "divine_sense_bonus": 4, "fortune_bonus": 5, "body_movement_bonus": 8},
+        {"name": "义薄云天", "description": "出手相助从不吝啬，久而久之，同道也愿在你最难时回敬一份真心。", "color": "#0284c7", "fortune_bonus": 5, "qi_blood_bonus": 84, "true_yuan_bonus": 30},
+        {"name": "传道名宿", "description": "所讲之道已成体系，一言一行都能让后来者少走许多弯路。", "color": "#2563eb", "comprehension_bonus": 8, "true_yuan_bonus": 42, "cultivation_bonus": 6},
+        {"name": "桃李宗师", "description": "弟子成材如林，传承由此生根发芽，最终自成一脉气象。", "color": "#7c3aed", "comprehension_bonus": 10, "fortune_bonus": 4, "cultivation_bonus": 8},
+        {"name": "万炉归一", "description": "丹火、器火、符火皆在掌中归于一炉，火候再难也能被你稳稳压住。", "color": "#a16207", "comprehension_bonus": 10, "true_yuan_bonus": 54, "cultivation_bonus": 6, "breakthrough_bonus": 2},
+        {"name": "天工妙手", "description": "残缺之物到了你手里，总能重新焕出生机，仿佛从未破败过。", "color": "#0f766e", "comprehension_bonus": 8, "divine_sense_bonus": 6, "defense_bonus": 4},
+        {"name": "险境还生", "description": "在绝境里活过太多次，肉身与道心都学会了怎样从死地里拽回自己。", "color": "#16a34a", "defense_bonus": 8, "fortune_bonus": 2, "qi_blood_bonus": 96},
+        {"name": "洞天寻珍客", "description": "秘境于你不只是险地，更像一座早已熟门熟路的藏宝楼。", "color": "#0891b2", "divine_sense_bonus": 8, "fortune_bonus": 8, "body_movement_bonus": 6},
+        {"name": "擂台霸主", "description": "一旦登擂，气势便会压住全场，让后来挑战者先弱三分。", "color": "#ef4444", "attack_bonus": 10, "defense_bonus": 10, "qi_blood_bonus": 60, "duel_rate_bonus": 6},
     ]
 )
 
@@ -2161,7 +2199,23 @@ DEFAULT_TALISMANS.extend(
     }
     for talisman in EXTRA_TALISMANS
 )
-DEFAULT_RECIPES.extend(EXTRA_RECIPES)
+_extra_pill_success_map = {
+    str(pill["name"]): int(pill.get("success", 60))
+    for pill in EXTRA_PILLS
+    if str(pill.get("name") or "").strip()
+}
+DEFAULT_RECIPES.extend(
+    {
+        **recipe,
+        "base_success_rate": _extra_pill_success_map.get(
+            str(recipe.get("result_name") or ""),
+            int(recipe.get("base_success_rate", 60)),
+        )
+        if str(recipe.get("result_kind") or "") == "pill"
+        else int(recipe.get("base_success_rate", 60)),
+    }
+    for recipe in EXTRA_RECIPES
+)
 DEFAULT_SCENES.extend(EXTRA_SCENES)
 DEFAULT_SCENES.extend(
     [
@@ -2211,6 +2265,7 @@ DEFAULT_SCENES.extend(
             "drops": [
                 {"reward_kind": "material", "reward_ref_id_name": "星辉砂", "quantity_min": 1, "quantity_max": 2, "weight": 5, "stone_reward": 10, "event_text": "观星盘边缘滚落出几粒星辉砂。"},
                 {"reward_kind": "material", "reward_ref_id_name": "星河砂", "quantity_min": 1, "quantity_max": 2, "weight": 4, "stone_reward": 12, "event_text": "你在残台缝隙里刮下一份星河砂。"},
+                {"reward_kind": "recipe", "reward_ref_id_name": "聚宝含光丹丹谱", "quantity_min": 1, "quantity_max": 1, "weight": 2, "stone_reward": 16, "event_text": "残台星轨忽然归于一线，你在观星盘底座暗格中抽出一页记着聚宝含光丹的旧丹谱。"},
             ],
         },
         {
@@ -2608,15 +2663,36 @@ def _repair_profile_realm_state(tg: int) -> XiuxianProfile | None:
     if profile is None:
         return None
     repair = migrate_legacy_realm_state(profile.realm_stage, profile.realm_layer, profile.cultivation)
-    if not repair.get("changed"):
+    target_stage = repair["target_stage"]
+    target_layer = int(repair["target_layer"])
+    target_cultivation = int(repair["target_cultivation"])
+    changed = bool(repair.get("changed"))
+    if not changed:
         repair = rebase_immortal_realm_state(profile.realm_stage, profile.realm_layer, profile.cultivation)
-    if not repair.get("changed"):
+        target_stage = repair["target_stage"]
+        target_layer = int(repair["target_layer"])
+        target_cultivation = int(repair["target_cultivation"])
+        changed = bool(repair.get("changed"))
+
+    target_stage = normalize_realm_stage(target_stage or FIRST_REALM_STAGE)
+    settled_layer, settled_cultivation, _, _ = apply_cultivation_gain(
+        target_stage,
+        target_layer,
+        target_cultivation,
+        0,
+    )
+    if settled_layer != target_layer or settled_cultivation != target_cultivation:
+        changed = True
+        target_layer = settled_layer
+        target_cultivation = settled_cultivation
+
+    if not changed:
         return profile
     return upsert_profile(
         tg,
-        realm_stage=repair["target_stage"],
-        realm_layer=int(repair["target_layer"]),
-        cultivation=int(repair["target_cultivation"]),
+        realm_stage=target_stage,
+        realm_layer=target_layer,
+        cultivation=target_cultivation,
     )
 
 
@@ -3060,6 +3136,28 @@ def _normalized_root_quality(profile: dict[str, Any] | None) -> str:
     return "中品灵根"
 
 
+def _root_combat_offset(quality_level: int, root_type: str | None = None) -> int:
+    baseline = int(ROOT_QUALITY_LEVELS[ROOT_COMBAT_BASELINE_QUALITY])
+    offset = max(min(int(quality_level or baseline) - baseline, 2), -2)
+    if str(root_type or "").strip() in {"天灵根", "变异灵根"}:
+        offset += 1
+    return offset
+
+
+def _resolved_root_combat_factor(
+    profile: dict[str, Any],
+    quality_payload: dict[str, Any],
+    opponent_profile: dict[str, Any] | None = None,
+) -> float:
+    factor = float(quality_payload.get("combat_factor", 1.0) or 1.0)
+    factor = max(min(factor, ROOT_COMBAT_FACTOR_MAX), ROOT_COMBAT_FACTOR_MIN)
+    if opponent_profile:
+        factor += _root_element_duel_modifier(profile, opponent_profile) * ROOT_ELEMENT_FACTOR_WEIGHT
+    if str(profile.get("root_type") or "").strip() == "变异灵根":
+        factor += ROOT_VARIANT_FACTOR_BONUS
+    return max(factor, 0.9)
+
+
 def _roll_root_quality() -> str:
     roll = random.randint(1, 100)
     cursor = 0
@@ -3092,19 +3190,24 @@ def _sum_item_stats(*effect_sets: dict[str, Any] | None) -> dict[str, float]:
 def _build_opening_stats(root_payload: dict[str, Any]) -> dict[str, int]:
     quality = _root_quality_payload(root_payload.get("root_quality"))
     quality_level = int(quality["level"])
-    special_bonus = 4 if root_payload.get("root_type") == "天灵根" else 3 if root_payload.get("root_type") == "变异灵根" else 0
-    bone = random.randint(10, 18) + quality_level + special_bonus
-    comprehension = random.randint(10, 18) + quality_level + (2 if root_payload.get("root_type") in {"天灵根", "变异灵根"} else 0)
-    divine_sense = random.randint(9, 17) + quality_level + (2 if root_payload.get("root_primary") in {"水", "雷", "风"} else 0)
-    fortune = random.randint(8, 16) + quality_level + (2 if root_payload.get("root_quality") in {"极品灵根", "天灵根", "变异灵根"} else 0)
-    willpower = random.randint(8, 15) + quality_level + (2 if root_payload.get("root_type") in {"地灵根", "天灵根"} else 0)
-    charisma = random.randint(8, 15) + quality_level + (2 if root_payload.get("root_primary") in {"木", "水", "风"} else 0)
-    karma = random.randint(8, 15) + quality_level + (2 if root_payload.get("root_quality") in {"上品灵根", "极品灵根", "天灵根", "变异灵根"} else 0)
-    body_movement = random.randint(8, 15) + quality_level + (2 if root_payload.get("root_primary") in {"风", "火", "雷"} else 0)
-    attack_power = random.randint(10, 18) + quality_level * 2 + (3 if root_payload.get("root_primary") in {"火", "金", "雷"} else 0)
-    defense_power = random.randint(10, 18) + quality_level * 2 + (3 if root_payload.get("root_primary") in {"土", "金", "水"} else 0)
-    qi_blood = 160 + bone * 12 + defense_power * 4 + quality_level * 20
-    true_yuan = 140 + comprehension * 9 + divine_sense * 6 + quality_level * 18
+    root_type = str(root_payload.get("root_type") or "").strip()
+    root_quality = str(root_payload.get("root_quality") or "").strip()
+    root_offset = _root_combat_offset(quality_level, root_type)
+    fortune_special = 1 if root_type in {"地灵根", "天灵根", "变异灵根"} else 0
+    will_special = 1 if root_type in {"地灵根", "天灵根"} else 0
+    karma_special = 1 if root_quality in {"上品灵根", "极品灵根", "天灵根", "变异灵根"} else 0
+    bone = random.randint(11, 16) + root_offset
+    comprehension = random.randint(11, 16) + root_offset
+    divine_sense = random.randint(10, 15) + root_offset + (2 if root_payload.get("root_primary") in {"水", "雷", "风"} else 0)
+    fortune = random.randint(9, 14) + max(root_offset, 0) + fortune_special
+    willpower = random.randint(9, 14) + max(root_offset, 0) // 2 + will_special
+    charisma = random.randint(9, 14) + (2 if root_payload.get("root_primary") in {"木", "水", "风"} else 0)
+    karma = random.randint(9, 14) + max(root_offset, 0) + karma_special
+    body_movement = random.randint(9, 14) + root_offset + (2 if root_payload.get("root_primary") in {"风", "火", "雷"} else 0)
+    attack_power = random.randint(14, 19) + root_offset + (3 if root_payload.get("root_primary") in {"火", "金", "雷"} else 0)
+    defense_power = random.randint(14, 19) + root_offset + (3 if root_payload.get("root_primary") in {"土", "金", "水"} else 0)
+    qi_blood = 240 + bone * 13 + defense_power * 6 + random.randint(0, 40) + max(root_offset, 0) * 12
+    true_yuan = 220 + comprehension * 10 + divine_sense * 7 + random.randint(0, 36) + max(root_offset, 0) * 10
     return {
         "bone": bone,
         "comprehension": comprehension,
@@ -3147,19 +3250,22 @@ def _profile_growth_floor(profile: dict[str, Any]) -> dict[str, int]:
     layer_progress_half = int(layer_progress // 2)
     layer_progress_third = int(layer_progress // 3)
     layer_progress_full = int(layer_progress)
-    special_bonus = 2 if root_type == "天灵根" else 1 if root_type == "变异灵根" else 0
-    bone = 10 + quality_level + stage_index * 2 + layer_progress_half + (2 if primary in {"土", "金"} else 0) + special_bonus
-    comprehension = 10 + quality_level + stage_index * 2 + layer_progress_half + (2 if primary in {"木", "水"} else 0) + special_bonus
-    divine_sense = 9 + quality_level + stage_index * 2 + layer_progress_third + (2 if primary in {"雷", "风", "水"} else 0) + special_bonus
-    fortune = 8 + quality_level + stage_index + layer_progress_third + (2 if root_type in {"地灵根", "天灵根", "变异灵根"} else 0)
-    willpower = 8 + quality_level + stage_index + layer_progress_half + (2 if root_type in {"地灵根", "天灵根"} else 0)
-    charisma = 8 + quality_level + stage_index + layer_progress_third + (2 if primary in {"木", "水", "风"} else 0)
-    karma = 8 + quality_level + stage_index + layer_progress_half + (2 if quality_name in {"上品灵根", "极品灵根", "天灵根", "变异灵根"} else 0)
-    attack_power = 10 + quality_level * 2 + stage_index * 3 + layer_progress_full + (3 if primary in {"火", "金", "雷"} else 0)
-    defense_power = 10 + quality_level * 2 + stage_index * 3 + layer_progress_full + (3 if primary in {"土", "金", "水"} else 0)
-    body_movement = 8 + quality_level + stage_index * 2 + layer_progress_half + (2 if primary in {"风", "火", "雷"} else 0)
-    qi_blood = 180 + bone * 14 + defense_power * 6 + quality_level * 28 + stage_index * 60 + int(round((layer + progress_ratio) * 18))
-    true_yuan = 160 + comprehension * 10 + divine_sense * 8 + quality_level * 24 + stage_index * 54 + int(round((layer + progress_ratio) * 16))
+    root_offset = _root_combat_offset(quality_level, root_type)
+    fortune_special = 1 if root_type in {"地灵根", "天灵根", "变异灵根"} else 0
+    will_special = 1 if root_type in {"地灵根", "天灵根"} else 0
+    karma_special = 1 if quality_name in {"上品灵根", "极品灵根", "天灵根", "变异灵根"} else 0
+    bone = 11 + stage_index * 5 + layer_progress_half + root_offset + (2 if primary in {"土", "金"} else 0)
+    comprehension = 11 + stage_index * 5 + layer_progress_half + root_offset + (2 if primary in {"木", "水"} else 0)
+    divine_sense = 10 + stage_index * 5 + layer_progress_third + root_offset + (2 if primary in {"雷", "风", "水"} else 0)
+    fortune = 9 + stage_index * 4 + layer_progress_third + max(root_offset, 0) + fortune_special
+    willpower = 9 + stage_index * 4 + layer_progress_half + max(root_offset, 0) // 2 + will_special
+    charisma = 9 + stage_index * 4 + layer_progress_third + (2 if primary in {"木", "水", "风"} else 0)
+    karma = 9 + stage_index * 4 + layer_progress_half + max(root_offset, 0) + karma_special
+    attack_power = 14 + stage_index * 10 + layer_progress_full * 2 + root_offset + (3 if primary in {"火", "金", "雷"} else 0)
+    defense_power = 14 + stage_index * 10 + layer_progress_full * 2 + root_offset + (3 if primary in {"土", "金", "水"} else 0)
+    body_movement = 9 + stage_index * 5 + layer_progress_half + root_offset + (2 if primary in {"风", "火", "雷"} else 0)
+    qi_blood = 240 + bone * 15 + defense_power * 7 + stage_index * 200 + int(round((layer + progress_ratio) * 30)) + max(root_offset, 0) * 12
+    true_yuan = 220 + comprehension * 11 + divine_sense * 9 + stage_index * 180 + int(round((layer + progress_ratio) * 28)) + max(root_offset, 0) * 10
     return {
         "bone": bone,
         "comprehension": comprehension,
@@ -3786,6 +3892,32 @@ def _current_technique_payload(profile_data: dict[str, Any]) -> dict[str, Any] |
 
 SEED_DATA_VERSION = "2026-04-17-default-content-v3"
 SEED_DATA_READY = False
+DEFAULT_OFFICIAL_SHOP_ITEMS = (
+    {"item_kind": "artifact", "item_name": "凡铁剑", "quantity": 4},
+    {"item_kind": "artifact", "item_name": "青罡剑", "quantity": 3},
+    {"item_kind": "artifact", "item_name": "玄龟盾", "quantity": 3},
+    {"item_kind": "artifact", "item_name": "逐云履", "quantity": 2},
+    {"item_kind": "artifact", "item_name": "赤焰珠", "quantity": 2},
+    {"item_kind": "artifact", "item_name": "残修青罡古剑", "quantity": 1},
+    {"item_kind": "artifact", "item_name": "残修玄龟古盾", "quantity": 1},
+    {"item_kind": "pill", "item_name": "筑基丹", "quantity": 10},
+    {"item_kind": "pill", "item_name": "清心丹", "quantity": 12},
+    {"item_kind": "pill", "item_name": "聚气丹", "quantity": 10},
+    {"item_kind": "pill", "item_name": "洗髓丹", "quantity": 8},
+    {"item_kind": "pill", "item_name": "悟道丹", "quantity": 8},
+    {"item_kind": "pill", "item_name": "凝神丹", "quantity": 8},
+    {"item_kind": "pill", "item_name": "轻灵丹", "quantity": 8},
+    {"item_kind": "pill", "item_name": "血魄丹", "quantity": 6},
+    {"item_kind": "pill", "item_name": "蕴元丹", "quantity": 6},
+    {"item_kind": "pill", "item_name": "天运丹", "quantity": 4},
+    {"item_kind": "pill", "item_name": "锐金丹", "quantity": 5},
+    {"item_kind": "pill", "item_name": "护脉丹", "quantity": 5},
+    {"item_kind": "talisman", "item_name": "疾风符", "quantity": 12},
+    {"item_kind": "talisman", "item_name": "轻身符", "quantity": 10},
+    {"item_kind": "talisman", "item_name": "雷火符", "quantity": 8},
+    {"item_kind": "talisman", "item_name": "金钟符", "quantity": 8},
+    {"item_kind": "talisman", "item_name": "破甲符", "quantity": 6},
+)
 
 
 def _resolve_seed_result_ref_id(
@@ -3844,6 +3976,201 @@ def _raise_on_missing_seed_refs(context: str, refs: list[str]) -> None:
     preview = ", ".join(unique_refs[:12])
     suffix = "" if len(unique_refs) <= 12 else f" 等 {len(unique_refs)} 项"
     raise ValueError(f"{context}存在未解析引用：{preview}{suffix}")
+
+
+def _seed_listing_realm_markup(payload: dict[str, Any]) -> int:
+    stage = str(payload.get("min_realm_stage") or "").strip()
+    layer = max(int(payload.get("min_realm_layer") or 0), 0)
+    stage_index = max(realm_index(stage), 0) if stage else 0
+    return stage_index * 14 + layer * 4
+
+
+def _seed_listing_skill_count(payload: dict[str, Any]) -> int:
+    combat_config = payload.get("combat_config") or {}
+    return sum(len(combat_config.get(key) or []) for key in ("skills", "passives"))
+
+
+def _weighted_seed_stat_value(payload: dict[str, Any], weights: dict[str, float]) -> float:
+    total = 0.0
+    for key, weight in weights.items():
+        total += max(float(payload.get(key) or 0), 0.0) * weight
+    return total
+
+
+def _round_seed_shop_price(value: float) -> int:
+    return max(int(ceil(max(float(value), 1.0) / 5.0) * 5), 5)
+
+
+def _artifact_seed_shop_price(payload: dict[str, Any]) -> int:
+    rarity_level = max(int(payload.get("rarity_level") or 1), 1)
+    base = 40 + rarity_level * 28 + _seed_listing_realm_markup(payload) + _seed_listing_skill_count(payload) * 22
+    stats = _weighted_seed_stat_value(
+        payload,
+        {
+            "attack_bonus": 2.4,
+            "defense_bonus": 2.0,
+            "bone_bonus": 8.0,
+            "comprehension_bonus": 9.0,
+            "divine_sense_bonus": 8.0,
+            "fortune_bonus": 8.0,
+            "qi_blood_bonus": 0.45,
+            "true_yuan_bonus": 0.42,
+            "body_movement_bonus": 1.9,
+            "duel_rate_bonus": 16.0,
+            "cultivation_bonus": 14.0,
+        },
+    )
+    return _round_seed_shop_price((base + stats) * 1.18)
+
+
+def _pill_seed_shop_price(payload: dict[str, Any]) -> int:
+    rarity_level = max(int(payload.get("rarity_level") or 1), 1)
+    pill_type = str(payload.get("pill_type") or "").strip()
+    effect_value = max(float(payload.get("effect_value") or 0), 0.0)
+    poison_delta = max(float(payload.get("poison_delta") or 0), 0.0)
+    type_base = {
+        "foundation": 48,
+        "clear_poison": 20,
+        "cultivation": 26,
+        "stone": 22,
+        "bone": 28,
+        "comprehension": 30,
+        "divine_sense": 28,
+        "fortune": 38,
+        "willpower": 30,
+        "charisma": 28,
+        "karma": 36,
+        "qi_blood": 28,
+        "true_yuan": 28,
+        "body_movement": 30,
+        "attack": 32,
+        "defense": 32,
+        "root_refine": 180,
+        "root_remold": 240,
+        "root_single": 210,
+        "root_double": 210,
+        "root_earth": 360,
+        "root_heaven": 520,
+        "root_variant": 460,
+    }
+    type_weight = {
+        "foundation": 3.6,
+        "clear_poison": 1.5,
+        "cultivation": 0.82,
+        "stone": 0.78,
+        "bone": 18.0,
+        "comprehension": 18.5,
+        "divine_sense": 17.0,
+        "fortune": 22.0,
+        "willpower": 19.0,
+        "charisma": 18.0,
+        "karma": 22.0,
+        "qi_blood": 0.85,
+        "true_yuan": 0.82,
+        "body_movement": 17.0,
+        "attack": 18.0,
+        "defense": 18.0,
+        "root_refine": 180.0,
+        "root_remold": 260.0,
+        "root_single": 210.0,
+        "root_double": 210.0,
+        "root_earth": 380.0,
+        "root_heaven": 520.0,
+        "root_variant": 460.0,
+    }
+    stat_bonus = _weighted_seed_stat_value(
+        payload,
+        {
+            "attack_bonus": 14.0,
+            "defense_bonus": 14.0,
+            "bone_bonus": 16.0,
+            "comprehension_bonus": 16.0,
+            "divine_sense_bonus": 15.0,
+            "fortune_bonus": 18.0,
+            "qi_blood_bonus": 0.75,
+            "true_yuan_bonus": 0.72,
+            "body_movement_bonus": 15.0,
+        },
+    )
+    base = 16 + rarity_level * 18 + _seed_listing_realm_markup(payload) + int(type_base.get(pill_type, 28))
+    effect_price = effect_value * float(type_weight.get(pill_type, 12.0))
+    return _round_seed_shop_price((base + effect_price + poison_delta * 1.2 + stat_bonus) * 1.15)
+
+
+def _talisman_seed_shop_price(payload: dict[str, Any]) -> int:
+    rarity_level = max(int(payload.get("rarity_level") or 1), 1)
+    effect_uses = max(int(payload.get("effect_uses") or 1), 1)
+    base = 24 + rarity_level * 18 + _seed_listing_realm_markup(payload) + _seed_listing_skill_count(payload) * 18 + effect_uses * 8
+    stats = _weighted_seed_stat_value(
+        payload,
+        {
+            "attack_bonus": 1.9,
+            "defense_bonus": 1.7,
+            "bone_bonus": 6.0,
+            "comprehension_bonus": 6.0,
+            "divine_sense_bonus": 6.0,
+            "fortune_bonus": 6.0,
+            "qi_blood_bonus": 0.35,
+            "true_yuan_bonus": 0.32,
+            "body_movement_bonus": 1.6,
+            "duel_rate_bonus": 13.0,
+        },
+    )
+    return _round_seed_shop_price((base + stats) * 1.16)
+
+
+def _seed_official_shop_price(item_kind: str, payload: dict[str, Any]) -> int:
+    normalized_kind = str(item_kind or "").strip()
+    if normalized_kind == "artifact":
+        return _artifact_seed_shop_price(payload)
+    if normalized_kind == "pill":
+        return _pill_seed_shop_price(payload)
+    if normalized_kind == "talisman":
+        return _talisman_seed_shop_price(payload)
+    raise ValueError("默认官方商店暂不支持该物品类型")
+
+
+def _ensure_default_official_shop_listings(
+    *,
+    settings: dict[str, Any],
+    artifact_map: dict[str, dict[str, Any]],
+    pill_map: dict[str, dict[str, Any]],
+    talisman_map: dict[str, dict[str, Any]],
+) -> None:
+    official_name = str(settings.get("official_shop_name", DEFAULT_SETTINGS["official_shop_name"]) or DEFAULT_SETTINGS["official_shop_name"]).strip() or DEFAULT_SETTINGS["official_shop_name"]
+    source_map = {
+        "artifact": artifact_map,
+        "pill": pill_map,
+        "talisman": talisman_map,
+    }
+    existing_keys = {
+        (str(item.get("item_kind") or "").strip(), int(item.get("item_ref_id") or 0))
+        for item in list_shop_items(official_only=True, include_disabled=True)
+        if int(item.get("item_ref_id") or 0) > 0
+    }
+    for seed in DEFAULT_OFFICIAL_SHOP_ITEMS:
+        item_kind = str(seed["item_kind"]).strip()
+        item_name = str(seed["item_name"]).strip()
+        payload = (source_map.get(item_kind) or {}).get(item_name)
+        if not payload or not payload.get("enabled"):
+            continue
+        item_id = int(payload.get("id") or 0)
+        if item_id <= 0:
+            continue
+        key = (item_kind, item_id)
+        if key in existing_keys:
+            continue
+        create_shop_item(
+            owner_tg=None,
+            shop_name=official_name,
+            item_kind=item_kind,
+            item_ref_id=item_id,
+            item_name=str(payload.get("name") or item_name),
+            quantity=max(int(seed.get("quantity") or 1), 1),
+            price_stone=_seed_official_shop_price(item_kind, payload),
+            is_official=True,
+        )
+        existing_keys.add(key)
 
 
 def ensure_seed_data(force: bool = False) -> None:
@@ -3906,6 +4233,12 @@ def ensure_seed_data(force: bool = False) -> None:
     settings = get_xiuxian_settings()
     sync_official_shop_name(
         str(settings.get("official_shop_name", DEFAULT_SETTINGS["official_shop_name"]) or DEFAULT_SETTINGS["official_shop_name"])
+    )
+    _ensure_default_official_shop_listings(
+        settings=settings,
+        artifact_map=artifact_map,
+        pill_map=pill_map,
+        talisman_map=talisman_map,
     )
 
     for recipe in DEFAULT_RECIPES:
@@ -4113,6 +4446,18 @@ def apply_cultivation_gain(stage: str, layer: int, cultivation: int, gain: int) 
 
     remaining = max(threshold - current_cultivation, 0)
     return current_layer, current_cultivation, upgraded_layers, remaining
+
+
+def _settle_profile_cultivation(profile: XiuxianProfile, gain: int = 0) -> tuple[int, int, list[int], int]:
+    layer, cultivation, upgraded_layers, remaining = apply_cultivation_gain(
+        normalize_realm_stage(profile.realm_stage or FIRST_REALM_STAGE),
+        int(profile.realm_layer or 1),
+        int(profile.cultivation or 0),
+        gain,
+    )
+    profile.realm_layer = layer
+    profile.cultivation = cultivation
+    return layer, cultivation, upgraded_layers, remaining
 
 
 def _compute_immortal_touch_gain(stage: str, layer: int, cultivation: int, infusion_layers: int) -> int:
@@ -5636,8 +5981,8 @@ def mentor_teach_for_user(tg: int, disciple_tg: int) -> dict[str, Any]:
         attribute_growth = _apply_activity_stat_growth_to_profile_row(disciple, "practice", disciple_bundle.get("stats"))
         bond_gain = min(8 + stage_gap * 2, 20)
 
-        mentor.cultivation = int(mentor.cultivation or 0) + mentor_gain
-        disciple.cultivation = int(disciple.cultivation or 0) + disciple_gain
+        _settle_profile_cultivation(mentor, mentor_gain)
+        _settle_profile_cultivation(disciple, disciple_gain)
         relation.bond_value = int(relation.bond_value or 0) + bond_gain
         relation.teach_count = int(relation.teach_count or 0) + 1
         relation.last_teach_at = now
@@ -5695,8 +6040,8 @@ def consult_mentor_for_user(tg: int) -> dict[str, Any]:
             setattr(disciple, key, int(getattr(disciple, key, 0) or 0) + int(delta or 0))
 
         bond_gain = min(6 + stage_gap, 14)
-        disciple.cultivation = int(disciple.cultivation or 0) + disciple_gain
-        mentor.cultivation = int(mentor.cultivation or 0) + mentor_gain
+        _settle_profile_cultivation(disciple, disciple_gain)
+        _settle_profile_cultivation(mentor, mentor_gain)
         relation.bond_value = int(relation.bond_value or 0) + bond_gain
         relation.consult_count = int(relation.consult_count or 0) + 1
         relation.last_consult_at = now
@@ -5749,8 +6094,8 @@ def graduate_mentorship_for_user(tg: int, target_tg: int) -> dict[str, Any]:
         mentor_score = _mentorship_realm_score(mentor)
         disciple_gain = min(160 + mentor_score * 6 + int(relation.bond_value or 0) // 2, 880)
         mentor_gain = max(int(round(disciple_gain * 0.65)), 120)
-        mentor.cultivation = int(mentor.cultivation or 0) + mentor_gain
-        disciple.cultivation = int(disciple.cultivation or 0) + disciple_gain
+        _settle_profile_cultivation(mentor, mentor_gain)
+        _settle_profile_cultivation(disciple, disciple_gain)
         relation.status = "graduated"
         relation.graduated_at = now
         relation.ended_at = now
@@ -6276,6 +6621,7 @@ def respond_marriage_request_for_user(tg: int, request_id: int, action: str) -> 
         relation_payload = serialize_marriage(relation) or {}
         husband_name = _profile_display_label(serialize_profile(husband), "男方")
         wife_name = _profile_display_label(serialize_profile(wife), "女方")
+    invalidate_xiuxian_user_view_cache(int(sponsor.tg), int(target.tg))
     create_journal(int(relation_payload["husband_tg"]), "marriage", "喜结道侣", f"与 {wife_name} 结成道侣，自此共修仙途。")
     create_journal(int(relation_payload["wife_tg"]), "marriage", "喜结道侣", f"与 {husband_name} 结成道侣，自此共修仙途。")
     return {
@@ -6448,8 +6794,8 @@ def dual_cultivate_with_spouse(tg: int) -> dict[str, Any]:
         actor_gain, actor_meta = adjust_cultivation_gain_for_social_mode(actor, base_gain)
         spouse_gain, spouse_meta = adjust_cultivation_gain_for_social_mode(spouse, base_gain)
         bond_gain = 8 + max(min(abs(actor_score - spouse_score), 6), 0)
-        actor.cultivation = int(actor.cultivation or 0) + actor_gain
-        spouse.cultivation = int(spouse.cultivation or 0) + spouse_gain
+        _settle_profile_cultivation(actor, actor_gain)
+        _settle_profile_cultivation(spouse, spouse_gain)
         relation.bond_value = int(relation.bond_value or 0) + bond_gain
         relation.dual_cultivation_count = int(relation.dual_cultivation_count or 0) + 1
         relation.last_dual_cultivation_at = now
@@ -6522,6 +6868,7 @@ def divorce_with_spouse(tg: int) -> dict[str, Any]:
             request.updated_at = now
         session.commit()
 
+    invalidate_xiuxian_user_view_cache(left_tg, right_tg)
     left_name = _profile_display_label(serialize_profile(get_profile(left_tg, create=False)), "道侣")
     right_name = _profile_display_label(serialize_profile(get_profile(right_tg, create=False)), "道侣")
     create_journal(left_tg, "marriage", "和离分家", f"你与 {right_name} 已经和离，灵石与背包已完成重新分配。")
@@ -7780,10 +8127,48 @@ def create_foundation_pill_for_user_if_missing(tg: int) -> None:
     if pill_row is not None:
         return
 
-    for pill in list_pills(enabled_only=True):
-        if pill["pill_type"] == "foundation":
-            grant_pill_to_user(tg, pill["id"], 1)
-            return
+    starter_pill = _select_starter_foundation_pill()
+    if starter_pill is not None:
+        grant_pill_to_user(tg, int(starter_pill["id"]), 1)
+
+
+def _starter_foundation_pill_sort_key(pill: dict[str, Any]) -> tuple[int, int, int, str]:
+    stage = normalize_realm_stage(pill.get("min_realm_stage"))
+    if stage in REALM_ORDER:
+        stage_rank = realm_index(stage)
+    else:
+        stage_rank = len(REALM_ORDER) + 1
+    layer = int(pill.get("min_realm_layer") or 99)
+    effect_value = int(pill.get("effect_value") or 0)
+    return (stage_rank, layer, effect_value, str(pill.get("name") or ""))
+
+
+def _select_starter_foundation_pill() -> dict[str, Any] | None:
+    foundation_pills = [
+        pill for pill in list_pills(enabled_only=True)
+        if str(pill.get("pill_type") or "") == "foundation"
+    ]
+    if not foundation_pills:
+        return None
+
+    named_match = next(
+        (
+            pill for pill in foundation_pills
+            if str(pill.get("name") or "").strip() == STARTER_FOUNDATION_PILL_NAME
+        ),
+        None,
+    )
+    if named_match is not None:
+        return named_match
+
+    early_stage_matches = [
+        pill for pill in foundation_pills
+        if normalize_realm_stage(pill.get("min_realm_stage")) == "炼气"
+    ]
+    if early_stage_matches:
+        return min(early_stage_matches, key=_starter_foundation_pill_sort_key)
+
+    return min(foundation_pills, key=_starter_foundation_pill_sort_key)
 
 
 def _grant_entry_starter_assets(tg: int) -> None:
@@ -7832,7 +8217,7 @@ def _grant_entry_starter_assets(tg: int) -> None:
 def admin_seed_demo_assets(tg: int) -> dict[str, Any]:
     ensure_seed_data()
     first_artifact = next((item for item in list_artifacts(enabled_only=True)), None)
-    foundation_pill = next((item for item in list_pills(enabled_only=True) if item["pill_type"] == "foundation"), None)
+    foundation_pill = _select_starter_foundation_pill()
     clear_pill = next((item for item in list_pills(enabled_only=True) if item["pill_type"] == "clear_poison"), None)
     first_talisman = next((item for item in list_talismans(enabled_only=True)), None)
 
@@ -8404,35 +8789,33 @@ def _battle_bundle(bundle_or_profile: dict[str, Any], opponent_profile: dict[str
 
     stage_index = max(realm_index(profile.get("realm_stage")), 0)
     layer, progress_ratio, _ = _profile_layer_progress(profile)
-    realm_score = 220 + stage_index * 260 + (layer + progress_ratio) * 36
+    realm_score = 520 + stage_index * 1700 + (layer + progress_ratio) * 92
     attribute_score = (
-        stats["bone"] * 8.0
-        + stats["comprehension"] * 8.5
-        + stats["divine_sense"] * 9.0
-        + stats["fortune"] * 5.0
-        + stats["willpower"] * 6.0
-        + stats["charisma"] * 3.5
-        + stats["karma"] * 5.5
+        stats["bone"] * 5.8
+        + stats["comprehension"] * 6.2
+        + stats["divine_sense"] * 6.5
+        + stats["fortune"] * 3.2
+        + stats["willpower"] * 4.2
+        + stats["charisma"] * 2.2
+        + stats["karma"] * 3.8
     )
     combat_score = (
-        stats["attack_power"] * 24.0
-        + stats["defense_power"] * 20.0
-        + stats["body_movement"] * 16.0
-        + stats["qi_blood"] * 0.52
-        + stats["true_yuan"] * 0.38
+        stats["attack_power"] * 18.0
+        + stats["defense_power"] * 16.0
+        + stats["body_movement"] * 11.0
+        + stats["qi_blood"] * 0.36
+        + stats["true_yuan"] * 0.28
     )
-    root_factor = float(quality["combat_factor"])
-    if opponent_profile:
-        root_factor += _root_element_duel_modifier(profile, opponent_profile)
-    if profile.get("root_type") == "变异灵根":
-        root_factor += 0.03
+    root_factor = _resolved_root_combat_factor(profile, quality, opponent_profile)
     duel_rate_factor = 1 + max(min(stats["duel_rate_bonus"], 40), -40) / 120
     random_factor = random.uniform(0.96, 1.06) if apply_random else 1.0
-    power = (realm_score + attribute_score + combat_score) * max(root_factor, 0.75) * max(duel_rate_factor, 0.75) * random_factor
+    power = (realm_score + (attribute_score + combat_score) * root_factor) * max(duel_rate_factor, 0.75) * random_factor
     return {
         "profile": profile,
         "quality": quality_name,
         "quality_payload": quality,
+        "root_factor": float(root_factor),
+        "realm_score": float(realm_score),
         "stats": stats,
         "artifact_effects": artifact_effects,
         "talisman_effects": talisman_effects or {},
@@ -8440,6 +8823,16 @@ def _battle_bundle(bundle_or_profile: dict[str, Any], opponent_profile: dict[str
         "technique_effects": technique_effects or {},
         "title_effects": title_effects or {},
         "power": float(power),
+    }
+
+
+def _self_profile_snapshot(bundle: dict[str, Any]) -> dict[str, Any]:
+    profile = bundle.get("profile") or {}
+    current_title = bundle.get("current_title")
+    return {
+        "profile": dict(profile) if isinstance(profile, dict) else {},
+        "current_title": dict(current_title) if isinstance(current_title, dict) else None,
+        "combat_power": int(bundle.get("combat_power") or 0),
     }
 
 
@@ -8464,9 +8857,10 @@ def serialize_full_profile(tg: int) -> dict[str, Any]:
         for key, value in battle["stats"].items()
     }
     bundle["combat_power"] = int(round(battle["power"]))
+    self_snapshot = _self_profile_snapshot(bundle)
     bundle["commissions"] = build_spirit_stone_commissions(tg)
-    bundle["mentorship"] = build_mentorship_overview(tg, bundle=bundle)
-    bundle["marriage"] = build_marriage_overview(tg, bundle=bundle)
+    bundle["mentorship"] = build_mentorship_overview(tg, bundle=self_snapshot)
+    bundle["marriage"] = build_marriage_overview(tg, bundle=self_snapshot)
     bundle["capabilities"]["shared_inventory_enabled"] = bool((bundle.get("marriage") or {}).get("shared_assets_enabled"))
     bundle["capabilities"]["shared_inventory_note"] = str((bundle.get("marriage") or {}).get("shared_assets_hint") or "")
     for entry in bundle.get("attribute_effects") or []:
@@ -9496,8 +9890,8 @@ def _build_duel_snapshot(
     profile = bundle["profile"]
     technique = bundle.get("current_technique") or {}
     talisman = bundle.get("active_talisman") or {}
-    root_modifier = _root_element_duel_modifier(profile, opponent_profile)
-    variant_bonus = 0.03 if profile.get("root_type") == "变异灵根" else 0.0
+    root_modifier = _root_element_duel_modifier(profile, opponent_profile) * ROOT_ELEMENT_FACTOR_WEIGHT
+    root_factor = float(state.get("root_factor") or _resolved_root_combat_factor(profile, state.get("quality_payload") or {}, opponent_profile))
     stats = {
         key: int(round(value))
         for key, value in state["stats"].items()
@@ -9522,7 +9916,7 @@ def _build_duel_snapshot(
         "root_text": format_root(profile),
         "root_quality": state["quality"],
         "root_modifier_percent": round(root_modifier * 100, 1),
-        "root_factor": round(float(state["quality_payload"]["combat_factor"]) + root_modifier + variant_bonus, 3),
+        "root_factor": round(root_factor, 3),
         "technique_name": technique.get("name") or "未修功法",
         "artifact_names": _duel_item_names(bundle.get("equipped_artifacts"), "未装备法宝"),
         "talisman_name": talisman.get("name") or "未备符箓",
@@ -10214,7 +10608,7 @@ def _apply_death_duel_outcome(session: Session, winner_tg: int, loser_tg: int) -
     if inherited_stone > 0:
         apply_spiritual_stone_delta(session, winner_tg, inherited_stone, action_text="继承生死斗遗产", allow_dead=False, apply_tribute=True)
     cultivation_cap = cultivation_threshold(normalize_realm_stage(winner.realm_stage or FIRST_REALM_STAGE), 9)
-    winner.cultivation = min(int(winner.cultivation or 0) + inherited_cultivation, cultivation_cap)
+    _settle_profile_cultivation(winner, inherited_cultivation)
     winner.updated_at = utcnow()
     _transfer_inventory_rows(session, XiuxianArtifactInventory, "artifact_id", loser_tg, winner_tg)
     _transfer_inventory_rows(session, XiuxianPillInventory, "pill_id", loser_tg, winner_tg)
@@ -10832,7 +11226,7 @@ def format_duel_settlement_text(
         lines.extend(
             [
                 "",
-                f"斗法过程：共 {int(result.get('round_count') or 0)} 回合，详细战报已实时播报完毕。",
+                f"斗法过程：共 {int(result.get('round_count') or 0)} 回合，关键战况已简要播报。",
             ]
         )
 

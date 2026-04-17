@@ -3,6 +3,9 @@ const tg = window.Telegram?.WebApp;
 const state = {
   initData: tg?.initData || "",
   profileBundle: null,
+  wikiBundle: null,
+  wikiFilter: "all",
+  wikiSearchQuery: "",
   leaderboard: { kind: "stone", page: 1, totalPages: 1 },
   shopNameEditing: false,
   giftTarget: null,
@@ -337,6 +340,165 @@ function formatDate(value) {
   if (!value) return "未开始";
   const date = parseShanghaiDate(value);
   return date ? date.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }) : "未知";
+}
+
+function normalizeWikiSearchQuery(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function wikiSearchTokens(value) {
+  const query = normalizeWikiSearchQuery(value);
+  if (!query) return [];
+  return query.split(/\s+/).filter(Boolean);
+}
+
+function wikiHaystack(entry) {
+  return [
+    entry?.title,
+    entry?.subtitle,
+    entry?.description,
+    ...(Array.isArray(entry?.tags) ? entry.tags : []),
+    ...(Array.isArray(entry?.keywords) ? entry.keywords : []),
+    ...(Array.isArray(entry?.body_lines) ? entry.body_lines : []),
+  ].join(" ").toLowerCase();
+}
+
+function wikiEntryScore(entry, query) {
+  const normalizedQuery = normalizeWikiSearchQuery(query);
+  if (!normalizedQuery) return 0;
+  const tokens = wikiSearchTokens(normalizedQuery);
+  const haystack = wikiHaystack(entry);
+  if (!tokens.every((token) => haystack.includes(token))) return -1;
+  const title = String(entry?.title || "").toLowerCase();
+  const subtitle = String(entry?.subtitle || "").toLowerCase();
+  const keywords = Array.isArray(entry?.keywords) ? entry.keywords.join(" ").toLowerCase() : "";
+  const body = Array.isArray(entry?.body_lines) ? entry.body_lines.join(" ").toLowerCase() : "";
+  let score = 0;
+  if (title === normalizedQuery) score += 120;
+  if (title.includes(normalizedQuery)) score += 80;
+  if (subtitle.includes(normalizedQuery)) score += 32;
+  if (keywords.includes(normalizedQuery)) score += 24;
+  if (body.includes(normalizedQuery)) score += 12;
+  score += Math.max(12 - title.length, 0);
+  return score;
+}
+
+function wikiFilterMatches(entry, filter) {
+  if (!filter || filter === "all") return true;
+  const keys = Array.isArray(entry?.filter_keys) ? entry.filter_keys.map((item) => String(item || "")) : [String(entry?.group || "")];
+  return keys.includes(String(filter || ""));
+}
+
+function renderWikiCards(root, entries, { emptyTitle, emptyText } = {}) {
+  if (!root) return;
+  if (!Array.isArray(entries) || !entries.length) {
+    root.innerHTML = `<article class="stack-item"><strong>${escapeHtml(emptyTitle || "暂无内容")}</strong><p>${escapeHtml(emptyText || "请稍后再试。")}</p></article>`;
+    return;
+  }
+  root.innerHTML = entries.map((entry) => {
+    const tags = (Array.isArray(entry?.tags) ? entry.tags : []).filter(Boolean).slice(0, 4);
+    const lines = (Array.isArray(entry?.body_lines) ? entry.body_lines : []).filter(Boolean).slice(0, 2);
+    const subtitle = String(entry?.subtitle || "").trim();
+    const description = String(entry?.description || "").trim();
+    return `
+      <article class="stack-item">
+        <div class="stack-item-head">
+          <strong>${escapeHtml(entry?.title || "未命名词条")}</strong>
+          <button type="button" class="ghost" data-wiki-entry="${escapeHtml(entry?.id || "")}">查看全文</button>
+        </div>
+        <div class="wiki-meta-line">
+          <span>${escapeHtml(entry?.kind_label || "词条")}</span>
+          ${subtitle ? `<span>${escapeHtml(subtitle)}</span>` : ""}
+        </div>
+        ${description ? `<p>${escapeHtml(description)}</p>` : ""}
+        ${tags.length ? `<div class="item-tags">${tags.map((tag) => `<span class="badge badge--normal">${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
+        ${lines.length ? `<div class="wiki-body-lines">${lines.map((line) => `<p class="section-copy">${escapeHtml(line)}</p>`).join("")}</div>` : ""}
+      </article>
+    `;
+  }).join("");
+}
+
+function currentWikiEntries() {
+  const bundle = state.wikiBundle;
+  const filter = state.wikiFilter || "all";
+  const query = state.wikiSearchQuery || "";
+  const rows = Array.isArray(bundle?.search_index) ? bundle.search_index.slice() : [];
+  const filtered = rows.filter((entry) => wikiFilterMatches(entry, filter));
+  if (!query) {
+    const defaults = filter === "all"
+      ? filtered.filter((entry) => entry.group !== "tutorial")
+      : filtered;
+    return defaults.slice(0, 12);
+  }
+  return filtered
+    .map((entry) => ({ entry, score: wikiEntryScore(entry, query) }))
+    .filter((row) => row.score >= 0)
+    .sort((left, right) => right.score - left.score || String(left.entry?.title || "").localeCompare(String(right.entry?.title || ""), "zh-CN"))
+    .slice(0, 20)
+    .map((row) => row.entry);
+}
+
+function renderWikiArea() {
+  const countsNode = document.querySelector("#wiki-counts");
+  const hintNode = document.querySelector("#wiki-search-hint");
+  const featuredRoot = document.querySelector("#wiki-featured-list");
+  const resultRoot = document.querySelector("#wiki-result-list");
+  const filterButtons = Array.from(document.querySelectorAll("[data-wiki-filter]"));
+  const bundle = state.wikiBundle;
+
+  filterButtons.forEach((button) => {
+    button.classList.toggle("is-active", (button.dataset.wikiFilter || "all") === (state.wikiFilter || "all"));
+  });
+
+  if (!bundle) {
+    if (countsNode) countsNode.textContent = "正在整理词条...";
+    if (hintNode) hintNode.textContent = "可搜索玩法教程、材料来源、法宝、丹药、符箓、功法、称号、成就与配方获取方式，也可按入门、探索、炼制、战斗、任务、社交、宗门筛选。";
+    renderWikiCards(featuredRoot, [], { emptyTitle: "Wiki 加载中", emptyText: "正在整理新手手册与掉落词条，请稍候。" });
+    renderWikiCards(resultRoot, [], { emptyTitle: "等待检索", emptyText: "输入关键词后，可快速定位玩法和物品来源。" });
+    return;
+  }
+
+  const counts = bundle.counts || {};
+  const examples = Array.isArray(bundle.search_examples) ? bundle.search_examples.filter(Boolean) : [];
+  if (countsNode) {
+    countsNode.textContent = `教程 ${Number(counts.tutorial || 0)} · 材料 ${Number(counts.material || 0)} · 法宝 ${Number(counts.artifact || 0)} · 丹药 ${Number(counts.pill || 0)} · 符箓 ${Number(counts.talisman || 0)} · 功法 ${Number(counts.technique || 0)} · 称号 ${Number(counts.title || 0)} · 配方 ${Number(counts.recipe || 0)} · 成就 ${Number(counts.achievement || 0)}`;
+  }
+  if (hintNode) {
+    hintNode.textContent = examples.length
+      ? `试试这些关键词：${examples.join("、")}`
+      : "可搜索玩法教程、材料来源、法宝、丹药、符箓、功法、称号、成就与配方获取方式，也可按入门、探索、炼制、战斗、任务、社交、宗门筛选。";
+  }
+
+  renderWikiCards(featuredRoot, bundle.featured_tutorials || [], {
+    emptyTitle: "暂无推荐教程",
+    emptyText: "主人还没有补充玩法手册。",
+  });
+
+  const query = state.wikiSearchQuery || "";
+  const entries = currentWikiEntries();
+  renderWikiCards(resultRoot, entries, {
+    emptyTitle: query ? "没有找到对应词条" : "暂无检索词条",
+    emptyText: query
+      ? "可换个关键词，或先搜玩法名、材料名、法宝名、丹药名、符箿名、功法名、成就名、配方名。"
+      : "输入关键词后，可查看对应的玩法与来源说明。",
+  });
+}
+
+async function openWikiEntry(entryId) {
+  const rows = Array.isArray(state.wikiBundle?.search_index) ? state.wikiBundle.search_index : [];
+  const entry = rows.find((item) => String(item?.id || "") === String(entryId || ""));
+  if (!entry) return;
+  const lines = [entry.subtitle, entry.description, ...(Array.isArray(entry.body_lines) ? entry.body_lines : [])]
+    .filter(Boolean)
+    .map((line) => String(line || "").trim());
+  await popup(entry.title || "修仙 Wiki", lines.join("\n\n"), "success");
+}
+
+async function refreshWikiBundle() {
+  const bundle = await postJson("/plugins/xiuxian/api/wiki");
+  state.wikiBundle = bundle;
+  renderWikiArea();
+  return bundle;
 }
 
 function formatRemainingDuration(totalSeconds) {
@@ -1042,6 +1204,47 @@ function fallbackReason(reason, fallback) {
   return !message || /^[?？.\s]+$/.test(message) ? fallback : message;
 }
 
+function meaningfulTextLength(value) {
+  return String(value ?? "").replace(/\s+/g, "").length;
+}
+
+function taskPublishBlockReason(bundle = state.profileBundle) {
+  const settings = bundle?.settings || {};
+  const publishAllowed = settings.allow_user_task_publish ?? true;
+  const publishCost = Number(settings.task_publish_cost || 0);
+  const dailyLimit = Number(settings.user_task_daily_limit || 0);
+  const publishedToday = Number(settings.user_task_published_today || 0);
+  const currentStone = Number(bundle?.profile?.spiritual_stone || 0);
+  const duelLockReason = currentDuelLockReason(bundle);
+
+  if (!publishAllowed) {
+    return "当前未开放玩家发布任务。";
+  }
+  if (duelLockReason) {
+    return duelLockReason;
+  }
+  if (dailyLimit > 0 && publishedToday >= dailyLimit) {
+    return `今日已发布 ${publishedToday}/${dailyLimit} 次悬赏，已达到上限。`;
+  }
+  if (currentStone < publishCost) {
+    return `发布任务需要 ${publishCost} 灵石，当前灵石不足。`;
+  }
+  return "";
+}
+
+function applyInteractiveBlockState(button, blocked, reason = "") {
+  if (!button) return;
+  const message = blocked ? String(reason || "").trim() : "";
+  button.classList.toggle("is-blocked", Boolean(message));
+  button.title = message;
+  button.setAttribute("aria-disabled", message ? "true" : "false");
+  if (message) {
+    button.dataset.blockedReason = message;
+  } else {
+    delete button.dataset.blockedReason;
+  }
+}
+
 function renderProfile(bundle) {
   state.profileBundle = bundle;
   const profile = bundle.profile;
@@ -1591,11 +1794,9 @@ function renderTaskArea(bundle) {
   if (!root) return;
   root.innerHTML = "";
   const settings = bundle.settings || {};
-  const publishAllowed = settings.allow_user_task_publish ?? true;
   const publishCost = Number(settings.task_publish_cost || 0);
   const dailyLimit = Number(settings.user_task_daily_limit || 0);
   const publishedToday = Number(settings.user_task_published_today || 0);
-  const currentStone = Number(bundle.profile?.spiritual_stone || 0);
   const publishNote = document.querySelector("#task-compose-note");
   const publishButton = document.querySelector("#task-form button[type='submit']");
   const uploadAllowed = Boolean(bundle.capabilities?.can_upload_images);
@@ -1610,17 +1811,8 @@ function renderTaskArea(bundle) {
       ? "如需带图答题，可先上传图片再发布任务。"
       : uploadReason;
   }
-  let publishReason = "";
-  if (!publishAllowed) {
-    publishReason = "当前未开放玩家发布任务。";
-  } else if (currentDuelLockReason(bundle)) {
-    publishReason = currentDuelLockReason(bundle);
-  } else if (dailyLimit > 0 && publishedToday >= dailyLimit) {
-    publishReason = `今日已发布 ${publishedToday}/${dailyLimit} 次悬赏，已达到上限。`;
-  } else if (currentStone < publishCost) {
-    publishReason = `发布任务需要 ${publishCost} 灵石，当前灵石不足。`;
-  }
-  setDisabled(publishButton, Boolean(publishReason), publishReason);
+  const publishReason = taskPublishBlockReason(bundle);
+  applyInteractiveBlockState(publishButton, Boolean(publishReason), publishReason);
   if (publishNote) {
     const limitText = dailyLimit > 0 ? `今日已发布 ${publishedToday}/${dailyLimit} 次。` : "今日发布次数不限。";
     publishNote.textContent = publishReason || (publishCost > 0
@@ -2195,6 +2387,7 @@ function renderLeaderboard(result) {
 
 function applyProfileBundle(bundle) {
   if (!bundle) return;
+  renderWikiArea();
   renderProfile(bundle);
   renderSectArea(bundle);
   renderTaskArea(bundle);
@@ -2227,6 +2420,9 @@ async function refreshBundle() {
   const payload = await postJson("/plugins/xiuxian/api/bootstrap");
   renderBottomNav(payload.bottom_nav || []);
   applyProfileBundle(payload.profile_bundle);
+  if (!state.wikiBundle) {
+    refreshWikiBundle().catch(() => null);
+  }
   return payload.profile_bundle;
 }
 
@@ -2246,7 +2442,21 @@ async function bootstrap() {
   tg.setHeaderColor("#eef4ff");
   tg.setBackgroundColor("#eef4ff");
 
-  await refreshBundle();
+  renderWikiArea();
+  const [payload, wikiBundle] = await Promise.all([
+    postJson("/plugins/xiuxian/api/bootstrap"),
+    postJson("/plugins/xiuxian/api/wiki").catch(() => null),
+  ]);
+  renderBottomNav(payload.bottom_nav || []);
+  if (wikiBundle) {
+    state.wikiBundle = wikiBundle;
+  }
+  applyProfileBundle(payload.profile_bundle);
+  renderWikiArea();
+  if (payload.initial_leaderboard) {
+    renderLeaderboard(payload.initial_leaderboard);
+    return;
+  }
   await refreshLeaderboard("stone", 1);
 }
 
@@ -2877,6 +3087,29 @@ document.querySelector("#recipe-list")?.addEventListener("click", async (event) 
     await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "炼制失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
+});
+
+document.querySelector("#recipe-fragment-synthesis-list")?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-recipe-synthesis-id]");
+  if (!button || button.disabled) return;
+  try {
+    const payload = await runButtonAction(button, "参悟中…", () => postJson("/plugins/xiuxian/api/recipe/synthesize", {
+      recipe_id: Number(button.dataset.recipeSynthesisId)
+    }));
+    const result = payload.result || {};
+    const recipeName = result.recipe?.name || "配方";
+    const materialName = result.fragment_material?.name || "残页";
+    const requiredQuantity = Number(result.required_quantity || 1);
+    const itemName = result.result_item?.name || result.recipe?.result_item?.name || "成品";
+    const message = `已消耗 ${materialName} × ${requiredQuantity}，成功参悟 ${recipeName}。`;
+    setStatus(message, "success");
+    await popup("参悟成功", [message, `对应成品：${itemName}`].join("\n"));
+    await refreshBundle();
+  } catch (error) {
+    const message = normalizeError(error, "参悟配方失败。");
     setStatus(message, "error");
     await popup("操作失败", message, "error");
   }
@@ -3885,6 +4118,58 @@ function syncUserTaskComposer() {
   renderTaskRequirementSelect();
 }
 
+function validateUserTaskComposer() {
+  const publishButton = document.querySelector("#task-form button[type='submit']");
+  const blockedReason = String(publishButton?.dataset.blockedReason || "").trim();
+  if (blockedReason) {
+    return { title: "当前无法发布", message: blockedReason, tone: "warning" };
+  }
+
+  const title = document.querySelector("#task-title")?.value || "";
+  const description = document.querySelector("#task-description")?.value || "";
+  const taskType = document.querySelector("#task-type")?.value || "custom";
+  const question = document.querySelector("#task-question")?.value || "";
+  const answer = document.querySelector("#task-answer")?.value || "";
+  const requiredKind = document.querySelector("#task-required-kind")?.value || "";
+  const requiredRef = Number(document.querySelector("#task-required-ref")?.value || 0);
+  const requiredQuantity = Number(document.querySelector("#task-required-quantity")?.value || 0);
+  const rewardStone = Number(document.querySelector("#task-reward-stone")?.value || 0);
+
+  if (meaningfulTextLength(title) < 2) {
+    return { title: "表单未完成", message: "任务标题至少填写 2 个字。", tone: "error" };
+  }
+
+  if (taskType === "quiz") {
+    if (meaningfulTextLength(question) < 4) {
+      return { title: "表单未完成", message: "答题任务必须填写清晰的题目内容。", tone: "error" };
+    }
+    if (!String(answer || "").trim()) {
+      return { title: "表单未完成", message: "答题任务必须填写标准答案。", tone: "error" };
+    }
+  } else if (meaningfulTextLength(description) < 6) {
+    return { title: "表单未完成", message: "普通任务必须填写至少 6 个字的任务说明。", tone: "error" };
+  }
+
+  if (requiredKind) {
+    if (!requiredRef) {
+      const requiredSelect = document.querySelector("#task-required-ref");
+      const message = requiredSelect?.disabled
+        ? "当前没有可选择的提交物，请先切换提交物类型或取消提交需求。"
+        : "请选择任务需要提交的物品。";
+      return { title: "表单未完成", message, tone: "error" };
+    }
+    if (requiredQuantity <= 0) {
+      return { title: "表单未完成", message: "任务提交物数量必须大于 0。", tone: "error" };
+    }
+  }
+
+  if (rewardStone <= 0) {
+    return { title: "表单未完成", message: "悬赏任务必须设置奖励灵石。", tone: "error" };
+  }
+
+  return null;
+}
+
 document.querySelector("#task-type")?.addEventListener("change", syncUserTaskComposer);
 document.querySelector("#task-required-kind")?.addEventListener("change", renderTaskRequirementSelect);
 
@@ -3896,12 +4181,23 @@ document.querySelector("#open-admin-panel")?.addEventListener("click", () => {
   }
 });
 
-document.querySelector("#task-form")?.addEventListener("submit", async (event) => {
+const userTaskForm = document.querySelector("#task-form");
+if (userTaskForm) {
+  userTaskForm.noValidate = true;
+}
+
+userTaskForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
   event.stopImmediatePropagation();
   const form = event.currentTarget;
   const button = form?.querySelector("button[type='submit']");
   try {
+    const validation = validateUserTaskComposer();
+    if (validation) {
+      setStatus(validation.message, validation.tone);
+      await popup(validation.title, validation.message, validation.tone);
+      return;
+    }
     const payload = await runButtonAction(button, "发布中...", () => postJson("/plugins/xiuxian/api/task/create", {
       title: document.querySelector("#task-title").value.trim(),
       description: document.querySelector("#task-description").value.trim(),
@@ -4736,10 +5032,45 @@ const renderCraftAreaBase = renderCraftArea;
 renderCraftArea = function renderCraftAreaEnhanced(bundle) {
   renderCraftAreaBase(bundle);
   const hint = document.querySelector("#recipe-discovery-hint");
-  if (!hint) return;
+  const synthesisRoot = document.querySelector("#recipe-fragment-synthesis-list");
   const discovered = Number(bundle.recipe_discovered_count ?? (bundle.recipes || []).length ?? 0);
   const total = Number(bundle.recipe_total_count ?? 0);
-  hint.textContent = `已发现 ${discovered}${total ? ` / ${total}` : ""} 张配方。只有先获得配方，才可炼制对应成品。`;
+  if (hint) {
+    hint.textContent = `已发现 ${discovered}${total ? ` / ${total}` : ""} 张配方。残页可先参悟成完整配方，再进行炼制。`;
+  }
+  if (!synthesisRoot) return;
+  const syntheses = bundle.recipe_fragment_syntheses || [];
+  synthesisRoot.innerHTML = "";
+  if (!syntheses.length) {
+    synthesisRoot.innerHTML = `<article class="stack-item"><strong>暂无可参悟配方</strong><p>尚未持有对应残页，或相关配方都已掌握。</p></article>`;
+    return;
+  }
+  for (const item of syntheses) {
+    const disabled = !item.can_synthesize;
+    const reason = disabled ? `缺少 ${item.required_material_name || "残页"}，当前仅有 ${item.owned_quantity || 0} / ${item.required_quantity || 1}。` : "";
+    const card = document.createElement("article");
+    card.className = "stack-item";
+    card.innerHTML = `
+      <div class="stack-item-head">
+        <strong>${escapeHtml(item.recipe_name || "未知配方")}</strong>
+        <span class="badge badge--normal">${escapeHtml(item.recipe_kind_label || item.recipe_kind || "配方")}</span>
+      </div>
+      <p>参悟后解锁：${escapeHtml(item.result_item_name || item.result_item?.name || "成品")}</p>
+      <div class="info-grid">
+        <article class="info-chip">
+          <span>所需残页</span>
+          <strong>${escapeHtml(item.required_material_name || "残页")} × ${escapeHtml(item.required_quantity || 1)}</strong>
+        </article>
+        <article class="info-chip">
+          <span>当前持有</span>
+          <strong>${escapeHtml(item.owned_quantity || 0)}</strong>
+        </article>
+      </div>
+      ${reason ? `<p class="reason-text">${escapeHtml(reason)}</p>` : `<p>残页足够后可直接参悟为完整配方。</p>`}
+      <button type="button" data-recipe-synthesis-id="${item.recipe_id}" ${disabled ? "disabled" : ""}>${escapeHtml(disabled ? "残页不足" : "参悟配方")}</button>
+    `;
+    synthesisRoot.appendChild(card);
+  }
 };
 
 const renderProfileWithDiscoveriesBase = renderProfile;
@@ -5778,6 +6109,30 @@ document.addEventListener("click", async (event) => {
     setStatus(message, "error");
     await popup("操作失败", message, "error");
   }
+});
+
+document.querySelector("#wiki-search")?.addEventListener("input", (event) => {
+  state.wikiSearchQuery = String(event.target?.value || "").trim();
+  renderWikiArea();
+});
+
+document.querySelector("#wiki-filter-row")?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-wiki-filter]");
+  if (!button) return;
+  state.wikiFilter = button.dataset.wikiFilter || "all";
+  renderWikiArea();
+});
+
+document.querySelector("#wiki-featured-list")?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-wiki-entry]");
+  if (!button) return;
+  await openWikiEntry(button.dataset.wikiEntry || "");
+});
+
+document.querySelector("#wiki-result-list")?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-wiki-entry]");
+  if (!button) return;
+  await openWikiEntry(button.dataset.wikiEntry || "");
 });
 
 setupFoldToolbar();

@@ -150,6 +150,33 @@ def set_json(key: str, payload: Any, ttl: int) -> bool:
         return False
 
 
+def get_int(key: str, default: int = 0) -> int:
+    client = get_client()
+    if client is None:
+        return int(default)
+
+    try:
+        raw = client.get(key)
+        if raw is None:
+            return int(default)
+        return int(raw)
+    except (RedisError, TypeError, ValueError) as exc:
+        LOGGER.warning(f"Redis 读取整数失败 key={key}: {exc}")
+        return int(default)
+
+
+def increment(key: str, amount: int = 1) -> int:
+    client = get_client()
+    if client is None:
+        return 0
+
+    try:
+        return int(client.incrby(key, int(amount or 1)))
+    except (RedisError, TypeError, ValueError) as exc:
+        LOGGER.warning(f"Redis 自增失败 key={key}: {exc}")
+        return 0
+
+
 def delete_keys(*keys: str) -> int:
     client = get_client()
     normalized = [str(key).strip() for key in keys if key and str(key).strip()]

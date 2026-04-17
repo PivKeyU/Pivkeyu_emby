@@ -11,6 +11,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from sqlalchemy import event
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -24,7 +25,9 @@ from sqlalchemy import (
     UniqueConstraint,
     or_,
 )
+from sqlalchemy.orm import Session as OrmSession
 
+from bot.plugins.xiuxian_game import cache as xiuxian_cache
 from bot.sql_helper import Base, Session
 from bot.sql_helper.sql_emby import Emby
 
@@ -225,13 +228,13 @@ ENVELOPE_MODE_LABELS = {
     "exclusive": "专属红包",
 }
 DEFAULT_ROOT_QUALITY_VALUE_RULES = {
-    "废灵根": {"cultivation_rate": 0.72, "breakthrough_bonus": -8, "combat_factor": 0.92},
-    "下品灵根": {"cultivation_rate": 0.88, "breakthrough_bonus": -3, "combat_factor": 0.97},
+    "废灵根": {"cultivation_rate": 0.72, "breakthrough_bonus": -8, "combat_factor": 0.97},
+    "下品灵根": {"cultivation_rate": 0.88, "breakthrough_bonus": -3, "combat_factor": 0.985},
     "中品灵根": {"cultivation_rate": 1.0, "breakthrough_bonus": 0, "combat_factor": 1.0},
-    "上品灵根": {"cultivation_rate": 1.12, "breakthrough_bonus": 3, "combat_factor": 1.05},
-    "极品灵根": {"cultivation_rate": 1.24, "breakthrough_bonus": 6, "combat_factor": 1.1},
-    "天灵根": {"cultivation_rate": 1.38, "breakthrough_bonus": 12, "combat_factor": 1.16},
-    "变异灵根": {"cultivation_rate": 1.3, "breakthrough_bonus": 9, "combat_factor": 1.14},
+    "上品灵根": {"cultivation_rate": 1.12, "breakthrough_bonus": 3, "combat_factor": 1.015},
+    "极品灵根": {"cultivation_rate": 1.24, "breakthrough_bonus": 6, "combat_factor": 1.03},
+    "天灵根": {"cultivation_rate": 1.38, "breakthrough_bonus": 12, "combat_factor": 1.045},
+    "变异灵根": {"cultivation_rate": 1.3, "breakthrough_bonus": 9, "combat_factor": 1.04},
 }
 DEFAULT_EXPLORATION_DROP_WEIGHT_RULES = {
     "material_divine_sense_divisor": 5,
@@ -268,18 +271,75 @@ DEFAULT_GAMBLING_REWARD_POOL = [
     {"item_kind": "artifact", "item_name": "凡铁剑", "quantity_min": 1, "quantity_max": 1, "base_weight": 90, "enabled": True},
     {"item_kind": "material", "item_name": "霜凌草", "quantity_min": 1, "quantity_max": 3, "base_weight": 84, "enabled": True},
     {"item_kind": "pill", "item_name": "聚气丹", "quantity_min": 1, "quantity_max": 2, "base_weight": 72, "enabled": True},
+    {"item_kind": "pill", "item_name": "轻灵丹", "quantity_min": 1, "quantity_max": 2, "base_weight": 68, "enabled": True},
     {"item_kind": "talisman", "item_name": "御风符", "quantity_min": 1, "quantity_max": 1, "base_weight": 60, "enabled": True},
+    {"item_kind": "talisman", "item_name": "护心符", "quantity_min": 1, "quantity_max": 1, "base_weight": 52, "enabled": True},
     {"item_kind": "material", "item_name": "冰魄珠", "quantity_min": 1, "quantity_max": 2, "base_weight": 54, "enabled": True},
+    {"item_kind": "material", "item_name": "星河砂", "quantity_min": 1, "quantity_max": 2, "base_weight": 42, "enabled": True},
     {"item_kind": "artifact", "item_name": "青罡剑", "quantity_min": 1, "quantity_max": 1, "base_weight": 38, "enabled": True},
+    {"item_kind": "artifact", "item_name": "逐云履", "quantity_min": 1, "quantity_max": 1, "base_weight": 34, "enabled": True},
     {"item_kind": "pill", "item_name": "回春丹", "quantity_min": 1, "quantity_max": 2, "base_weight": 36, "enabled": True},
+    {"item_kind": "pill", "item_name": "聚宝含光丹", "quantity_min": 1, "quantity_max": 2, "base_weight": 28, "enabled": True},
+    {"item_kind": "artifact", "item_name": "玄龟盾", "quantity_min": 1, "quantity_max": 1, "base_weight": 26, "enabled": True},
+    {"item_kind": "pill", "item_name": "龙髓丹", "quantity_min": 1, "quantity_max": 1, "base_weight": 24, "enabled": True},
+    {"item_kind": "material", "item_name": "地脉玉髓", "quantity_min": 1, "quantity_max": 1, "base_weight": 20, "enabled": True},
     {"item_kind": "material", "item_name": "玄冰精髓", "quantity_min": 1, "quantity_max": 1, "base_weight": 18, "enabled": True},
     {"item_kind": "talisman", "item_name": "镇岳符", "quantity_min": 1, "quantity_max": 1, "base_weight": 14, "enabled": True},
+    {"item_kind": "artifact", "item_name": "定海镇心佩", "quantity_min": 1, "quantity_max": 1, "base_weight": 8, "enabled": True},
     {"item_kind": "material", "item_name": "九幽寒莲", "quantity_min": 1, "quantity_max": 1, "base_weight": 8, "enabled": True},
+    {"item_kind": "talisman", "item_name": "化毒符", "quantity_min": 1, "quantity_max": 1, "base_weight": 7, "enabled": True},
+    {"item_kind": "artifact", "item_name": "流霞问心簪", "quantity_min": 1, "quantity_max": 1, "base_weight": 6, "enabled": True},
     {"item_kind": "talisman", "item_name": "摄魂符", "quantity_min": 1, "quantity_max": 1, "base_weight": 6, "enabled": True},
+    {"item_kind": "pill", "item_name": "太和解厄丹", "quantity_min": 1, "quantity_max": 1, "base_weight": 5, "enabled": True},
+    {"item_kind": "material", "item_name": "天道精华", "quantity_min": 1, "quantity_max": 1, "base_weight": 4, "enabled": True},
     {"item_kind": "material", "item_name": "鸿蒙紫莲", "quantity_min": 1, "quantity_max": 1, "base_weight": 3, "enabled": True},
+    {"item_kind": "material", "item_name": "命运之种", "quantity_min": 1, "quantity_max": 1, "base_weight": 2, "enabled": True},
     {"item_kind": "talisman", "item_name": "裂空符", "quantity_min": 1, "quantity_max": 1, "base_weight": 2, "enabled": True},
+    {"item_kind": "material", "item_name": "本源雷种", "quantity_min": 1, "quantity_max": 1, "base_weight": 1.5, "enabled": True},
     {"item_kind": "material", "item_name": "开天神石", "quantity_min": 1, "quantity_max": 1, "base_weight": 1, "enabled": True},
 ]
+
+
+def _gambling_pool_entry_key(entry: dict[str, Any] | None) -> tuple[str, str] | None:
+    payload = entry if isinstance(entry, dict) else {}
+    item_kind = str(payload.get("item_kind") or "").strip()
+    item_name = str(payload.get("item_name") or "").strip()
+    item_ref_id = int(payload.get("item_ref_id") or 0)
+    if not item_kind:
+        return None
+    if item_name:
+        return (item_kind, f"name:{item_name}")
+    if item_ref_id > 0:
+        return (item_kind, f"id:{item_ref_id}")
+    return None
+
+
+def _merge_default_gambling_reward_pool(raw: Any) -> list[dict[str, Any]]:
+    current = copy.deepcopy(raw if isinstance(raw, list) else [])
+    if not current:
+        return copy.deepcopy(DEFAULT_GAMBLING_REWARD_POOL)
+    default_keys = {
+        key
+        for key in (_gambling_pool_entry_key(entry) for entry in DEFAULT_GAMBLING_REWARD_POOL)
+        if key is not None
+    }
+    current_keys = {
+        key
+        for key in (_gambling_pool_entry_key(entry) for entry in current)
+        if key is not None
+    }
+    # 仅为默认奖池及其轻度改动补齐新增条目，避免覆盖后台自定义奖池。
+    if current_keys and not current_keys.issubset(default_keys):
+        return current
+    for entry in DEFAULT_GAMBLING_REWARD_POOL:
+        key = _gambling_pool_entry_key(entry)
+        if key is None or key in current_keys:
+            continue
+        current.append(copy.deepcopy(entry))
+        current_keys.add(key)
+    return current
+
+
 DEPRECATED_XIUXIAN_SETTING_KEYS = {
     "red_packet_merit_min_stone",
     "red_packet_merit_min_count",
@@ -2757,18 +2817,166 @@ def serialize_emby_account(account: Emby | None) -> dict[str, Any] | None:
     }
 
 
-def get_xiuxian_settings() -> dict[str, Any]:
+_PENDING_PROFILE_CACHE_INVALIDATIONS = "xiuxian_pending_profile_cache_invalidations"
+_PENDING_USER_VIEW_CACHE_INVALIDATIONS = "xiuxian_pending_user_view_cache_invalidations"
+_PENDING_CATALOG_CACHE_INVALIDATIONS = "xiuxian_pending_catalog_cache_invalidations"
+_PENDING_SETTINGS_CACHE_INVALIDATIONS = "xiuxian_pending_settings_cache_invalidations"
+
+
+def _restore_datetime_value(value: Any) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
+def _serialize_model_snapshot(row: Any) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    payload: dict[str, Any] = {}
+    for column in row.__table__.columns:
+        value = getattr(row, column.name)
+        if isinstance(value, datetime):
+            payload[column.name] = value.isoformat()
+        elif isinstance(value, (dict, list)):
+            payload[column.name] = copy.deepcopy(value)
+        else:
+            payload[column.name] = value
+    return payload
+
+
+def _restore_model_snapshot(model_cls, payload: dict[str, Any] | None):
+    if not isinstance(payload, dict):
+        return None
+    normalized = dict(payload)
+    for column in model_cls.__table__.columns:
+        if isinstance(column.type, DateTime):
+            normalized[column.name] = _restore_datetime_value(normalized.get(column.name))
+    return model_cls(**normalized)
+
+
+def _load_cached_model(model_cls, *, version_parts: tuple[Any, ...], cache_parts: tuple[Any, ...], ttl: int, loader):
+    payload = xiuxian_cache.load_versioned_json(
+        version_parts=version_parts,
+        cache_parts=cache_parts,
+        ttl=ttl,
+        loader=lambda: _serialize_model_snapshot(loader()),
+    )
+    return _restore_model_snapshot(model_cls, payload)
+
+
+def _load_user_view_cache(actor_tg: int, *cache_parts: Any, loader):
+    return xiuxian_cache.load_versioned_json(
+        version_parts=("user-view", int(actor_tg)),
+        cache_parts=("user-view", int(actor_tg), *cache_parts),
+        ttl=xiuxian_cache.USER_VIEW_TTL,
+        loader=loader,
+    )
+
+
+def _queue_profile_cache_invalidation(session: Session, *tgs: int) -> None:
+    bucket = session.info.setdefault(_PENDING_PROFILE_CACHE_INVALIDATIONS, set())
+    for tg in tgs:
+        value = int(tg or 0)
+        if value > 0:
+            bucket.add(value)
+
+
+def _queue_user_view_cache_invalidation(session: Session, *tgs: int) -> None:
+    bucket = session.info.setdefault(_PENDING_USER_VIEW_CACHE_INVALIDATIONS, set())
+    resolved: set[int] = set()
+    for tg in tgs:
+        actor_tg = int(tg or 0)
+        if actor_tg <= 0:
+            continue
+        resolved.add(actor_tg)
+        for related_tg in _shared_profile_tgs(session, actor_tg, for_update=False):
+            value = int(related_tg or 0)
+            if value > 0:
+                resolved.add(value)
+    bucket.update(resolved)
+
+
+def _queue_catalog_cache_invalidation(session: Session, *names: str) -> None:
+    bucket = session.info.setdefault(_PENDING_CATALOG_CACHE_INVALIDATIONS, set())
+    for name in names:
+        normalized = str(name or "").strip()
+        if normalized:
+            bucket.add(normalized)
+
+
+def _queue_settings_cache_invalidation(session: Session) -> None:
+    session.info[_PENDING_SETTINGS_CACHE_INVALIDATIONS] = True
+
+
+def invalidate_xiuxian_user_view_cache(*tgs: int) -> int:
+    resolved: set[int] = set()
+    if not tgs:
+        return 0
     with Session() as session:
-        rows = session.query(XiuxianSetting).all()
-        settings = {row.setting_key: row.setting_value for row in rows}
-    for key in DEPRECATED_XIUXIAN_SETTING_KEYS:
-        settings.pop(key, None)
-    merged = copy.deepcopy(DEFAULT_SETTINGS)
-    merged.update(settings)
-    if "duel_bet_seconds" not in settings and "duel_bet_minutes" in settings:
-        merged["duel_bet_seconds"] = max(_coerce_int(settings.get("duel_bet_minutes"), DEFAULT_SETTINGS["duel_bet_minutes"]), 1) * 60
-    merged.update(resolve_duel_bet_settings(merged))
-    return merged
+        for tg in tgs:
+            actor_tg = int(tg or 0)
+            if actor_tg <= 0:
+                continue
+            resolved.add(actor_tg)
+            for related_tg in _shared_profile_tgs(session, actor_tg, for_update=False):
+                value = int(related_tg or 0)
+                if value > 0:
+                    resolved.add(value)
+    return xiuxian_cache.bump_user_view_versions(*sorted(resolved))
+
+
+@event.listens_for(OrmSession, "after_commit")
+def _flush_xiuxian_cache_invalidations(session) -> None:
+    if session.info.pop(_PENDING_SETTINGS_CACHE_INVALIDATIONS, False):
+        xiuxian_cache.bump_settings_version()
+
+    catalogs = session.info.pop(_PENDING_CATALOG_CACHE_INVALIDATIONS, set())
+    if catalogs:
+        xiuxian_cache.bump_catalog_versions(*sorted(catalogs))
+
+    profile_tgs = session.info.pop(_PENDING_PROFILE_CACHE_INVALIDATIONS, set())
+    if profile_tgs:
+        xiuxian_cache.bump_profile_versions(*sorted(profile_tgs))
+
+    user_view_tgs = session.info.pop(_PENDING_USER_VIEW_CACHE_INVALIDATIONS, set())
+    if user_view_tgs:
+        xiuxian_cache.bump_user_view_versions(*sorted(user_view_tgs))
+
+
+@event.listens_for(OrmSession, "after_rollback")
+def _clear_xiuxian_cache_invalidations(session) -> None:
+    session.info.pop(_PENDING_SETTINGS_CACHE_INVALIDATIONS, None)
+    session.info.pop(_PENDING_CATALOG_CACHE_INVALIDATIONS, None)
+    session.info.pop(_PENDING_PROFILE_CACHE_INVALIDATIONS, None)
+    session.info.pop(_PENDING_USER_VIEW_CACHE_INVALIDATIONS, None)
+
+
+def get_xiuxian_settings() -> dict[str, Any]:
+    def _loader() -> dict[str, Any]:
+        with Session() as session:
+            rows = session.query(XiuxianSetting).all()
+            settings = {row.setting_key: row.setting_value for row in rows}
+        for key in DEPRECATED_XIUXIAN_SETTING_KEYS:
+            settings.pop(key, None)
+        merged = copy.deepcopy(DEFAULT_SETTINGS)
+        merged.update(settings)
+        merged["gambling_reward_pool"] = _merge_default_gambling_reward_pool(merged.get("gambling_reward_pool"))
+        if "duel_bet_seconds" not in settings and "duel_bet_minutes" in settings:
+            merged["duel_bet_seconds"] = max(_coerce_int(settings.get("duel_bet_minutes"), DEFAULT_SETTINGS["duel_bet_minutes"]), 1) * 60
+        merged.update(resolve_duel_bet_settings(merged))
+        return merged
+
+    return xiuxian_cache.load_versioned_json(
+        version_parts=("settings",),
+        cache_parts=("settings",),
+        ttl=xiuxian_cache.SETTINGS_TTL,
+        loader=_loader,
+    )
 
 
 def set_xiuxian_settings(patch: dict[str, Any]) -> dict[str, Any]:
@@ -2782,6 +2990,7 @@ def set_xiuxian_settings(patch: dict[str, Any]) -> dict[str, Any]:
             else:
                 row.setting_value = value
                 row.updated_at = utcnow()
+        _queue_settings_cache_invalidation(session)
         session.commit()
     return get_xiuxian_settings()
 
@@ -2825,11 +3034,18 @@ def revoke_image_upload_permission(tg: int) -> bool:
 
 
 def get_profile(tg: int, create: bool = False) -> XiuxianProfile | None:
+    actor_tg = int(tg or 0)
+    if actor_tg <= 0:
+        return None
+
     with Session() as session:
-        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).first()
-        if profile is None and create:
-            profile = XiuxianProfile(tg=tg)
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == actor_tg).first()
+        if profile is None:
+            if not create:
+                return None
+            profile = XiuxianProfile(tg=actor_tg)
             session.add(profile)
+            _queue_user_view_cache_invalidation(session, actor_tg)
             session.commit()
         return profile
 
@@ -2837,6 +3053,7 @@ def get_profile(tg: int, create: bool = False) -> XiuxianProfile | None:
 def upsert_profile(tg: int, **fields) -> XiuxianProfile:
     with Session() as session:
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).first()
+        old_master_tg = int(profile.master_tg or 0) if profile is not None else 0
         if profile is None:
             profile = XiuxianProfile(tg=tg)
             session.add(profile)
@@ -2848,6 +3065,13 @@ def upsert_profile(tg: int, **fields) -> XiuxianProfile:
             setattr(profile, key, value)
 
         profile.updated_at = utcnow()
+        _queue_profile_cache_invalidation(session, tg)
+        _queue_user_view_cache_invalidation(session, tg)
+        new_master_tg = int(profile.master_tg or 0)
+        if old_master_tg > 0:
+            _queue_user_view_cache_invalidation(session, old_master_tg)
+        if new_master_tg > 0:
+            _queue_user_view_cache_invalidation(session, new_master_tg)
         session.commit()
         return profile
 
@@ -3220,6 +3444,11 @@ def apply_spiritual_stone_delta(
 
     profile.spiritual_stone = max(current + amount - tribute_amount, 0)
     profile.updated_at = utcnow()
+    _queue_profile_cache_invalidation(session, int(profile.tg or 0))
+    _queue_user_view_cache_invalidation(session, int(profile.tg or 0))
+    if tribute_master is not None:
+        _queue_profile_cache_invalidation(session, int(tribute_master.tg or 0))
+        _queue_user_view_cache_invalidation(session, int(tribute_master.tg or 0))
     return {
         "profile": profile,
         "tribute_amount": tribute_amount,
@@ -3229,85 +3458,192 @@ def apply_spiritual_stone_delta(
 
 
 def get_artifact(artifact_id: int) -> XiuxianArtifact | None:
-    with Session() as session:
-        return session.query(XiuxianArtifact).filter(XiuxianArtifact.id == artifact_id).first()
+    artifact_value = int(artifact_id or 0)
+    if artifact_value <= 0:
+        return None
+
+    def _loader() -> XiuxianArtifact | None:
+        with Session() as session:
+            return session.query(XiuxianArtifact).filter(XiuxianArtifact.id == artifact_value).first()
+
+    return _load_cached_model(
+        XiuxianArtifact,
+        version_parts=("catalog", "artifacts"),
+        cache_parts=("catalog", "artifacts", "detail", artifact_value),
+        ttl=xiuxian_cache.CATALOG_TTL,
+        loader=_loader,
+    )
 
 
 def get_pill(pill_id: int) -> XiuxianPill | None:
-    with Session() as session:
-        return session.query(XiuxianPill).filter(XiuxianPill.id == pill_id).first()
+    pill_value = int(pill_id or 0)
+    if pill_value <= 0:
+        return None
+
+    def _loader() -> XiuxianPill | None:
+        with Session() as session:
+            return session.query(XiuxianPill).filter(XiuxianPill.id == pill_value).first()
+
+    return _load_cached_model(
+        XiuxianPill,
+        version_parts=("catalog", "pills"),
+        cache_parts=("catalog", "pills", "detail", pill_value),
+        ttl=xiuxian_cache.CATALOG_TTL,
+        loader=_loader,
+    )
 
 
 def get_talisman(talisman_id: int) -> XiuxianTalisman | None:
-    with Session() as session:
-        return session.query(XiuxianTalisman).filter(XiuxianTalisman.id == talisman_id).first()
+    talisman_value = int(talisman_id or 0)
+    if talisman_value <= 0:
+        return None
+
+    def _loader() -> XiuxianTalisman | None:
+        with Session() as session:
+            return session.query(XiuxianTalisman).filter(XiuxianTalisman.id == talisman_value).first()
+
+    return _load_cached_model(
+        XiuxianTalisman,
+        version_parts=("catalog", "talismans"),
+        cache_parts=("catalog", "talismans", "detail", talisman_value),
+        ttl=xiuxian_cache.CATALOG_TTL,
+        loader=_loader,
+    )
 
 
 def get_technique(technique_id: int) -> XiuxianTechnique | None:
-    with Session() as session:
-        return session.query(XiuxianTechnique).filter(XiuxianTechnique.id == technique_id).first()
+    technique_value = int(technique_id or 0)
+    if technique_value <= 0:
+        return None
+
+    def _loader() -> XiuxianTechnique | None:
+        with Session() as session:
+            return session.query(XiuxianTechnique).filter(XiuxianTechnique.id == technique_value).first()
+
+    return _load_cached_model(
+        XiuxianTechnique,
+        version_parts=("catalog", "techniques"),
+        cache_parts=("catalog", "techniques", "detail", technique_value),
+        ttl=xiuxian_cache.CATALOG_TTL,
+        loader=_loader,
+    )
 
 
 def get_artifact_set(artifact_set_id: int) -> XiuxianArtifactSet | None:
-    with Session() as session:
-        return session.query(XiuxianArtifactSet).filter(XiuxianArtifactSet.id == artifact_set_id).first()
+    artifact_set_value = int(artifact_set_id or 0)
+    if artifact_set_value <= 0:
+        return None
+
+    def _loader() -> XiuxianArtifactSet | None:
+        with Session() as session:
+            return session.query(XiuxianArtifactSet).filter(XiuxianArtifactSet.id == artifact_set_value).first()
+
+    return _load_cached_model(
+        XiuxianArtifactSet,
+        version_parts=("catalog", "artifact-sets"),
+        cache_parts=("catalog", "artifact-sets", "detail", artifact_set_value),
+        ttl=xiuxian_cache.CATALOG_TTL,
+        loader=_loader,
+    )
 
 
 def list_artifacts(enabled_only: bool = False) -> list[dict[str, Any]]:
-    with Session() as session:
-        query = session.query(XiuxianArtifact)
-        if enabled_only:
-            query = query.filter(XiuxianArtifact.enabled.is_(True))
-        rows = [serialize_artifact(item) for item in query.order_by(XiuxianArtifact.id.desc()).all()]
-        return sorted(rows, key=lambda item: _named_quality_sort_key(item or {}, "rarity_level"))
+    def _loader() -> list[dict[str, Any]]:
+        with Session() as session:
+            query = session.query(XiuxianArtifact)
+            if enabled_only:
+                query = query.filter(XiuxianArtifact.enabled.is_(True))
+            rows = [serialize_artifact(item) for item in query.order_by(XiuxianArtifact.id.desc()).all()]
+            return sorted(rows, key=lambda item: _named_quality_sort_key(item or {}, "rarity_level"))
+
+    return xiuxian_cache.load_versioned_json(
+        version_parts=("catalog", "artifacts"),
+        cache_parts=("catalog", "artifacts", "list", "enabled" if enabled_only else "all"),
+        ttl=xiuxian_cache.CATALOG_TTL,
+        loader=_loader,
+    )
 
 
 def list_pills(enabled_only: bool = False) -> list[dict[str, Any]]:
-    with Session() as session:
-        query = session.query(XiuxianPill)
-        if enabled_only:
-            query = query.filter(XiuxianPill.enabled.is_(True))
-        rows = [serialize_pill(item) for item in query.order_by(XiuxianPill.id.desc()).all()]
-        return sorted(rows, key=lambda item: _named_quality_sort_key(item or {}, "rarity_level"))
+    def _loader() -> list[dict[str, Any]]:
+        with Session() as session:
+            query = session.query(XiuxianPill)
+            if enabled_only:
+                query = query.filter(XiuxianPill.enabled.is_(True))
+            rows = [serialize_pill(item) for item in query.order_by(XiuxianPill.id.desc()).all()]
+            return sorted(rows, key=lambda item: _named_quality_sort_key(item or {}, "rarity_level"))
+
+    return xiuxian_cache.load_versioned_json(
+        version_parts=("catalog", "pills"),
+        cache_parts=("catalog", "pills", "list", "enabled" if enabled_only else "all"),
+        ttl=xiuxian_cache.CATALOG_TTL,
+        loader=_loader,
+    )
 
 
 def list_talismans(enabled_only: bool = False) -> list[dict[str, Any]]:
-    with Session() as session:
-        query = session.query(XiuxianTalisman)
-        if enabled_only:
-            query = query.filter(XiuxianTalisman.enabled.is_(True))
-        rows = [serialize_talisman(item) for item in query.order_by(XiuxianTalisman.id.desc()).all()]
-        return sorted(rows, key=lambda item: _named_quality_sort_key(item or {}, "rarity_level"))
+    def _loader() -> list[dict[str, Any]]:
+        with Session() as session:
+            query = session.query(XiuxianTalisman)
+            if enabled_only:
+                query = query.filter(XiuxianTalisman.enabled.is_(True))
+            rows = [serialize_talisman(item) for item in query.order_by(XiuxianTalisman.id.desc()).all()]
+            return sorted(rows, key=lambda item: _named_quality_sort_key(item or {}, "rarity_level"))
+
+    return xiuxian_cache.load_versioned_json(
+        version_parts=("catalog", "talismans"),
+        cache_parts=("catalog", "talismans", "list", "enabled" if enabled_only else "all"),
+        ttl=xiuxian_cache.CATALOG_TTL,
+        loader=_loader,
+    )
 
 
 def list_techniques(enabled_only: bool = False) -> list[dict[str, Any]]:
-    with Session() as session:
-        query = session.query(XiuxianTechnique)
-        if enabled_only:
-            query = query.filter(XiuxianTechnique.enabled.is_(True))
-        return [serialize_technique(item) for item in query.order_by(XiuxianTechnique.id.desc()).all()]
+    def _loader() -> list[dict[str, Any]]:
+        with Session() as session:
+            query = session.query(XiuxianTechnique)
+            if enabled_only:
+                query = query.filter(XiuxianTechnique.enabled.is_(True))
+            return [serialize_technique(item) for item in query.order_by(XiuxianTechnique.id.desc()).all()]
+
+    return xiuxian_cache.load_versioned_json(
+        version_parts=("catalog", "techniques"),
+        cache_parts=("catalog", "techniques", "list", "enabled" if enabled_only else "all"),
+        ttl=xiuxian_cache.CATALOG_TTL,
+        loader=_loader,
+    )
 
 
 def list_user_techniques(tg: int, enabled_only: bool = False) -> list[dict[str, Any]]:
-    with Session() as session:
-        rows = (
-            session.query(XiuxianUserTechnique)
-            .filter(XiuxianUserTechnique.tg == tg)
-            .order_by(XiuxianUserTechnique.created_at.asc(), XiuxianUserTechnique.id.asc())
-            .all()
-        )
-        technique_ids = [item.technique_id for item in rows] or [-1]
-        technique_map = {
-            row.id: row
-            for row in session.query(XiuxianTechnique).filter(XiuxianTechnique.id.in_(technique_ids)).all()
-        }
-        payloads: list[dict[str, Any]] = []
-        for row in rows:
-            technique = serialize_technique(technique_map.get(row.technique_id))
-            if enabled_only and not (technique or {}).get("enabled"):
-                continue
-            payloads.append(serialize_user_technique(row, technique))
-        return payloads
+    actor_tg = int(tg or 0)
+
+    def _loader() -> list[dict[str, Any]]:
+        with Session() as session:
+            rows = (
+                session.query(XiuxianUserTechnique)
+                .filter(XiuxianUserTechnique.tg == actor_tg)
+                .order_by(XiuxianUserTechnique.created_at.asc(), XiuxianUserTechnique.id.asc())
+                .all()
+            )
+            technique_ids = [item.technique_id for item in rows] or [-1]
+            technique_map = {
+                row.id: row
+                for row in session.query(XiuxianTechnique).filter(XiuxianTechnique.id.in_(technique_ids)).all()
+            }
+            payloads: list[dict[str, Any]] = []
+            for row in rows:
+                technique = serialize_technique(technique_map.get(row.technique_id))
+                if enabled_only and not (technique or {}).get("enabled"):
+                    continue
+                payloads.append(serialize_user_technique(row, technique))
+            return payloads
+
+    return xiuxian_cache.load_versioned_json(
+        version_parts=("user-view", actor_tg),
+        cache_parts=("user-view", actor_tg, "techniques", "enabled" if enabled_only else "all"),
+        ttl=xiuxian_cache.USER_VIEW_TTL,
+        loader=_loader,
+    )
 
 
 def user_has_technique(tg: int, technique_id: int) -> bool:
@@ -3365,6 +3701,8 @@ def grant_technique_to_user(
         if auto_equip_if_empty and not profile.current_technique_id:
             profile.current_technique_id = technique_id
             profile.updated_at = utcnow()
+        _queue_profile_cache_invalidation(session, tg)
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         session.refresh(row)
         return serialize_user_technique(row, serialize_technique(technique))
@@ -3384,16 +3722,26 @@ def revoke_technique_from_user(tg: int, technique_id: int) -> bool:
             profile.current_technique_id = None
             profile.updated_at = utcnow()
         session.delete(row)
+        _queue_profile_cache_invalidation(session, tg)
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         return True
 
 
 def list_artifact_sets(enabled_only: bool = False) -> list[dict[str, Any]]:
-    with Session() as session:
-        query = session.query(XiuxianArtifactSet)
-        if enabled_only:
-            query = query.filter(XiuxianArtifactSet.enabled.is_(True))
-        return [serialize_artifact_set(item) for item in query.order_by(XiuxianArtifactSet.id.desc()).all()]
+    def _loader() -> list[dict[str, Any]]:
+        with Session() as session:
+            query = session.query(XiuxianArtifactSet)
+            if enabled_only:
+                query = query.filter(XiuxianArtifactSet.enabled.is_(True))
+            return [serialize_artifact_set(item) for item in query.order_by(XiuxianArtifactSet.id.desc()).all()]
+
+    return xiuxian_cache.load_versioned_json(
+        version_parts=("catalog", "artifact-sets"),
+        cache_parts=("catalog", "artifact-sets", "list", "enabled" if enabled_only else "all"),
+        ttl=xiuxian_cache.CATALOG_TTL,
+        loader=_loader,
+    )
 
 
 def _coerce_int(value: Any, default: int = 0) -> int:
@@ -3796,13 +4144,15 @@ def _normalize_technique_fields(fields: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def _sync_named_entity(model_cls, serializer, fields: dict[str, Any]) -> dict[str, Any]:
+def _sync_named_entity(model_cls, serializer, fields: dict[str, Any], *, catalog_key: str | None = None) -> dict[str, Any]:
     # 默认种子按名称原地同步，避免镜像升级后后台仍显示旧数据。
     with Session() as session:
         row = session.query(model_cls).filter(model_cls.name == fields["name"]).first()
         if row is None:
             row = model_cls(**fields)
             session.add(row)
+            if catalog_key:
+                _queue_catalog_cache_invalidation(session, catalog_key)
             session.commit()
             session.refresh(row)
             return serializer(row)
@@ -3813,6 +4163,8 @@ def _sync_named_entity(model_cls, serializer, fields: dict[str, Any]) -> dict[st
                 setattr(row, key, value)
                 changed = True
         if changed:
+            if catalog_key:
+                _queue_catalog_cache_invalidation(session, catalog_key)
             session.commit()
             session.refresh(row)
         return serializer(row)
@@ -3823,6 +4175,7 @@ def create_artifact(**fields) -> dict[str, Any]:
     with Session() as session:
         artifact = XiuxianArtifact(**fields)
         session.add(artifact)
+        _queue_catalog_cache_invalidation(session, "artifacts")
         session.commit()
         session.refresh(artifact)
         return serialize_artifact(artifact)
@@ -3833,6 +4186,7 @@ def create_pill(**fields) -> dict[str, Any]:
     with Session() as session:
         pill = XiuxianPill(**fields)
         session.add(pill)
+        _queue_catalog_cache_invalidation(session, "pills")
         session.commit()
         session.refresh(pill)
         return serialize_pill(pill)
@@ -3843,6 +4197,7 @@ def create_talisman(**fields) -> dict[str, Any]:
     with Session() as session:
         talisman = XiuxianTalisman(**fields)
         session.add(talisman)
+        _queue_catalog_cache_invalidation(session, "talismans")
         session.commit()
         session.refresh(talisman)
         return serialize_talisman(talisman)
@@ -3853,6 +4208,7 @@ def create_technique(**fields) -> dict[str, Any]:
     with Session() as session:
         technique = XiuxianTechnique(**fields)
         session.add(technique)
+        _queue_catalog_cache_invalidation(session, "techniques")
         session.commit()
         session.refresh(technique)
         return serialize_technique(technique)
@@ -3863,6 +4219,7 @@ def create_artifact_set(**fields) -> dict[str, Any]:
     with Session() as session:
         artifact_set = XiuxianArtifactSet(**fields)
         session.add(artifact_set)
+        _queue_catalog_cache_invalidation(session, "artifact-sets")
         session.commit()
         session.refresh(artifact_set)
         return serialize_artifact_set(artifact_set)
@@ -3880,6 +4237,7 @@ def patch_artifact(artifact_id: int, **fields) -> dict[str, Any] | None:
         for key, value in payload.items():
             setattr(row, key, value)
         row.updated_at = utcnow()
+        _queue_catalog_cache_invalidation(session, "artifacts")
         session.commit()
         session.refresh(row)
         return serialize_artifact(row)
@@ -3897,6 +4255,7 @@ def patch_pill(pill_id: int, **fields) -> dict[str, Any] | None:
         for key, value in payload.items():
             setattr(row, key, value)
         row.updated_at = utcnow()
+        _queue_catalog_cache_invalidation(session, "pills")
         session.commit()
         session.refresh(row)
         return serialize_pill(row)
@@ -3914,6 +4273,7 @@ def patch_talisman(talisman_id: int, **fields) -> dict[str, Any] | None:
         for key, value in payload.items():
             setattr(row, key, value)
         row.updated_at = utcnow()
+        _queue_catalog_cache_invalidation(session, "talismans")
         session.commit()
         session.refresh(row)
         return serialize_talisman(row)
@@ -3931,6 +4291,7 @@ def patch_technique(technique_id: int, **fields) -> dict[str, Any] | None:
         for key, value in payload.items():
             setattr(row, key, value)
         row.updated_at = utcnow()
+        _queue_catalog_cache_invalidation(session, "techniques")
         session.commit()
         session.refresh(row)
         return serialize_technique(row)
@@ -3948,29 +4309,55 @@ def patch_artifact_set(artifact_set_id: int, **fields) -> dict[str, Any] | None:
         for key, value in payload.items():
             setattr(row, key, value)
         row.updated_at = utcnow()
+        _queue_catalog_cache_invalidation(session, "artifact-sets")
         session.commit()
         session.refresh(row)
         return serialize_artifact_set(row)
 
 
 def sync_artifact_by_name(**fields) -> dict[str, Any]:
-    return _sync_named_entity(XiuxianArtifact, serialize_artifact, _normalize_artifact_fields(dict(fields)))
+    return _sync_named_entity(
+        XiuxianArtifact,
+        serialize_artifact,
+        _normalize_artifact_fields(dict(fields)),
+        catalog_key="artifacts",
+    )
 
 
 def sync_pill_by_name(**fields) -> dict[str, Any]:
-    return _sync_named_entity(XiuxianPill, serialize_pill, _normalize_pill_fields(dict(fields)))
+    return _sync_named_entity(
+        XiuxianPill,
+        serialize_pill,
+        _normalize_pill_fields(dict(fields)),
+        catalog_key="pills",
+    )
 
 
 def sync_talisman_by_name(**fields) -> dict[str, Any]:
-    return _sync_named_entity(XiuxianTalisman, serialize_talisman, _normalize_talisman_fields(dict(fields)))
+    return _sync_named_entity(
+        XiuxianTalisman,
+        serialize_talisman,
+        _normalize_talisman_fields(dict(fields)),
+        catalog_key="talismans",
+    )
 
 
 def sync_technique_by_name(**fields) -> dict[str, Any]:
-    return _sync_named_entity(XiuxianTechnique, serialize_technique, _normalize_technique_fields(dict(fields)))
+    return _sync_named_entity(
+        XiuxianTechnique,
+        serialize_technique,
+        _normalize_technique_fields(dict(fields)),
+        catalog_key="techniques",
+    )
 
 
 def sync_artifact_set_by_name(**fields) -> dict[str, Any]:
-    return _sync_named_entity(XiuxianArtifactSet, serialize_artifact_set, _normalize_artifact_set_fields(dict(fields)))
+    return _sync_named_entity(
+        XiuxianArtifactSet,
+        serialize_artifact_set,
+        _normalize_artifact_set_fields(dict(fields)),
+        catalog_key="artifact-sets",
+    )
 
 
 def delete_artifact(artifact_id: int) -> bool:
@@ -3979,6 +4366,7 @@ def delete_artifact(artifact_id: int) -> bool:
         if row is None:
             return False
         session.delete(row)
+        _queue_catalog_cache_invalidation(session, "artifacts")
         session.commit()
         return True
 
@@ -3989,6 +4377,7 @@ def delete_pill(pill_id: int) -> bool:
         if row is None:
             return False
         session.delete(row)
+        _queue_catalog_cache_invalidation(session, "pills")
         session.commit()
         return True
 
@@ -3999,6 +4388,7 @@ def delete_talisman(talisman_id: int) -> bool:
         if row is None:
             return False
         session.delete(row)
+        _queue_catalog_cache_invalidation(session, "talismans")
         session.commit()
         return True
 
@@ -4013,6 +4403,7 @@ def delete_technique(technique_id: int) -> bool:
             synchronize_session=False,
         )
         session.delete(row)
+        _queue_catalog_cache_invalidation(session, "techniques")
         session.commit()
         return True
 
@@ -4027,6 +4418,7 @@ def delete_artifact_set(artifact_set_id: int) -> bool:
             synchronize_session=False,
         )
         session.delete(row)
+        _queue_catalog_cache_invalidation(session, "artifact-sets", "artifacts")
         session.commit()
         return True
 
@@ -4047,6 +4439,7 @@ def grant_artifact_to_user(tg: int, artifact_id: int, quantity: int = 1) -> dict
         row.quantity += max(int(quantity), 1)
         row.bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
         row.updated_at = utcnow()
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         artifact = session.query(XiuxianArtifact).filter(XiuxianArtifact.id == artifact_id).first()
         return {
@@ -4071,6 +4464,7 @@ def grant_pill_to_user(tg: int, pill_id: int, quantity: int = 1) -> dict[str, An
             session.add(row)
         row.quantity += max(int(quantity), 1)
         row.updated_at = utcnow()
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         pill = session.query(XiuxianPill).filter(XiuxianPill.id == pill_id).first()
         return {
@@ -4095,6 +4489,7 @@ def grant_talisman_to_user(tg: int, talisman_id: int, quantity: int = 1) -> dict
         row.quantity += max(int(quantity), 1)
         row.bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
         row.updated_at = utcnow()
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         talisman = session.query(XiuxianTalisman).filter(XiuxianTalisman.id == talisman_id).first()
         return {
@@ -4125,65 +4520,75 @@ def _ordered_owner_rows(session: Session, model_cls, tg: int, ref_field: str, re
 
 
 def list_user_artifacts(tg: int) -> list[dict[str, Any]]:
-    with Session() as session:
-        owner_tgs = _shared_inventory_owner_tgs(session, tg)
-        if not owner_tgs:
-            return []
-        rows = (
-            session.query(XiuxianArtifactInventory, XiuxianArtifact)
-            .join(XiuxianArtifact, XiuxianArtifact.id == XiuxianArtifactInventory.artifact_id)
-            .filter(XiuxianArtifactInventory.tg.in_(owner_tgs))
-            .order_by(XiuxianArtifact.id.desc())
-            .all()
-        )
-        equipped_counts: dict[int, int] = {}
-        for equipped in (
-            session.query(XiuxianEquippedArtifact)
-            .filter(XiuxianEquippedArtifact.tg.in_(owner_tgs))
-            .all()
-        ):
-            artifact_id = int(equipped.artifact_id or 0)
-            if artifact_id <= 0:
-                continue
-            equipped_counts[artifact_id] = equipped_counts.get(artifact_id, 0) + 1
-        payload_map: dict[int, dict[str, Any]] = {}
-        for inventory, artifact in rows:
-            artifact_id = int(inventory.artifact_id or 0)
-            entry = payload_map.get(artifact_id)
-            if entry is None:
-                entry = {
-                    "quantity": 0,
-                    "bound_quantity": 0,
-                    "equipped_quantity": equipped_counts.get(artifact_id, 0),
-                    "artifact": serialize_artifact(artifact),
-                }
-                payload_map[artifact_id] = entry
-            quantity = max(int(inventory.quantity or 0), 0)
-            entry["quantity"] += quantity
-            entry["bound_quantity"] += max(min(int(inventory.bound_quantity or 0), quantity), 0)
-        payload = list(payload_map.values())
-        return sorted(
-            payload,
-            key=lambda row: _named_quality_sort_key((row.get("artifact") or {}), "rarity_level"),
-        )
+    actor_tg = int(tg or 0)
+
+    def _loader() -> list[dict[str, Any]]:
+        with Session() as session:
+            owner_tgs = _shared_inventory_owner_tgs(session, actor_tg)
+            if not owner_tgs:
+                return []
+            rows = (
+                session.query(XiuxianArtifactInventory, XiuxianArtifact)
+                .join(XiuxianArtifact, XiuxianArtifact.id == XiuxianArtifactInventory.artifact_id)
+                .filter(XiuxianArtifactInventory.tg.in_(owner_tgs))
+                .order_by(XiuxianArtifact.id.desc())
+                .all()
+            )
+            equipped_counts: dict[int, int] = {}
+            for equipped in (
+                session.query(XiuxianEquippedArtifact)
+                .filter(XiuxianEquippedArtifact.tg.in_(owner_tgs))
+                .all()
+            ):
+                artifact_id = int(equipped.artifact_id or 0)
+                if artifact_id <= 0:
+                    continue
+                equipped_counts[artifact_id] = equipped_counts.get(artifact_id, 0) + 1
+            payload_map: dict[int, dict[str, Any]] = {}
+            for inventory, artifact in rows:
+                artifact_id = int(inventory.artifact_id or 0)
+                entry = payload_map.get(artifact_id)
+                if entry is None:
+                    entry = {
+                        "quantity": 0,
+                        "bound_quantity": 0,
+                        "equipped_quantity": equipped_counts.get(artifact_id, 0),
+                        "artifact": serialize_artifact(artifact),
+                    }
+                    payload_map[artifact_id] = entry
+                quantity = max(int(inventory.quantity or 0), 0)
+                entry["quantity"] += quantity
+                entry["bound_quantity"] += max(min(int(inventory.bound_quantity or 0), quantity), 0)
+            payload = list(payload_map.values())
+            return sorted(
+                payload,
+                key=lambda row: _named_quality_sort_key((row.get("artifact") or {}), "rarity_level"),
+            )
+
+    return _load_user_view_cache(actor_tg, "artifacts", loader=_loader)
 
 
 def list_equipped_artifacts(tg: int) -> list[dict[str, Any]]:
-    with Session() as session:
-        rows = (
-            session.query(XiuxianEquippedArtifact, XiuxianArtifact)
-            .join(XiuxianArtifact, XiuxianArtifact.id == XiuxianEquippedArtifact.artifact_id)
-            .filter(XiuxianEquippedArtifact.tg == tg)
-            .order_by(XiuxianEquippedArtifact.slot.asc(), XiuxianEquippedArtifact.id.asc())
-            .all()
-        )
-        return [
-            {
-                "slot": equipped.slot,
-                "artifact": serialize_artifact(artifact),
-            }
-            for equipped, artifact in rows
-        ]
+    actor_tg = int(tg or 0)
+
+    def _loader() -> list[dict[str, Any]]:
+        with Session() as session:
+            rows = (
+                session.query(XiuxianEquippedArtifact, XiuxianArtifact)
+                .join(XiuxianArtifact, XiuxianArtifact.id == XiuxianEquippedArtifact.artifact_id)
+                .filter(XiuxianEquippedArtifact.tg == actor_tg)
+                .order_by(XiuxianEquippedArtifact.slot.asc(), XiuxianEquippedArtifact.id.asc())
+                .all()
+            )
+            return [
+                {
+                    "slot": equipped.slot,
+                    "artifact": serialize_artifact(artifact),
+                }
+                for equipped, artifact in rows
+            ]
+
+    return _load_user_view_cache(actor_tg, "equipped-artifacts", loader=_loader)
 
 
 def plunder_random_artifact_to_user(receiver_tg: int, owner_tg: int) -> dict[str, Any] | None:
@@ -4269,6 +4674,8 @@ def plunder_random_artifact_to_user(receiver_tg: int, owner_tg: int) -> dict[str
         owner_profile.current_artifact_id = refreshed_equipped[0].artifact_id if refreshed_equipped else None
         owner_profile.updated_at = utcnow()
         receiver_profile.updated_at = utcnow()
+        _queue_profile_cache_invalidation(session, owner_tg, receiver_tg)
+        _queue_user_view_cache_invalidation(session, owner_tg, receiver_tg)
 
         artifact = session.query(XiuxianArtifact).filter(XiuxianArtifact.id == artifact_id).first()
         owner_remaining = max(int(owner_row.quantity or 0), 0)
@@ -4283,63 +4690,73 @@ def plunder_random_artifact_to_user(receiver_tg: int, owner_tg: int) -> dict[str
 
 
 def list_user_pills(tg: int) -> list[dict[str, Any]]:
-    with Session() as session:
-        owner_tgs = _shared_inventory_owner_tgs(session, tg)
-        if not owner_tgs:
-            return []
-        rows = (
-            session.query(XiuxianPillInventory, XiuxianPill)
-            .join(XiuxianPill, XiuxianPill.id == XiuxianPillInventory.pill_id)
-            .filter(XiuxianPillInventory.tg.in_(owner_tgs))
-            .order_by(XiuxianPill.id.desc())
-            .all()
-        )
-        payload_map: dict[int, dict[str, Any]] = {}
-        for inventory, pill in rows:
-            pill_id = int(inventory.pill_id or 0)
-            entry = payload_map.get(pill_id)
-            if entry is None:
-                entry = {"quantity": 0, "pill": serialize_pill(pill)}
-                payload_map[pill_id] = entry
-            entry["quantity"] += max(int(inventory.quantity or 0), 0)
-        payload = list(payload_map.values())
-        return sorted(
-            payload,
-            key=lambda row: _named_quality_sort_key((row.get("pill") or {}), "rarity_level"),
-        )
+    actor_tg = int(tg or 0)
+
+    def _loader() -> list[dict[str, Any]]:
+        with Session() as session:
+            owner_tgs = _shared_inventory_owner_tgs(session, actor_tg)
+            if not owner_tgs:
+                return []
+            rows = (
+                session.query(XiuxianPillInventory, XiuxianPill)
+                .join(XiuxianPill, XiuxianPill.id == XiuxianPillInventory.pill_id)
+                .filter(XiuxianPillInventory.tg.in_(owner_tgs))
+                .order_by(XiuxianPill.id.desc())
+                .all()
+            )
+            payload_map: dict[int, dict[str, Any]] = {}
+            for inventory, pill in rows:
+                pill_id = int(inventory.pill_id or 0)
+                entry = payload_map.get(pill_id)
+                if entry is None:
+                    entry = {"quantity": 0, "pill": serialize_pill(pill)}
+                    payload_map[pill_id] = entry
+                entry["quantity"] += max(int(inventory.quantity or 0), 0)
+            payload = list(payload_map.values())
+            return sorted(
+                payload,
+                key=lambda row: _named_quality_sort_key((row.get("pill") or {}), "rarity_level"),
+            )
+
+    return _load_user_view_cache(actor_tg, "pills", loader=_loader)
 
 
 def list_user_talismans(tg: int) -> list[dict[str, Any]]:
-    with Session() as session:
-        owner_tgs = _shared_inventory_owner_tgs(session, tg)
-        if not owner_tgs:
-            return []
-        rows = (
-            session.query(XiuxianTalismanInventory, XiuxianTalisman)
-            .join(XiuxianTalisman, XiuxianTalisman.id == XiuxianTalismanInventory.talisman_id)
-            .filter(XiuxianTalismanInventory.tg.in_(owner_tgs))
-            .order_by(XiuxianTalisman.id.desc())
-            .all()
-        )
-        payload_map: dict[int, dict[str, Any]] = {}
-        for inventory, talisman in rows:
-            talisman_id = int(inventory.talisman_id or 0)
-            entry = payload_map.get(talisman_id)
-            if entry is None:
-                entry = {
-                    "quantity": 0,
-                    "bound_quantity": 0,
-                    "talisman": serialize_talisman(talisman),
-                }
-                payload_map[talisman_id] = entry
-            quantity = max(int(inventory.quantity or 0), 0)
-            entry["quantity"] += quantity
-            entry["bound_quantity"] += max(min(int(inventory.bound_quantity or 0), quantity), 0)
-        payload = list(payload_map.values())
-        return sorted(
-            payload,
-            key=lambda row: _named_quality_sort_key((row.get("talisman") or {}), "rarity_level"),
-        )
+    actor_tg = int(tg or 0)
+
+    def _loader() -> list[dict[str, Any]]:
+        with Session() as session:
+            owner_tgs = _shared_inventory_owner_tgs(session, actor_tg)
+            if not owner_tgs:
+                return []
+            rows = (
+                session.query(XiuxianTalismanInventory, XiuxianTalisman)
+                .join(XiuxianTalisman, XiuxianTalisman.id == XiuxianTalismanInventory.talisman_id)
+                .filter(XiuxianTalismanInventory.tg.in_(owner_tgs))
+                .order_by(XiuxianTalisman.id.desc())
+                .all()
+            )
+            payload_map: dict[int, dict[str, Any]] = {}
+            for inventory, talisman in rows:
+                talisman_id = int(inventory.talisman_id or 0)
+                entry = payload_map.get(talisman_id)
+                if entry is None:
+                    entry = {
+                        "quantity": 0,
+                        "bound_quantity": 0,
+                        "talisman": serialize_talisman(talisman),
+                    }
+                    payload_map[talisman_id] = entry
+                quantity = max(int(inventory.quantity or 0), 0)
+                entry["quantity"] += quantity
+                entry["bound_quantity"] += max(min(int(inventory.bound_quantity or 0), quantity), 0)
+            payload = list(payload_map.values())
+            return sorted(
+                payload,
+                key=lambda row: _named_quality_sort_key((row.get("talisman") or {}), "rarity_level"),
+            )
+
+    return _load_user_view_cache(actor_tg, "talismans", loader=_loader)
 
 
 def consume_user_pill(tg: int, pill_id: int, quantity: int = 1) -> bool:
@@ -4363,6 +4780,7 @@ def consume_user_pill(tg: int, pill_id: int, quantity: int = 1) -> bool:
             remaining -= delta
             if row.quantity <= 0:
                 session.delete(row)
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         return True
 
@@ -4389,6 +4807,8 @@ def consume_user_talisman(tg: int, talisman_id: int, quantity: int = 1) -> bool:
             remaining -= delta
             if row.quantity <= 0:
                 session.delete(row)
+        _queue_profile_cache_invalidation(session, tg)
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         return True
 
@@ -4450,6 +4870,8 @@ def admin_set_user_artifact_inventory(
             equipped_row.slot = index
         profile.current_artifact_id = refreshed_equipped[0].artifact_id if refreshed_equipped else None
         profile.updated_at = utcnow()
+        _queue_profile_cache_invalidation(session, tg)
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         applied_bound = 0
         if target_quantity > 0:
@@ -4488,6 +4910,7 @@ def admin_set_user_pill_inventory(tg: int, pill_id: int, quantity: int) -> dict[
                 session.add(row)
             row.quantity = target_quantity
             row.updated_at = utcnow()
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         return {
             "pill": serialize_pill(pill),
@@ -4531,6 +4954,8 @@ def admin_set_user_talisman_inventory(
             row.bound_quantity = max(min(desired_bound, target_quantity), 0)
             row.updated_at = utcnow()
         profile.updated_at = utcnow()
+        _queue_profile_cache_invalidation(session, tg)
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         return {
             "talisman": serialize_talisman(talisman),
@@ -4561,6 +4986,7 @@ def admin_set_user_material_inventory(tg: int, material_id: int, quantity: int) 
                 session.add(row)
             row.quantity = target_quantity
             row.updated_at = utcnow()
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         return {
             "material": serialize_material(material),
@@ -4615,6 +5041,7 @@ def use_user_artifact_listing_stock(tg: int, artifact_id: int, quantity: int = 1
             remaining -= delta
             if row.quantity <= 0:
                 session.delete(row)
+        _queue_user_view_cache_invalidation(session, tg, *release_owner_tgs)
         session.commit()
         for owner_tg in release_owner_tgs:
             release_starter_artifact_protection(
@@ -4645,6 +5072,7 @@ def use_user_pill_listing_stock(tg: int, pill_id: int, quantity: int = 1) -> boo
             remaining -= delta
             if row.quantity <= 0:
                 session.delete(row)
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         return True
 
@@ -4670,6 +5098,7 @@ def use_user_material_listing_stock(tg: int, material_id: int, quantity: int = 1
             remaining -= delta
             if row.quantity <= 0:
                 session.delete(row)
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         return True
 
@@ -4704,6 +5133,8 @@ def use_user_talisman_listing_stock(tg: int, talisman_id: int, quantity: int = 1
             remaining -= delta
             if row.quantity <= 0:
                 session.delete(row)
+        _queue_profile_cache_invalidation(session, tg)
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         return True
 
@@ -4735,6 +5166,7 @@ def bind_user_artifact(tg: int, artifact_id: int, quantity: int = 1) -> dict[str
             row.bound_quantity = bound_quantity + delta
             row.updated_at = now
             remaining -= delta
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         total_quantity = sum(max(int(row.quantity or 0), 0) for row in rows)
         total_bound_quantity = sum(
@@ -4783,6 +5215,8 @@ def unbind_user_artifact(tg: int, artifact_id: int, cost: int, quantity: int = 1
             row.bound_quantity = bound_quantity - delta
             row.updated_at = now
             remaining -= delta
+        _queue_profile_cache_invalidation(session, tg)
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         total_quantity = sum(max(int(row.quantity or 0), 0) for row in rows)
         refreshed_bound_quantity = sum(
@@ -4824,6 +5258,7 @@ def bind_user_talisman(tg: int, talisman_id: int, quantity: int = 1) -> dict[str
             row.bound_quantity = bound_quantity + delta
             row.updated_at = now
             remaining -= delta
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         total_quantity = sum(max(int(row.quantity or 0), 0) for row in rows)
         total_bound_quantity = sum(
@@ -4872,6 +5307,8 @@ def unbind_user_talisman(tg: int, talisman_id: int, cost: int, quantity: int = 1
             row.bound_quantity = bound_quantity - delta
             row.updated_at = now
             remaining -= delta
+        _queue_profile_cache_invalidation(session, tg)
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         total_quantity = sum(max(int(row.quantity or 0), 0) for row in rows)
         refreshed_bound_quantity = sum(
@@ -4943,6 +5380,8 @@ def set_equipped_artifact(tg: int, artifact_id: int, equip_limit: int = 3) -> di
 
         profile.current_artifact_id = refreshed[0].artifact_id if refreshed else None
         profile.updated_at = utcnow()
+        _queue_profile_cache_invalidation(session, tg)
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         return {
             "profile": serialize_profile(profile),
@@ -4961,6 +5400,8 @@ def set_active_talisman(tg: int, talisman_id: int | None) -> dict[str, Any] | No
 
         profile.active_talisman_id = talisman_id
         profile.updated_at = utcnow()
+        _queue_profile_cache_invalidation(session, tg)
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         return serialize_profile(profile)
 
@@ -4972,6 +5413,8 @@ def set_current_technique(tg: int, technique_id: int | None) -> dict[str, Any] |
             return None
         profile.current_technique_id = technique_id
         profile.updated_at = utcnow()
+        _queue_profile_cache_invalidation(session, tg)
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         return serialize_profile(profile)
 
@@ -4981,18 +5424,28 @@ def list_shop_items(
     official_only: bool | None = None,
     include_disabled: bool = False,
 ) -> list[dict[str, Any]]:
-    with Session() as session:
-        query = session.query(XiuxianShopItem)
-        if not include_disabled:
-            query = query.filter(XiuxianShopItem.enabled.is_(True))
-        if owner_tg is not None:
-            query = query.filter(XiuxianShopItem.owner_tg == owner_tg)
-        if official_only is True:
-            query = query.filter(XiuxianShopItem.is_official.is_(True))
-        elif official_only is False:
-            query = query.filter(XiuxianShopItem.is_official.is_(False))
+    owner_value = int(owner_tg) if owner_tg is not None else "all"
+    official_value = "official" if official_only is True else "personal" if official_only is False else "mixed"
 
-        return [serialize_shop_item(item) for item in query.order_by(XiuxianShopItem.id.desc()).all()]
+    def _loader() -> list[dict[str, Any]]:
+        with Session() as session:
+            query = session.query(XiuxianShopItem)
+            if not include_disabled:
+                query = query.filter(XiuxianShopItem.enabled.is_(True))
+            if owner_tg is not None:
+                query = query.filter(XiuxianShopItem.owner_tg == owner_tg)
+            if official_only is True:
+                query = query.filter(XiuxianShopItem.is_official.is_(True))
+            elif official_only is False:
+                query = query.filter(XiuxianShopItem.is_official.is_(False))
+            return [serialize_shop_item(item) for item in query.order_by(XiuxianShopItem.id.desc()).all()]
+
+    return xiuxian_cache.load_versioned_json(
+        version_parts=("catalog", "shop-items"),
+        cache_parts=("catalog", "shop-items", owner_value, official_value, "with-disabled" if include_disabled else "enabled"),
+        ttl=xiuxian_cache.USER_VIEW_TTL,
+        loader=_loader,
+    )
 
 
 def create_shop_item(
@@ -5019,6 +5472,7 @@ def create_shop_item(
             enabled=True,
         )
         session.add(item)
+        _queue_catalog_cache_invalidation(session, "shop-items")
         session.commit()
         session.refresh(item)
         return serialize_shop_item(item)
@@ -5035,6 +5489,8 @@ def sync_official_shop_name(shop_name: str) -> int:
             row.shop_name = resolved_name
             row.updated_at = utcnow()
             changed += 1
+        if changed > 0:
+            _queue_catalog_cache_invalidation(session, "shop-items")
         session.commit()
         return changed
 
@@ -5047,6 +5503,7 @@ def update_shop_item(item_id: int, **fields) -> dict[str, Any] | None:
         for key, value in fields.items():
             setattr(item, key, value)
         item.updated_at = utcnow()
+        _queue_catalog_cache_invalidation(session, "shop-items")
         session.commit()
         session.refresh(item)
         return serialize_shop_item(item)
@@ -5673,6 +6130,9 @@ def purchase_shop_item(buyer_tg: int, item_id: int, quantity: int = 1) -> dict[s
         serialized_item = serialize_shop_item(item)
         buyer_balance = get_shared_spiritual_stone_total(int(buyer_tg), session=session, for_update=False)
         seller_balance = None if seller is None else get_shared_spiritual_stone_total(int(item.owner_tg), session=session, for_update=False)
+        _queue_catalog_cache_invalidation(session, "shop-items")
+        _queue_profile_cache_invalidation(session, buyer_tg, int(item.owner_tg or 0))
+        _queue_user_view_cache_invalidation(session, buyer_tg, int(item.owner_tg or 0))
         session.commit()
 
     name_map = get_emby_name_map([buyer_tg] + ([seller_tg] if seller_tg else []))
@@ -5772,17 +6232,22 @@ def list_profiles() -> list[XiuxianProfile]:
 
 
 def list_slave_profiles(master_tg: int) -> list[dict[str, Any]]:
-    with Session() as session:
-        rows = (
-            session.query(XiuxianProfile)
-            .filter(
-                XiuxianProfile.master_tg == int(master_tg),
-                XiuxianProfile.consented.is_(True),
+    actor_tg = int(master_tg or 0)
+
+    def _loader() -> list[dict[str, Any]]:
+        with Session() as session:
+            rows = (
+                session.query(XiuxianProfile)
+                .filter(
+                    XiuxianProfile.master_tg == actor_tg,
+                    XiuxianProfile.consented.is_(True),
+                )
+                .order_by(XiuxianProfile.updated_at.desc(), XiuxianProfile.tg.asc())
+                .all()
             )
-            .order_by(XiuxianProfile.updated_at.desc(), XiuxianProfile.tg.asc())
-            .all()
-        )
-        return [serialize_profile(row) for row in rows]
+            return [serialize_profile(row) for row in rows]
+
+    return _load_user_view_cache(actor_tg, "slave-profiles", loader=_loader)
 
 
 def search_profiles(
@@ -5912,21 +6377,44 @@ def admin_patch_profile(tg: int, **fields) -> dict[str, Any] | None:
         for key, value in safe.items():
             setattr(profile, key, value)
         profile.updated_at = utcnow()
+        _queue_profile_cache_invalidation(session, tg)
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         return serialize_profile(profile)
 
 
 def get_sect(sect_id: int) -> XiuxianSect | None:
-    with Session() as session:
-        return session.query(XiuxianSect).filter(XiuxianSect.id == sect_id).first()
+    sect_value = int(sect_id or 0)
+    if sect_value <= 0:
+        return None
+
+    def _loader() -> XiuxianSect | None:
+        with Session() as session:
+            return session.query(XiuxianSect).filter(XiuxianSect.id == sect_value).first()
+
+    return _load_cached_model(
+        XiuxianSect,
+        version_parts=("catalog", "sects"),
+        cache_parts=("catalog", "sects", "detail", sect_value),
+        ttl=xiuxian_cache.CATALOG_TTL,
+        loader=_loader,
+    )
 
 
 def list_sects(enabled_only: bool = False) -> list[dict[str, Any]]:
-    with Session() as session:
-        query = session.query(XiuxianSect)
-        if enabled_only:
-            query = query.filter(XiuxianSect.enabled.is_(True))
-        return [serialize_sect(item) for item in query.order_by(XiuxianSect.id.desc()).all()]
+    def _loader() -> list[dict[str, Any]]:
+        with Session() as session:
+            query = session.query(XiuxianSect)
+            if enabled_only:
+                query = query.filter(XiuxianSect.enabled.is_(True))
+            return [serialize_sect(item) for item in query.order_by(XiuxianSect.id.desc()).all()]
+
+    return xiuxian_cache.load_versioned_json(
+        version_parts=("catalog", "sects"),
+        cache_parts=("catalog", "sects", "list", "enabled" if enabled_only else "all"),
+        ttl=xiuxian_cache.CATALOG_TTL,
+        loader=_loader,
+    )
 
 
 def create_sect(**fields) -> dict[str, Any]:
@@ -5934,6 +6422,7 @@ def create_sect(**fields) -> dict[str, Any]:
     with Session() as session:
         sect = XiuxianSect(**fields)
         session.add(sect)
+        _queue_catalog_cache_invalidation(session, "sects")
         session.commit()
         session.refresh(sect)
         return serialize_sect(sect)
@@ -5951,6 +6440,7 @@ def patch_sect(sect_id: int, **fields) -> dict[str, Any] | None:
         for key, value in payload.items():
             setattr(row, key, value)
         row.updated_at = utcnow()
+        _queue_catalog_cache_invalidation(session, "sects")
         session.commit()
         session.refresh(row)
         return serialize_sect(row)
@@ -5962,6 +6452,7 @@ def delete_sect(sect_id: int) -> bool:
         if row is None:
             return False
         session.delete(row)
+        _queue_catalog_cache_invalidation(session, "sects")
         session.commit()
         return True
 
@@ -5974,6 +6465,7 @@ def replace_sect_roles(sect_id: int, roles: list[dict[str, Any]]) -> list[dict[s
             row = XiuxianSectRole(sect_id=sect_id, **role)
             session.add(row)
             payloads.append(row)
+        _queue_catalog_cache_invalidation(session, "sects")
         session.commit()
         return [serialize_sect_role(row) for row in payloads]
 
@@ -5990,8 +6482,21 @@ def list_sect_roles(sect_id: int) -> list[dict[str, Any]]:
 
 
 def get_material(material_id: int) -> XiuxianMaterial | None:
-    with Session() as session:
-        return session.query(XiuxianMaterial).filter(XiuxianMaterial.id == material_id).first()
+    material_value = int(material_id or 0)
+    if material_value <= 0:
+        return None
+
+    def _loader() -> XiuxianMaterial | None:
+        with Session() as session:
+            return session.query(XiuxianMaterial).filter(XiuxianMaterial.id == material_value).first()
+
+    return _load_cached_model(
+        XiuxianMaterial,
+        version_parts=("catalog", "materials"),
+        cache_parts=("catalog", "materials", "detail", material_value),
+        ttl=xiuxian_cache.CATALOG_TTL,
+        loader=_loader,
+    )
 
 
 def _normalize_material_fields(fields: dict[str, Any]) -> dict[str, Any]:
@@ -6026,12 +6531,20 @@ def _normalize_material_fields(fields: dict[str, Any]) -> dict[str, Any]:
 
 
 def list_materials(enabled_only: bool = False) -> list[dict[str, Any]]:
-    with Session() as session:
-        query = session.query(XiuxianMaterial)
-        if enabled_only:
-            query = query.filter(XiuxianMaterial.enabled.is_(True))
-        rows = [serialize_material(row) for row in query.order_by(XiuxianMaterial.id.desc()).all()]
-        return sorted(rows, key=lambda item: _named_quality_sort_key(item or {}, "quality_level"))
+    def _loader() -> list[dict[str, Any]]:
+        with Session() as session:
+            query = session.query(XiuxianMaterial)
+            if enabled_only:
+                query = query.filter(XiuxianMaterial.enabled.is_(True))
+            rows = [serialize_material(row) for row in query.order_by(XiuxianMaterial.id.desc()).all()]
+            return sorted(rows, key=lambda item: _named_quality_sort_key(item or {}, "quality_level"))
+
+    return xiuxian_cache.load_versioned_json(
+        version_parts=("catalog", "materials"),
+        cache_parts=("catalog", "materials", "list", "enabled" if enabled_only else "all"),
+        ttl=xiuxian_cache.CATALOG_TTL,
+        loader=_loader,
+    )
 
 
 def list_plantable_materials(enabled_only: bool = True) -> list[dict[str, Any]]:
@@ -6047,6 +6560,7 @@ def create_material(**fields) -> dict[str, Any]:
     with Session() as session:
         material = XiuxianMaterial(**fields)
         session.add(material)
+        _queue_catalog_cache_invalidation(session, "materials")
         session.commit()
         session.refresh(material)
         return serialize_material(material)
@@ -6054,7 +6568,7 @@ def create_material(**fields) -> dict[str, Any]:
 
 def sync_material_by_name(**fields) -> dict[str, Any]:
     payload = _normalize_material_fields(dict(fields))
-    return _sync_named_entity(XiuxianMaterial, serialize_material, payload)
+    return _sync_named_entity(XiuxianMaterial, serialize_material, payload, catalog_key="materials")
 
 
 def patch_material(material_id: int, **fields) -> dict[str, Any] | None:
@@ -6069,6 +6583,7 @@ def patch_material(material_id: int, **fields) -> dict[str, Any] | None:
         for key, value in payload.items():
             setattr(row, key, value)
         row.updated_at = utcnow()
+        _queue_catalog_cache_invalidation(session, "materials")
         session.commit()
         session.refresh(row)
         return serialize_material(row)
@@ -6080,6 +6595,7 @@ def delete_material(material_id: int) -> bool:
         if row is None:
             return False
         session.delete(row)
+        _queue_catalog_cache_invalidation(session, "materials")
         session.commit()
         return True
 
@@ -6099,6 +6615,7 @@ def grant_material_to_user(tg: int, material_id: int, quantity: int = 1) -> dict
             session.add(row)
         row.quantity += max(int(quantity), 1)
         row.updated_at = utcnow()
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         material = session.query(XiuxianMaterial).filter(XiuxianMaterial.id == material_id).first()
         return {
@@ -6108,30 +6625,35 @@ def grant_material_to_user(tg: int, material_id: int, quantity: int = 1) -> dict
 
 
 def list_user_materials(tg: int) -> list[dict[str, Any]]:
-    with Session() as session:
-        owner_tgs = _shared_inventory_owner_tgs(session, tg)
-        if not owner_tgs:
-            return []
-        rows = (
-            session.query(XiuxianMaterialInventory, XiuxianMaterial)
-            .join(XiuxianMaterial, XiuxianMaterial.id == XiuxianMaterialInventory.material_id)
-            .filter(XiuxianMaterialInventory.tg.in_(owner_tgs))
-            .order_by(XiuxianMaterial.id.desc())
-            .all()
-        )
-        payload_map: dict[int, dict[str, Any]] = {}
-        for inventory, material in rows:
-            material_id = int(inventory.material_id or 0)
-            entry = payload_map.get(material_id)
-            if entry is None:
-                entry = {"quantity": 0, "material": serialize_material(material)}
-                payload_map[material_id] = entry
-            entry["quantity"] += max(int(inventory.quantity or 0), 0)
-        payload = list(payload_map.values())
-        return sorted(
-            payload,
-            key=lambda row: _named_quality_sort_key((row.get("material") or {}), "quality_level"),
-        )
+    actor_tg = int(tg or 0)
+
+    def _loader() -> list[dict[str, Any]]:
+        with Session() as session:
+            owner_tgs = _shared_inventory_owner_tgs(session, actor_tg)
+            if not owner_tgs:
+                return []
+            rows = (
+                session.query(XiuxianMaterialInventory, XiuxianMaterial)
+                .join(XiuxianMaterial, XiuxianMaterial.id == XiuxianMaterialInventory.material_id)
+                .filter(XiuxianMaterialInventory.tg.in_(owner_tgs))
+                .order_by(XiuxianMaterial.id.desc())
+                .all()
+            )
+            payload_map: dict[int, dict[str, Any]] = {}
+            for inventory, material in rows:
+                material_id = int(inventory.material_id or 0)
+                entry = payload_map.get(material_id)
+                if entry is None:
+                    entry = {"quantity": 0, "material": serialize_material(material)}
+                    payload_map[material_id] = entry
+                entry["quantity"] += max(int(inventory.quantity or 0), 0)
+            payload = list(payload_map.values())
+            return sorted(
+                payload,
+                key=lambda row: _named_quality_sort_key((row.get("material") or {}), "quality_level"),
+            )
+
+    return _load_user_view_cache(actor_tg, "materials", loader=_loader)
 
 
 def consume_user_materials(tg: int, material_id: int, quantity: int = 1) -> bool:
@@ -6154,43 +6676,70 @@ def consume_user_materials(tg: int, material_id: int, quantity: int = 1) -> bool
             remaining -= delta
             if row.quantity <= 0:
                 session.delete(row)
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         return True
 
 
 def get_recipe(recipe_id: int) -> XiuxianRecipe | None:
-    with Session() as session:
-        return session.query(XiuxianRecipe).filter(XiuxianRecipe.id == recipe_id).first()
+    recipe_value = int(recipe_id or 0)
+    if recipe_value <= 0:
+        return None
+
+    def _loader() -> XiuxianRecipe | None:
+        with Session() as session:
+            return session.query(XiuxianRecipe).filter(XiuxianRecipe.id == recipe_value).first()
+
+    return _load_cached_model(
+        XiuxianRecipe,
+        version_parts=("catalog", "recipes"),
+        cache_parts=("catalog", "recipes", "detail", recipe_value),
+        ttl=xiuxian_cache.CATALOG_TTL,
+        loader=_loader,
+    )
 
 
 def list_recipes(enabled_only: bool = False) -> list[dict[str, Any]]:
-    with Session() as session:
-        query = session.query(XiuxianRecipe)
-        if enabled_only:
-            query = query.filter(XiuxianRecipe.enabled.is_(True))
-        return [serialize_recipe(row) for row in query.order_by(XiuxianRecipe.id.desc()).all()]
+    def _loader() -> list[dict[str, Any]]:
+        with Session() as session:
+            query = session.query(XiuxianRecipe)
+            if enabled_only:
+                query = query.filter(XiuxianRecipe.enabled.is_(True))
+            return [serialize_recipe(row) for row in query.order_by(XiuxianRecipe.id.desc()).all()]
+
+    return xiuxian_cache.load_versioned_json(
+        version_parts=("catalog", "recipes"),
+        cache_parts=("catalog", "recipes", "list", "enabled" if enabled_only else "all"),
+        ttl=xiuxian_cache.CATALOG_TTL,
+        loader=_loader,
+    )
 
 
 def list_user_recipes(tg: int, enabled_only: bool = False) -> list[dict[str, Any]]:
-    with Session() as session:
-        rows = (
-            session.query(XiuxianUserRecipe)
-            .filter(XiuxianUserRecipe.tg == tg)
-            .order_by(XiuxianUserRecipe.created_at.asc(), XiuxianUserRecipe.id.asc())
-            .all()
-        )
-        recipe_ids = [item.recipe_id for item in rows] or [-1]
-        recipe_map = {
-            row.id: row
-            for row in session.query(XiuxianRecipe).filter(XiuxianRecipe.id.in_(recipe_ids)).all()
-        }
-        payloads: list[dict[str, Any]] = []
-        for row in rows:
-            recipe = serialize_recipe(recipe_map.get(row.recipe_id))
-            if enabled_only and not (recipe or {}).get("enabled"):
-                continue
-            payloads.append(serialize_user_recipe(row, recipe))
-        return payloads
+    actor_tg = int(tg or 0)
+
+    def _loader() -> list[dict[str, Any]]:
+        with Session() as session:
+            rows = (
+                session.query(XiuxianUserRecipe)
+                .filter(XiuxianUserRecipe.tg == actor_tg)
+                .order_by(XiuxianUserRecipe.created_at.asc(), XiuxianUserRecipe.id.asc())
+                .all()
+            )
+            recipe_ids = [item.recipe_id for item in rows] or [-1]
+            recipe_map = {
+                row.id: row
+                for row in session.query(XiuxianRecipe).filter(XiuxianRecipe.id.in_(recipe_ids)).all()
+            }
+            payloads: list[dict[str, Any]] = []
+            for row in rows:
+                recipe = serialize_recipe(recipe_map.get(row.recipe_id))
+                if enabled_only and not (recipe or {}).get("enabled"):
+                    continue
+                payloads.append(serialize_user_recipe(row, recipe))
+            return payloads
+
+    return _load_user_view_cache(actor_tg, "recipes", "enabled" if enabled_only else "all", loader=_loader)
 
 
 def user_has_recipe(tg: int, recipe_id: int) -> bool:
@@ -6232,6 +6781,7 @@ def grant_recipe_to_user(
             if obtained_note is not None:
                 row.obtained_note = (obtained_note or "").strip() or None
             row.updated_at = utcnow()
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         session.refresh(row)
         return serialize_user_recipe(row, serialize_recipe(recipe))
@@ -6247,6 +6797,7 @@ def revoke_recipe_from_user(tg: int, recipe_id: int) -> bool:
         if row is None:
             return False
         session.delete(row)
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         return True
 
@@ -6255,6 +6806,7 @@ def create_recipe(**fields) -> dict[str, Any]:
     with Session() as session:
         recipe = XiuxianRecipe(**fields)
         session.add(recipe)
+        _queue_catalog_cache_invalidation(session, "recipes")
         session.commit()
         session.refresh(recipe)
         return serialize_recipe(recipe)
@@ -6266,6 +6818,7 @@ def delete_recipe(recipe_id: int) -> bool:
         if row is None:
             return False
         session.delete(row)
+        _queue_catalog_cache_invalidation(session, "recipes")
         session.commit()
         return True
 
@@ -6278,6 +6831,7 @@ def replace_recipe_ingredients(recipe_id: int, ingredients: list[dict[str, Any]]
             row = XiuxianRecipeIngredient(recipe_id=recipe_id, **payload)
             session.add(row)
             rows.append(row)
+        _queue_catalog_cache_invalidation(session, "recipes")
         session.commit()
         return [
             {
@@ -6312,16 +6866,37 @@ def list_recipe_ingredients(recipe_id: int) -> list[dict[str, Any]]:
 
 
 def get_scene(scene_id: int) -> XiuxianScene | None:
-    with Session() as session:
-        return session.query(XiuxianScene).filter(XiuxianScene.id == scene_id).first()
+    scene_value = int(scene_id or 0)
+    if scene_value <= 0:
+        return None
+
+    def _loader() -> XiuxianScene | None:
+        with Session() as session:
+            return session.query(XiuxianScene).filter(XiuxianScene.id == scene_value).first()
+
+    return _load_cached_model(
+        XiuxianScene,
+        version_parts=("catalog", "scenes"),
+        cache_parts=("catalog", "scenes", "detail", scene_value),
+        ttl=xiuxian_cache.CATALOG_TTL,
+        loader=_loader,
+    )
 
 
 def list_scenes(enabled_only: bool = False) -> list[dict[str, Any]]:
-    with Session() as session:
-        query = session.query(XiuxianScene)
-        if enabled_only:
-            query = query.filter(XiuxianScene.enabled.is_(True))
-        return [serialize_scene(row) for row in query.order_by(XiuxianScene.id.desc()).all()]
+    def _loader() -> list[dict[str, Any]]:
+        with Session() as session:
+            query = session.query(XiuxianScene)
+            if enabled_only:
+                query = query.filter(XiuxianScene.enabled.is_(True))
+            return [serialize_scene(row) for row in query.order_by(XiuxianScene.id.desc()).all()]
+
+    return xiuxian_cache.load_versioned_json(
+        version_parts=("catalog", "scenes"),
+        cache_parts=("catalog", "scenes", "list", "enabled" if enabled_only else "all"),
+        ttl=xiuxian_cache.CATALOG_TTL,
+        loader=_loader,
+    )
 
 
 def create_scene(**fields) -> dict[str, Any]:
@@ -6339,6 +6914,7 @@ def create_scene(**fields) -> dict[str, Any]:
     with Session() as session:
         scene = XiuxianScene(**fields)
         session.add(scene)
+        _queue_catalog_cache_invalidation(session, "scenes")
         session.commit()
         session.refresh(scene)
         return serialize_scene(scene)
@@ -6350,6 +6926,7 @@ def delete_scene(scene_id: int) -> bool:
         if row is None:
             return False
         session.delete(row)
+        _queue_catalog_cache_invalidation(session, "scenes")
         session.commit()
         return True
 
@@ -6358,6 +6935,7 @@ def create_scene_drop(**fields) -> dict[str, Any]:
     with Session() as session:
         drop = XiuxianSceneDrop(**fields)
         session.add(drop)
+        _queue_catalog_cache_invalidation(session, "scenes")
         session.commit()
         session.refresh(drop)
         return serialize_scene_drop(drop)
@@ -6700,6 +7278,7 @@ def grant_starter_artifact_once(tg: int, artifact_id: int) -> dict[str, Any]:
                 detail="入道时获赠【凡铁剑】。此宝默认不会因击杀掠夺失去；若你将其用于上架出售或拍卖，则保护失效，且日后重修不会再次补发。",
             )
         )
+        _queue_user_view_cache_invalidation(session, int(tg))
         session.commit()
         return {
             "artifact": serialize_artifact(artifact),
@@ -6821,27 +7400,54 @@ def create_title(**fields) -> dict[str, Any]:
     with Session() as session:
         row = XiuxianTitle(**payload)
         session.add(row)
+        _queue_catalog_cache_invalidation(session, "titles")
         session.commit()
         session.refresh(row)
         return serialize_title(row)
 
 
 def sync_title_by_name(**fields) -> dict[str, Any]:
-    return _sync_named_entity(XiuxianTitle, serialize_title, _normalize_title_fields(dict(fields)))
+    return _sync_named_entity(
+        XiuxianTitle,
+        serialize_title,
+        _normalize_title_fields(dict(fields)),
+        catalog_key="titles",
+    )
 
 
 def get_title(title_id: int) -> XiuxianTitle | None:
-    with Session() as session:
-        return session.query(XiuxianTitle).filter(XiuxianTitle.id == title_id).first()
+    title_value = int(title_id or 0)
+    if title_value <= 0:
+        return None
+
+    def _loader() -> XiuxianTitle | None:
+        with Session() as session:
+            return session.query(XiuxianTitle).filter(XiuxianTitle.id == title_value).first()
+
+    return _load_cached_model(
+        XiuxianTitle,
+        version_parts=("catalog", "titles"),
+        cache_parts=("catalog", "titles", "detail", title_value),
+        ttl=xiuxian_cache.CATALOG_TTL,
+        loader=_loader,
+    )
 
 
 def list_titles(enabled_only: bool = False) -> list[dict[str, Any]]:
-    with Session() as session:
-        query = session.query(XiuxianTitle)
-        if enabled_only:
-            query = query.filter(XiuxianTitle.enabled.is_(True))
-        rows = query.order_by(XiuxianTitle.id.desc()).all()
-        return [serialize_title(row) for row in rows]
+    def _loader() -> list[dict[str, Any]]:
+        with Session() as session:
+            query = session.query(XiuxianTitle)
+            if enabled_only:
+                query = query.filter(XiuxianTitle.enabled.is_(True))
+            rows = query.order_by(XiuxianTitle.id.desc()).all()
+            return [serialize_title(row) for row in rows]
+
+    return xiuxian_cache.load_versioned_json(
+        version_parts=("catalog", "titles"),
+        cache_parts=("catalog", "titles", "list", "enabled" if enabled_only else "all"),
+        ttl=xiuxian_cache.CATALOG_TTL,
+        loader=_loader,
+    )
 
 
 def patch_title(title_id: int, **fields) -> dict[str, Any] | None:
@@ -6856,6 +7462,7 @@ def patch_title(title_id: int, **fields) -> dict[str, Any] | None:
         for key, value in payload.items():
             setattr(row, key, value)
         row.updated_at = utcnow()
+        _queue_catalog_cache_invalidation(session, "titles")
         session.commit()
         session.refresh(row)
         return serialize_title(row)
@@ -6871,42 +7478,53 @@ def delete_title(title_id: int) -> bool:
             synchronize_session=False,
         )
         session.delete(row)
+        _queue_catalog_cache_invalidation(session, "titles")
         session.commit()
         return True
 
 
 def list_user_titles(tg: int, enabled_only: bool = False) -> list[dict[str, Any]]:
-    with Session() as session:
-        rows = (
-            session.query(XiuxianUserTitle)
-            .filter(XiuxianUserTitle.tg == tg)
-            .order_by(XiuxianUserTitle.created_at.asc(), XiuxianUserTitle.id.asc())
-            .all()
-        )
-        titles = {
-            row.id: row
-            for row in session.query(XiuxianTitle)
-            .filter(XiuxianTitle.id.in_([item.title_id for item in rows] or [-1]))
-            .all()
-        }
-        serialized: list[dict[str, Any]] = []
-        for row in rows:
-            title = serialize_title(titles.get(row.title_id))
-            if enabled_only and not (title or {}).get("enabled"):
-                continue
-            serialized.append(serialize_user_title(row, title))
-        return serialized
+    actor_tg = int(tg or 0)
+
+    def _loader() -> list[dict[str, Any]]:
+        with Session() as session:
+            rows = (
+                session.query(XiuxianUserTitle)
+                .filter(XiuxianUserTitle.tg == actor_tg)
+                .order_by(XiuxianUserTitle.created_at.asc(), XiuxianUserTitle.id.asc())
+                .all()
+            )
+            titles = {
+                row.id: row
+                for row in session.query(XiuxianTitle)
+                .filter(XiuxianTitle.id.in_([item.title_id for item in rows] or [-1]))
+                .all()
+            }
+            serialized: list[dict[str, Any]] = []
+            for row in rows:
+                title = serialize_title(titles.get(row.title_id))
+                if enabled_only and not (title or {}).get("enabled"):
+                    continue
+                serialized.append(serialize_user_title(row, title))
+            return serialized
+
+    return _load_user_view_cache(actor_tg, "titles", "enabled" if enabled_only else "all", loader=_loader)
 
 
 def get_current_title(tg: int, enabled_only: bool = False) -> dict[str, Any] | None:
-    with Session() as session:
-        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).first()
-        if profile is None or not profile.current_title_id:
-            return None
-        row = session.query(XiuxianTitle).filter(XiuxianTitle.id == profile.current_title_id).first()
-        if row is None or (enabled_only and not row.enabled):
-            return None
-        return serialize_title(row)
+    actor_tg = int(tg or 0)
+
+    def _loader() -> dict[str, Any] | None:
+        with Session() as session:
+            profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == actor_tg).first()
+            if profile is None or not profile.current_title_id:
+                return None
+            row = session.query(XiuxianTitle).filter(XiuxianTitle.id == profile.current_title_id).first()
+            if row is None or (enabled_only and not row.enabled):
+                return None
+            return serialize_title(row)
+
+    return _load_user_view_cache(actor_tg, "current-title", "enabled" if enabled_only else "all", loader=_loader)
 
 
 def grant_title_to_user(
@@ -6948,6 +7566,8 @@ def grant_title_to_user(
         if equip or (auto_equip_if_empty and not profile.current_title_id):
             profile.current_title_id = title_id
             profile.updated_at = utcnow()
+        _queue_profile_cache_invalidation(session, tg)
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         session.refresh(row)
         return serialize_user_title(row, serialize_title(title))
@@ -6967,6 +7587,8 @@ def revoke_title_from_user(tg: int, title_id: int) -> bool:
             profile.current_title_id = None
             profile.updated_at = utcnow()
         session.delete(row)
+        _queue_profile_cache_invalidation(session, tg)
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         return True
 
@@ -6980,6 +7602,8 @@ def set_current_title(tg: int, title_id: int | None) -> dict[str, Any] | None:
         if title_id in {None, 0}:
             profile.current_title_id = None
             profile.updated_at = utcnow()
+            _queue_profile_cache_invalidation(session, tg)
+            _queue_user_view_cache_invalidation(session, tg)
             session.commit()
             return None
         owned = (
@@ -6994,6 +7618,8 @@ def set_current_title(tg: int, title_id: int | None) -> dict[str, Any] | None:
             raise ValueError("title not found")
         profile.current_title_id = int(title_id)
         profile.updated_at = utcnow()
+        _queue_profile_cache_invalidation(session, tg)
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         return serialize_title(title)
 

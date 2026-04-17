@@ -153,6 +153,21 @@ class PluginRecord:
             "path": str(self.path),
         }
 
+    def to_miniapp_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.plugin_id,
+            "name": self.name,
+            "version": self.version,
+            "description": self.description,
+            "enabled": self.enabled,
+            "miniapp_path": self.miniapp_path,
+            "miniapp_label": self.miniapp_label,
+            "miniapp_icon": self.miniapp_icon,
+            "bottom_nav_default": self.bottom_nav_default,
+            "loaded": self.loaded,
+            "error": self.error,
+        }
+
 
 def _configured_enabled(plugin_id: str, manifest_enabled: bool) -> bool:
     try:
@@ -952,3 +967,7 @@ def sync_plugin_runtime_state(plugin_id: str, app: Any | None = None) -> dict[st
 
 def list_plugins() -> list[dict[str, Any]]:
     return [record.to_dict() for record in _discover_plugins().values()]
+
+
+def list_miniapp_plugins() -> list[dict[str, Any]]:
+    return [record.to_miniapp_dict() for record in _discover_plugins().values()]

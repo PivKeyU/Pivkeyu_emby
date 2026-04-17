@@ -169,6 +169,10 @@ class CraftPayload(InitDataPayload):
     recipe_id: int
 
 
+class RecipeFragmentSynthesisPayload(InitDataPayload):
+    recipe_id: int
+
+
 class FarmPlantPayload(InitDataPayload):
     slot_index: int
     material_id: int

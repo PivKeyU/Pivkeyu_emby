@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pyrogram import enums, filters
@@ -21,7 +22,7 @@ from pyrogram.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarku
 
 from bot import LOGGER, admin_p, api as api_config, bot, config, group, owner, owner_p, prefixes, user_p
 from bot.func_helper.msg_utils import callAnswer
-from bot.plugins import list_plugins
+from bot.plugins import list_miniapp_plugins
 from bot.sql_helper import Session
 from bot.plugins.xiuxian_game.api_models import (
     AchievementPayload,
@@ -79,6 +80,7 @@ from bot.plugins.xiuxian_game.api_models import (
     PlayerSelectionPayload,
     PurchasePayload,
     RecipePayload,
+    RecipeFragmentSynthesisPayload,
     RedEnvelopePayload,
     RetreatPayload,
     ScenePayload,
@@ -132,6 +134,7 @@ from bot.plugins.xiuxian_game.features.crafting import (
     craft_recipe_for_user,
     create_recipe_with_ingredients,
     patch_recipe_with_ingredients,
+    synthesize_recipe_fragment_for_user,
 )
 from bot.plugins.xiuxian_game.features.economy import gift_inventory_item, gift_spirit_stone
 from bot.plugins.xiuxian_game.features.encounters import (
@@ -256,6 +259,7 @@ from bot.plugins.xiuxian_game.features.ui import (
     xiuxian_profile_keyboard,
 )
 from bot.plugins.xiuxian_game.features.world_bundle import build_world_bundle
+from bot.plugins.xiuxian_game.wiki_service import build_wiki_bundle
 from bot.ranks_helper.ranks_draw import RanksDraw
 from bot.scheduler.bot_commands import BotCommands
 from bot.sql_helper.sql_xiuxian import (
@@ -819,7 +823,7 @@ def _build_bottom_nav() -> list[dict[str, str]]:
         }
     ]
 
-    for plugin in list_plugins():
+    for plugin in list_miniapp_plugins():
         if not plugin.get("enabled"):
             continue
         plugin_visible = bool(config.plugin_nav.get(plugin["id"], plugin.get("bottom_nav_default", False)))
@@ -2245,14 +2249,14 @@ def _parse_shanghai_datetime(raw: str | None) -> datetime | None:
 
 def _duel_refresh_interval(remaining_seconds: int | None = None) -> int:
     if remaining_seconds is None:
-        return 10
+        return 15
     if remaining_seconds > 180:
-        return 30
+        return 45
     if remaining_seconds > 60:
-        return 20
+        return 30
     if remaining_seconds > 20:
-        return 10
-    return 5
+        return 15
+    return 8
 
 
 def _normalize_duel_mode_arg(raw: str | None) -> str:
@@ -2538,12 +2542,113 @@ def _duel_snapshot_line(label: str, snapshot: dict[str, Any], status: dict[str, 
     effect_text = str(status.get("effects_text") or "无")
     return (
         f"{label} {_md_escape(str(snapshot.get('name') or '道友'))}"
-        f" ｜ 战力 `{int(round(snapshot.get('power') or 0))}`"
         f" ｜ 气血 `{qi_blood}/{max_qi_blood}`"
         f" ｜ 真元 `{true_yuan}/{max_true_yuan}`"
         f" ｜ 状态 {_md_escape(effect_text)}"
-        f" ｜ 胜率 `{float(snapshot.get('win_rate') or 0):.1f}%`"
     )
+
+
+def _duel_snapshot_sources(snapshot: dict[str, Any]) -> dict[str, Any]:
+    technique_name = str(snapshot.get("technique_name") or "").strip()
+    if technique_name == "未修功法":
+        technique_name = ""
+    talisman_name = str(snapshot.get("talisman_name") or "").strip()
+    if talisman_name == "未备符箓":
+        talisman_name = ""
+    artifact_names = [
+        item.strip()
+        for item in str(snapshot.get("artifact_names") or "").split("、")
+        if item.strip() and item.strip() != "未装备法宝"
+    ]
+    return {
+        "technique": technique_name,
+        "talisman": talisman_name,
+        "artifacts": artifact_names[:3],
+    }
+
+
+def _duel_loadout_line(label: str, snapshot: dict[str, Any]) -> str:
+    sources = _duel_snapshot_sources(snapshot)
+    parts: list[str] = []
+    if sources["technique"]:
+        parts.append(f"功法《{_md_escape(sources['technique'])}》")
+    if sources["talisman"]:
+        parts.append(f"符箓【{_md_escape(sources['talisman'])}】")
+    if sources["artifacts"]:
+        parts.append("法宝【" + "、".join(_md_escape(item) for item in sources["artifacts"]) + "】")
+    return f"{label} " + (" ｜ ".join(parts) if parts else "暂无明显底牌显化")
+
+
+def _duel_compact_log_excerpt(text: str, source_name: str = "", limit: int = 30) -> str:
+    excerpt = re.sub(r"\s+", " ", str(text or "")).strip()
+    if source_name:
+        for marker in (f"{source_name}：", f"{source_name}:"):
+            if marker in excerpt:
+                excerpt = excerpt.split(marker, 1)[1].strip()
+                break
+        else:
+            excerpt = excerpt.replace(source_name, "", 1).strip()
+    excerpt = excerpt.lstrip("，。；：,: ")
+    if len(excerpt) > limit:
+        excerpt = excerpt[: max(limit - 1, 1)].rstrip("，。；：,: ") + "…"
+    return excerpt or "气机已经显化。"
+
+
+def _duel_find_source_excerpt(
+    battle_log: list[dict[str, Any]],
+    shown: int,
+    source_names: list[str],
+) -> tuple[str, str]:
+    visible_rows = battle_log[:shown]
+    for excluded_kinds in ({"state", "round", "opening"}, {"state", "round"}):
+        for row in visible_rows:
+            if str(row.get("kind") or "").strip() in excluded_kinds:
+                continue
+            text = str(row.get("text") or "").strip()
+            if not text:
+                continue
+            for source_name in source_names:
+                if source_name and source_name in text:
+                    return source_name, _duel_compact_log_excerpt(text, source_name=source_name)
+    return "", ""
+
+
+def _duel_showcase_line(label: str, snapshot: dict[str, Any], battle_log: list[dict[str, Any]], shown: int) -> str:
+    sources = _duel_snapshot_sources(snapshot)
+    segments: list[str] = []
+    technique_name = str(sources.get("technique") or "").strip()
+    talisman_name = str(sources.get("talisman") or "").strip()
+    artifact_names = list(sources.get("artifacts") or [])
+    if technique_name:
+        _, excerpt = _duel_find_source_excerpt(battle_log, shown, [technique_name])
+        if excerpt:
+            segments.append(f"功法《{_md_escape(technique_name)}》{_md_escape(excerpt)}")
+    if talisman_name:
+        _, excerpt = _duel_find_source_excerpt(battle_log, shown, [talisman_name])
+        if excerpt:
+            segments.append(f"符箓【{_md_escape(talisman_name)}】{_md_escape(excerpt)}")
+    if artifact_names:
+        artifact_name, excerpt = _duel_find_source_excerpt(battle_log, shown, artifact_names)
+        if artifact_name and excerpt:
+            segments.append(f"法宝【{_md_escape(artifact_name)}】{_md_escape(excerpt)}")
+    if not segments:
+        return ""
+    return f"{label} " + "；".join(segments[:3])
+
+
+def _latest_duel_impact_line(battle_log: list[dict[str, Any]], shown: int) -> str:
+    for row in reversed(battle_log[:shown]):
+        kind = str(row.get("kind") or "").strip()
+        if kind in {"state", "round"}:
+            continue
+        text = str(row.get("text") or "").strip()
+        if not text:
+            continue
+        prefix = _duel_log_emoji(kind)
+        round_no = int(row.get("round") or 0)
+        round_text = f"第{round_no}回合：" if round_no > 0 and kind != "opening" else ""
+        return f"{prefix} {_md_escape(round_text + _duel_compact_log_excerpt(text, limit=42))}"
+    return ""
 
 
 def _format_duel_stream_text(result: dict[str, Any], visible_count: int) -> str:
@@ -2555,11 +2660,15 @@ def _format_duel_stream_text(result: dict[str, Any], visible_count: int) -> str:
     total = len(battle_log)
     shown = min(max(int(visible_count or 0), 0), total)
     challenger_status, defender_status = _latest_visible_duel_statuses(result, shown)
+    current_round = max((int(row.get("round") or 0) for row in battle_log[:shown]), default=0)
+    challenger_showcase = _duel_showcase_line("🟥 显化：", challenger_snapshot, battle_log, shown)
+    defender_showcase = _duel_showcase_line("🟦 显化：", defender_snapshot, battle_log, shown)
+    latest_impact = _latest_duel_impact_line(battle_log, shown)
     lines = [
-        "⚔️ **斗法直播**",
+        "⚔️ **斗法简报**",
         f"对局：{_md_escape(_duel_profile_label(challenger))} vs {_md_escape(_duel_profile_label(defender))}",
-        f"进度：`{shown}/{total}` 条战报",
-        "战况：灵压交错，斗法台正在实时回传气机波动。",
+        f"回合：`{current_round}/{int(result.get('round_count') or max(current_round, 1))}` ｜ 记录：`{shown}/{total}`",
+        "战况：仅保留关键显化，避免群内连续刷屏。",
     ]
     stake = int(result.get("stake") or 0)
     if stake > 0:
@@ -2572,13 +2681,18 @@ def _format_duel_stream_text(result: dict[str, Any], visible_count: int) -> str:
             "",
         ]
     )
-    for row in battle_log[:shown]:
-        prefix = _duel_log_emoji(row.get("kind"))
-        round_no = int(row.get("round") or 0)
-        round_text = f"`第{round_no}回合` " if round_no > 0 and row.get("kind") != "round" else ""
-        lines.append(f"{prefix} {round_text}{_md_escape(row.get('text') or '')}")
+    lines.append(_duel_loadout_line("🟥 底牌：", challenger_snapshot))
+    lines.append(_duel_loadout_line("🟦 底牌：", defender_snapshot))
+    if challenger_showcase or defender_showcase or latest_impact:
+        lines.extend(["", "关键显化："])
+        if challenger_showcase:
+            lines.append(challenger_showcase)
+        if defender_showcase:
+            lines.append(defender_showcase)
+        if latest_impact:
+            lines.append(f"📣 最新波动：{latest_impact}")
     if shown < total:
-        lines.extend(["", "⏳ 场中仍有余波翻涌，法宝与符光还在互相撕扯，下一轮战报即将显化……"])
+        lines.extend(["", "⏳ 余波尚未散尽，结算即将落下。"])
     else:
         lines.extend(["", f"🏁 **胜负已分**", _md_escape(str(result.get('summary') or '斗法结束。'))])
     return "\n".join(lines)
@@ -2588,23 +2702,17 @@ async def _stream_duel_battle(message, result: dict[str, Any]) -> None:
     battle_log = list(result.get("battle_log") or [])
     if not battle_log:
         return
-    step = max((len(battle_log) + 5) // 6, 3)
-    shown = min(step, len(battle_log))
-    while True:
-        try:
-            await _edit_text(
-                message,
-                _format_duel_stream_text(result, shown),
-                persistent=True,
-                parse_mode=RICH_TEXT_MODE,
-            )
-        except Exception as exc:
-            LOGGER.warning(f"xiuxian duel stream update failed: {exc}")
-            return
-        if shown >= len(battle_log):
-            return
-        await asyncio.sleep(3)
-        shown = min(shown + step, len(battle_log))
+    try:
+        await _edit_text(
+            message,
+            _format_duel_stream_text(result, len(battle_log)),
+            persistent=True,
+            parse_mode=RICH_TEXT_MODE,
+        )
+    except Exception as exc:
+        LOGGER.warning(f"xiuxian duel stream update failed: {exc}")
+        return
+    await asyncio.sleep(2)
 
 
 async def _maybe_refresh_duel_bet_message(pool_id: int, message, remaining_seconds: int | None = None, force: bool = False) -> bool:
@@ -2676,7 +2784,7 @@ def register_bot(bot_instance) -> None:
                 try:
                     await _edit_text(
                         message,
-                        "⏳ **斗法推演开始**\n\n战报将逐条显化……" if pool_id is None else "⏳ **赌池已封盘**\n\n斗法推演开始，战报将逐条显化……",
+                        "⏳ **斗法推演开始**\n\n关键战况整理中……" if pool_id is None else "⏳ **赌池已封盘**\n\n斗法推演开始，关键战况整理中……",
                         persistent=True,
                         parse_mode=RICH_TEXT_MODE,
                     )
@@ -3889,19 +3997,29 @@ def register_web(app) -> None:
 
     @user_router.post("/api/bootstrap")
     async def xiuxian_bootstrap(payload: InitDataPayload):
-        telegram_user = _verify_user_from_init_data(payload.init_data)
-        profile = _full_bundle(telegram_user["id"])
+        telegram_user = await run_in_threadpool(_verify_user_from_init_data, payload.init_data)
+        profile, initial_leaderboard, bottom_nav = await asyncio.gather(
+            run_in_threadpool(_full_bundle, telegram_user["id"]),
+            run_in_threadpool(build_leaderboard, "stone", 1),
+            run_in_threadpool(_build_bottom_nav),
+        )
         return {
             "code": 200,
             "data": {
                 "telegram_user": telegram_user,
                 "profile_bundle": profile,
+                "initial_leaderboard": initial_leaderboard,
                 "app_url": build_plugin_url("/plugins/xiuxian/app"),
                 "admin_panel_url": _admin_panel_url() if is_admin_user_id(telegram_user["id"]) else None,
                 "home_url": build_plugin_url("/miniapp"),
-                "bottom_nav": _build_bottom_nav(),
+                "bottom_nav": bottom_nav,
             },
         }
+
+    @user_router.post("/api/wiki")
+    async def xiuxian_wiki_api(payload: InitDataPayload):
+        _verify_user_from_init_data(payload.init_data)
+        return {"code": 200, "data": await run_in_threadpool(build_wiki_bundle)}
 
     @user_router.post("/api/upload-image")
     async def xiuxian_upload_image_api(
@@ -4242,6 +4360,12 @@ def register_web(app) -> None:
         await _notify_achievement_unlocks(result.get("achievement_unlocks"))
         return {"code": 200, "data": {"result": result, "bundle": _full_bundle(telegram_user["id"])}}
 
+    @user_router.post("/api/recipe/synthesize")
+    async def xiuxian_recipe_fragment_synthesis_api(payload: RecipeFragmentSynthesisPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = synthesize_recipe_fragment_for_user(telegram_user["id"], payload.recipe_id)
+        return {"code": 200, "data": {"result": result, "bundle": _full_bundle(telegram_user["id"])}}
+
     @user_router.post("/api/farm/plant")
     async def xiuxian_farm_plant_api(payload: FarmPlantPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
@@ -4439,8 +4563,8 @@ def register_web(app) -> None:
 
     @user_router.post("/api/leaderboard")
     async def xiuxian_leaderboard_api(payload: LeaderboardPayload):
-        _verify_user_from_init_data(payload.init_data)
-        result = build_leaderboard(payload.kind, payload.page)
+        await run_in_threadpool(_verify_user_from_init_data, payload.init_data)
+        result = await run_in_threadpool(build_leaderboard, payload.kind, payload.page)
         return {"code": 200, "data": result}
 
     @user_router.get("/api/shop")

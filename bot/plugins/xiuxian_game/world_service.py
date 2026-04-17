@@ -18,6 +18,7 @@ from bot.sql_helper.sql_xiuxian import (
     QUALITY_LABEL_LEVELS,
     SECT_ROLE_LABELS,
     SECT_ROLE_PRESETS,
+    _marriage_partner_tg,
     apply_spiritual_stone_delta,
     assert_currency_operation_allowed,
     assert_profile_alive,
@@ -130,6 +131,14 @@ SECT_ENTRY_TECHNIQUES = {
     "灵傀山": "灵傀百炼篇",
     "栖凰山": "栖凰离火录",
 }
+
+
+def _is_active_spouse_pair(session: Session, actor_tg: int, target_tg: int) -> bool:
+    actor_id = int(actor_tg or 0)
+    target_id = int(target_tg or 0)
+    if actor_id <= 0 or target_id <= 0 or actor_id == target_id:
+        return False
+    return int(_marriage_partner_tg(session, actor_id, for_update=True) or 0) == target_id
 
 
 def _sect_entry_technique_payload(sect_name: str) -> dict[str, Any] | None:
@@ -1361,6 +1370,131 @@ def build_recipe_catalog(tg: int | None = None) -> list[dict[str, Any]]:
     return rows
 
 
+def _recipe_fragment_requirement(recipe_id: int) -> dict[str, Any] | None:
+    fragment_rows: list[dict[str, Any]] = []
+    for ingredient in list_recipe_ingredients(recipe_id):
+        material = dict(ingredient.get("material") or {})
+        if not material and int(ingredient.get("material_id") or 0) > 0:
+            material = serialize_material(get_material(int(ingredient.get("material_id") or 0))) or {}
+        material_name = str(material.get("name") or "")
+        if "残页" not in material_name:
+            continue
+        fragment_rows.append(
+            {
+                **ingredient,
+                "material": material,
+                "material_id": int(material.get("id") or ingredient.get("material_id") or 0),
+                "quantity": max(int(ingredient.get("quantity") or 1), 1),
+            }
+        )
+    if len(fragment_rows) != 1:
+        return None
+    return fragment_rows[0]
+
+
+def build_recipe_fragment_synthesis_catalog(tg: int) -> list[dict[str, Any]]:
+    owned_recipe_ids = {
+        int((row.get("recipe") or {}).get("id") or 0)
+        for row in list_user_recipes(tg)
+        if int((row.get("recipe") or {}).get("id") or 0) > 0
+    }
+    inventory_map = {
+        int((row.get("material") or {}).get("id") or 0): max(int(row.get("quantity") or 0), 0)
+        for row in list_user_materials(tg)
+        if int((row.get("material") or {}).get("id") or 0) > 0
+    }
+    rows: list[dict[str, Any]] = []
+    for recipe in list_recipes(enabled_only=True):
+        recipe_id = int(recipe.get("id") or 0)
+        if recipe_id <= 0 or recipe_id in owned_recipe_ids:
+            continue
+        fragment_requirement = _recipe_fragment_requirement(recipe_id)
+        if fragment_requirement is None:
+            continue
+        material = dict(fragment_requirement.get("material") or {})
+        material_id = int(material.get("id") or fragment_requirement.get("material_id") or 0)
+        required_quantity = max(int(fragment_requirement.get("quantity") or 1), 1)
+        owned_quantity = inventory_map.get(material_id, 0)
+        result_item = _get_item_payload(str(recipe.get("result_kind") or ""), int(recipe.get("result_ref_id") or 0))
+        rows.append(
+            {
+                "recipe_id": recipe_id,
+                "recipe_name": recipe.get("name"),
+                "recipe_kind": recipe.get("recipe_kind"),
+                "recipe_kind_label": recipe.get("recipe_kind_label"),
+                "required_material_id": material_id,
+                "required_material_name": material.get("name") or "残页",
+                "required_quantity": required_quantity,
+                "owned_quantity": owned_quantity,
+                "can_synthesize": owned_quantity >= required_quantity,
+                "result_item": result_item,
+                "result_item_name": (result_item or {}).get("name") or "未知成品",
+            }
+        )
+    return sorted(
+        rows,
+        key=lambda item: (
+            0 if item.get("can_synthesize") else 1,
+            str(item.get("recipe_kind_label") or item.get("recipe_kind") or ""),
+            str(item.get("recipe_name") or ""),
+        ),
+    )
+
+
+def synthesize_recipe_fragment_for_user(tg: int, recipe_id: int) -> dict[str, Any]:
+    recipe = serialize_recipe(get_recipe(recipe_id))
+    if recipe is None or not recipe.get("enabled"):
+        raise ValueError("配方不存在")
+    profile = serialize_profile(get_profile(tg, create=False))
+    if not profile or not profile.get("consented"):
+        raise ValueError("你还没有踏入仙途")
+    if any(int((row.get("recipe") or {}).get("id") or 0) == int(recipe_id) for row in list_user_recipes(tg)):
+        raise ValueError("你已掌握这张配方，无需再次参悟")
+    fragment_requirement = _recipe_fragment_requirement(int(recipe_id))
+    if fragment_requirement is None:
+        raise ValueError("该配方不支持残页参悟")
+    material = dict(fragment_requirement.get("material") or {})
+    material_id = int(material.get("id") or fragment_requirement.get("material_id") or 0)
+    if material_id <= 0:
+        raise ValueError("该残页配置异常，请联系管理员修复")
+    required_quantity = max(int(fragment_requirement.get("quantity") or 1), 1)
+    with Session() as session:
+        row = (
+            session.query(XiuxianMaterialInventory)
+            .filter(XiuxianMaterialInventory.tg == tg, XiuxianMaterialInventory.material_id == material_id)
+            .with_for_update()
+            .first()
+        )
+        if row is None or int(row.quantity or 0) < required_quantity:
+            raise ValueError(f"残页不足：{material.get('name') or '对应残页'}")
+        row.quantity -= required_quantity
+        row.updated_at = utcnow()
+        if row.quantity <= 0:
+            session.delete(row)
+        session.commit()
+    granted = grant_recipe_to_user(
+        tg,
+        int(recipe_id),
+        source="fragment_synthesis",
+        obtained_note="残页参悟",
+    )
+    recipe_payload = dict(granted.get("recipe") or recipe)
+    recipe_payload["result_item"] = _get_item_payload(str(recipe_payload.get("result_kind") or ""), int(recipe_payload.get("result_ref_id") or 0))
+    create_journal(
+        tg,
+        "craft",
+        "参悟配方",
+        f"消耗【{material.get('name') or '残页'}】×{required_quantity}，参悟出配方【{recipe_payload.get('name') or '未知配方'}】。",
+    )
+    return {
+        "recipe": recipe_payload,
+        "fragment_material": material,
+        "required_quantity": required_quantity,
+        "result_item": recipe_payload.get("result_item"),
+        "profile": serialize_profile(get_profile(tg, create=False)),
+    }
+
+
 def sync_recipe_with_ingredients_by_name(
     *,
     name: str,
@@ -1935,14 +2069,23 @@ def create_red_envelope_for_user(
 ) -> dict[str, Any]:
     profile, _ = _require_alive_profile_data(tg, "发放红包")
     assert_currency_operation_allowed(tg, "发放红包", profile=profile)
+    normalized_mode = str(mode or "").strip()
     amount_total = max(int(amount_total or 0), 1)
     count_total = max(int(count_total or 1), 1)
+    exclusive_target_tg = int(target_tg or 0) if normalized_mode == "exclusive" else 0
+    if normalized_mode == "exclusive":
+        if exclusive_target_tg <= 0:
+            raise ValueError("专属红包需要指定目标 TG ID。")
+        if exclusive_target_tg == int(tg):
+            raise ValueError("不能给自己发专属红包。")
     if int(profile.spiritual_stone or 0) < amount_total:
         raise ValueError("灵石不足")
     with Session() as session:
         updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if updated is None or not updated.consented:
             raise ValueError("你还没有踏入仙途")
+        if normalized_mode == "exclusive" and _is_active_spouse_pair(session, tg, exclusive_target_tg):
+            raise ValueError("道侣之间灵石共享，不能互发专属红包。")
         apply_spiritual_stone_delta(
             session,
             tg,
@@ -1958,8 +2101,8 @@ def create_red_envelope_for_user(
             creator_tg=tg,
             cover_text=cover_text or "恭喜发财",
             image_url=image_url or None,
-            mode=mode,
-            target_tg=target_tg,
+            mode=normalized_mode,
+            target_tg=exclusive_target_tg or None,
             amount_total=amount_total,
             count_total=count_total,
             remaining_amount=amount_total,
@@ -2004,6 +2147,11 @@ def claim_red_envelope_for_user(envelope_id: int, tg: int) -> dict[str, Any]:
         envelope = session.query(XiuxianRedEnvelope).filter(XiuxianRedEnvelope.id == envelope_id).with_for_update().first()
         if envelope is None or envelope.status != "active":
             raise ValueError("红包不存在或已领完")
+        creator_tg = int(envelope.creator_tg or 0)
+        if creator_tg == int(tg):
+            raise ValueError("不能领取自己发放的红包。")
+        if creator_tg > 0 and _is_active_spouse_pair(session, creator_tg, tg):
+            raise ValueError("道侣之间灵石共享，不能领取对方发放的红包。")
         if envelope.target_tg and int(envelope.target_tg) != int(tg):
             raise ValueError("这是专属红包，你不能领取")
         existing = (
@@ -2700,6 +2848,7 @@ def build_world_bundle(tg: int) -> dict[str, Any]:
         "recipes": recipes,
         "recipe_discovered_count": len(recipes),
         "recipe_total_count": len(list_recipes(enabled_only=True)),
+        "recipe_fragment_syntheses": build_recipe_fragment_synthesis_catalog(tg),
         "technique_total_count": len(list_techniques(enabled_only=True)),
         "scenes": scenes,
         "active_exploration": _get_active_exploration(tg),

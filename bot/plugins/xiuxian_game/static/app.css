@@ -146,6 +146,7 @@ h3 {
 .modal-message {
   font-size: 14px;
   line-height: 1.6;
+  white-space: pre-line;
 }
 
 .hero-pills {
@@ -440,6 +441,44 @@ h3 {
   margin-top: 10px;
 }
 
+.wiki-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.wiki-filter-row > button {
+  width: auto;
+  min-width: 72px;
+  flex: 0 0 auto;
+}
+
+.wiki-filter-row > button.is-active {
+  background: rgba(37, 99, 235, 0.12);
+  border-color: rgba(37, 99, 235, 0.28);
+  color: #1d4ed8;
+}
+
+.wiki-meta-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.wiki-body-lines {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.wiki-body-lines p {
+  margin: 0;
+}
+
 .info-grid,
 .recipe-source-list,
 .scene-drop-list {
@@ -638,6 +677,11 @@ button.ghost {
 }
 
 button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+button.is-blocked:not(:disabled) {
   cursor: not-allowed;
   opacity: 0.52;
 }

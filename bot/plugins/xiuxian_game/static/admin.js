@@ -770,6 +770,31 @@ async function uploadImage(file, folder) {
   return payload.data;
 }
 
+function normalizeAdminUrlValue(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return raw;
+  if (raw.startsWith("//")) return `${window.location.protocol}${raw}`;
+  if (raw.startsWith("/") || raw.startsWith("./") || raw.startsWith("../")) {
+    try {
+      return new URL(raw, window.location.origin).href;
+    } catch {
+      return raw;
+    }
+  }
+  return raw;
+}
+
+function setAdminInputValue(target, value) {
+  const node = typeof target === "string" ? $(target) : target;
+  if (!node) return "";
+  const nextValue = node.matches?.('input[type="url"]')
+    ? normalizeAdminUrlValue(value)
+    : String(value ?? "");
+  node.value = nextValue;
+  return nextValue;
+}
+
 function setOptions(node, rows, current = "", placeholder = "请选择") {
   if (!node) return;
   node.innerHTML = "";
@@ -1041,7 +1066,7 @@ function bindUploadButtons() {
       const target = $(button.dataset.uploadTarget);
       try {
         const payload = await uploadImage(file, button.dataset.uploadFolder || "admin");
-        if (target) target.value = payload.url || payload.relative_url;
+        setAdminInputValue(target, payload.url || payload.relative_url || "");
         await popup("上传成功", "图片地址已经自动写回表单。");
       } catch (error) {
         await popup("上传失败", String(error.message || error), "error");
@@ -3332,25 +3357,35 @@ function parseRewardConfigInput() {
 
 document.getElementById("title-form")?.addEventListener("submit", async (event) => {
   event.preventDefault();
-  await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/title", {
-    name: $("title-name").value.trim(),
-    description: $("title-description").value.trim(),
-    color: $("title-color").value.trim(),
-    image_url: $("title-image").value.trim(),
-    attack_bonus: Number($("title-attack").value || 0),
-    defense_bonus: Number($("title-defense").value || 0),
-    bone_bonus: Number($("title-bone").value || 0),
-    comprehension_bonus: Number($("title-comprehension").value || 0),
-    divine_sense_bonus: Number($("title-divine-sense").value || 0),
-    fortune_bonus: Number($("title-fortune").value || 0),
-    qi_blood_bonus: Number($("title-qi-blood").value || 0),
-    true_yuan_bonus: Number($("title-true-yuan").value || 0),
-    body_movement_bonus: Number($("title-body-movement").value || 0),
-    duel_rate_bonus: Number($("title-duel").value || 0),
-    cultivation_bonus: Number($("title-cultivation").value || 0),
-    breakthrough_bonus: Number($("title-breakthrough").value || 0),
-    enabled: $("title-enabled").checked,
-  }), "创建成功", "称号已加入修仙系统。");
+  const name = $("title-name")?.value.trim() || "";
+  const imageUrl = setAdminInputValue("title-image", $("title-image")?.value || "");
+  if (!name) {
+    await popup("提交失败", "请先填写称号名称。", "error");
+    return;
+  }
+  try {
+    await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/title", {
+      name,
+      description: $("title-description").value.trim(),
+      color: $("title-color").value.trim(),
+      image_url: imageUrl,
+      attack_bonus: Number($("title-attack").value || 0),
+      defense_bonus: Number($("title-defense").value || 0),
+      bone_bonus: Number($("title-bone").value || 0),
+      comprehension_bonus: Number($("title-comprehension").value || 0),
+      divine_sense_bonus: Number($("title-divine-sense").value || 0),
+      fortune_bonus: Number($("title-fortune").value || 0),
+      qi_blood_bonus: Number($("title-qi-blood").value || 0),
+      true_yuan_bonus: Number($("title-true-yuan").value || 0),
+      body_movement_bonus: Number($("title-body-movement").value || 0),
+      duel_rate_bonus: Number($("title-duel").value || 0),
+      cultivation_bonus: Number($("title-cultivation").value || 0),
+      breakthrough_bonus: Number($("title-breakthrough").value || 0),
+      enabled: $("title-enabled").checked,
+    }), "创建成功", "称号已加入修仙系统。");
+  } catch (error) {
+    await popup("提交失败", String(error.message || error), "error");
+  }
 });
 
 document.getElementById("title-grant-form")?.addEventListener("submit", async (event) => {
@@ -3413,6 +3448,11 @@ ensureSettingRuleRows();
 bindEvents();
 bindAttributeAwareSubmitters();
 hydrateAdminForms();
+if ($("title-form")) {
+  $("title-form").noValidate = true;
+}
+window.setAdminInputValue = setAdminInputValue;
+window.normalizeAdminUrlValue = normalizeAdminUrlValue;
 renderAdminNavigator();
 syncSelectedPlayerUI();
 tg?.ready?.();

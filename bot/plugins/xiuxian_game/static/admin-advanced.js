@@ -1078,7 +1078,7 @@
     $("artifact-role").value = item.artifact_role || "battle";
     $("artifact-slot").value = item.equip_slot || "weapon";
     $("artifact-set-id").value = String(item.artifact_set_id || "");
-    $("artifact-image").value = item.image_url || "";
+    window.setAdminInputValue?.("artifact-image", item.image_url || "");
     $("artifact-description").value = item.description || "";
     $("artifact-duel").value = item.duel_rate_bonus || 0;
     $("artifact-cultivation").value = item.cultivation_bonus || 0;
@@ -1122,7 +1122,7 @@
     if (!item) return;
     $("talisman-name").value = item.name || "";
     $("talisman-rarity").value = item.rarity || "凡品";
-    $("talisman-image").value = item.image_url || "";
+    window.setAdminInputValue?.("talisman-image", item.image_url || "");
     $("talisman-description").value = item.description || "";
     $("talisman-duel").value = item.duel_rate_bonus || 0;
     $("talisman-effect-uses").value = item.effect_uses || 1;
@@ -1144,7 +1144,7 @@
     $("pill-name").value = item.name || "";
     $("pill-rarity").value = item.rarity || "凡品";
     $("pill-type").value = item.pill_type || "foundation";
-    $("pill-image").value = item.image_url || "";
+    window.setAdminInputValue?.("pill-image", item.image_url || "");
     $("pill-description").value = item.description || "";
     $("pill-effect").value = item.effect_value || 0;
     $("pill-poison").value = item.poison_delta || 0;
@@ -1166,7 +1166,7 @@
     $("technique-name").value = item.name || "";
     $("technique-rarity").value = item.rarity || "凡品";
     $("technique-type").value = item.technique_type || "balanced";
-    $("technique-image").value = item.image_url || "";
+    window.setAdminInputValue?.("technique-image", item.image_url || "");
     $("technique-description").value = item.description || "";
     $("technique-duel").value = item.duel_rate_bonus || 0;
     $("technique-cultivation").value = item.cultivation_bonus || 0;
@@ -1200,7 +1200,7 @@
     $("sect-karma").value = item.min_karma || 0;
     $("sect-min-body-movement").value = item.min_body_movement || 0;
     $("sect-min-combat-power").value = item.min_combat_power || 0;
-    $("sect-image").value = item.image_url || "";
+    window.setAdminInputValue?.("sect-image", item.image_url || "");
     $("sect-description").value = item.description || "";
     $("sect-attack").value = item.attack_bonus || 0;
     $("sect-defense").value = item.defense_bonus || 0;
@@ -1221,7 +1221,7 @@
     if (!item) return;
     $("title-name").value = item.name || "";
     $("title-color").value = item.color || "";
-    $("title-image").value = item.image_url || "";
+    window.setAdminInputValue?.("title-image", item.image_url || "");
     $("title-enabled").checked = item.enabled !== false;
     $("title-description").value = item.description || "";
     $("title-attack").value = item.attack_bonus || 0;
@@ -1263,7 +1263,7 @@
     if (!item) return;
     $("material-name").value = item.name || "";
     $("material-quality").value = item.quality_label || item.quality_level || "凡品";
-    $("material-image").value = item.image_url || "";
+    window.setAdminInputValue?.("material-image", item.image_url || "");
     $("material-description").value = item.description || "";
     $("material-enabled").checked = item.enabled !== false;
     setFormEditMode("material-form", item);
@@ -1298,7 +1298,7 @@
     if (!item) return;
     $("scene-name").value = item.name || "";
     $("scene-max-minutes").value = item.max_minutes || 60;
-    $("scene-image").value = item.image_url || "";
+    window.setAdminInputValue?.("scene-image", item.image_url || "");
     $("scene-description").value = item.description || "";
     $("scene-event-rows").innerHTML = "";
     $("scene-drop-rows").innerHTML = "";
@@ -1315,7 +1315,7 @@
     if (!item) return;
     $("encounter-name").value = item.name || "";
     $("encounter-description").value = item.description || "";
-    $("encounter-image").value = item.image_url || "";
+    window.setAdminInputValue?.("encounter-image", item.image_url || "");
     $("encounter-button-text").value = item.button_text || "争抢机缘";
     $("encounter-success-text").value = item.success_text || "";
     $("encounter-broadcast-text").value = item.broadcast_text || "";
