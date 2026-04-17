@@ -20,6 +20,14 @@ from bot.func_helper.utils import cr_link_one, rn_link_one
 from bot.plugins import PluginImportError, import_plugin_archive, list_plugins, sync_plugin_runtime_state
 from bot.scheduler.auto_update import serialize_auto_update_state, update_auto_update_settings
 from bot.sql_helper import Session
+from bot.sql_helper.sql_bot_access import (
+    BotAccessBlock,
+    find_bot_access_block,
+    find_existing_bot_access_block,
+    invalidate_bot_access_cache,
+    normalize_bot_access_username,
+    serialize_bot_access_block,
+)
 from bot.sql_helper.sql_code import Code, CodeRedeem
 from bot.sql_helper.sql_emby import Emby
 from bot.web.migration_bundle import MigrationBundleError, create_migration_bundle, restore_migration_bundle
@@ -72,6 +80,12 @@ class AdminCodeDeletePayload(BaseModel):
     codes: list[str] = Field(default_factory=list)
 
 
+class AdminBotAccessBlockCreatePayload(BaseModel):
+    tg: int | None = Field(default=None, ge=1)
+    username: str | None = Field(default=None, max_length=255)
+    note: str | None = Field(default=None, max_length=255)
+
+
 def _telegram_identity_payload(user: Any) -> dict[str, str]:
     first_name = str(getattr(user, "first_name", "") or "").strip()
     last_name = str(getattr(user, "last_name", "") or "").strip()
@@ -97,9 +111,12 @@ def _telegram_display_label(tg: int, identity: dict[str, str] | None) -> str:
 def _serialize_admin_user(user: Emby, identity: dict[str, str] | None = None) -> dict[str, Any]:
     payload = serialize_emby_user(user)
     identity = identity or {}
+    matched_block = find_bot_access_block(tg=int(user.tg), username=identity.get("username"))
     payload["tg_display_name"] = identity.get("display_name")
     payload["tg_username"] = identity.get("username")
     payload["tg_display_label"] = _telegram_display_label(int(user.tg), identity)
+    payload["bot_access_blocked"] = matched_block is not None
+    payload["bot_access_block"] = matched_block
     return payload
 
 
@@ -245,6 +262,21 @@ def _code_kind_text(kind: str) -> str:
         "register": "注册码",
         "renew": "续期码",
     }.get(kind, "未知类型")
+
+
+def _normalize_bot_access_payload(payload: AdminBotAccessBlockCreatePayload) -> dict[str, Any]:
+    tg = int(payload.tg) if payload.tg is not None else None
+    username = normalize_bot_access_username(payload.username)
+    note = str(payload.note or "").strip() or None
+
+    if tg is None and username is None:
+        raise HTTPException(status_code=400, detail="TGID 和 TG 用户名至少需要填写一项")
+
+    return {
+        "tg": tg,
+        "username": username,
+        "note": note,
+    }
 
 
 def _serialize_code_record(
@@ -488,6 +520,68 @@ async def update_user(tg: int, payload: AdminUserPatch):
         session.refresh(user)
     identity_map = await _fetch_telegram_identity_map([tg])
     return {"code": 200, "data": _serialize_admin_user(user, identity_map.get(int(tg)))}
+
+
+@router.get("/bot-access-blocks")
+async def list_bot_access_blocks():
+    with Session() as session:
+        rows = (
+            session.query(BotAccessBlock)
+            .order_by(BotAccessBlock.created_at.desc(), BotAccessBlock.id.desc())
+            .all()
+        )
+
+    return {
+        "code": 200,
+        "data": [serialize_bot_access_block(row) for row in rows],
+    }
+
+
+@router.post("/bot-access-blocks")
+async def create_bot_access_block(payload: AdminBotAccessBlockCreatePayload):
+    normalized = _normalize_bot_access_payload(payload)
+    existing = find_existing_bot_access_block(tg=normalized["tg"], username=normalized["username"])
+    if existing is not None:
+        target = serialize_bot_access_block(existing).get("target_text") or f"规则 {existing.id}"
+        raise HTTPException(status_code=409, detail=f"{target} 已存在于 Bot 黑名单中")
+
+    with Session() as session:
+        try:
+            row = BotAccessBlock(
+                tg=normalized["tg"],
+                username=normalized["username"],
+                note=normalized["note"],
+            )
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+        except Exception as exc:
+            session.rollback()
+            LOGGER.warning(f"create bot access block failed: {exc}")
+            raise HTTPException(status_code=500, detail="创建 Bot 黑名单规则失败") from exc
+
+    invalidate_bot_access_cache()
+    return {"code": 200, "data": serialize_bot_access_block(row)}
+
+
+@router.delete("/bot-access-blocks/{block_id}")
+async def delete_bot_access_block(block_id: int):
+    with Session() as session:
+        row = session.query(BotAccessBlock).filter(BotAccessBlock.id == block_id).first()
+        if row is None:
+            raise HTTPException(status_code=404, detail="未找到对应黑名单规则")
+
+        payload = serialize_bot_access_block(row)
+        try:
+            session.delete(row)
+            session.commit()
+        except Exception as exc:
+            session.rollback()
+            LOGGER.warning(f"delete bot access block failed: {exc}")
+            raise HTTPException(status_code=500, detail="删除 Bot 黑名单规则失败") from exc
+
+    invalidate_bot_access_cache()
+    return {"code": 200, "data": {"deleted": True, "item": payload}}
 
 
 @router.get("/codes")

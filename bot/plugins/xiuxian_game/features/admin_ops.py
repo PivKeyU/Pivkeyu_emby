@@ -67,9 +67,5 @@ def admin_seed_demo_assets(tg: int) -> dict[str, Any]:
     return _legacy_service().admin_seed_demo_assets(tg)
 
 
-def admin_migrate_all_profile_realms(preview_limit: int = 20) -> dict[str, Any]:
-    return _legacy_service().admin_migrate_all_profile_realms(preview_limit=preview_limit)
-
-
 def admin_clear_all_xiuxian_data() -> dict[str, Any]:
     return _legacy_service().admin_clear_all_xiuxian_data()

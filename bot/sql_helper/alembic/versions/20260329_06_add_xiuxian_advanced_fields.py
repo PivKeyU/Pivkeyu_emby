@@ -164,9 +164,9 @@ def upgrade() -> None:
         """
         INSERT INTO `xiuxian_settings` (`setting_key`, `setting_value`, `updated_at`)
         VALUES
-          ('chat_cultivation_chance', CAST(8 AS JSON), CURRENT_TIMESTAMP),
-          ('chat_cultivation_min_gain', CAST(1 AS JSON), CURRENT_TIMESTAMP),
-          ('chat_cultivation_max_gain', CAST(3 AS JSON), CURRENT_TIMESTAMP)
+          ('chat_cultivation_chance', '8', CURRENT_TIMESTAMP),
+          ('chat_cultivation_min_gain', '1', CURRENT_TIMESTAMP),
+          ('chat_cultivation_max_gain', '3', CURRENT_TIMESTAMP)
         ON DUPLICATE KEY UPDATE
           `setting_value` = `setting_value`,
           `updated_at` = `updated_at`;
@@ -175,7 +175,7 @@ def upgrade() -> None:
     op.execute(
         """
         UPDATE `xiuxian_settings`
-        SET `setting_value` = CAST(1 AS JSON), `updated_at` = CURRENT_TIMESTAMP
+        SET `setting_value` = '1', `updated_at` = CURRENT_TIMESTAMP
         WHERE `setting_key` = 'min_coin_exchange'
           AND CAST(JSON_UNQUOTE(`setting_value`) AS UNSIGNED) = 100;
         """

@@ -50,6 +50,14 @@ class ExchangePayload(InitDataPayload):
     amount: int
 
 
+class GamblingExchangePayload(InitDataPayload):
+    count: int = 1
+
+
+class GamblingOpenPayload(InitDataPayload):
+    count: int = 1
+
+
 class CommissionClaimPayload(InitDataPayload):
     commission_key: str
 
@@ -95,6 +103,47 @@ class GiftPayload(InitDataPayload):
     amount: int
 
 
+class SocialModePayload(InitDataPayload):
+    social_mode: str
+
+
+class GenderSetPayload(InitDataPayload):
+    gender: str
+
+
+class MarriageRequestPayload(InitDataPayload):
+    target_tg: int
+    message: str = ""
+
+
+class MarriageRequestActionPayload(InitDataPayload):
+    request_id: int
+    action: str
+
+
+class MentorshipRequestPayload(InitDataPayload):
+    target_tg: int
+    sponsor_role: str = "disciple"
+    message: str = ""
+
+
+class MentorshipRequestActionPayload(InitDataPayload):
+    request_id: int
+    action: str
+
+
+class MentorshipTeachPayload(InitDataPayload):
+    disciple_tg: int
+
+
+class MentorshipTargetPayload(InitDataPayload):
+    target_tg: int
+
+
+class FurnaceHarvestPayload(InitDataPayload):
+    target_tg: int
+
+
 class ItemGiftPayload(InitDataPayload):
     target_tg: int
     item_kind: str
@@ -118,6 +167,28 @@ class TaskCancelPayload(InitDataPayload):
 
 class CraftPayload(InitDataPayload):
     recipe_id: int
+
+
+class FarmPlantPayload(InitDataPayload):
+    slot_index: int
+    material_id: int
+
+
+class FarmCarePayload(InitDataPayload):
+    slot_index: int
+    action: str
+
+
+class FarmHarvestPayload(InitDataPayload):
+    slot_index: int
+
+
+class FarmUnlockPayload(InitDataPayload):
+    slot_index: int
+
+
+class FishingCastPayload(InitDataPayload):
+    spot_key: str
 
 
 class ExploreStartPayload(InitDataPayload):
@@ -193,11 +264,30 @@ class ActivityStatGrowthRulePayload(BaseModel):
     attribute_count: int = 1
 
 
+class GamblingQualityWeightRulePayload(BaseModel):
+    weight_multiplier: float = 1.0
+
+
+class GamblingRewardPoolEntryPayload(BaseModel):
+    item_kind: str
+    item_ref_id: int | None = None
+    item_name: str | None = None
+    quantity_min: int = 1
+    quantity_max: int = 1
+    base_weight: float = 1.0
+    enabled: bool = True
+
+
 class AdminSettingPayload(BaseModel):
     coin_exchange_rate: int | None = None
     exchange_fee_percent: int | None = None
     min_coin_exchange: int | None = None
     duel_bet_minutes: int | None = None
+    duel_bet_enabled: bool | None = None
+    duel_bet_seconds: int | None = None
+    duel_bet_min_amount: int | None = None
+    duel_bet_max_amount: int | None = None
+    duel_bet_amount_options: list[int] | None = None
     duel_invite_timeout_seconds: int | None = None
     duel_winner_steal_percent: int | None = None
     artifact_plunder_chance: int | None = None
@@ -218,18 +308,31 @@ class AdminSettingPayload(BaseModel):
     robbery_daily_limit: int | None = None
     robbery_max_steal: int | None = None
     high_quality_broadcast_level: int | None = None
+    gambling_exchange_cost_stone: int | None = None
+    gambling_exchange_max_count: int | None = None
+    gambling_open_max_count: int | None = None
+    gambling_broadcast_quality_level: int | None = None
+    gambling_fortune_divisor: int | None = None
+    gambling_fortune_bonus_per_quality_percent: int | None = None
     slave_tribute_percent: int | None = None
+    furnace_harvest_cultivation_percent: int | None = None
     slave_challenge_cooldown_hours: int | None = None
+    rebirth_cooldown_enabled: bool | None = None
+    rebirth_cooldown_base_hours: int | None = None
+    rebirth_cooldown_increment_hours: int | None = None
     sect_salary_min_stay_days: int | None = None
     sect_betrayal_cooldown_days: int | None = None
     sect_betrayal_stone_percent: int | None = None
     sect_betrayal_stone_min: int | None = None
     sect_betrayal_stone_max: int | None = None
     error_log_retention_count: int | None = None
+    seclusion_cultivation_efficiency_percent: int | None = None
     root_quality_value_rules: dict[str, RootQualityRulePayload] | None = None
     exploration_drop_weight_rules: DropWeightRulePayload | None = None
     item_quality_value_rules: dict[str, ItemQualityValueRulePayload] | None = None
     activity_stat_growth_rules: dict[str, ActivityStatGrowthRulePayload] | None = None
+    gambling_quality_weight_rules: dict[str, GamblingQualityWeightRulePayload] | None = None
+    gambling_reward_pool: list[GamblingRewardPoolEntryPayload] | None = None
     immortal_touch_infusion_layers: int | None = None
 
 
@@ -470,6 +573,13 @@ class MaterialPayload(BaseModel):
     quality_level: int = 1
     image_url: str = ""
     description: str = ""
+    can_plant: bool = False
+    seed_price_stone: int = 0
+    growth_minutes: int = 0
+    yield_min: int = 0
+    yield_max: int = 0
+    unlock_realm_stage: str | None = None
+    unlock_realm_layer: int = 1
     enabled: bool = True
 
 

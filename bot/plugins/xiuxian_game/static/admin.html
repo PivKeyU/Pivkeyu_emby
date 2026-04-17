@@ -39,18 +39,11 @@
       <summary class="fold-summary">
         <div>
           <p class="eyebrow" data-section-key="system">调试工具</p>
-          <h2>迁移与清档</h2>
+          <h2>清档工具</h2>
         </div>
-        <span class="summary-tip">处理旧境界用户，并支持一键清空所有修仙玩家数据</span>
+        <span class="summary-tip">支持一键清空所有修仙玩家数据，方便内测结束后回档</span>
       </summary>
       <div class="fold-body">
-        <div class="stack-item">
-          <strong>旧境界一键迁移 / 修补</strong>
-          <p>用于把旧版的须弥、混元一体、真仙等境界统一迁移到当前十八境体系，并修补越界层数与超额修为。</p>
-          <div class="inline-action-buttons">
-            <button id="system-realm-migrate" type="button">执行境界迁移</button>
-          </div>
-        </div>
         <div class="stack-item">
           <strong>测试清档</strong>
           <p>一键清空所有玩家的修仙档案、背包、日志、拍卖、任务与动态进度，方便测试结束后回到干净状态。</p>
@@ -162,6 +155,10 @@
                 单次抢劫最高灵石
                 <input id="setting-robbery-max" type="number" min="0" value="180">
               </label>
+              <label>
+                避世修为效率（%）
+                <input id="setting-seclusion-efficiency" type="number" min="0" max="100" value="60">
+              </label>
             </div>
           </section>
 
@@ -200,6 +197,58 @@
                 </div>
                 <div id="setting-activity-growth-rows" class="builder-list"></div>
               </div>
+          </section>
+
+          <section class="setting-panel setting-panel--full">
+            <div class="setting-panel-head">
+              <div>
+                <strong>赌坊与仙界奇石</strong>
+                <p>配置奇石兑换成本、机缘加成、高品群播阈值与实际奖池。</p>
+              </div>
+            </div>
+            <div class="setting-panel-grid">
+              <label>
+                每枚奇石兑换消耗
+                <input id="setting-gambling-exchange-cost" type="number" min="1" value="120">
+              </label>
+              <label>
+                单次最多兑换
+                <input id="setting-gambling-exchange-max" type="number" min="1" value="20">
+              </label>
+              <label>
+                单次最多开启
+                <input id="setting-gambling-open-max" type="number" min="1" value="20">
+              </label>
+              <label>
+                赌坊群播阈值
+                <input id="setting-gambling-broadcast-quality" type="number" min="1" max="7" value="5">
+              </label>
+              <label>
+                机缘加成除数
+                <input id="setting-gambling-fortune-divisor" type="number" min="1" value="6">
+              </label>
+              <label>
+                每阶机缘加成（%）
+                <input id="setting-gambling-fortune-bonus" type="number" min="0" value="8">
+              </label>
+            </div>
+            <div class="builder-section wide-field">
+              <div class="builder-head">
+                <strong>赌坊品阶权重修正</strong>
+                <span class="summary-tip">品阶越高，通常倍率越低；机缘会在此基础上继续抬高高品权重</span>
+              </div>
+              <div id="setting-gambling-quality-rows" class="builder-list"></div>
+            </div>
+            <div class="builder-section wide-field">
+              <div class="builder-head">
+                <strong>赌坊奖池</strong>
+                <span class="summary-tip">支持法宝、丹药、符箓、材料；删除后不会进入抽奖池</span>
+              </div>
+              <div class="inline-action-buttons">
+                <button id="setting-gambling-pool-add" type="button" class="secondary">新增奖池物品</button>
+              </div>
+              <div id="setting-gambling-pool-rows" class="builder-list"></div>
+            </div>
           </section>
 
           <div class="form-actions wide-field">
@@ -251,9 +300,25 @@
               </div>
             </div>
             <div class="setting-panel-grid">
+              <label class="inline-check">
+                <input id="setting-duel-bet-enabled" type="checkbox" checked>
+                开启赌斗下注功能
+              </label>
               <label>
-                赌斗下注倒计时（分钟）
-                <input id="setting-duel-minutes" type="number" min="1" max="15" value="2">
+                赌斗下注倒计时（秒）
+                <input id="setting-duel-seconds" type="number" min="10" max="3600" value="120">
+              </label>
+              <label>
+                最低下注灵石
+                <input id="setting-duel-bet-min" type="number" min="1" value="10">
+              </label>
+              <label>
+                最高下注灵石
+                <input id="setting-duel-bet-max" type="number" min="1" value="100">
+              </label>
+              <label class="wide-field">
+                下注挡位列表
+                <input id="setting-duel-bet-options" type="text" value="10,50,100" placeholder="例如：10,50,100,200">
               </label>
               <label>
                 邀请自动撤销时限（秒）
@@ -280,12 +345,28 @@
                 <input id="setting-quality-broadcast" type="number" min="1" value="4">
               </label>
               <label>
-                奴仆上供比例（%）
+                炉鼎上供比例（%）
                 <input id="setting-slave-tribute" type="number" min="0" max="100" value="20">
               </label>
               <label>
-                赎身挑战冷却（小时）
+                炉鼎采补比例（%）
+                <input id="setting-furnace-harvest" type="number" min="0" max="100" value="10">
+              </label>
+              <label>
+                脱离挑战冷却（小时）
                 <input id="setting-slave-cooldown" type="number" min="1" max="720" value="24">
+              </label>
+              <label class="inline-check">
+                <input id="setting-rebirth-cooldown-enabled" type="checkbox">
+                开启转世重修冷却
+              </label>
+              <label>
+                首次重修冷却（小时）
+                <input id="setting-rebirth-cooldown-base" type="number" min="0" max="8760" value="12">
+              </label>
+              <label>
+                每次重修递增（小时）
+                <input id="setting-rebirth-cooldown-increment" type="number" min="0" max="8760" value="6">
               </label>
               <label>
                 宗门月俸考察期（天）
@@ -916,9 +997,55 @@
             称号名称
             <input id="title-name" type="text" placeholder="例如：斗战真君">
           </label>
-          <label>
+          <label class="wide-field">
             展示颜色
-            <input id="title-color" type="text" placeholder="#0f766e">
+            <input id="title-color" type="text" placeholder="#0f766e 或 linear-gradient(135deg, #0f766e 0%, #38bdf8 100%)">
+            <div class="field-note">支持直接填写纯色或渐变值，也可以用下面的可视化调色盘快速生成。</div>
+            <div id="title-color-editor" class="title-color-editor">
+              <div class="title-color-toolbar">
+                <button type="button" class="secondary" data-title-color-mode="solid">纯色</button>
+                <button type="button" class="secondary" data-title-color-mode="gradient">渐变</button>
+                <button type="button" class="secondary" data-title-color-mode="rainbow">炫彩</button>
+                <button type="button" class="secondary" id="title-color-clear">恢复默认</button>
+              </div>
+              <div class="title-color-preview-card">
+                <span class="field-note">实时预览</span>
+                <div class="title-color-preview-row">
+                  <strong id="title-color-preview-name">斗战真君</strong>
+                  <span id="title-color-preview-badge" class="badge badge--normal">称号预览</span>
+                </div>
+                <p id="title-color-preview-code" class="field-note">当前值：默认</p>
+              </div>
+              <div class="title-color-panel" data-title-color-panel="solid">
+                <div class="title-color-control-grid">
+                  <div class="title-color-control">
+                    <span>主色</span>
+                    <input id="title-solid-color" type="color" value="#0f766e">
+                  </div>
+                </div>
+                <div id="title-solid-swatches" class="title-color-swatches"></div>
+              </div>
+              <div class="title-color-panel is-hidden" data-title-color-panel="gradient">
+                <div class="title-color-control-grid title-color-control-grid--gradient">
+                  <div class="title-color-control">
+                    <span>起始色</span>
+                    <input id="title-gradient-start" type="color" value="#0f766e">
+                  </div>
+                  <div class="title-color-control">
+                    <span>结束色</span>
+                    <input id="title-gradient-end" type="color" value="#38bdf8">
+                  </div>
+                  <div class="title-color-control title-color-control--range">
+                    <span>角度 <strong id="title-gradient-angle-value">135°</strong></span>
+                    <input id="title-gradient-angle" type="range" min="0" max="360" step="5" value="135">
+                  </div>
+                </div>
+                <div id="title-gradient-presets" class="title-color-swatches title-color-swatches--wide"></div>
+              </div>
+              <div class="title-color-panel is-hidden" data-title-color-panel="rainbow">
+                <div id="title-rainbow-presets" class="title-color-swatches title-color-swatches--wide"></div>
+              </div>
+            </div>
           </label>
           <label>
             图片地址
@@ -1409,6 +1536,15 @@
       <div class="fold-body">
         <form id="grant-form" class="grid-form">
           <label>
+            搜索用户
+            <input id="grant-user-search" type="search" placeholder="输入 TG 昵称、@username、Emby 账号名或 TG ID">
+            <span id="grant-user-search-tip" class="field-note">支持按用户名搜索，选中候选后会自动写入 TG ID。</span>
+          </label>
+          <label>
+            匹配用户
+            <select id="grant-user-match"></select>
+          </label>
+          <label>
             目标 TG ID
             <input id="grant-tg" type="number" placeholder="输入目标用户 TG ID">
           </label>
@@ -1422,6 +1558,11 @@
               <option value="recipe">配方</option>
               <option value="technique">功法</option>
             </select>
+          </label>
+          <label>
+            搜索物品
+            <input id="grant-item-search" type="search" placeholder="输入物品 ID 或名称筛选">
+            <span id="grant-item-search-tip" class="field-note">按物品名称或 ID 缩小下拉列表。</span>
           </label>
           <label>
             物品

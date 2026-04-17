@@ -160,6 +160,184 @@
             <button id="retreat-start-btn" type="button">开始闭关</button>
             <button id="retreat-finish-btn" type="button" class="ghost">出关结算</button>
           </div>
+          <article class="stack-item">
+            <div class="stack-item-head">
+              <strong>入世 / 避世</strong>
+              <button id="social-mode-btn" type="button" class="ghost">切换状态</button>
+            </div>
+            <p id="social-mode-summary" class="muted">当前默认入世，可与其他道友正常互动。</p>
+          </article>
+        </div>
+      </details>
+
+      <details id="furnace-card" class="card fold-card span-2 hidden">
+        <summary class="fold-summary">
+          <div>
+            <p class="eyebrow">炉鼎因果</p>
+            <h2>炉鼎与采补</h2>
+          </div>
+          <span class="summary-tip">查看归属、脱离冷却与今日采补</span>
+        </summary>
+        <div class="fold-body">
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>当前因果</h3>
+              <span class="summary-tip">展示主人、炉鼎与当前状态</span>
+            </summary>
+            <div class="mini-fold-body">
+              <div id="furnace-self-summary" class="stack-list"></div>
+            </div>
+          </details>
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>采补名册</h3>
+              <span class="summary-tip">主人可每天对每名炉鼎采补一次</span>
+            </summary>
+            <div class="mini-fold-body">
+              <div id="furnace-roster-list" class="stack-list"></div>
+            </div>
+          </details>
+        </div>
+      </details>
+
+      <details id="marriage-card" class="card fold-card span-2 hidden">
+        <summary class="fold-summary">
+          <div>
+            <p class="eyebrow">姻缘因果</p>
+            <h2>道侣姻缘</h2>
+          </div>
+          <span class="summary-tip">设置性别、缔结道侣、双修与和离分家</span>
+        </summary>
+        <div class="fold-body">
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>当前姻缘</h3>
+              <span class="summary-tip">查看性别、道侣状态与共享资产</span>
+            </summary>
+            <div class="mini-fold-body">
+              <div id="marriage-self-summary" class="stack-list"></div>
+              <div id="marriage-current-summary" class="stack-list"></div>
+            </div>
+          </details>
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>设置性别</h3>
+              <span class="summary-tip">踏入仙途后必须先设定性别</span>
+            </summary>
+            <div class="mini-fold-body">
+              <form id="gender-set-form" class="mini-form">
+                <label>
+                  当前设定
+                  <select id="gender-select">
+                    <option value="male">男</option>
+                    <option value="female">女</option>
+                  </select>
+                </label>
+                <button type="submit">确认性别</button>
+              </form>
+              <p id="gender-set-hint" class="section-copy">未设置性别前，其他修仙玩法会被锁定。</p>
+            </div>
+          </details>
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>递上结缘信物</h3>
+              <span class="summary-tip">搜索异性道友并发起道侣请求</span>
+            </summary>
+            <div class="mini-fold-body">
+              <form id="marriage-search-form" class="mini-form">
+                <label>
+                  搜索道友
+                  <input id="marriage-player-query" type="search" placeholder="输入昵称、@用户名或 TG ID">
+                </label>
+                <button id="marriage-player-search" type="submit" class="ghost">搜索道友</button>
+              </form>
+              <div id="marriage-target-selected" class="stack-list"></div>
+              <div id="marriage-player-search-results" class="stack-list"></div>
+              <form id="marriage-request-form" class="mini-form">
+                <label>
+                  留信内容
+                  <textarea id="marriage-request-message" rows="3" placeholder="可选：写下结缘之意、来意或约定"></textarea>
+                </label>
+                <button type="submit">送出结缘信物</button>
+              </form>
+              <p id="marriage-request-hint" class="section-copy">先设置性别并选中目标，才可递上结缘信物。</p>
+            </div>
+          </details>
+          <details class="mini-fold">
+            <summary class="mini-fold-summary">
+              <h3>待处理信物</h3>
+              <span class="summary-tip">收到的可同意或婉拒，你送出的可撤回</span>
+            </summary>
+            <div class="mini-fold-body">
+              <div id="marriage-incoming-list" class="stack-list"></div>
+              <div id="marriage-outgoing-list" class="stack-list"></div>
+            </div>
+          </details>
+        </div>
+      </details>
+
+      <details id="mentorship-card" class="card fold-card span-2 hidden">
+        <summary class="fold-summary">
+          <div>
+            <p class="eyebrow">师承因果</p>
+            <h2>师徒传承</h2>
+          </div>
+          <span class="summary-tip">拜师、收徒、传道、问道与出师</span>
+        </summary>
+        <div class="fold-body">
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>当前师承</h3>
+              <span class="summary-tip">查看师尊、弟子与可用名额</span>
+            </summary>
+            <div class="mini-fold-body">
+              <div id="mentorship-self-summary" class="stack-list"></div>
+              <div id="mentorship-mentor-current" class="stack-list"></div>
+              <div id="mentorship-disciple-list" class="stack-list"></div>
+            </div>
+          </details>
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>递上拜帖</h3>
+              <span class="summary-tip">先搜索道友，再选择拜师或收徒</span>
+            </summary>
+            <div class="mini-fold-body">
+              <form id="mentorship-search-form" class="mini-form">
+                <label>
+                  搜索道友
+                  <input id="mentorship-player-query" type="search" placeholder="输入昵称、@用户名或 TG ID">
+                </label>
+                <button id="mentorship-player-search" type="submit" class="ghost">搜索道友</button>
+              </form>
+              <div id="mentorship-target-selected" class="stack-list"></div>
+              <div id="mentorship-player-search-results" class="stack-list"></div>
+              <form id="mentorship-request-form" class="mini-form">
+                <label>
+                  发起方式
+                  <select id="mentorship-request-role">
+                    <option value="disciple">向对方拜师</option>
+                    <option value="mentor">邀请对方拜入门下</option>
+                  </select>
+                </label>
+                <label>
+                  留帖内容
+                  <textarea id="mentorship-request-message" rows="3" placeholder="可选：说明来意、传承方向或想学的路数"></textarea>
+                </label>
+                <button type="submit">递上师徒拜帖</button>
+              </form>
+              <p id="mentorship-request-hint" class="section-copy">完成搜索并选中目标后，才可递上拜帖。</p>
+            </div>
+          </details>
+          <details class="mini-fold">
+            <summary class="mini-fold-summary">
+              <h3>待处理名帖</h3>
+              <span class="summary-tip">收到的可直接同意或婉拒</span>
+            </summary>
+            <div class="mini-fold-body">
+              <div id="mentorship-incoming-list" class="stack-list"></div>
+              <div id="mentorship-outgoing-list" class="stack-list"></div>
+            </div>
+          </details>
         </div>
       </details>
 
@@ -203,6 +381,45 @@
             </form>
           </div>
           <p id="exchange-hint" class="section-copy"></p>
+        </div>
+      </details>
+
+      <details id="gambling-card" class="card fold-card span-2 hidden">
+        <summary class="fold-summary">
+          <div>
+            <p class="eyebrow">赌坊奇缘</p>
+            <h2>仙界奇石</h2>
+          </div>
+          <span class="summary-tip">灵石兑换奇石，开启随机宝物</span>
+        </summary>
+        <div class="fold-body">
+          <div id="gambling-summary" class="info-grid"></div>
+          <div class="compact-grid">
+            <form id="gambling-exchange-form" class="mini-form">
+              <label>
+                兑换数量
+                <input id="gambling-exchange-count" type="number" min="1" value="1">
+              </label>
+              <button type="submit">兑换仙界奇石</button>
+            </form>
+            <form id="gambling-open-form" class="mini-form">
+              <label>
+                开启数量
+                <input id="gambling-open-count" type="number" min="1" value="1">
+              </label>
+              <button type="submit">开启奇石</button>
+            </form>
+          </div>
+          <p id="gambling-note" class="section-copy">高品阶奖励基础概率更低，机缘越高越容易抬升稀有奖励权重。</p>
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>当前奖池预览</h3>
+              <span class="summary-tip">按机缘修正后的实时概率展示</span>
+            </summary>
+            <div class="mini-fold-body">
+              <div id="gambling-pool-list" class="stack-list"></div>
+            </div>
+          </details>
         </div>
       </details>
 
@@ -496,6 +713,78 @@
             <p id="task-compose-note" class="section-copy">发布前请补充清晰信息，且必须设置奖励。</p>
           </form>
           <div id="task-list" class="stack-list"></div>
+        </div>
+      </details>
+
+      <details id="farm-card" class="card fold-card span-2 hidden">
+        <summary class="fold-summary">
+          <div>
+            <p class="eyebrow">药圃经营</p>
+            <h2>灵田种植</h2>
+          </div>
+          <span class="summary-tip">播种、照料、收获丹方材料</span>
+        </summary>
+        <div class="fold-body">
+          <div id="farm-summary" class="info-grid"></div>
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>播种与药材目录</h3>
+              <span class="summary-tip">搜索可种灵药并直接选择地块播种</span>
+            </summary>
+            <div class="mini-fold-body">
+              <form id="farm-plant-form" class="mini-form">
+                <div class="compact-grid">
+                  <label>
+                    选择地块
+                    <select id="farm-slot-select"></select>
+                  </label>
+                  <label>
+                    选择灵种
+                    <select id="farm-material-select"></select>
+                  </label>
+                  <label>
+                    搜索药材
+                    <input id="farm-material-search" type="search" placeholder="搜索材料名、丹方、境界要求">
+                  </label>
+                </div>
+                <button type="submit">播种灵药</button>
+                <p id="farm-plant-hint" class="section-copy">成熟后会直接进入材料背包，可用于炼丹。</p>
+              </form>
+              <div id="farm-material-catalog" class="stack-list"></div>
+            </div>
+          </details>
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>灵田地块</h3>
+              <span class="summary-tip">浇灌、施肥、除虫与收获都在这里处理</span>
+            </summary>
+            <div class="mini-fold-body">
+              <div id="farm-plot-list" class="stack-list"></div>
+            </div>
+          </details>
+        </div>
+      </details>
+
+      <details id="fishing-card" class="card fold-card span-2 hidden">
+        <summary class="fold-summary">
+          <div>
+            <p class="eyebrow">水脉机缘</p>
+            <h2>灵河垂钓</h2>
+          </div>
+          <span class="summary-tip">不同钓场产出不同，机缘越高越容易出高品</span>
+        </summary>
+        <div class="fold-body">
+          <div id="fishing-summary" class="info-grid"></div>
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>钓场一览</h3>
+              <span class="summary-tip">查看门槛、概率预览与可能钓获</span>
+            </summary>
+            <div class="mini-fold-body">
+              <p id="fishing-note" class="section-copy">高品阶物品基础概率更低，机缘会抬升高品掉率。</p>
+              <div id="fishing-spot-list" class="stack-list"></div>
+            </div>
+          </details>
         </div>
       </details>
 

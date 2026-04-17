@@ -4,12 +4,7 @@ from typing import Any
 
 from bot.sql_helper import Session
 from bot.sql_helper.sql_xiuxian import (
-    XiuxianArtifactInventory,
-    XiuxianEquippedArtifact,
-    XiuxianMaterialInventory,
-    XiuxianPillInventory,
     XiuxianProfile,
-    XiuxianTalismanInventory,
     apply_spiritual_stone_delta,
     assert_currency_operation_allowed,
     assert_profile_alive,
@@ -19,15 +14,29 @@ from bot.sql_helper.sql_xiuxian import (
     get_pill,
     get_profile,
     get_talisman,
+    list_user_artifacts,
+    list_user_materials,
+    list_user_pills,
+    list_user_talismans,
     serialize_artifact,
     serialize_material,
     serialize_pill,
     serialize_profile,
     serialize_talisman,
+    use_user_artifact_listing_stock,
+    use_user_material_listing_stock,
+    use_user_pill_listing_stock,
+    use_user_talisman_listing_stock,
     utcnow,
 )
 from bot.plugins.xiuxian_game.achievement_service import record_gift_metrics
 from bot.plugins.xiuxian_game.features.retreat import ensure_not_in_retreat
+
+
+def _legacy_service():
+    from bot.plugins.xiuxian_game import service as legacy_service
+
+    return legacy_service
 
 
 def gift_spirit_stone(sender_tg: int, target_tg: int, amount: int) -> dict[str, Any]:
@@ -38,6 +47,7 @@ def gift_spirit_stone(sender_tg: int, target_tg: int, amount: int) -> dict[str, 
         raise ValueError("赠送灵石数量必须大于 0")
 
     ensure_not_in_retreat(sender_tg)
+    legacy_service = _legacy_service()
 
     with Session() as session:
         sender = session.query(XiuxianProfile).filter(XiuxianProfile.tg == sender_tg).with_for_update().first()
@@ -46,6 +56,9 @@ def gift_spirit_stone(sender_tg: int, target_tg: int, amount: int) -> dict[str, 
             raise ValueError("双方都需要已踏入仙途")
         assert_profile_alive(sender, "赠送灵石")
         assert_profile_alive(receiver, "接收灵石")
+        legacy_service._assert_gender_ready(sender, "赠送灵石")
+        legacy_service._assert_gender_ready(receiver, "接收灵石")
+        legacy_service.assert_social_action_allowed(sender, receiver, "赠送灵石")
         assert_currency_operation_allowed(sender_tg, "赠送灵石", session=session, profile=sender)
         assert_currency_operation_allowed(target_tg, "接收灵石", session=session, profile=receiver)
         apply_spiritual_stone_delta(
@@ -88,6 +101,45 @@ def _inventory_item_payload(item_kind: str, item_ref_id: int) -> dict[str, Any] 
     return None
 
 
+def _inventory_total_for_user(tg: int, item_kind: str, item_ref_id: int) -> int:
+    target_id = int(item_ref_id or 0)
+    if item_kind == "artifact":
+        return next(
+            (
+                max(int(row.get("quantity") or 0), 0)
+                for row in list_user_artifacts(tg)
+                if int((row.get("artifact") or {}).get("id") or 0) == target_id
+            ),
+            0,
+        )
+    if item_kind == "pill":
+        return next(
+            (
+                max(int(row.get("quantity") or 0), 0)
+                for row in list_user_pills(tg)
+                if int((row.get("pill") or {}).get("id") or 0) == target_id
+            ),
+            0,
+        )
+    if item_kind == "talisman":
+        return next(
+            (
+                max(int(row.get("quantity") or 0), 0)
+                for row in list_user_talismans(tg)
+                if int((row.get("talisman") or {}).get("id") or 0) == target_id
+            ),
+            0,
+        )
+    return next(
+        (
+            max(int(row.get("quantity") or 0), 0)
+            for row in list_user_materials(tg)
+            if int((row.get("material") or {}).get("id") or 0) == target_id
+        ),
+        0,
+    )
+
+
 def gift_inventory_item(
     sender_tg: int,
     target_tg: int,
@@ -106,6 +158,7 @@ def gift_inventory_item(
         raise ValueError("赠送物品参数不正确")
 
     ensure_not_in_retreat(sender_tg)
+    legacy_service = _legacy_service()
 
     with Session() as session:
         sender = session.query(XiuxianProfile).filter(XiuxianProfile.tg == sender_tg).with_for_update().first()
@@ -114,138 +167,31 @@ def gift_inventory_item(
             raise ValueError("双方都需要已踏入仙途")
         assert_profile_alive(sender, "赠送物品")
         assert_profile_alive(receiver, "接收物品")
+        legacy_service._assert_gender_ready(sender, "赠送物品")
+        legacy_service._assert_gender_ready(receiver, "接收物品")
+        legacy_service.assert_social_action_allowed(sender, receiver, "赠送物品")
         assert_currency_operation_allowed(sender_tg, "赠送物品", session=session, profile=sender)
         assert_currency_operation_allowed(target_tg, "接收物品", session=session, profile=receiver)
-
-        receiver_row = None
-        sender_remaining = 0
-        receiver_quantity = 0
-        if item_kind == "artifact":
-            sender_row = (
-                session.query(XiuxianArtifactInventory)
-                .filter(XiuxianArtifactInventory.tg == sender_tg, XiuxianArtifactInventory.artifact_id == item_ref_id)
-                .with_for_update()
-                .first()
-            )
-            if sender_row is None:
-                raise ValueError("你的背包里没有这件法宝")
-            bound_quantity = max(min(int(sender_row.bound_quantity or 0), int(sender_row.quantity or 0)), 0)
-            equipped_count = int(
-                session.query(XiuxianEquippedArtifact)
-                .filter(XiuxianEquippedArtifact.tg == sender_tg, XiuxianEquippedArtifact.artifact_id == item_ref_id)
-                .count()
-                or 0
-            )
-            available_quantity = int(sender_row.quantity or 0) - bound_quantity - equipped_count
-            if available_quantity < quantity:
-                raise ValueError("可赠送的法宝数量不足，已绑定或已装备的法宝不能赠送")
-            sender_row.quantity = max(int(sender_row.quantity or 0) - quantity, 0)
-            sender_row.bound_quantity = max(min(bound_quantity, int(sender_row.quantity or 0)), 0)
-            sender_row.updated_at = utcnow()
-            sender_remaining = int(sender_row.quantity or 0)
-            if sender_row.quantity <= 0:
-                session.delete(sender_row)
-            receiver_row = (
-                session.query(XiuxianArtifactInventory)
-                .filter(XiuxianArtifactInventory.tg == target_tg, XiuxianArtifactInventory.artifact_id == item_ref_id)
-                .with_for_update()
-                .first()
-            )
-            if receiver_row is None:
-                receiver_row = XiuxianArtifactInventory(tg=target_tg, artifact_id=item_ref_id, quantity=0, bound_quantity=0)
-                session.add(receiver_row)
-            receiver_row.quantity = int(receiver_row.quantity or 0) + quantity
-            receiver_row.bound_quantity = max(min(int(receiver_row.bound_quantity or 0), int(receiver_row.quantity or 0)), 0)
-            receiver_row.updated_at = utcnow()
-            receiver_quantity = int(receiver_row.quantity or 0)
-        elif item_kind == "talisman":
-            sender_row = (
-                session.query(XiuxianTalismanInventory)
-                .filter(XiuxianTalismanInventory.tg == sender_tg, XiuxianTalismanInventory.talisman_id == item_ref_id)
-                .with_for_update()
-                .first()
-            )
-            if sender_row is None:
-                raise ValueError("你的背包里没有这张符箓")
-            bound_quantity = max(min(int(sender_row.bound_quantity or 0), int(sender_row.quantity or 0)), 0)
-            available_quantity = int(sender_row.quantity or 0) - bound_quantity
-            if available_quantity < quantity:
-                raise ValueError("可赠送的符箓数量不足，已绑定的符箓不能赠送")
-            sender_row.quantity = max(int(sender_row.quantity or 0) - quantity, 0)
-            sender_row.bound_quantity = max(min(bound_quantity, int(sender_row.quantity or 0)), 0)
-            sender_row.updated_at = utcnow()
-            sender_remaining = int(sender_row.quantity or 0)
-            if sender_row.quantity <= 0:
-                session.delete(sender_row)
-            receiver_row = (
-                session.query(XiuxianTalismanInventory)
-                .filter(XiuxianTalismanInventory.tg == target_tg, XiuxianTalismanInventory.talisman_id == item_ref_id)
-                .with_for_update()
-                .first()
-            )
-            if receiver_row is None:
-                receiver_row = XiuxianTalismanInventory(tg=target_tg, talisman_id=item_ref_id, quantity=0, bound_quantity=0)
-                session.add(receiver_row)
-            receiver_row.quantity = int(receiver_row.quantity or 0) + quantity
-            receiver_row.bound_quantity = max(min(int(receiver_row.bound_quantity or 0), int(receiver_row.quantity or 0)), 0)
-            receiver_row.updated_at = utcnow()
-            receiver_quantity = int(receiver_row.quantity or 0)
-        elif item_kind == "pill":
-            sender_row = (
-                session.query(XiuxianPillInventory)
-                .filter(XiuxianPillInventory.tg == sender_tg, XiuxianPillInventory.pill_id == item_ref_id)
-                .with_for_update()
-                .first()
-            )
-            if sender_row is None or int(sender_row.quantity or 0) < quantity:
-                raise ValueError("可赠送的丹药数量不足")
-            sender_row.quantity = max(int(sender_row.quantity or 0) - quantity, 0)
-            sender_row.updated_at = utcnow()
-            sender_remaining = int(sender_row.quantity or 0)
-            if sender_row.quantity <= 0:
-                session.delete(sender_row)
-            receiver_row = (
-                session.query(XiuxianPillInventory)
-                .filter(XiuxianPillInventory.tg == target_tg, XiuxianPillInventory.pill_id == item_ref_id)
-                .with_for_update()
-                .first()
-            )
-            if receiver_row is None:
-                receiver_row = XiuxianPillInventory(tg=target_tg, pill_id=item_ref_id, quantity=0)
-                session.add(receiver_row)
-            receiver_row.quantity = int(receiver_row.quantity or 0) + quantity
-            receiver_row.updated_at = utcnow()
-            receiver_quantity = int(receiver_row.quantity or 0)
-        else:
-            sender_row = (
-                session.query(XiuxianMaterialInventory)
-                .filter(XiuxianMaterialInventory.tg == sender_tg, XiuxianMaterialInventory.material_id == item_ref_id)
-                .with_for_update()
-                .first()
-            )
-            if sender_row is None or int(sender_row.quantity or 0) < quantity:
-                raise ValueError("可赠送的材料数量不足")
-            sender_row.quantity = max(int(sender_row.quantity or 0) - quantity, 0)
-            sender_row.updated_at = utcnow()
-            sender_remaining = int(sender_row.quantity or 0)
-            if sender_row.quantity <= 0:
-                session.delete(sender_row)
-            receiver_row = (
-                session.query(XiuxianMaterialInventory)
-                .filter(XiuxianMaterialInventory.tg == target_tg, XiuxianMaterialInventory.material_id == item_ref_id)
-                .with_for_update()
-                .first()
-            )
-            if receiver_row is None:
-                receiver_row = XiuxianMaterialInventory(tg=target_tg, material_id=item_ref_id, quantity=0)
-                session.add(receiver_row)
-            receiver_row.quantity = int(receiver_row.quantity or 0) + quantity
-            receiver_row.updated_at = utcnow()
-            receiver_quantity = int(receiver_row.quantity or 0)
-
         sender.updated_at = utcnow()
         receiver.updated_at = utcnow()
         session.commit()
+
+    if item_kind == "artifact":
+        if not use_user_artifact_listing_stock(sender_tg, item_ref_id, quantity):
+            raise ValueError("可赠送的法宝数量不足，已绑定或已装备的法宝不能赠送")
+    elif item_kind == "talisman":
+        if not use_user_talisman_listing_stock(sender_tg, item_ref_id, quantity):
+            raise ValueError("可赠送的符箓数量不足，已绑定的符箓不能赠送")
+    elif item_kind == "pill":
+        if not use_user_pill_listing_stock(sender_tg, item_ref_id, quantity):
+            raise ValueError("可赠送的丹药数量不足")
+    else:
+        if not use_user_material_listing_stock(sender_tg, item_ref_id, quantity):
+            raise ValueError("可赠送的材料数量不足")
+
+    grant_result = legacy_service.grant_item_to_user(target_tg, item_kind, item_ref_id, quantity)
+    sender_remaining = _inventory_total_for_user(sender_tg, item_kind, item_ref_id)
+    receiver_quantity = max(int(grant_result.get("quantity") or 0), 0)
 
     item_payload = _inventory_item_payload(item_kind, item_ref_id)
     item_name = (

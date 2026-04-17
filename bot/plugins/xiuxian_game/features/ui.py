@@ -23,5 +23,5 @@ def leaderboard_keyboard(kind: str, page: int, total_pages: int):
     return _legacy_service().leaderboard_keyboard(kind, page, total_pages)
 
 
-def duel_keyboard(challenger_tg: int, defender_tg: int, stake: int, bet_minutes: int, **kwargs):
-    return _legacy_service().duel_keyboard(challenger_tg, defender_tg, stake, bet_minutes, **kwargs)
+def duel_keyboard(challenger_tg: int, defender_tg: int, stake: int, bet_seconds: int, **kwargs):
+    return _legacy_service().duel_keyboard(challenger_tg, defender_tg, stake, bet_seconds, **kwargs)

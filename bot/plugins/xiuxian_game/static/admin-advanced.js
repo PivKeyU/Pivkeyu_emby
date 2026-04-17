@@ -810,6 +810,7 @@
     $("title-form")?.reset();
     clearFormEditMode("title-form");
     $("title-enabled").checked = true;
+    window.refreshTitleColorEditor?.("solid");
   }
 
   function resetAchievementForm() {
@@ -997,11 +998,12 @@
     renderStack("title-list", safeRows("titles").map((item) => `
       <article class="stack-item">
         <div class="stack-item-head">
-          <strong>${escapeHtml(item.name)}</strong>
+          <strong>${titleColoredNameHtml(item.name, item.color)}</strong>
           <span class="badge badge--normal">${item.enabled ? "启用中" : "已停用"}</span>
         </div>
         <p>${escapeHtml(item.description || "暂无称号描述")}</p>
         <p>${escapeHtml(adminTitleEffectSummary(item))}</p>
+        <p class="quality-line">${titleColorBadgeHtml(item.color ? "称号预览" : "默认配色", item.color || "")}<span class="field-note">颜色 ${escapeHtml(summarizeDecorColor(item.color))} · ID ${escapeHtml(item.id)}</span></p>
         <div class="inline-action-buttons">${editButton("title", item.id)}${deleteButton("title", item.id)}</div>
       </article>
     `).join("") || `<article class="stack-item"><strong>暂无称号</strong></article>`);
@@ -1234,6 +1236,7 @@
     $("title-duel").value = item.duel_rate_bonus || 0;
     $("title-cultivation").value = item.cultivation_bonus || 0;
     $("title-breakthrough").value = item.breakthrough_bonus || 0;
+    window.refreshTitleColorEditor?.();
     setFormEditMode("title-form", item);
     focusForm("title-form");
   }

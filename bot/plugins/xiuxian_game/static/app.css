@@ -421,7 +421,9 @@ h3 {
 }
 
 #gift-target-selected:empty,
-#gift-player-search-results:empty {
+#gift-player-search-results:empty,
+#mentorship-target-selected:empty,
+#mentorship-player-search-results:empty {
   display: none;
 }
 
@@ -506,6 +508,44 @@ h3 {
 
 .scene-card.is-risky {
   border-color: rgba(180, 83, 9, 0.24);
+}
+
+.farm-summary-grid,
+.farm-progress {
+  display: grid;
+  gap: 8px;
+}
+
+.farm-summary-grid {
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+}
+
+.farm-progress {
+  height: 10px;
+  padding: 2px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(240, 253, 250, 0.72);
+}
+
+.farm-progress-bar {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--accent-strong), #d97706);
+}
+
+.farm-plot-card.is-ready {
+  border-color: rgba(21, 128, 61, 0.22);
+  box-shadow: 0 10px 24px rgba(21, 128, 61, 0.08);
+}
+
+.farm-plot-card.is-overdue {
+  border-color: rgba(185, 28, 28, 0.24);
+}
+
+.farm-plot-card.is-locked {
+  border-style: dashed;
 }
 
 .badge {

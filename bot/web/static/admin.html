@@ -86,6 +86,7 @@
         <button type="button" class="nav-pill" data-section-target="migration-section">数据迁移</button>
         <button type="button" class="nav-pill" data-section-target="codes-section">注册码</button>
         <button type="button" class="nav-pill" data-section-target="users-section">用户检索</button>
+        <button type="button" class="nav-pill" data-section-target="bot-block-section">Bot 黑名单</button>
         <button type="button" class="nav-pill" data-section-target="editor-section">用户编辑</button>
         <button type="button" class="nav-pill" data-section-target="plugins-section">插件状态</button>
       </div>
@@ -444,6 +445,47 @@
               <button id="save-user" type="submit">保存修改</button>
             </div>
           </form>
+        </div>
+      </details>
+
+      <details id="bot-block-section" class="card fold-card">
+        <summary class="fold-summary">
+          <div>
+            <p class="eyebrow">Bot 访问控制</p>
+            <h2>Bot 黑名单</h2>
+          </div>
+          <span class="summary-tip">精确匹配 TGID 或 @username，命中后 Bot 不再响应该用户的消息、按钮和内联查询</span>
+        </summary>
+        <div class="fold-body">
+          <section class="plugin-import-card">
+            <div>
+              <p class="eyebrow">新增规则</p>
+              <h3>禁止指定 TG 用户使用 Bot</h3>
+            </div>
+            <p id="bot-block-status" class="plugin-meta">支持填写 TGID、@username，二者至少填写一个。若从左侧已选中用户，可直接一键带入。</p>
+            <form id="bot-block-form" class="grid-form">
+              <label>
+                TGID
+                <input id="bot-block-tg" type="number" min="1" placeholder="例如 123456789">
+              </label>
+              <label>
+                TG 用户名
+                <input id="bot-block-username" type="text" maxlength="255" placeholder="例如 @telegram_user">
+              </label>
+              <label class="wide-field">
+                备注
+                <input id="bot-block-note" type="text" maxlength="255" placeholder="可选，记录封禁原因或备注">
+              </label>
+              <div class="form-actions">
+                <button id="bot-block-use-selected" type="button" class="secondary">带入当前选中用户</button>
+                <button id="bot-block-submit" type="submit">加入黑名单</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="card-lite">
+            <div id="bot-block-list" class="stack-list"></div>
+          </section>
         </div>
       </details>
 

@@ -304,13 +304,125 @@ def _merge_material_catalogs(*catalogs: list[dict[str, object]]) -> list[dict[st
     return list(merged.values())
 
 
-ALL_EXTRA_MATERIALS = _merge_material_catalogs(
+FARMABLE_MATERIAL_RULES: dict[str, dict[str, object]] = {
+    "灵露滴": {
+        "can_plant": True,
+        "seed_price_stone": 10,
+        "growth_minutes": 30,
+        "yield_min": 2,
+        "yield_max": 4,
+        "unlock_realm_stage": "炼气",
+        "unlock_realm_layer": 1,
+    },
+    "枯叶草": {
+        "can_plant": True,
+        "seed_price_stone": 8,
+        "growth_minutes": 36,
+        "yield_min": 2,
+        "yield_max": 5,
+        "unlock_realm_stage": "炼气",
+        "unlock_realm_layer": 1,
+    },
+    "残月水": {
+        "can_plant": True,
+        "seed_price_stone": 14,
+        "growth_minutes": 45,
+        "yield_min": 2,
+        "yield_max": 3,
+        "unlock_realm_stage": "炼气",
+        "unlock_realm_layer": 2,
+    },
+    "清心兰": {
+        "can_plant": True,
+        "seed_price_stone": 28,
+        "growth_minutes": 90,
+        "yield_min": 1,
+        "yield_max": 3,
+        "unlock_realm_stage": "炼气",
+        "unlock_realm_layer": 5,
+    },
+    "续骨藤": {
+        "can_plant": True,
+        "seed_price_stone": 32,
+        "growth_minutes": 100,
+        "yield_min": 1,
+        "yield_max": 3,
+        "unlock_realm_stage": "筑基",
+        "unlock_realm_layer": 1,
+    },
+    "化毒草": {
+        "can_plant": True,
+        "seed_price_stone": 36,
+        "growth_minutes": 110,
+        "yield_min": 1,
+        "yield_max": 3,
+        "unlock_realm_stage": "筑基",
+        "unlock_realm_layer": 2,
+    },
+    "霜凌草": {
+        "can_plant": True,
+        "seed_price_stone": 48,
+        "growth_minutes": 126,
+        "yield_min": 1,
+        "yield_max": 3,
+        "unlock_realm_stage": "筑基",
+        "unlock_realm_layer": 3,
+    },
+    "烈阳花": {
+        "can_plant": True,
+        "seed_price_stone": 52,
+        "growth_minutes": 132,
+        "yield_min": 1,
+        "yield_max": 3,
+        "unlock_realm_stage": "筑基",
+        "unlock_realm_layer": 3,
+    },
+    "凤尾草": {
+        "can_plant": True,
+        "seed_price_stone": 88,
+        "growth_minutes": 180,
+        "yield_min": 1,
+        "yield_max": 2,
+        "unlock_realm_stage": "金丹",
+        "unlock_realm_layer": 1,
+    },
+    "净水莲心": {
+        "can_plant": True,
+        "seed_price_stone": 96,
+        "growth_minutes": 198,
+        "yield_min": 1,
+        "yield_max": 2,
+        "unlock_realm_stage": "金丹",
+        "unlock_realm_layer": 2,
+    },
+    "九转雪莲": {
+        "can_plant": True,
+        "seed_price_stone": 128,
+        "growth_minutes": 240,
+        "yield_min": 1,
+        "yield_max": 2,
+        "unlock_realm_stage": "元婴",
+        "unlock_realm_layer": 1,
+    },
+}
+
+
+def apply_farmable_material_overrides(materials: list[dict[str, object]]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for item in materials:
+        payload = dict(item)
+        payload.update(FARMABLE_MATERIAL_RULES.get(str(payload.get("name") or ""), {}))
+        rows.append(payload)
+    return rows
+
+
+ALL_EXTRA_MATERIALS = apply_farmable_material_overrides(_merge_material_catalogs(
     NEW_MATERIALS,
     EXTRA_PILL_MATERIALS,
     EXTRA_ARTIFACT_MATERIALS,
     EXTRA_TALISMAN_MATERIALS,
     EXTRA_MATERIALS,
-)
+))
 
 
 EXTRA_ARTIFACTS = [

@@ -677,7 +677,6 @@ def leave_sect_for_user(tg: int) -> dict[str, Any]:
             synchronize_session=False,
         )
         session.commit()
-    Session.remove()
     updated_profile = serialize_profile(get_profile(tg, create=False))
     if updated_profile and updated_profile.get("sect_id"):
         raise ValueError("叛出宗门状态刷新失败，请稍后重试。")
@@ -2056,11 +2055,14 @@ def gift_spirit_stone(sender_tg: int, target_tg: int, amount: int) -> dict[str, 
 
     _require_alive_profile_data(sender_tg, "赠送灵石")
     _require_alive_profile_data(target_tg, "接收灵石")
+    from bot.plugins.xiuxian_game.service import assert_social_action_allowed
+
     with Session() as session:
         sender = session.query(XiuxianProfile).filter(XiuxianProfile.tg == sender_tg).with_for_update().first()
         receiver = session.query(XiuxianProfile).filter(XiuxianProfile.tg == target_tg).with_for_update().first()
         if sender is None or receiver is None or not sender.consented or not receiver.consented:
             raise ValueError("双方都需要已踏入仙途")
+        assert_social_action_allowed(sender, receiver, "赠送灵石")
         assert_currency_operation_allowed(sender_tg, "赠送灵石", session=session, profile=sender)
         assert_currency_operation_allowed(target_tg, "接收灵石", session=session, profile=receiver)
         apply_spiritual_stone_delta(
@@ -2112,7 +2114,9 @@ def rob_player(attacker_tg: int, defender_tg: int, success_hint: float = 0.5) ->
         raise ValueError("今日抢劫次数已用完")
     if int(attacker_obj.spiritual_stone or 0) < 5:
         raise ValueError("至少携带 5 灵石作为押底，才能发起抢劫。")
-    from bot.plugins.xiuxian_game.service import compute_duel_odds
+    from bot.plugins.xiuxian_game.service import assert_social_action_allowed, compute_duel_odds
+
+    assert_social_action_allowed(attacker_obj, defender_obj, "抢劫")
 
     duel = compute_duel_odds(attacker_tg, defender_tg)
     attacker = duel["challenger"]["profile"]
@@ -2241,6 +2245,34 @@ def update_duel_bet_pool_message(pool_id: int, bet_message_id: int) -> None:
             session.commit()
 
 
+def _duel_bet_settings(settings: dict[str, Any] | None = None) -> dict[str, Any]:
+    source = settings if isinstance(settings, dict) else get_xiuxian_settings()
+    options: list[int] = []
+    for value in list(source.get("duel_bet_amount_options") or []):
+        try:
+            amount = int(value or 0)
+        except (TypeError, ValueError):
+            continue
+        if amount > 0:
+            options.append(amount)
+    minimum = max(int(source.get("duel_bet_min_amount", DEFAULT_SETTINGS.get("duel_bet_min_amount", 10)) or 0), 1)
+    maximum = max(int(source.get("duel_bet_max_amount", DEFAULT_SETTINGS.get("duel_bet_max_amount", 100)) or 0), minimum)
+    if not options:
+        midpoint = (minimum + maximum) // 2
+        options = [minimum]
+        if midpoint not in {minimum, maximum}:
+            options.append(midpoint)
+        if maximum != minimum:
+            options.append(maximum)
+    return {
+        "enabled": bool(source.get("duel_bet_enabled", DEFAULT_SETTINGS.get("duel_bet_enabled", True))),
+        "seconds": min(max(int(source.get("duel_bet_seconds", DEFAULT_SETTINGS.get("duel_bet_seconds", 120)) or 0), 10), 3600),
+        "min_amount": minimum,
+        "max_amount": maximum,
+        "amount_options": sorted(set(options)),
+    }
+
+
 def place_duel_bet(pool_id: int, tg: int, side: str, amount: int) -> dict[str, Any]:
     with Session() as session:
         pool = session.query(XiuxianDuelBetPool).filter(XiuxianDuelBetPool.id == pool_id).with_for_update().first()
@@ -2248,6 +2280,9 @@ def place_duel_bet(pool_id: int, tg: int, side: str, amount: int) -> dict[str, A
             raise ValueError("当前斗法下注已结束")
         if utcnow() >= pool.bets_close_at:
             raise ValueError("下注时间已截止")
+        bet_settings = _duel_bet_settings()
+        if not bet_settings["enabled"]:
+            raise ValueError("赌斗下注功能已关闭")
         if tg in {pool.challenger_tg, pool.defender_tg}:
             raise ValueError("斗法双方不能下注")
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
@@ -2256,6 +2291,13 @@ def place_duel_bet(pool_id: int, tg: int, side: str, amount: int) -> dict[str, A
         assert_profile_alive(profile, "下注")
         assert_currency_operation_allowed(tg, "下注", session=session, profile=profile)
         amount = max(int(amount or 0), 1)
+        if amount < bet_settings["min_amount"] or amount > bet_settings["max_amount"]:
+            raise ValueError(
+                f"当前下注范围为 {bet_settings['min_amount']} - {bet_settings['max_amount']} 灵石"
+            )
+        if bet_settings["amount_options"] and amount not in bet_settings["amount_options"]:
+            allowed = " / ".join(str(value) for value in bet_settings["amount_options"])
+            raise ValueError(f"当前仅支持以下下注挡位：{allowed}")
         bet = session.query(XiuxianDuelBet).filter(XiuxianDuelBet.pool_id == pool_id, XiuxianDuelBet.tg == tg).first()
         if bet is None:
             bet = XiuxianDuelBet(pool_id=pool_id, tg=tg, side=side, amount=0)
@@ -2389,6 +2431,7 @@ def format_duel_bet_board(pool_id: int) -> str:
         pool = session.query(XiuxianDuelBetPool).filter(XiuxianDuelBetPool.id == pool_id).first()
         if pool is None:
             return "下注池不存在"
+        bet_settings = _duel_bet_settings()
         challenger_total = sum(int(row.amount or 0) for row in session.query(XiuxianDuelBet).filter(XiuxianDuelBet.pool_id == pool_id, XiuxianDuelBet.side == "challenger").all())
         defender_total = sum(int(row.amount or 0) for row in session.query(XiuxianDuelBet).filter(XiuxianDuelBet.pool_id == pool_id, XiuxianDuelBet.side == "defender").all())
         remaining = max(int((pool.bets_close_at - utcnow()).total_seconds()), 0)
@@ -2409,11 +2452,15 @@ def format_duel_bet_board(pool_id: int) -> str:
             f"挑战者池：{challenger_total} 灵石",
             f"应战者池：{defender_total} 灵石",
             f"总赌池：{challenger_total + defender_total} 灵石",
+            f"下注范围：{bet_settings['min_amount']} - {bet_settings['max_amount']} 灵石",
+            f"下注挡位：{' / '.join(str(value) for value in bet_settings['amount_options'])}",
         ]
         if pool.resolved:
             winner_side = "挑战者" if int(pool.winner_tg or 0) == int(pool.challenger_tg) else "应战者"
             lines.append(f"押注状态：已结算（胜方：{winner_side}）")
         else:
+            if not bet_settings["enabled"]:
+                lines.append("下注状态：后台已关闭新下注，仅保留已下注单等待结算")
             lines.append(f"剩余时间：{remaining} 秒")
         return "\n".join(lines)
 
@@ -2558,6 +2605,7 @@ def create_duel_bet_pool_for_duel(
     defender_tg: int,
     stake: int,
     duel_mode: str = "standard",
+    bet_seconds: int | None = None,
     bet_minutes: int | None = None,
     group_chat_id: int,
     duel_message_id: int | None = None,
@@ -2566,9 +2614,11 @@ def create_duel_bet_pool_for_duel(
         "standard": "standard",
         "normal": "standard",
         "master": "master",
+        "furnace": "master",
         "slave": "master",
         "servant": "master",
         "主仆": "master",
+        "炉鼎": "master",
         "death": "death",
         "dead": "death",
         "生死": "death",
@@ -2579,8 +2629,14 @@ def create_duel_bet_pool_for_duel(
         if active_lock is not None:
             raise ValueError(f"{active_lock['duel_mode_label']}尚未结算，暂时不能再次开启新的斗法。")
     settings = get_xiuxian_settings()
-    configured_minutes = int(settings.get("duel_bet_minutes", DEFAULT_SETTINGS.get("duel_bet_minutes", 2)) or 2)
-    minutes = max(min(int(bet_minutes or configured_minutes), 15), 1)
+    bet_settings = _duel_bet_settings(settings)
+    if not bet_settings["enabled"]:
+        raise ValueError("赌斗下注功能已关闭")
+    configured_seconds = int(bet_settings["seconds"] or DEFAULT_SETTINGS.get("duel_bet_seconds", 120))
+    seconds = int(bet_seconds or 0)
+    if seconds <= 0 and bet_minutes is not None:
+        seconds = max(int(bet_minutes or 0), 1) * 60
+    seconds = min(max(seconds or configured_seconds, 10), 3600)
     stake_amount = max(int(stake or 0), 0)
     if stake_amount > 0:
         from bot.plugins.xiuxian_game.service import assert_duel_stake_affordable
@@ -2602,7 +2658,7 @@ def create_duel_bet_pool_for_duel(
             group_chat_id=group_chat_id,
             duel_message_id=duel_message_id,
             duel_mode=duel_mode_value,
-            bets_close_at=utcnow() + timedelta(minutes=minutes),
+            bets_close_at=utcnow() + timedelta(seconds=seconds),
             resolved=False,
         )
         session.add(pool)
@@ -2614,7 +2670,7 @@ def create_duel_bet_pool_for_duel(
             "defender_tg": pool.defender_tg,
             "stake": pool.stake,
             "group_chat_id": pool.group_chat_id,
-            "bet_minutes": minutes,
+            "bet_seconds": seconds,
             "duel_mode": duel_mode_value,
             "duel_mode_label": DUEL_MODE_LABELS.get(duel_mode_value, duel_mode_value),
             "bets_close_at": serialize_datetime(pool.bets_close_at),

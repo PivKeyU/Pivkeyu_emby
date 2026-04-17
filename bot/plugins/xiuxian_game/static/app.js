@@ -9,6 +9,14 @@ const state = {
   giftSearchQuery: "",
   giftSearchResults: [],
   giftSearchTimer: null,
+  mentorshipTarget: null,
+  mentorshipSearchQuery: "",
+  mentorshipSearchResults: [],
+  mentorshipSearchTimer: null,
+  marriageTarget: null,
+  marriageSearchQuery: "",
+  marriageSearchResults: [],
+  marriageSearchTimer: null,
 };
 
 const REALM_ORDER = ["炼气", "筑基", "金丹", "元婴", "化神", "炼虚", "合体", "大乘", "渡劫", "人仙", "地仙", "天仙", "金仙", "大罗金仙", "仙君", "仙王", "仙尊", "仙帝"];
@@ -20,6 +28,68 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function normalizeHexColor(value) {
+  const raw = String(value || "").trim();
+  if (/^#[0-9a-f]{3}$/i.test(raw)) {
+    const [, r, g, b] = raw;
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+  if (/^#[0-9a-f]{6}$/i.test(raw)) return raw.toLowerCase();
+  if (/^#[0-9a-f]{8}$/i.test(raw)) return `#${raw.slice(1, 7)}`.toLowerCase();
+  return "";
+}
+
+function hexWithAlpha(value, alpha) {
+  const hex = normalizeHexColor(value);
+  return hex ? `${hex}${alpha}` : "";
+}
+
+function isGradientDecorColor(value) {
+  return /gradient\s*\(/i.test(String(value || ""));
+}
+
+function normalizeDecorColor(value, fallback = "") {
+  const raw = String(value || "").trim();
+  if (!raw) return fallback;
+  if (raw.length > 255) return fallback;
+  if (!/^[#(),.%/+\-\sa-zA-Z0-9]+$/.test(raw)) return fallback;
+  const lower = raw.toLowerCase();
+  if (lower.includes("url(") || lower.includes("expression(") || lower.includes("javascript:") || lower.includes("var(")) {
+    return fallback;
+  }
+  if (/^#[0-9a-f]{3,8}$/i.test(raw)) return raw;
+  if (/^(rgb|rgba|hsl|hsla)\([#0-9a-z.,%/+\-\s]+\)$/i.test(raw)) return raw;
+  if (/^(linear|radial|conic)-gradient\([#0-9a-z.,%/+\-\s]+\)$/i.test(raw)) return raw;
+  return fallback;
+}
+
+function buildDecorBadgeStyle(color, fallback = "#9ca3af") {
+  const safeColor = normalizeDecorColor(color, fallback) || fallback;
+  if (isGradientDecorColor(safeColor)) {
+    return `background:${safeColor};color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.28);`;
+  }
+  const hex = normalizeHexColor(safeColor);
+  if (hex) {
+    return `background:${hexWithAlpha(hex, "22")};color:${hex};box-shadow:inset 0 0 0 1px ${hexWithAlpha(hex, "33")};`;
+  }
+  return `background:rgba(148,163,184,.14);color:${safeColor};box-shadow:inset 0 0 0 1px rgba(148,163,184,.24);`;
+}
+
+function buildDecorTextStyle(color) {
+  const safeColor = normalizeDecorColor(color, "");
+  if (!safeColor) return "";
+  if (isGradientDecorColor(safeColor)) {
+    return `display:inline-block;background:${safeColor};background-size:100% 100%;background-clip:text;-webkit-background-clip:text;color:transparent;-webkit-text-fill-color:transparent;`;
+  }
+  return `color:${safeColor};`;
+}
+
+function titleColoredNameHtml(label, color) {
+  const safeLabel = escapeHtml(label || "未命名称号");
+  const style = escapeHtml(buildDecorTextStyle(color));
+  return `<span class="title-colored-name"${style ? ` style="${style}"` : ""}>${safeLabel}</span>`;
 }
 
 function grantedItemName(payload) {
@@ -237,6 +307,16 @@ function formatDate(value) {
   return date ? date.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }) : "未知";
 }
 
+function formatRemainingDuration(totalSeconds) {
+  const safeSeconds = Math.max(Number(totalSeconds || 0), 0);
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const seconds = Math.floor(safeSeconds % 60);
+  if (hours > 0) return `${hours} 小时 ${minutes} 分`;
+  if (minutes > 0) return `${minutes} 分 ${seconds} 秒`;
+  return `${seconds} 秒`;
+}
+
 function officialShopName(bundle = state.profileBundle) {
   const raw = bundle?.settings?.official_shop_name;
   return String(raw || "").trim() || "官方商店";
@@ -245,6 +325,15 @@ function officialShopName(bundle = state.profileBundle) {
 function currentDuelLockReason(bundle = state.profileBundle) {
   const reason = bundle?.capabilities?.duel_lock_reason;
   return String(reason || "").trim();
+}
+
+function currentSocialInteractionLockReason(bundle = state.profileBundle) {
+  const reason = bundle?.capabilities?.social_interaction_lock_reason;
+  return String(reason || "").trim();
+}
+
+function currentSocialMode(bundle = state.profileBundle) {
+  return String(bundle?.profile?.social_mode || "worldly").trim() || "worldly";
 }
 
 function attributeGrowthText(changes = [], prefix = "小幅成长") {
@@ -334,6 +423,257 @@ function setGiftTarget(target) {
   syncGiftPanelState(state.profileBundle);
 }
 
+function currentMentorshipTarget() {
+  return state.mentorshipTarget && Number(state.mentorshipTarget.tg || 0) > 0 ? state.mentorshipTarget : null;
+}
+
+function renderMentorshipTargetSelection() {
+  const root = document.querySelector("#mentorship-target-selected");
+  const target = currentMentorshipTarget();
+  if (!root) return;
+  if (!target) {
+    root.innerHTML = "";
+    return;
+  }
+  const hint = target.username ? `@${target.username}` : `TG ${target.tg}`;
+  root.innerHTML = `
+    <article class="stack-item">
+      <div class="stack-item-head">
+        <strong>已选目标：${escapeHtml(target.display_label || hint)}</strong>
+        <button type="button" class="ghost" data-clear-mentorship-target>重新选择</button>
+      </div>
+      <p>当前仅展示公开昵称与用户名：${escapeHtml(hint)}。</p>
+    </article>
+  `;
+}
+
+function renderMentorshipSearchResults(items = state.mentorshipSearchResults) {
+  const root = document.querySelector("#mentorship-player-search-results");
+  if (!root) return;
+  const keyword = String(state.mentorshipSearchQuery || "").trim();
+  if (!keyword) {
+    root.innerHTML = "";
+    return;
+  }
+  if (!(items || []).length) {
+    root.innerHTML = `<article class="stack-item"><strong>未找到匹配道友</strong><p>试试输入 @用户名、TG ID 或昵称。</p></article>`;
+    return;
+  }
+  root.innerHTML = (items || []).map((item) => `
+    <article class="stack-item">
+      <div class="stack-item-head">
+        <strong>${escapeHtml(item.display_label || `TG ${item.tg}`)}</strong>
+        <button
+          type="button"
+          class="ghost"
+          data-mentorship-target-tg="${escapeHtml(item.tg)}"
+          data-mentorship-target-label="${escapeHtml(item.display_label || `TG ${item.tg}`)}"
+          data-mentorship-target-username="${escapeHtml(item.username || "")}"
+        >选择</button>
+      </div>
+      <p>${escapeHtml(item.username ? `@${item.username}` : `TG ${item.tg}`)}</p>
+    </article>
+  `).join("");
+}
+
+function setMentorshipTarget(target) {
+  const tgValue = Number(target?.tg || 0);
+  state.mentorshipTarget = tgValue > 0
+    ? {
+      tg: tgValue,
+      display_label: String(target?.display_label || target?.label || `TG ${tgValue}`).trim(),
+      username: String(target?.username || "").trim().replace(/^@/, ""),
+    }
+    : null;
+  renderMentorshipTargetSelection();
+  syncMentorshipRequestComposer(state.profileBundle);
+}
+
+async function searchMentorshipPlayers(query, page = 1) {
+  const keyword = String(query || "").trim();
+  state.mentorshipSearchQuery = keyword;
+  if (!keyword) {
+    state.mentorshipSearchResults = [];
+    renderMentorshipSearchResults([]);
+    return { items: [], page: 1, page_size: 0, total: 0 };
+  }
+  const requestKeyword = keyword;
+  const payload = await postJson("/plugins/xiuxian/api/player/search", {
+    query: keyword,
+    page,
+    page_size: 8,
+  });
+  if (state.mentorshipSearchQuery !== requestKeyword) {
+    return payload;
+  }
+  state.mentorshipSearchResults = payload.items || [];
+  renderMentorshipSearchResults(state.mentorshipSearchResults);
+  return payload;
+}
+
+function mentorshipRequestRoleLabel(role) {
+  return String(role || "").trim() === "mentor" ? "收徒邀请" : "拜师申请";
+}
+
+function syncMentorshipRequestComposer(bundle = state.profileBundle) {
+  renderMentorshipTargetSelection();
+  renderMentorshipSearchResults();
+  const mentorship = bundle?.mentorship || {};
+  const target = currentMentorshipTarget();
+  const role = document.querySelector("#mentorship-request-role")?.value || "disciple";
+  const socialLockReason = currentSocialInteractionLockReason(bundle);
+  let roleLockReason = "";
+  if (role === "mentor" && !mentorship.can_take_disciple) {
+    roleLockReason = mentorship.request_hint || "当前不可继续收徒。";
+  }
+  if (role === "disciple" && !mentorship.can_seek_mentor) {
+    roleLockReason = mentorship.request_hint || "当前不可再拜师。";
+  }
+  const inputLockReason = socialLockReason || "";
+  const submitLockReason = socialLockReason || roleLockReason || (target ? "" : "先选择目标道友。");
+  ["#mentorship-player-query", "#mentorship-player-search", "#mentorship-request-role", "#mentorship-request-message"]
+    .forEach((selector) => setDisabled(document.querySelector(selector), Boolean(inputLockReason), inputLockReason));
+  setDisabled(document.querySelector("#mentorship-request-form button[type='submit']"), Boolean(submitLockReason), submitLockReason);
+  const hint = document.querySelector("#mentorship-request-hint");
+  if (hint) {
+    const roleText = mentorshipRequestRoleLabel(role);
+    hint.textContent = socialLockReason
+      ? socialLockReason
+      : roleLockReason
+        ? roleLockReason
+        : target
+          ? `${mentorship.request_hint || "可继续结识同道。"} 当前准备发送：${roleText} -> ${target.display_label || `TG ${target.tg}`}。`
+          : (mentorship.request_hint || "完成搜索并选中目标后，才可递上拜帖。");
+  }
+}
+
+function currentMarriageTarget() {
+  return state.marriageTarget && Number(state.marriageTarget.tg || 0) > 0 ? state.marriageTarget : null;
+}
+
+function renderMarriageTargetSelection() {
+  const root = document.querySelector("#marriage-target-selected");
+  const target = currentMarriageTarget();
+  if (!root) return;
+  if (!target) {
+    root.innerHTML = "";
+    return;
+  }
+  const hint = target.username ? `@${target.username}` : `TG ${target.tg}`;
+  root.innerHTML = `
+    <article class="stack-item">
+      <div class="stack-item-head">
+        <strong>已选目标：${escapeHtml(target.display_label || hint)}</strong>
+        <button type="button" class="ghost" data-clear-marriage-target>重新选择</button>
+      </div>
+      <p>当前仅展示公开昵称与用户名：${escapeHtml(hint)}。</p>
+    </article>
+  `;
+}
+
+function renderMarriageSearchResults(items = state.marriageSearchResults) {
+  const root = document.querySelector("#marriage-player-search-results");
+  if (!root) return;
+  const keyword = String(state.marriageSearchQuery || "").trim();
+  if (!keyword) {
+    root.innerHTML = "";
+    return;
+  }
+  if (!(items || []).length) {
+    root.innerHTML = `<article class="stack-item"><strong>未找到匹配道友</strong><p>试试输入 @用户名、TG ID 或昵称。</p></article>`;
+    return;
+  }
+  root.innerHTML = (items || []).map((item) => `
+    <article class="stack-item">
+      <div class="stack-item-head">
+        <strong>${escapeHtml(item.display_label || `TG ${item.tg}`)}</strong>
+        <button
+          type="button"
+          class="ghost"
+          data-marriage-target-tg="${escapeHtml(item.tg)}"
+          data-marriage-target-label="${escapeHtml(item.display_label || `TG ${item.tg}`)}"
+          data-marriage-target-username="${escapeHtml(item.username || "")}"
+        >选择</button>
+      </div>
+      <p>${escapeHtml(item.username ? `@${item.username}` : `TG ${item.tg}`)}</p>
+    </article>
+  `).join("");
+}
+
+function setMarriageTarget(target) {
+  const tgValue = Number(target?.tg || 0);
+  state.marriageTarget = tgValue > 0
+    ? {
+      tg: tgValue,
+      display_label: String(target?.display_label || target?.label || `TG ${tgValue}`).trim(),
+      username: String(target?.username || "").trim().replace(/^@/, ""),
+    }
+    : null;
+  renderMarriageTargetSelection();
+  syncMarriageRequestComposer(state.profileBundle);
+}
+
+async function searchMarriagePlayers(query, page = 1) {
+  const keyword = String(query || "").trim();
+  state.marriageSearchQuery = keyword;
+  if (!keyword) {
+    state.marriageSearchResults = [];
+    renderMarriageSearchResults([]);
+    return { items: [], page: 1, page_size: 0, total: 0 };
+  }
+  const requestKeyword = keyword;
+  const payload = await postJson("/plugins/xiuxian/api/player/search", {
+    query: keyword,
+    page,
+    page_size: 8,
+  });
+  if (state.marriageSearchQuery !== requestKeyword) {
+    return payload;
+  }
+  state.marriageSearchResults = payload.items || [];
+  renderMarriageSearchResults(state.marriageSearchResults);
+  return payload;
+}
+
+function syncGenderComposer(bundle = state.profileBundle) {
+  const marriage = bundle?.marriage || {};
+  const select = document.querySelector("#gender-select");
+  const submit = document.querySelector("#gender-set-form button[type='submit']");
+  const hint = document.querySelector("#gender-set-hint");
+  const lockReason = marriage.can_set_gender ? "" : (marriage.gender_change_reason || "");
+  if (select) {
+    select.value = String(marriage.gender || bundle?.profile?.gender || "male");
+  }
+  setDisabled(select, Boolean(lockReason), lockReason);
+  setDisabled(submit, Boolean(lockReason), lockReason);
+  if (hint) {
+    hint.textContent = lockReason
+      ? lockReason
+      : marriage.gender_set
+        ? `当前已设置为${marriage.gender_label || "已设置"}。未结为道侣前可重新调整。`
+        : "未设置性别前，其他修仙玩法会被锁定。";
+  }
+}
+
+function syncMarriageRequestComposer(bundle = state.profileBundle) {
+  renderMarriageTargetSelection();
+  renderMarriageSearchResults();
+  const marriage = bundle?.marriage || {};
+  const target = currentMarriageTarget();
+  const socialLockReason = currentSocialInteractionLockReason(bundle);
+  const inputLockReason = socialLockReason || (!marriage.can_request_marriage ? (marriage.request_hint || "当前不可发起姻缘请求。") : "");
+  const submitLockReason = inputLockReason || (target ? "" : "先选择目标道友。");
+  ["#marriage-player-query", "#marriage-player-search", "#marriage-request-message"]
+    .forEach((selector) => setDisabled(document.querySelector(selector), Boolean(inputLockReason), inputLockReason));
+  setDisabled(document.querySelector("#marriage-request-form button[type='submit']"), Boolean(submitLockReason), submitLockReason);
+  const hint = document.querySelector("#marriage-request-hint");
+  if (hint) {
+    hint.textContent = submitLockReason
+      ? submitLockReason
+      : `${marriage.request_hint || "可递上结缘信物。"} 当前准备发送给 ${target?.display_label || `TG ${target?.tg || 0}`}。`;
+  }
+}
+
 function inventoryGiftRows(kind, bundle = state.profileBundle) {
   const profileBundle = bundle || {};
   if (kind === "artifact") {
@@ -416,10 +756,12 @@ function syncGiftPanelState(bundle = state.profileBundle) {
   renderGiftSearchResults();
   renderItemGiftInventorySelect(bundle);
   const duelLockReason = currentDuelLockReason(bundle);
+  const socialLockReason = currentSocialInteractionLockReason(bundle);
   const target = currentGiftTarget();
-  const giftBlockedReason = duelLockReason || (target ? "" : "先选择赠送对象。");
+  const interactionLockReason = duelLockReason || socialLockReason;
+  const giftBlockedReason = interactionLockReason || (target ? "" : "先选择赠送对象。");
   ["#gift-player-query", "#gift-player-search", "#item-gift-kind", "#item-gift-ref", "#item-gift-quantity"]
-    .forEach((selector) => setDisabled(document.querySelector(selector), Boolean(duelLockReason), duelLockReason));
+    .forEach((selector) => setDisabled(document.querySelector(selector), Boolean(interactionLockReason), interactionLockReason));
   setDisabled(document.querySelector("#gift-form button[type='submit']"), Boolean(giftBlockedReason), giftBlockedReason);
   setDisabled(document.querySelector("#item-gift-form button[type='submit']"), Boolean(giftBlockedReason), giftBlockedReason);
 }
@@ -1389,7 +1731,23 @@ function compareRealmRequirement(leftStage, leftLayer, rightStage, rightLayer) {
   return Number(leftLayer || 1) - Number(rightLayer || 1);
 }
 
+function cleanSceneCopy(text) {
+  return String(text || "")
+    .replace(/\s+/g, " ")
+    .replace(/[，、]{2,}/g, "，")
+    .replace(/[。！？]{2,}/g, "。")
+    .trim()
+    .replace(/^[，。！？；、,.!?;]+|[，。！？；、,.!?;]+$/g, "");
+}
+
+function sceneRiskBadgeClass(level) {
+  if (level === "stable" || level === "light") return "badge--normal";
+  if (level === "medium") return "badge--pending";
+  return "badge--danger";
+}
+
 function sceneDisplayMeta(scene, currentStage, currentLayer, currentPower) {
+  const state = scene.requirement_state || {};
   const minStage = scene.min_realm_stage || "";
   const minLayer = Number(scene.min_realm_layer || 1);
   const minPower = Number(scene.min_combat_power || 0);
@@ -1398,9 +1756,32 @@ function sceneDisplayMeta(scene, currentStage, currentLayer, currentPower) {
   const realmQualified = !minStage || minStageIndex < 0 || currentStageIndex > minStageIndex || (currentStageIndex === minStageIndex && currentLayer >= minLayer);
   const powerQualified = minPower <= 0 || currentPower >= minPower;
   const warnings = [];
-  if (minPower > 0 && !powerQualified) warnings.push("当前战力偏低，阵亡概率会明显提高");
-  if (minStage && !realmQualified) warnings.push("当前境界不足，阵亡概率会明显提高");
-  return { minStage, minLayer, minPower, realmQualified, powerQualified, qualified: realmQualified && powerQualified, warnings };
+  if (Array.isArray(state.risk_reasons) && state.risk_reasons.length) {
+    warnings.push(...state.risk_reasons.map((item) => cleanSceneCopy(item)).filter(Boolean));
+  } else {
+    if (minPower > 0 && !powerQualified) warnings.push("当前战力偏低，翻车概率会明显提高");
+    if (minStage && !realmQualified) warnings.push("当前境界不足，翻车概率会明显提高");
+  }
+  if (state.item_loss_warning) warnings.push(cleanSceneCopy(state.item_loss_warning));
+  const riskLevel = String(state.risk_level || (realmQualified && powerQualified ? "stable" : "high"));
+  const riskLabel = String(state.risk_label || (realmQualified && powerQualified ? "稳妥" : "高危"));
+  const riskPercent = Number(state.risk_percent ?? state.death_chance ?? 0);
+  const itemLossRisk = Number(state.item_loss_risk || 0);
+  return {
+    minStage,
+    minLayer,
+    minPower,
+    realmQualified,
+    powerQualified,
+    qualified: realmQualified && powerQualified,
+    warnings,
+    riskLevel,
+    riskLabel,
+    riskPercent,
+    itemLossRisk,
+    requirementSummary: cleanSceneCopy(state.requirement_summary),
+    safeNote: cleanSceneCopy(state.safe_note),
+  };
 }
 
 function buildSceneSearchText(scene = {}) {
@@ -1432,7 +1813,7 @@ function renderExploreArea(bundle) {
           <strong>探索进行中</strong>
           <span class="badge badge--normal">${escapeHtml(active.reward_kind_label || active.reward_kind || "奖励")}</span>
         </div>
-        <p>${escapeHtml(active.event_text || "未知遭遇")}</p>
+        <p>${escapeHtml(cleanSceneCopy(active.event_text) || "未知遭遇")}</p>
         <p>结束时间：${escapeHtml(formatDate(active.end_at))}</p>
         <button type="button" data-explore-claim="${active.id}" ${canClaim ? "" : "disabled"}>${canClaim ? "领取奖励" : "尚未结束"}</button>
       </article>
@@ -1480,17 +1861,22 @@ function renderExploreArea(bundle) {
     const rewardCards = (scene.drops || []).slice(0, 6).map((drop) => `
       <article class="scene-drop-item">
         <strong>${escapeHtml(drop.reward_name || drop.reward_ref_id_name || drop.reward_kind_label || "未知掉落")}</strong>
-        <p>${escapeHtml(drop.event_text || `${drop.quantity_min || 1}~${drop.quantity_max || 1} 件掉落`)}</p>
+        <p>${escapeHtml(cleanSceneCopy(drop.event_text) || `${drop.quantity_min || 1}~${drop.quantity_max || 1} 件掉落`)}</p>
       </article>
     `).join("");
+    const warningText = meta.warnings.join(" · ");
+    const safeText = meta.safeNote || "当前实力已基本覆盖此处风险，可优先刷取所需材料与功法。";
+    const riskText = meta.itemLossRisk > 0
+      ? `风险评级 ${meta.riskLabel}（综合 ${meta.riskPercent}% / 掉宝 ${meta.itemLossRisk}%）`
+      : `风险评级 ${meta.riskLabel}（综合 ${meta.riskPercent}%）`;
     const card = document.createElement("article");
     card.className = `stack-item scene-card ${meta.qualified ? "is-qualified" : "is-risky"}`;
     card.innerHTML = `
       <div class="stack-item-head">
         <strong>${escapeHtml(scene.name)}</strong>
-        <span class="badge ${meta.qualified ? "badge--normal" : "badge--pending"}">${meta.qualified ? "战力达标优先" : "谨慎进入"}</span>
+        <span class="badge ${sceneRiskBadgeClass(meta.riskLevel)}">${escapeHtml(meta.riskLabel)}</span>
       </div>
-      <p>${escapeHtml(scene.description || "暂无场景描述")}</p>
+      <p>${escapeHtml(cleanSceneCopy(scene.description) || "暂无场景描述")}</p>
       <div class="info-grid">
         <article class="info-chip">
           <span>战力门槛</span>
@@ -1504,15 +1890,20 @@ function renderExploreArea(bundle) {
           <span>历练记录</span>
           <strong>已探索 ${escapeHtml(explorationCount)} 次</strong>
         </article>
+        <article class="info-chip">
+          <span>风险评估</span>
+          <strong>${escapeHtml(riskText)}</strong>
+        </article>
       </div>
-      ${meta.warnings.length ? `<p class="reason-text">${escapeHtml(meta.warnings.join(" · "))}</p>` : `<p>当前实力已基本覆盖此处风险，可优先刷取所需材料与功法。</p>`}
+      ${meta.requirementSummary ? `<p class="muted">${escapeHtml(`进入要求：${meta.requirementSummary}`)}</p>` : ""}
+      ${warningText ? `<p class="reason-text">${escapeHtml(warningText)}</p>` : `<p>${escapeHtml(safeText)}</p>`}
       <div class="scene-drop-list">${rewardCards || `<article class="scene-drop-item"><strong>掉落待补充</strong><p>当前秘境尚未配置可展示的奖励。</p></article>`}</div>
       <label>探索时长
         <select data-scene-minutes="${scene.id}">
           ${buildDurationOptions(scene.max_minutes)}
         </select>
       </label>
-      <button type="button" data-scene-id="${scene.id}">${meta.qualified ? "开始探索" : "冒险进入"}</button>
+      <button type="button" data-scene-id="${scene.id}">${meta.riskLevel === "high" || meta.riskLevel === "extreme" ? "冒险进入" : "开始探索"}</button>
     `;
     sceneRoot.appendChild(card);
   }
@@ -1847,8 +2238,11 @@ document.querySelector("#train-btn").addEventListener("click", async (event) => 
   try {
     const payload = await runButtonAction(button, "吐纳中…", () => postJson("/plugins/xiuxian/api/train"));
     const growthText = attributeGrowthText(payload.attribute_growth || []);
+    const efficiencyText = Number(payload.cultivation_efficiency_percent || 100) < 100
+      ? `\n避世修为效率：${payload.cultivation_efficiency_percent}%（原始 ${payload.gain_raw || payload.gain}）`
+      : "";
     setStatus(`本次修炼获得修为 ${payload.gain}、灵石 ${payload.stone_gain}${growthText ? `，${growthText}` : ""}。`, "success");
-    await popup("吐纳成功", `修为 +${payload.gain}\n灵石 +${payload.stone_gain}${growthText ? `\n${growthText}` : ""}`);
+    await popup("吐纳成功", `修为 +${payload.gain}\n灵石 +${payload.stone_gain}${growthText ? `\n${growthText}` : ""}${efficiencyText}`);
     await refreshBundle();
     await refreshLeaderboard(state.leaderboard.kind, state.leaderboard.page);
   } catch (error) {
@@ -1898,7 +2292,10 @@ document.querySelector("#retreat-start-btn").addEventListener("click", async (ev
     const payload = await runButtonAction(button, "闭关中…", () => postJson("/plugins/xiuxian/api/retreat/start", {
       hours: Number(document.querySelector("#retreat-hours").value || 1)
     }));
-    const message = `预计获得 ${payload.estimated_gain} 修为，预计消耗 ${payload.estimated_cost} 灵石。`;
+    const efficiencyText = Number(payload.cultivation_efficiency_percent || 100) < 100
+      ? ` 当前避世效率 ${payload.cultivation_efficiency_percent}%（原始 ${payload.estimated_gain_raw || payload.estimated_gain}）。`
+      : "";
+    const message = `预计获得 ${payload.estimated_gain} 修为，预计消耗 ${payload.estimated_cost} 灵石。${efficiencyText}`;
     setStatus(`闭关已开始：${message}`, "success");
     await popup("闭关开始", message);
     await refreshBundle();
@@ -1914,7 +2311,10 @@ document.querySelector("#retreat-finish-btn").addEventListener("click", async (e
   try {
     const payload = await runButtonAction(button, "出关中…", () => postJson("/plugins/xiuxian/api/retreat/finish"));
     const settled = payload.settled || { gain: 0, cost: 0 };
-    const baseMessage = `本次闭关获得修为 ${settled.gain}，消耗灵石 ${settled.cost}。`;
+    const efficiencyText = Number(settled.cultivation_efficiency_percent || 100) < 100
+      ? ` 避世效率 ${settled.cultivation_efficiency_percent}%（原始 ${settled.gain_raw || settled.gain}）。`
+      : "";
+    const baseMessage = `本次闭关获得修为 ${settled.gain}，消耗灵石 ${settled.cost}。${efficiencyText}`;
     const message = settled.insufficient_stone
       ? `${baseMessage}由于中途灵石不足，剩余闭关进度未继续结算。`
       : baseMessage;
@@ -1924,6 +2324,22 @@ document.querySelector("#retreat-finish-btn").addEventListener("click", async (e
     await refreshLeaderboard("realm", 1);
   } catch (error) {
     const message = normalizeError(error, "出关结算失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
+});
+
+document.querySelector("#social-mode-btn")?.addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const nextMode = currentSocialMode() === "secluded" ? "worldly" : "secluded";
+  const nextLabel = nextMode === "secluded" ? "避世" : "入世";
+  try {
+    const payload = await runButtonAction(button, "切换中…", () => postJson("/plugins/xiuxian/api/social-mode", { social_mode: nextMode }));
+    applyProfileBundle(payload.bundle);
+    setStatus(`当前状态已切换为${nextLabel}。`, "success");
+    await popup("状态已切换", `当前已切换为${nextLabel}。`, "success");
+  } catch (error) {
+    const message = normalizeError(error, "切换状态失败。");
     setStatus(message, "error");
     await popup("操作失败", message, "error");
   }
@@ -1964,6 +2380,55 @@ document.querySelector("#stone-to-coin-form").addEventListener("submit", async (
     const message = normalizeError(error, "兑换碎片失败。");
     setStatus(message, "error");
     await popup("兑换失败", message, "error");
+  }
+});
+
+document.querySelector("#gambling-exchange-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector("button[type='submit']");
+  try {
+    const payload = await runButtonAction(button, "兑换中…", () => postJson("/plugins/xiuxian/api/gambling/exchange", {
+      count: Number(document.querySelector("#gambling-exchange-count")?.value || 0),
+    }));
+    if (payload.bundle) applyProfileBundle(payload.bundle);
+    const result = payload.result || {};
+    const message = `消耗 ${Number(result.total_cost_stone || 0)} 灵石，兑换 ${Number(result.exchange_count || 0)} 枚仙界奇石，当前持有 ${Number(result.immortal_stone_quantity || 0)} 枚。`;
+    setStatus(message, "success");
+    await popup("兑换成功", message);
+  } catch (error) {
+    const message = normalizeError(error, "兑换仙界奇石失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
+});
+
+document.querySelector("#gambling-open-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector("button[type='submit']");
+  try {
+    const payload = await runButtonAction(button, "开启中…", () => postJson("/plugins/xiuxian/api/gambling/open", {
+      count: Number(document.querySelector("#gambling-open-count")?.value || 0),
+    }));
+    if (payload.bundle) applyProfileBundle(payload.bundle);
+    const result = payload.result || {};
+    const rareRows = (result.summary || []).filter((item) => item.broadcasted);
+    const lines = [
+      `开启数量：${Number(result.opened_count || 0)} 枚`,
+      `获得：${result.summary_text || "未知奖励"}`,
+      `剩余奇石：${Number(result.remaining_immortal_stone || 0)} 枚`,
+    ];
+    if (result.fortune_hint) {
+      lines.push(result.fortune_hint);
+    }
+    if (rareRows.length) {
+      lines.push(`已触发群播：${rareRows.map((item) => `${item.quality_label || "高品"} ${item.item_name || "未知物品"} x${Number(item.quantity || 0)}`).join("、")}`);
+    }
+    setStatus(`奇石开启完成：${result.summary_text || "奖励已发放。"}。`, "success");
+    await popup("奇石开启完成", lines.join("\n"));
+  } catch (error) {
+    const message = normalizeError(error, "开启仙界奇石失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
   }
 });
 
@@ -2521,6 +2986,204 @@ document.querySelector("#gift-target-selected")?.addEventListener("click", (even
   setStatus("已清除赠送目标。", "warning");
 });
 
+document.querySelector("#gender-set-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form?.querySelector("button[type='submit']");
+  const gender = document.querySelector("#gender-select")?.value || "male";
+  try {
+    const payload = await runButtonAction(button, "设置中…", () => postJson("/plugins/xiuxian/api/gender/set", {
+      gender,
+    }));
+    if (payload.bundle) applyProfileBundle(payload.bundle);
+    const result = payload.result || {};
+    setStatus(result.message || "性别设置已更新。", "success");
+    await popup("设置成功", result.message || "性别设置已更新。");
+  } catch (error) {
+    const message = normalizeError(error, "设置性别失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
+});
+
+document.querySelector("#marriage-search-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = document.querySelector("#marriage-player-search");
+  const query = document.querySelector("#marriage-player-query")?.value || "";
+  try {
+    await runButtonAction(button, "搜索中…", () => searchMarriagePlayers(query));
+    if (!state.marriageSearchResults.length) {
+      setStatus("没有找到匹配的道友。", "warning");
+    }
+  } catch (error) {
+    const message = normalizeError(error, "搜索道友失败。");
+    setStatus(message, "error");
+    await popup("搜索失败", message, "error");
+  }
+});
+
+document.querySelector("#marriage-player-query")?.addEventListener("input", (event) => {
+  const keyword = event.currentTarget?.value || "";
+  if (state.marriageSearchTimer) window.clearTimeout(state.marriageSearchTimer);
+  if (!String(keyword).trim()) {
+    state.marriageSearchQuery = "";
+    state.marriageSearchResults = [];
+    renderMarriageSearchResults([]);
+    return;
+  }
+  state.marriageSearchTimer = window.setTimeout(() => {
+    searchMarriagePlayers(keyword).catch((error) => {
+      const message = normalizeError(error, "搜索道友失败。");
+      setStatus(message, "error");
+    });
+  }, 240);
+});
+
+document.querySelector("#marriage-player-search-results")?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-marriage-target-tg]");
+  if (!button) return;
+  setMarriageTarget({
+    tg: Number(button.dataset.marriageTargetTg || 0),
+    display_label: button.dataset.marriageTargetLabel || "",
+    username: button.dataset.marriageTargetUsername || "",
+  });
+  state.marriageSearchQuery = "";
+  state.marriageSearchResults = [];
+  const queryInput = document.querySelector("#marriage-player-query");
+  if (queryInput) queryInput.value = "";
+  renderMarriageSearchResults([]);
+  setStatus(`已选中 ${button.dataset.marriageTargetLabel || `TG ${button.dataset.marriageTargetTg || ""}`}。`, "success");
+});
+
+document.querySelector("#marriage-target-selected")?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-clear-marriage-target]");
+  if (!button) return;
+  setMarriageTarget(null);
+  setStatus("已清除姻缘目标。", "warning");
+});
+
+document.querySelector("#marriage-request-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form?.querySelector("button[type='submit']");
+  const target = currentMarriageTarget();
+  if (!target) {
+    const message = "请先搜索并选中一位道友。";
+    setStatus(message, "warning");
+    await popup("无法递交", message, "warning");
+    return;
+  }
+  try {
+    const payload = await runButtonAction(button, "递交中…", () => postJson("/plugins/xiuxian/api/marriage/request", {
+      target_tg: target.tg,
+      message: document.querySelector("#marriage-request-message")?.value?.trim?.() || "",
+    }));
+    if (payload.bundle) applyProfileBundle(payload.bundle);
+    const result = payload.result || {};
+    setMarriageTarget(null);
+    const messageInput = document.querySelector("#marriage-request-message");
+    if (messageInput) messageInput.value = "";
+    setStatus(result.message || "结缘信物已送出。", "success");
+    await popup("信物已送出", result.message || "结缘信物已送出。");
+  } catch (error) {
+    const message = normalizeError(error, "递交结缘信物失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
+});
+
+document.querySelector("#mentorship-search-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = document.querySelector("#mentorship-player-search");
+  const query = document.querySelector("#mentorship-player-query")?.value || "";
+  try {
+    await runButtonAction(button, "搜索中…", () => searchMentorshipPlayers(query));
+    if (!state.mentorshipSearchResults.length) {
+      setStatus("没有找到匹配的道友。", "warning");
+    }
+  } catch (error) {
+    const message = normalizeError(error, "搜索道友失败。");
+    setStatus(message, "error");
+    await popup("搜索失败", message, "error");
+  }
+});
+
+document.querySelector("#mentorship-player-query")?.addEventListener("input", (event) => {
+  const keyword = event.currentTarget?.value || "";
+  if (state.mentorshipSearchTimer) window.clearTimeout(state.mentorshipSearchTimer);
+  if (!String(keyword).trim()) {
+    state.mentorshipSearchQuery = "";
+    state.mentorshipSearchResults = [];
+    renderMentorshipSearchResults([]);
+    return;
+  }
+  state.mentorshipSearchTimer = window.setTimeout(() => {
+    searchMentorshipPlayers(keyword).catch((error) => {
+      const message = normalizeError(error, "搜索道友失败。");
+      setStatus(message, "error");
+    });
+  }, 240);
+});
+
+document.querySelector("#mentorship-player-search-results")?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-mentorship-target-tg]");
+  if (!button) return;
+  setMentorshipTarget({
+    tg: Number(button.dataset.mentorshipTargetTg || 0),
+    display_label: button.dataset.mentorshipTargetLabel || "",
+    username: button.dataset.mentorshipTargetUsername || "",
+  });
+  state.mentorshipSearchQuery = "";
+  state.mentorshipSearchResults = [];
+  const queryInput = document.querySelector("#mentorship-player-query");
+  if (queryInput) queryInput.value = "";
+  renderMentorshipSearchResults([]);
+  setStatus(`已选中 ${button.dataset.mentorshipTargetLabel || `TG ${button.dataset.mentorshipTargetTg || ""}`}。`, "success");
+});
+
+document.querySelector("#mentorship-target-selected")?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-clear-mentorship-target]");
+  if (!button) return;
+  setMentorshipTarget(null);
+  setStatus("已清除师徒目标。", "warning");
+});
+
+document.querySelector("#mentorship-request-role")?.addEventListener("change", () => {
+  syncMentorshipRequestComposer(state.profileBundle);
+});
+
+document.querySelector("#mentorship-request-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form?.querySelector("button[type='submit']");
+  const target = currentMentorshipTarget();
+  if (!target) {
+    const message = "请先搜索并选择目标道友。";
+    setStatus(message, "warning");
+    return await popup("缺少目标", message, "warning");
+  }
+  const sponsorRole = document.querySelector("#mentorship-request-role")?.value || "disciple";
+  try {
+    const payload = await runButtonAction(button, "递交中…", () => postJson("/plugins/xiuxian/api/mentorship/request", {
+      target_tg: Number(target.tg || 0),
+      sponsor_role: sponsorRole,
+      message: document.querySelector("#mentorship-request-message")?.value?.trim?.() || "",
+    }));
+    if (payload.bundle) applyProfileBundle(payload.bundle);
+    setMentorshipTarget(null);
+    const requestText = payload.result?.request?.sponsor_role_label || mentorshipRequestRoleLabel(sponsorRole);
+    setStatus(`已向 ${target.display_label || `TG ${target.tg}`} 递出${requestText}。`, "success");
+    await popup("拜帖已送达", payload.result?.message || "对方稍后可在师徒传承页处理你的拜帖。");
+    form?.reset?.();
+    document.querySelector("#mentorship-request-role").value = "disciple";
+    syncMentorshipRequestComposer(state.profileBundle);
+  } catch (error) {
+    const message = normalizeError(error, "递交师徒拜帖失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
+});
+
 document.querySelector("#gift-form")?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
@@ -2750,8 +3413,17 @@ renderProfile = function renderProfile(bundle) {
   const profile = bundle.profile || {};
   const stats = bundle.effective_stats || {};
   const currentTechnique = bundle.current_technique;
+  const settings = bundle.settings || {};
   const grid = document.querySelector("#profile-grid");
   const rootText = document.querySelector("#root-text");
+  const actionHint = document.querySelector("#action-hint");
+  const socialSummary = document.querySelector("#social-mode-summary");
+  const socialButton = document.querySelector("#social-mode-btn");
+  const socialMode = currentSocialMode(bundle);
+  const socialLabel = profile.social_mode_label || (socialMode === "secluded" ? "避世" : "入世");
+  const socialLockReason = currentSocialInteractionLockReason(bundle);
+  const duelLockReason = currentDuelLockReason(bundle);
+  const seclusionEfficiency = Number(settings.seclusion_cultivation_efficiency_percent || 60);
   if (rootText) {
     rootText.textContent = `灵根：${profile.root_text || profileRootText(profile)} · 品质 ${profile.root_quality || "中品灵根"} · 五行修正 ${(profile.root_bonus ?? 0) >= 0 ? "+" : ""}${profile.root_bonus ?? 0}%`;
   }
@@ -2768,8 +3440,29 @@ renderProfile = function renderProfile(bundle) {
       <article class="profile-item"><span>防御</span><strong>${escapeHtml(stats.defense_power ?? profile.defense_power ?? 0)}</strong></article>
       <article class="profile-item"><span>综合战力</span><strong>${escapeHtml(bundle.combat_power ?? 0)}</strong></article>
       <article class="profile-item"><span>当前功法</span><strong>${escapeHtml(currentTechnique?.name || "暂无")}</strong></article>
+      <article class="profile-item"><span>当前状态</span><strong>${escapeHtml(socialLabel)}</strong></article>
     `;
   }
+  if (actionHint && socialLockReason && !actionHint.textContent.includes(socialLockReason)) {
+    actionHint.textContent = `${actionHint.textContent} ${socialLockReason}`.trim();
+  }
+  if (socialSummary) {
+    socialSummary.textContent = socialMode === "secluded"
+      ? `当前处于避世状态，斗法、抢劫与互赠已关闭，修为收益按 ${seclusionEfficiency}% 结算。`
+      : "当前处于入世状态，可与其他道友正常互动。";
+  }
+  if (socialButton) {
+    socialButton.textContent = socialMode === "secluded" ? "切换为入世" : "切换为避世";
+    setDisabled(
+      socialButton,
+      !bundle?.capabilities?.can_toggle_social_mode,
+      bundle?.capabilities?.social_mode_toggle_reason || "当前无法切换状态",
+    );
+  }
+  const giftInteractionReason = duelLockReason || socialLockReason;
+  setDisabled(document.querySelector("#gift-form button[type='submit']"), Boolean(giftInteractionReason), giftInteractionReason);
+  setDisabled(document.querySelector("#item-gift-form button[type='submit']"), Boolean(giftInteractionReason), giftInteractionReason || "先选择赠送对象。");
+  syncGiftPanelState(bundle);
 };
 
 const _enhancedRenderProfile = renderProfile;
@@ -2782,10 +3475,7 @@ renderProfile = function renderProfileWithAdminEntry(bundle) {
 
 function qualityBadgeHtml(label, color, className = "tag") {
   const safeLabel = escapeHtml(label || "凡品");
-  const safeColor = typeof color === "string" && color ? color : "#9ca3af";
-  const style = safeColor.includes("gradient")
-    ? `background:${safeColor};color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.28);`
-    : `background:${safeColor}22;color:${safeColor};box-shadow:inset 0 0 0 1px ${safeColor}33;`;
+  const style = buildDecorBadgeStyle(color, "#9ca3af");
   return `<span class="${className}" style="${style}">${safeLabel}</span>`;
 }
 
@@ -3357,18 +4047,38 @@ renderProfile = function renderProfileRedesigned(bundle) {
   if (!consented) {
     const deathAt = profile.death_at ? formatDate(profile.death_at) : "";
     const rebirthCount = Number(profile.rebirth_count || 0);
+    const rebirthLocked = Boolean(profile.rebirth_locked || bundle?.capabilities?.rebirth_locked);
+    const rebirthAvailableAt = profile.rebirth_available_at ? formatDate(profile.rebirth_available_at) : "";
+    const rebirthRemaining = Number(profile.rebirth_cooldown_remaining_seconds || 0);
+    const rebirthCooldownHours = Number(profile.rebirth_cooldown_hours || 0);
+    const rebirthReason = String(profile.rebirth_cooldown_reason || bundle?.capabilities?.enter_reason || "").trim();
+    const rebirthLockedText = rebirthLocked
+      ? `转世重修冷却中，还需等待 ${formatRemainingDuration(rebirthRemaining)}${rebirthAvailableAt ? `，预计 ${rebirthAvailableAt} 后可重新踏入仙途。` : "。"}`
+      : "";
+    const enterButton = document.querySelector("#enter-path");
+    setDisabled(enterButton, rebirthLocked, rebirthLockedText || rebirthReason || "当前无法踏入仙途");
     if (realmBadge) realmBadge.textContent = "未入道";
-    if (heroRootPill) heroRootPill.textContent = profile.death_at ? "残魂待续" : "等待踏入仙途";
+    if (heroRootPill) {
+      heroRootPill.textContent = profile.death_at
+        ? (rebirthLocked ? "残魂冷却中" : "残魂待续")
+        : "等待踏入仙途";
+    }
     if (rootText) {
       rootText.textContent = profile.death_at
-        ? `上一世已于 ${deathAt || "未知时刻"} 陨落，当前转世次数 ${rebirthCount}。重新入道后将重开道途。`
+        ? (
+          rebirthLocked
+            ? `上一世已于 ${deathAt || "未知时刻"} 陨落，当前转世次数 ${rebirthCount}。${rebirthLockedText}`
+            : `上一世已于 ${deathAt || "未知时刻"} 陨落，当前转世次数 ${rebirthCount}。${rebirthCooldownHours > 0 ? `本次重修冷却 ${rebirthCooldownHours} 小时已结束，` : ""}可重新踏入仙途，重新入道后将重开道途。`
+        )
         : "确认入道后将抽取灵根、开启境界与背包系统。";
     }
     setStatus(
       profile.death_at
-        ? "你已身死道消，当前只能重新踏入仙途。"
+        ? (rebirthLocked
+          ? rebirthLockedText
+          : `你已身死道消，当前可重新踏入仙途。${rebirthAvailableAt ? ` 本次冷却结束时间：${rebirthAvailableAt}` : ""}`)
         : "你还没有踏入仙途，确认后将建立修仙档案。",
-      profile.death_at ? "error" : "warning",
+      profile.death_at ? (rebirthLocked ? "error" : "warning") : "warning",
     );
     syncAdminEntry(bundle);
     syncUserTaskComposer();
@@ -3390,10 +4100,10 @@ renderProfile = function renderProfileRedesigned(bundle) {
   const stats = bundle.effective_stats || {};
   const slaveNames = Array.isArray(profile.slave_names) ? profile.slave_names : [];
   const servitudeText = profile.master_name
-    ? `从属 ${profile.master_name}`
-    : (slaveNames.length ? `麾下 ${slaveNames.length} 人` : "自由身");
+    ? `炉鼎于 ${profile.master_name} 名下`
+    : (slaveNames.length ? `名下 ${slaveNames.length} 名炉鼎` : "无炉鼎因果");
   const servitudeCooldownText = profile.master_name
-    ? (profile.servitude_challenge_available_at ? formatDate(profile.servitude_challenge_available_at) : "可随时挑战")
+    ? (profile.servitude_challenge_available_at ? formatDate(profile.servitude_challenge_available_at) : "可随时发起脱离挑战")
     : "无";
 
   if (realmBadge) {
@@ -3426,8 +4136,8 @@ renderProfile = function renderProfileRedesigned(bundle) {
       <article class="profile-item"><span>已装法宝</span><strong>${escapeHtml(artifactNames)}</strong></article>
       <article class="profile-item"><span>待生效符箓</span><strong>${escapeHtml(talismanName)}</strong></article>
       <article class="profile-item"><span>当前功法</span><strong>${escapeHtml(bundle.current_technique?.name || "暂无")}</strong></article>
-      <article class="profile-item"><span>主仆状态</span><strong>${escapeHtml(servitudeText)}</strong></article>
-      <article class="profile-item"><span>赎身冷却</span><strong>${escapeHtml(servitudeCooldownText)}</strong></article>
+      <article class="profile-item"><span>炉鼎关系</span><strong>${escapeHtml(servitudeText)}</strong></article>
+      <article class="profile-item"><span>脱离冷却</span><strong>${escapeHtml(servitudeCooldownText)}</strong></article>
       <article class="profile-item"><span>闭关状态</span><strong>${escapeHtml(retreatStatus)}</strong></article>
       <article class="profile-item"><span>宗门贡献</span><strong>${escapeHtml(profile.sect_contribution ?? 0)}</strong></article>
       <article class="profile-item"><span>转世次数</span><strong>${escapeHtml(profile.rebirth_count ?? 0)}</strong></article>
@@ -3532,7 +4242,7 @@ function renderTitleAchievementArea(bundle) {
   currentRoot.innerHTML = currentTitle ? `
     <article class="stack-item">
       <div class="stack-item-head">
-        <strong>${escapeHtml(currentTitle.name)}</strong>
+        <strong>${titleColoredNameHtml(currentTitle.name, currentTitle.color)}</strong>
         <span class="badge badge--normal">已佩戴</span>
       </div>
       <p>${escapeHtml(currentTitle.description || "这道名帖已经烙印在你的修仙名帖上。")}</p>
@@ -3554,7 +4264,7 @@ function renderTitleAchievementArea(bundle) {
       return `
         <article class="stack-item">
           <div class="stack-item-head">
-            <strong>${escapeHtml(title.name || "未命名称号")}</strong>
+            <strong>${titleColoredNameHtml(title.name || "未命名称号", title.color)}</strong>
             <span class="badge badge--normal">${title.equipped ? "佩戴中" : "已拥有"}</span>
           </div>
           <p>${escapeHtml(title.description || "暂无称号描述")}</p>
@@ -3585,6 +4295,333 @@ function renderTitleAchievementArea(bundle) {
   `).join("");
 }
 
+function renderMentorshipArea(bundle) {
+  const selfRoot = document.querySelector("#mentorship-self-summary");
+  const mentorRoot = document.querySelector("#mentorship-mentor-current");
+  const discipleRoot = document.querySelector("#mentorship-disciple-list");
+  const incomingRoot = document.querySelector("#mentorship-incoming-list");
+  const outgoingRoot = document.querySelector("#mentorship-outgoing-list");
+  if (!selfRoot || !mentorRoot || !discipleRoot || !incomingRoot || !outgoingRoot) return;
+
+  const mentorship = bundle?.mentorship || {};
+  const selfProfile = mentorship.self_profile || {};
+  const mentorRelation = mentorship.mentor_relation || null;
+  const discipleRelations = mentorship.disciple_relations || [];
+  const incomingRequests = mentorship.incoming_requests || [];
+  const outgoingRequests = mentorship.outgoing_requests || [];
+
+  selfRoot.innerHTML = `
+    <article class="stack-item">
+      <div class="stack-item-head">
+        <strong>${escapeHtml(selfProfile.display_name_with_title || selfProfile.display_label || bundle?.profile?.display_label || "当前角色")}</strong>
+        <span class="badge badge--normal">可收徒 ${escapeHtml(mentorship.used_slots || 0)} / ${escapeHtml(mentorship.mentor_capacity || 0)}</span>
+      </div>
+      <p>${escapeHtml(mentorship.request_hint || "当前可处理师徒相关事务。")}</p>
+      <div class="item-tags">
+        <span class="tag">当前师尊 ${escapeHtml(mentorRelation?.mentor_profile?.display_label || "暂无")}</span>
+        <span class="tag">门下弟子 ${escapeHtml(discipleRelations.length)}</span>
+        <span class="tag">剩余名额 ${escapeHtml(mentorship.available_slots || 0)}</span>
+      </div>
+    </article>
+  `;
+
+  if (!mentorRelation) {
+    mentorRoot.innerHTML = `<article class="stack-item"><strong>当前没有师尊</strong><p>可在下方搜索高境界道友，递上拜师申请。</p></article>`;
+  } else {
+    const mentorProfile = mentorRelation.mentor_profile || {};
+    mentorRoot.innerHTML = `
+      <article class="stack-item">
+        <div class="stack-item-head">
+          <strong>师尊：${escapeHtml(mentorProfile.display_name_with_title || mentorProfile.display_label || "未具名师尊")}</strong>
+          <span class="badge badge--normal">${escapeHtml(mentorRelation.bond_label || "初结师缘")}</span>
+        </div>
+        <p>境界 ${escapeHtml(mentorProfile.realm_text || "未知")} · 战力 ${escapeHtml(mentorProfile.combat_power || 0)}</p>
+        <p>师徒缘 ${escapeHtml(mentorRelation.bond_value || 0)} ｜ 传道 ${escapeHtml(mentorRelation.teach_count || 0)} 次 ｜ 问道 ${escapeHtml(mentorRelation.consult_count || 0)} 次</p>
+        <p>${escapeHtml(mentorRelation.graduation_hint || "完成传道、问道与境界成长后，可申请出师。")}</p>
+        ${mentorRelation.consult_reason ? `<p class="reason-text">${escapeHtml(mentorRelation.consult_reason)}</p>` : ""}
+        <div class="inline-action-buttons">
+          <button type="button" data-mentorship-consult="1" ${mentorRelation.can_consult_today ? "" : "disabled"}>今日问道</button>
+          <button type="button" class="ghost" data-mentorship-graduate-target="${escapeHtml(mentorProfile.tg || 0)}" ${mentorRelation.graduation_ready ? "" : "disabled"}>申请出师</button>
+          <button type="button" class="ghost" data-mentorship-dissolve-target="${escapeHtml(mentorProfile.tg || 0)}">离开师门</button>
+        </div>
+      </article>
+    `;
+  }
+
+  if (!discipleRelations.length) {
+    discipleRoot.innerHTML = `<article class="stack-item"><strong>当前没有门下弟子</strong><p>可搜索后发出收徒邀请，建立自己的传承。</p></article>`;
+  } else {
+    discipleRoot.innerHTML = discipleRelations.map((relation) => {
+      const discipleProfile = relation.disciple_profile || {};
+      return `
+        <article class="stack-item">
+          <div class="stack-item-head">
+            <strong>弟子：${escapeHtml(discipleProfile.display_name_with_title || discipleProfile.display_label || "未具名弟子")}</strong>
+            <span class="badge badge--normal">${escapeHtml(relation.bond_label || "初结师缘")}</span>
+          </div>
+          <p>境界 ${escapeHtml(discipleProfile.realm_text || "未知")} · 战力 ${escapeHtml(discipleProfile.combat_power || 0)}</p>
+          <p>师徒缘 ${escapeHtml(relation.bond_value || 0)} ｜ 传道 ${escapeHtml(relation.teach_count || 0)} 次 ｜ 问道 ${escapeHtml(relation.consult_count || 0)} 次</p>
+          <p>${escapeHtml(relation.graduation_hint || "继续传道与历练，等待出师。")}</p>
+          ${relation.teach_reason ? `<p class="reason-text">${escapeHtml(relation.teach_reason)}</p>` : ""}
+          <div class="inline-action-buttons">
+            <button type="button" data-mentorship-teach="${escapeHtml(discipleProfile.tg || 0)}" ${relation.can_teach_today ? "" : "disabled"}>今日传道</button>
+            <button type="button" class="ghost" data-mentorship-graduate-target="${escapeHtml(discipleProfile.tg || 0)}" ${relation.graduation_ready ? "" : "disabled"}>准许出师</button>
+            <button type="button" class="ghost" data-mentorship-dissolve-target="${escapeHtml(discipleProfile.tg || 0)}">解除关系</button>
+          </div>
+        </article>
+      `;
+    }).join("");
+  }
+
+  if (!incomingRequests.length) {
+    incomingRoot.innerHTML = `<article class="stack-item"><strong>没有待处理名帖</strong><p>别人发来的拜师申请或收徒邀请会显示在这里。</p></article>`;
+  } else {
+    incomingRoot.innerHTML = incomingRequests.map((item) => `
+      <article class="stack-item">
+        <div class="stack-item-head">
+          <strong>${escapeHtml(item.sponsor_profile?.display_label || "匿名道友")}</strong>
+          <span class="badge badge--normal">${escapeHtml(item.sponsor_role_label || "师徒拜帖")}</span>
+        </div>
+        <p>拟定关系：师尊 ${escapeHtml(item.mentor_profile?.display_label || "未知")} ｜ 徒弟 ${escapeHtml(item.disciple_profile?.display_label || "未知")}</p>
+        <p>到期：${escapeHtml(formatDate(item.expires_at))}</p>
+        ${item.message ? `<p>${escapeHtml(item.message)}</p>` : ""}
+        <div class="inline-action-buttons">
+          <button type="button" data-mentorship-request-action="accept" data-mentorship-request-id="${escapeHtml(item.id)}">同意</button>
+          <button type="button" class="ghost" data-mentorship-request-action="reject" data-mentorship-request-id="${escapeHtml(item.id)}">婉拒</button>
+        </div>
+      </article>
+    `).join("");
+  }
+
+  if (!outgoingRequests.length) {
+    outgoingRoot.innerHTML = `<article class="stack-item"><strong>没有你发出的待处理名帖</strong><p>你递出的拜帖，在对方处理前会暂存这里。</p></article>`;
+  } else {
+    outgoingRoot.innerHTML = outgoingRequests.map((item) => `
+      <article class="stack-item">
+        <div class="stack-item-head">
+          <strong>${escapeHtml(item.counterpart_profile?.display_label || "匿名道友")}</strong>
+          <span class="badge badge--normal">${escapeHtml(item.sponsor_role_label || "师徒拜帖")}</span>
+        </div>
+        <p>到期：${escapeHtml(formatDate(item.expires_at))}</p>
+        ${item.message ? `<p>${escapeHtml(item.message)}</p>` : ""}
+        <div class="inline-action-buttons">
+          <button type="button" class="ghost" data-mentorship-request-action="cancel" data-mentorship-request-id="${escapeHtml(item.id)}">撤回拜帖</button>
+        </div>
+      </article>
+    `).join("");
+  }
+
+  syncMentorshipRequestComposer(bundle);
+}
+
+function marriageDisplayName(profile = {}, fallback = "未具名道友") {
+  return profile.display_name_with_title || profile.display_label || fallback;
+}
+
+function renderMarriageArea(bundle) {
+  const selfRoot = document.querySelector("#marriage-self-summary");
+  const currentRoot = document.querySelector("#marriage-current-summary");
+  const incomingRoot = document.querySelector("#marriage-incoming-list");
+  const outgoingRoot = document.querySelector("#marriage-outgoing-list");
+  if (!selfRoot || !currentRoot || !incomingRoot || !outgoingRoot) return;
+
+  const marriage = bundle?.marriage || {};
+  const selfProfile = marriage.self_profile || bundle?.profile || {};
+  const currentMarriage = marriage.current_marriage || null;
+  const incomingRequests = marriage.incoming_requests || [];
+  const outgoingRequests = marriage.outgoing_requests || [];
+
+  selfRoot.innerHTML = `
+    <article class="stack-item">
+      <div class="stack-item-head">
+        <strong>${escapeHtml(marriageDisplayName(selfProfile, "当前角色"))}</strong>
+        <span class="badge badge--normal">${escapeHtml(marriage.gender_label || "未设性别")}</span>
+      </div>
+      <p>${escapeHtml(marriage.request_hint || "当前可处理姻缘事务。")}</p>
+      <div class="item-tags">
+        <span class="tag">性别 ${escapeHtml(marriage.gender_label || "未设置")}</span>
+        <span class="tag">道侣 ${escapeHtml(currentMarriage?.spouse_profile?.display_label || "暂无")}</span>
+        <span class="tag">共享灵石 ${escapeHtml(currentMarriage?.shared_spiritual_stone_total ?? bundle?.profile?.spiritual_stone ?? 0)}</span>
+      </div>
+    </article>
+  `;
+
+  if (!currentMarriage) {
+    currentRoot.innerHTML = `
+      <article class="stack-item">
+        <div class="stack-item-head">
+          <strong>当前暂无道侣</strong>
+          <span class="badge badge--normal">待结缘</span>
+        </div>
+        <p>${escapeHtml(marriage.shared_assets_hint || "结为道侣后，灵石与背包会自动共享。")}</p>
+      </article>
+    `;
+  } else {
+    const spouseProfile = currentMarriage.spouse_profile || {};
+    currentRoot.innerHTML = `
+      <article class="stack-item">
+        <div class="stack-item-head">
+          <strong>道侣：${escapeHtml(marriageDisplayName(spouseProfile, "未具名道侣"))}</strong>
+          <span class="badge badge--normal">${escapeHtml(currentMarriage.bond_label || "新缔良缘")}</span>
+        </div>
+        <p>境界 ${escapeHtml(spouseProfile.realm_text || "未知")} · 战力 ${escapeHtml(spouseProfile.combat_power || 0)}</p>
+        <p>缘分 ${escapeHtml(currentMarriage.bond_value || 0)} ｜ 双修 ${escapeHtml(currentMarriage.dual_cultivation_count || 0)} 次</p>
+        <p>${escapeHtml(marriage.shared_assets_hint || "婚后灵石与背包已共享。")}</p>
+        ${currentMarriage.dual_cultivate_reason ? `<p class="reason-text">${escapeHtml(currentMarriage.dual_cultivate_reason)}</p>` : ""}
+        <div class="inline-action-buttons">
+          <button type="button" data-marriage-dual-cultivate="1" ${currentMarriage.can_dual_cultivate_today ? "" : "disabled"}>今日双修</button>
+          <button type="button" class="ghost" data-marriage-divorce="1">和离分家</button>
+        </div>
+      </article>
+    `;
+  }
+
+  if (!incomingRequests.length) {
+    incomingRoot.innerHTML = `<article class="stack-item"><strong>没有待处理结缘信物</strong><p>别人发来的道侣请求会显示在这里。</p></article>`;
+  } else {
+    incomingRoot.innerHTML = incomingRequests.map((item) => `
+      <article class="stack-item">
+        <div class="stack-item-head">
+          <strong>${escapeHtml(item.sponsor_profile?.display_label || "匿名道友")}</strong>
+          <span class="badge badge--normal">待你回应</span>
+        </div>
+        <p>对方性别：${escapeHtml(item.sponsor_profile?.gender_label || "未设置")} ｜ 到期：${escapeHtml(formatDate(item.expires_at))}</p>
+        ${item.message ? `<p>${escapeHtml(item.message)}</p>` : ""}
+        <div class="inline-action-buttons">
+          <button type="button" data-marriage-request-action="accept" data-marriage-request-id="${escapeHtml(item.id)}">同意</button>
+          <button type="button" class="ghost" data-marriage-request-action="reject" data-marriage-request-id="${escapeHtml(item.id)}">婉拒</button>
+        </div>
+      </article>
+    `).join("");
+  }
+
+  if (!outgoingRequests.length) {
+    outgoingRoot.innerHTML = `<article class="stack-item"><strong>没有你送出的结缘信物</strong><p>你发出的道侣请求，在对方处理前会保存在这里。</p></article>`;
+  } else {
+    outgoingRoot.innerHTML = outgoingRequests.map((item) => `
+      <article class="stack-item">
+        <div class="stack-item-head">
+          <strong>${escapeHtml(item.counterpart_profile?.display_label || "匿名道友")}</strong>
+          <span class="badge badge--normal">待对方回应</span>
+        </div>
+        <p>对方性别：${escapeHtml(item.counterpart_profile?.gender_label || "未设置")} ｜ 到期：${escapeHtml(formatDate(item.expires_at))}</p>
+        ${item.message ? `<p>${escapeHtml(item.message)}</p>` : ""}
+        <div class="inline-action-buttons">
+          <button type="button" class="ghost" data-marriage-request-action="cancel" data-marriage-request-id="${escapeHtml(item.id)}">撤回信物</button>
+        </div>
+      </article>
+    `).join("");
+  }
+
+  syncGenderComposer(bundle);
+  syncMarriageRequestComposer(bundle);
+}
+
+function furnaceDisplayName(profile = {}, fallback = "未具名道友") {
+  return profile.display_name_with_title || profile.display_label || profile.master_name || fallback;
+}
+
+function renderFurnaceArea(bundle) {
+  const selfRoot = document.querySelector("#furnace-self-summary");
+  const rosterRoot = document.querySelector("#furnace-roster-list");
+  if (!selfRoot || !rosterRoot) return;
+
+  const profile = bundle?.profile || {};
+  const masterProfile = bundle?.master_profile || null;
+  const furnaceRows = Array.isArray(bundle?.slave_profiles) ? bundle.slave_profiles : [];
+  const harvestPercent = Number(bundle?.settings?.furnace_harvest_cultivation_percent ?? 10);
+  const challengeTime = profile.servitude_challenge_available_at
+    ? formatDate(profile.servitude_challenge_available_at)
+    : "可随时发起脱离挑战";
+
+  if (profile.master_name) {
+    selfRoot.innerHTML = `
+      <article class="stack-item">
+        <div class="stack-item-head">
+          <strong>${escapeHtml(furnaceDisplayName(profile, "当前角色"))}</strong>
+          <span class="badge badge--normal">炉鼎</span>
+        </div>
+        <p>你当前归于 ${escapeHtml(profile.master_name)} 名下，主人每天可对你采补一次。</p>
+        <div class="item-tags">
+          <span class="tag">当前境界 ${escapeHtml(profile.realm_stage || "炼气")}${escapeHtml(profile.realm_layer || 0)}层</span>
+          <span class="tag">脱离冷却 ${escapeHtml(challengeTime)}</span>
+          <span class="tag">采补比例 ${escapeHtml(harvestPercent)}%</span>
+        </div>
+        <p class="muted">采补会按你当前境界的修为门槛折算给主人修为，不是简单等额转移。</p>
+      </article>
+    `;
+    rosterRoot.innerHTML = `
+      <article class="stack-item">
+        <div class="stack-item-head">
+          <strong>主人：${escapeHtml(furnaceDisplayName(masterProfile || {}, profile.master_name || "未具名主人"))}</strong>
+          <span class="badge badge--normal">归属中</span>
+        </div>
+        <p>境界 ${escapeHtml(masterProfile?.realm_stage || "未知")}${escapeHtml(masterProfile?.realm_layer || "-")}层</p>
+        <p>若想解除当前归属，需要通过炉鼎对决向主人发起脱离挑战。</p>
+      </article>
+    `;
+    return;
+  }
+
+  if (furnaceRows.length) {
+    selfRoot.innerHTML = `
+      <article class="stack-item">
+        <div class="stack-item-head">
+          <strong>${escapeHtml(furnaceDisplayName(profile, "当前角色"))}</strong>
+          <span class="badge badge--normal">主人</span>
+        </div>
+        <p>你名下共有 ${escapeHtml(furnaceRows.length)} 名炉鼎，每天可对每名炉鼎采补一次。</p>
+        <div class="item-tags">
+          <span class="tag">采补比例 ${escapeHtml(harvestPercent)}%</span>
+          <span class="tag">炉鼎数量 ${escapeHtml(furnaceRows.length)}</span>
+          <span class="tag">今日可操作 ${escapeHtml(furnaceRows.filter((item) => item.can_harvest_today).length)}</span>
+        </div>
+        <p class="muted">采补收益会按主人与炉鼎各自当前境界门槛折算。</p>
+      </article>
+    `;
+    rosterRoot.innerHTML = furnaceRows.map((item) => {
+      const available = Boolean(item.can_harvest_today);
+      const gain = Number(item.estimated_harvest_gain || 0);
+      const loss = Number(item.estimated_harvest_loss || 0);
+      const reason = available ? "" : fallbackReason(item.harvest_reason, "当前暂不可采补。");
+      return `
+        <article class="stack-item">
+          <div class="stack-item-head">
+            <strong>${escapeHtml(furnaceDisplayName(item, item.display_label || `TG ${item.tg || 0}`))}</strong>
+            <span class="badge badge--normal">${available ? "今日可采补" : "暂不可采补"}</span>
+          </div>
+          <p>境界 ${escapeHtml(item.realm_text || `${item.realm_stage || "炼气"}${item.realm_layer || 0}层`)} · 当前修为 ${escapeHtml(item.cultivation ?? 0)}</p>
+          <div class="item-tags">
+            <span class="tag">抽取比例 ${escapeHtml(item.harvest_percent ?? harvestPercent)}%</span>
+            <span class="tag">预计主人 +${escapeHtml(gain)}</span>
+            <span class="tag">预计炉鼎 -${escapeHtml(loss)}</span>
+          </div>
+          ${reason ? `<p class="reason-text">${escapeHtml(reason)}</p>` : `<p>本次可抽取其当前修为 ${escapeHtml(loss)} 点，折算为你 ${escapeHtml(gain)} 点修为。</p>`}
+          <div class="inline-action-buttons">
+            <button type="button" data-furnace-harvest-target="${escapeHtml(item.tg || 0)}" ${available ? "" : "disabled"}>${available ? "今日采补" : "今日不可采补"}</button>
+          </div>
+        </article>
+      `;
+    }).join("");
+    return;
+  }
+
+  selfRoot.innerHTML = `
+    <article class="stack-item">
+      <div class="stack-item-head">
+        <strong>${escapeHtml(furnaceDisplayName(profile, "当前角色"))}</strong>
+        <span class="badge badge--normal">自由身</span>
+      </div>
+      <p>当前未与任何人形成炉鼎因果，也没有名下炉鼎。</p>
+      <div class="item-tags">
+        <span class="tag">采补比例 ${escapeHtml(harvestPercent)}%</span>
+        <span class="tag">当前状态 自由</span>
+      </div>
+    </article>
+  `;
+  rosterRoot.innerHTML = `<article class="stack-item"><strong>暂无可采补对象</strong><p>只有通过炉鼎对决建立关系后，主人才可每天进行一次采补。</p></article>`;
+}
+
 const baseRenderProfileWithTitles = renderProfile;
 renderProfile = function renderProfileWithTitles(bundle) {
   baseRenderProfileWithTitles(bundle);
@@ -3595,22 +4632,23 @@ renderProfile = function renderProfileWithTitles(bundle) {
     return;
   }
   const currentTitleName = bundle.current_title?.name || "未佩戴称号";
+  const currentTitleColor = bundle.current_title?.color || "";
   const heroRootPill = document.querySelector("#hero-root-pill");
   if (heroRootPill) {
-    heroRootPill.textContent = `称号 · ${currentTitleName}`;
+    heroRootPill.innerHTML = `称号 · ${titleColoredNameHtml(currentTitleName, currentTitleColor)}`;
   }
   const rootText = document.querySelector("#root-text");
   if (rootText) {
     const profile = bundle.profile || {};
     const rootLabel = profile.root_text || profileRootText(profile);
     const rootBonus = Number(profile.root_bonus || 0);
-    rootText.textContent = `称号：${currentTitleName} · 灵根：${rootLabel}，五行修正 ${rootBonus >= 0 ? "+" : ""}${rootBonus}%`;
+    rootText.innerHTML = `称号：${titleColoredNameHtml(currentTitleName, currentTitleColor)} · 灵根：${escapeHtml(rootLabel)}，五行修正 ${rootBonus >= 0 ? "+" : ""}${escapeHtml(rootBonus)}%`;
   }
   const profileGrid = document.querySelector("#profile-grid");
   if (profileGrid) {
     profileGrid.insertAdjacentHTML(
       "beforeend",
-      `<article class="profile-item"><span>当前称号</span><strong>${escapeHtml(currentTitleName)}</strong></article>`
+      `<article class="profile-item"><span>当前称号</span><strong>${titleColoredNameHtml(currentTitleName, currentTitleColor)}</strong></article>`
       + `<article class="profile-item"><span>成就解锁</span><strong>${escapeHtml(bundle.achievement_unlocked_count || 0)} / ${escapeHtml(bundle.achievement_total_count || 0)}</strong></article>`
     );
   }
@@ -3922,12 +4960,620 @@ const renderProfileWithCommissionBoardBase = renderProfile;
 renderProfile = function renderProfileWithCommissionBoard(bundle) {
   renderProfileWithCommissionBoardBase(bundle);
   const consented = Boolean(bundle?.profile?.consented);
+  ensureSectionState("#furnace-card", consented);
+  ensureSectionState("#mentorship-card", consented);
   ensureSectionState("#commission-card", consented);
   if (!consented) {
     syncFoldToolbar();
     return;
   }
+  renderFurnaceArea(bundle);
+  renderMentorshipArea(bundle);
   renderCommissionArea(bundle);
+  syncFoldToolbar();
+};
+
+document.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-furnace-harvest-target]");
+  if (!button || button.disabled) return;
+
+  try {
+    const targetTg = Number(button.dataset.furnaceHarvestTarget || 0);
+    const payload = await runButtonAction(button, "采补中…", () => postJson("/plugins/xiuxian/api/furnace/harvest", {
+      target_tg: targetTg,
+    }));
+    if (payload.bundle) applyProfileBundle(payload.bundle);
+    const result = payload.result || {};
+    const lines = [String(result.message || "本次采补已完成。").trim()];
+    lines.push(`主人修为 +${Number(result.master_gain || 0)}`);
+    lines.push(`炉鼎当前修为 -${Number(result.furnace_loss || 0)}`);
+    if (Array.isArray(result.upgraded_layers) && result.upgraded_layers.length) {
+      lines.push(`层数提升：${result.upgraded_layers.map((layer) => `${layer}层`).join("、")}`);
+    }
+    setStatus(result.message || "采补完成。", "success");
+    await popup("采补完成", lines.join("\n"));
+  } catch (error) {
+    const message = normalizeError(error, "采补炉鼎失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
+});
+
+function farmStatusBadgeClass(status) {
+  if (status === "ready") return "badge badge--normal";
+  if (status === "overdue") return "badge badge--danger";
+  if (status === "growing") return "badge badge--pending";
+  return "badge badge--unknown";
+}
+
+function formatCountdownSeconds(seconds) {
+  const totalSeconds = Math.max(Number(seconds || 0), 0);
+  if (totalSeconds < 60) return "不到 1 分钟";
+  const totalMinutes = Math.ceil(totalSeconds / 60);
+  if (totalMinutes < 60) return `${totalMinutes} 分钟`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours < 24) return `${hours} 小时${minutes ? `${minutes} 分钟` : ""}`;
+  const days = Math.floor(hours / 24);
+  const remainHours = hours % 24;
+  return `${days} 天${remainHours ? `${remainHours} 小时` : ""}`;
+}
+
+function farmTimingText(plot = {}) {
+  if (!plot.unlocked) {
+    return plot.locked_reason || plot.unlock_requirement_text || "满足条件后可开垦该地块。";
+  }
+  if (!plot.occupied) {
+    return "当前空置，可在上方选择灵种后播种。";
+  }
+  if (plot.status === "growing") {
+    return `距离成熟约 ${formatCountdownSeconds(plot.seconds_until_mature)}。`;
+  }
+  if (plot.status === "ready") {
+    return `已成熟，建议在 ${formatDate(plot.harvest_deadline_at)} 前收获。`;
+  }
+  if (plot.status === "overdue") {
+    return `已错过最佳采收期，继续拖延会持续减产。`;
+  }
+  return "灵药状态稳定，可继续观察。";
+}
+
+function renderFarmArea(bundle) {
+  const summaryRoot = document.querySelector("#farm-summary");
+  const catalogRoot = document.querySelector("#farm-material-catalog");
+  const plotRoot = document.querySelector("#farm-plot-list");
+  const slotSelect = document.querySelector("#farm-slot-select");
+  const materialSelect = document.querySelector("#farm-material-select");
+  const hint = document.querySelector("#farm-plant-hint");
+  if (!summaryRoot || !catalogRoot || !plotRoot || !slotSelect || !materialSelect || !hint) return;
+
+  summaryRoot.classList.add("farm-summary-grid");
+  const farm = bundle?.farm || {};
+  const plots = Array.isArray(farm.plots) ? farm.plots : [];
+  const materials = Array.isArray(farm.plantable_materials) ? farm.plantable_materials : [];
+  const selectedSlot = String(slotSelect.value || (farm.empty_slots || [])[0] || "");
+  const selectedMaterial = String(materialSelect.value || (materials.find((item) => item.plantable_now)?.id || ""));
+
+  summaryRoot.innerHTML = `
+    <article class="info-chip">
+      <span>已开垦地块</span>
+      <strong>${escapeHtml(farm.unlocked_count || 0)} / ${escapeHtml(farm.slot_count || plots.length || 0)}</strong>
+    </article>
+    <article class="info-chip">
+      <span>空闲地块</span>
+      <strong>${escapeHtml(farm.empty_count || 0)} 块</strong>
+    </article>
+    <article class="info-chip">
+      <span>可收获</span>
+      <strong>${escapeHtml(farm.ready_count || 0)} 块</strong>
+    </article>
+    <article class="info-chip">
+      <span>下一株成熟</span>
+      <strong>${escapeHtml(farm.next_mature_at ? formatDate(farm.next_mature_at) : "暂无")}</strong>
+    </article>
+  `;
+
+  const emptySlots = plots
+    .filter((plot) => plot.unlocked && !plot.occupied)
+    .map((plot) => ({ value: String(plot.slot_index), label: `${plot.slot_index} 号灵田` }));
+  const availableMaterials = materials
+    .filter((item) => item.plantable_now)
+    .map((item) => ({
+      value: String(item.id),
+      label: `${item.name} · ${item.seed_price_stone || 0} 灵石 · ${item.growth_label || `${item.growth_minutes || 0} 分钟`}`,
+    }));
+
+  setSelectOptions(
+    slotSelect,
+    emptySlots.length ? emptySlots : [{ value: "", label: "暂无空闲地块" }],
+    selectedSlot,
+  );
+  slotSelect.disabled = !emptySlots.length;
+  setSelectOptions(
+    materialSelect,
+    availableMaterials.length ? availableMaterials : [{ value: "", label: "当前无可播种灵种" }],
+    selectedMaterial,
+  );
+  materialSelect.disabled = !emptySlots.length || !availableMaterials.length;
+
+  if (!plots.length) {
+    plotRoot.innerHTML = `<article class="stack-item"><strong>灵田尚未开启</strong><p>踏入仙途后会自动获得基础药圃。</p></article>`;
+  } else {
+    plotRoot.innerHTML = plots.map((plot) => {
+      const plotClass = [
+        "stack-item",
+        "farm-plot-card",
+        plot.status === "ready" ? "is-ready" : "",
+        plot.status === "overdue" ? "is-overdue" : "",
+        !plot.unlocked ? "is-locked" : "",
+      ].filter(Boolean).join(" ");
+      const progressBar = plot.occupied ? `
+        <div class="farm-progress">
+          <span class="farm-progress-bar" style="width:${escapeHtml(Math.max(Math.min(Number(plot.progress_percent || 0), 100), 0))}%"></span>
+        </div>
+      ` : "";
+      const actionButtons = !plot.unlocked ? `
+        <div class="inline-action-buttons">
+          <button type="button" data-farm-action="unlock" data-farm-slot="${escapeHtml(plot.slot_index)}" ${plot.can_unlock ? "" : "disabled"}>
+            解锁地块${plot.unlock_cost_stone ? `（${escapeHtml(plot.unlock_cost_stone)} 灵石）` : ""}
+          </button>
+        </div>
+      ` : plot.occupied ? `
+        <div class="inline-action-buttons">
+          <button type="button" class="ghost" data-farm-action="water" data-farm-slot="${escapeHtml(plot.slot_index)}" ${plot.can_water ? "" : "disabled"}>浇灌</button>
+          <button type="button" class="ghost" data-farm-action="fertilize" data-farm-slot="${escapeHtml(plot.slot_index)}" ${plot.can_fertilize ? "" : "disabled"}>
+            施肥${plot.fertilize_cost_stone ? `（${escapeHtml(plot.fertilize_cost_stone)} 灵石）` : ""}
+          </button>
+          <button type="button" class="ghost" data-farm-action="clear_pest" data-farm-slot="${escapeHtml(plot.slot_index)}" ${plot.can_clear_pest ? "" : "disabled"}>除虫</button>
+          <button type="button" data-farm-action="harvest" data-farm-slot="${escapeHtml(plot.slot_index)}" ${plot.can_harvest ? "" : "disabled"}>收获</button>
+        </div>
+      ` : `<p class="muted">上方选择灵种后，可播种到这块空置灵田。</p>`;
+      const tags = [
+        plot.occupied ? `基础产量 ${plot.base_yield || 0}` : "空置地块",
+        plot.occupied ? `当前预估 ${plot.yield_preview || 0}` : "等待播种",
+        ...(plot.care_tags || []),
+      ];
+      return `
+        <article class="${plotClass}">
+          <div class="stack-item-head">
+            <strong>${escapeHtml(plot.slot_index)} 号灵田${plot.material?.name ? ` · ${escapeHtml(plot.material.name)}` : ""}</strong>
+            <span class="${farmStatusBadgeClass(plot.status)}">${escapeHtml(plot.status_label || "状态未知")}</span>
+          </div>
+          <p>${escapeHtml(farmTimingText(plot))}</p>
+          ${plot.occupied ? `<p>可用于：${escapeHtml(plot.recipe_summary || "丹方材料")}</p>` : ""}
+          <div class="item-tags">
+            ${tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}
+            ${!plot.unlocked && plot.unlock_requirement_text ? `<span class="tag">${escapeHtml(plot.unlock_requirement_text)}</span>` : ""}
+          </div>
+          ${plot.occupied ? `<p>成熟时间：${escapeHtml(formatDate(plot.mature_at))}</p>` : ""}
+          ${plot.occupied ? `<p>最佳采收截止：${escapeHtml(formatDate(plot.harvest_deadline_at))}</p>` : ""}
+          ${progressBar}
+          ${plot.locked_reason && !plot.unlocked ? `<p class="reason-text">${escapeHtml(plot.locked_reason)}</p>` : ""}
+          ${actionButtons}
+        </article>
+      `;
+    }).join("");
+  }
+
+  const materialQuery = inventorySearchValue("#farm-material-search");
+  const filteredMaterials = materials.filter((item) => textQueryMatches(materialQuery, [
+    item.name,
+    item.quality_label,
+    item.unlock_requirement_text,
+    item.recipe_summary,
+    item.recipe_names || [],
+  ]));
+
+  if (!filteredMaterials.length) {
+    catalogRoot.innerHTML = materials.length
+      ? `<article class="stack-item"><strong>未找到匹配灵种</strong><p>可按材料名、丹方名或境界要求继续搜索。</p></article>`
+      : `<article class="stack-item"><strong>当前没有可种植药材</strong><p>只有真正用于丹药炼制的材料，才会出现在灵田目录里。</p></article>`;
+  } else {
+    catalogRoot.innerHTML = filteredMaterials.map((item) => `
+      <article class="stack-item">
+        <div class="stack-item-head">
+          <strong>${escapeHtml(item.name)}</strong>
+          ${qualityBadgeHtml(item.quality_label || item.quality_level, item.quality_color, "badge badge--normal")}
+        </div>
+        <p>适用丹方：${escapeHtml(item.recipe_summary || (item.recipe_names || []).join("、") || "暂无")}</p>
+        <div class="item-tags">
+          <span class="tag">种子 ${escapeHtml(item.seed_price_stone || 0)} 灵石</span>
+          <span class="tag">成长 ${escapeHtml(item.growth_label || `${item.growth_minutes || 0} 分钟`)}</span>
+          <span class="tag">产量 ${escapeHtml(item.yield_label || `${item.yield_min || 0}-${item.yield_max || 0}`)}</span>
+          <span class="tag">${escapeHtml(item.unlock_requirement_text || "入道后即可种植")}</span>
+        </div>
+        ${item.plantable_now ? "" : `<p class="reason-text">当前境界不足，尚不能种植这味灵药。</p>`}
+        ${item.plantable_now && !item.seed_affordable ? `<p class="reason-text">当前灵石不足，播种至少需要 ${escapeHtml(item.seed_price_stone || 0)} 灵石。</p>` : ""}
+        <div class="inline-action-buttons">
+          <button type="button" class="ghost" data-farm-pick-material="${escapeHtml(item.id)}" ${item.plantable_now && emptySlots.length ? "" : "disabled"}>选作灵种</button>
+        </div>
+      </article>
+    `).join("");
+  }
+
+  if (!emptySlots.length) {
+    hint.textContent = "当前没有空闲灵田，可先收获成熟作物或开垦新的地块。";
+  } else if (!availableMaterials.length) {
+    hint.textContent = "你当前境界下暂无可播种灵种，先提升修为或查看下方药材目录。";
+  } else {
+    hint.textContent = `当前有 ${emptySlots.length} 块空闲灵田，可播种 ${availableMaterials.length} 种丹方材料。`;
+  }
+}
+
+const renderProfileWithFarmBase = renderProfile;
+renderProfile = function renderProfileWithFarm(bundle) {
+  renderProfileWithFarmBase(bundle);
+  const consented = Boolean(bundle?.profile?.consented);
+  ensureSectionState("#farm-card", consented);
+  if (!consented) {
+    syncFoldToolbar();
+    return;
+  }
+  renderFarmArea(bundle);
+  syncFoldToolbar();
+};
+
+const renderProfileWithMarriageBase = renderProfile;
+renderProfile = function renderProfileWithMarriage(bundle) {
+  renderProfileWithMarriageBase(bundle);
+  const consented = Boolean(bundle?.profile?.consented);
+  const genderLocked = Boolean(bundle?.capabilities?.gender_required);
+  const genderLockReason = String(bundle?.capabilities?.gender_lock_reason || "").trim();
+  ensureSectionState("#marriage-card", consented, genderLocked);
+  if (!consented) {
+    syncFoldToolbar();
+    return;
+  }
+
+  renderMarriageArea(bundle);
+  const profileGrid = document.querySelector("#profile-grid");
+  if (profileGrid) {
+    profileGrid.insertAdjacentHTML(
+      "beforeend",
+      `<article class="profile-item"><span>性别</span><strong>${escapeHtml(bundle?.marriage?.gender_label || "未设置")}</strong></article>`
+      + `<article class="profile-item"><span>道侣</span><strong>${escapeHtml(bundle?.marriage?.current_marriage?.spouse_profile?.display_label || "暂无")}</strong></article>`
+    );
+  }
+
+  if (genderLocked) {
+    [
+      "#action-card",
+      "#exchange-card",
+      "#inventory-card",
+      "#technique-card",
+      "#official-shop-card",
+      "#market-card",
+      "#auction-card",
+      "#leaderboard-card",
+      "#sect-card",
+      "#task-card",
+      "#craft-card",
+      "#explore-card",
+      "#red-envelope-card",
+      "#gift-card",
+      "#title-card",
+      "#furnace-card",
+      "#mentorship-card",
+      "#commission-card",
+      "#farm-card",
+      "#fishing-card",
+    ].forEach((selector) => ensureSectionState(selector, false));
+    if (genderLockReason) {
+      setStatus(genderLockReason, "warning");
+    }
+  }
+  syncFoldToolbar();
+};
+
+document.querySelector("#farm-material-search")?.addEventListener("input", () => {
+  if (!state.profileBundle?.profile?.consented) return;
+  renderFarmArea(state.profileBundle);
+});
+
+document.querySelector("#farm-material-catalog")?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-farm-pick-material]");
+  if (!button) return;
+  const materialSelect = document.querySelector("#farm-material-select");
+  if (!materialSelect) return;
+  materialSelect.value = button.dataset.farmPickMaterial || "";
+  document.querySelector("#farm-plant-form")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+});
+
+document.querySelector("#farm-plant-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = event.currentTarget?.querySelector("button[type='submit']");
+  const slotIndex = Number(document.querySelector("#farm-slot-select")?.value || 0);
+  const materialId = Number(document.querySelector("#farm-material-select")?.value || 0);
+  if (!button || slotIndex <= 0 || materialId <= 0) {
+    const message = "请选择空闲地块和要播种的灵药。";
+    setStatus(message, "warning");
+    await popup("无法播种", message, "warning");
+    return;
+  }
+  try {
+    const payload = await runButtonAction(button, "播种中…", () => postJson("/plugins/xiuxian/api/farm/plant", {
+      slot_index: slotIndex,
+      material_id: materialId,
+    }));
+    if (payload.bundle) applyProfileBundle(payload.bundle);
+    const result = payload.result || {};
+    const lines = [result.message || "灵药已经播入灵田。"];
+    if (Number(result.seed_cost_stone || 0) > 0) {
+      lines.push(`消耗灵石 ${result.seed_cost_stone}`);
+    }
+    if (result.mature_at) {
+      lines.push(`预计成熟：${formatDate(result.mature_at)}`);
+    }
+    setStatus(result.message || "播种完成。", "success");
+    await popup("播种完成", lines.join("\n"));
+  } catch (error) {
+    const message = normalizeError(error, "播种灵药失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
+});
+
+document.querySelector("#farm-plot-list")?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-farm-action]");
+  if (!button || button.disabled) return;
+  const action = button.dataset.farmAction || "";
+  const slotIndex = Number(button.dataset.farmSlot || 0);
+  if (slotIndex <= 0) return;
+
+  let path = "";
+  let body = { slot_index: slotIndex };
+  let title = "灵田操作";
+  let pendingText = "处理中…";
+  if (action === "unlock") {
+    path = "/plugins/xiuxian/api/farm/unlock";
+    title = "开垦完成";
+    pendingText = "开垦中…";
+  } else if (action === "harvest") {
+    path = "/plugins/xiuxian/api/farm/harvest";
+    title = "收获完成";
+    pendingText = "收获中…";
+  } else {
+    path = "/plugins/xiuxian/api/farm/care";
+    body = { ...body, action };
+    title = action === "water" ? "浇灌完成" : action === "fertilize" ? "施肥完成" : "除虫完成";
+    pendingText = action === "water" ? "浇灌中…" : action === "fertilize" ? "施肥中…" : "除虫中…";
+  }
+
+  try {
+    const payload = await runButtonAction(button, pendingText, () => postJson(path, body));
+    if (payload.bundle) applyProfileBundle(payload.bundle);
+    const result = payload.result || {};
+    const lines = [result.message || "灵田操作已完成。"];
+    if (Number(result.quantity || 0) > 0) {
+      lines.push(`收获数量 ${result.quantity}`);
+    }
+    if (Number(result.stone_cost || 0) > 0) {
+      lines.push(`消耗灵石 ${result.stone_cost}`);
+    }
+    if (Number(result.unlock_cost_stone || 0) > 0) {
+      lines.push(`消耗灵石 ${result.unlock_cost_stone}`);
+    }
+    if (result.mature_at) {
+      lines.push(`新的成熟时间：${formatDate(result.mature_at)}`);
+    }
+    setStatus(result.message || "灵田操作已完成。", "success");
+    await popup(title, lines.join("\n"));
+  } catch (error) {
+    const message = normalizeError(error, "灵田操作失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
+});
+
+function renderFishingArea(bundle) {
+  const summaryRoot = document.querySelector("#fishing-summary");
+  const listRoot = document.querySelector("#fishing-spot-list");
+  const noteRoot = document.querySelector("#fishing-note");
+  if (!summaryRoot || !listRoot || !noteRoot) return;
+
+  const fishing = bundle?.fishing || {};
+  const spots = Array.isArray(fishing.spots) ? fishing.spots : [];
+  noteRoot.textContent = fishing.note || "高品阶物品基础概率更低，机缘会抬升高品掉率。";
+  summaryRoot.innerHTML = `
+    <article class="info-chip">
+      <span>当前机缘</span>
+      <strong>${escapeHtml(fishing.current_fortune || bundle?.effective_stats?.fortune || bundle?.profile?.fortune || 0)}</strong>
+    </article>
+    <article class="info-chip">
+      <span>可用钓场</span>
+      <strong>${escapeHtml(fishing.available_spot_count || 0)} 处</strong>
+    </article>
+    <article class="info-chip">
+      <span>玩法提示</span>
+      <strong>高品更稀有</strong>
+    </article>
+    <article class="info-chip">
+      <span>概率关联</span>
+      <strong>机缘越高越容易出高品</strong>
+    </article>
+  `;
+
+  if (!spots.length) {
+    listRoot.innerHTML = `<article class="stack-item"><strong>暂无钓场</strong><p>踏入仙途后会开放可用水域。</p></article>`;
+    return;
+  }
+
+  listRoot.innerHTML = spots.map((spot) => {
+    const oddsTags = (spot.odds_preview || []).map((item) => `${item.label} ${item.chance_percent}%`);
+    const rewardCards = (spot.reward_preview || []).map((item) => `
+      <article class="recipe-source-item">
+        <strong>${escapeHtml(item.name || "未知物品")}</strong>
+        <p>${escapeHtml(item.kind_label || item.kind || "物品")} · ${escapeHtml(item.quality_label || "凡品")}</p>
+      </article>
+    `).join("");
+    const statusClass = spot.available ? "badge badge--normal" : "badge badge--unknown";
+    const reason = spot.available ? "" : (spot.available_reason || "当前还不能在此抛竿。");
+    return `
+      <article class="stack-item">
+        <div class="stack-item-head">
+          <strong>${escapeHtml(spot.name || "未命名钓场")}</strong>
+          <span class="${statusClass}">${spot.available ? "可抛竿" : "暂不可用"}</span>
+        </div>
+        <p>${escapeHtml(spot.description || "暂无说明")}</p>
+        <div class="item-tags">
+          <span class="tag">耗费 ${escapeHtml(spot.cast_cost_stone || 0)} 灵石</span>
+          <span class="tag">门槛 ${escapeHtml(spot.requirement_text || "入道后即可")}</span>
+          <span class="tag">品阶带 ${escapeHtml(spot.quality_band_label || "未标注")}</span>
+          <span class="tag">产出 ${escapeHtml((spot.kind_labels || []).join(" / ") || "物品")}</span>
+        </div>
+        ${(oddsTags || []).length ? `<div class="item-tags">${oddsTags.map((text) => `<span class="tag">${escapeHtml(text)}</span>`).join("")}</div>` : ""}
+        <div class="recipe-source-list">${rewardCards || `<article class="recipe-source-item"><strong>暂无预览</strong><p>此钓场的样本奖励尚未生成。</p></article>`}</div>
+        ${reason ? `<p class="reason-text">${escapeHtml(reason)}</p>` : ""}
+        <button type="button" data-fishing-spot="${escapeHtml(spot.key || "")}" ${spot.available ? "" : "disabled"}>前往抛竿</button>
+      </article>
+    `;
+  }).join("");
+}
+
+const renderProfileWithFishingBase = renderProfile;
+renderProfile = function renderProfileWithFishing(bundle) {
+  renderProfileWithFishingBase(bundle);
+  const consented = Boolean(bundle?.profile?.consented);
+  ensureSectionState("#fishing-card", consented);
+  if (!consented) {
+    syncFoldToolbar();
+    return;
+  }
+  renderFishingArea(bundle);
+  syncFoldToolbar();
+};
+
+document.querySelector("#fishing-spot-list")?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-fishing-spot]");
+  if (!button || button.disabled) return;
+  const spotKey = button.dataset.fishingSpot || "";
+  try {
+    const payload = await runButtonAction(button, "抛竿中…", () => postJson("/plugins/xiuxian/api/fishing/cast", {
+      spot_key: spotKey,
+    }));
+    if (payload.bundle) applyProfileBundle(payload.bundle);
+    const result = payload.result || {};
+    const rewardName = result.reward_item?.name || "未知物品";
+    const lines = [result.message || "你已经顺利完成本次垂钓。"];
+    lines.push(`获得：${rewardName}${Number(result.quantity || 0) > 1 ? ` ×${Number(result.quantity || 0)}` : ""}`);
+    lines.push(`类型：${result.reward_kind_label || result.reward_kind || "物品"}`);
+    lines.push(`品阶：${result.quality_label || "凡品"}`);
+    if (Number(result.cast_cost_stone || 0) > 0) {
+      lines.push(`耗费灵石：${Number(result.cast_cost_stone || 0)}`);
+    }
+    if (Number(result.fortune_used || 0) > 0) {
+      lines.push(`本次结算机缘：${Number(result.fortune_used || 0)}`);
+    }
+    setStatus(result.message || "垂钓完成。", "success");
+    await popup("垂钓完成", lines.join("\n"));
+  } catch (error) {
+    const message = normalizeError(error, "本次抛竿失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
+});
+
+function formatChancePercent(value) {
+  const amount = Number(value || 0);
+  if (!Number.isFinite(amount) || amount <= 0) return "0%";
+  return `${amount.toFixed(amount >= 10 ? 2 : 3).replace(/\.?0+$/, "")}%`;
+}
+
+function gamblingQuantityText(entry = {}) {
+  const min = Math.max(Number(entry.quantity_min || 1), 1);
+  const max = Math.max(Number(entry.quantity_max || min), min);
+  return min === max ? `x${min}` : `x${min}-${max}`;
+}
+
+function renderGamblingArea(bundle) {
+  const summaryRoot = document.querySelector("#gambling-summary");
+  const noteRoot = document.querySelector("#gambling-note");
+  const listRoot = document.querySelector("#gambling-pool-list");
+  const exchangeInput = document.querySelector("#gambling-exchange-count");
+  const openInput = document.querySelector("#gambling-open-count");
+  if (!summaryRoot || !noteRoot || !listRoot) return;
+
+  const gambling = bundle?.gambling || {};
+  const preview = Array.isArray(gambling.pool_preview) ? gambling.pool_preview : [];
+  const exchangeMax = Math.max(Number(gambling.exchange_max_count || 1), 1);
+  const openMax = Math.max(Number(gambling.open_max_count || 1), 1);
+  if (exchangeInput) {
+    exchangeInput.max = String(exchangeMax);
+    if (!exchangeInput.value || Number(exchangeInput.value || 0) > exchangeMax) {
+      exchangeInput.value = "1";
+    }
+  }
+  if (openInput) {
+    openInput.max = String(openMax);
+    if (!openInput.value || Number(openInput.value || 0) > openMax) {
+      openInput.value = "1";
+    }
+  }
+
+  summaryRoot.innerHTML = `
+    <article class="info-chip">
+      <span>持有奇石</span>
+      <strong>${escapeHtml(gambling.owned_count || 0)} 枚</strong>
+    </article>
+    <article class="info-chip">
+      <span>兑换价格</span>
+      <strong>${escapeHtml(gambling.exchange_cost_stone || 0)} 灵石 / 枚</strong>
+    </article>
+    <article class="info-chip">
+      <span>单次上限</span>
+      <strong>兑 ${escapeHtml(exchangeMax)} / 开 ${escapeHtml(openMax)}</strong>
+    </article>
+    <article class="info-chip">
+      <span>当前机缘</span>
+      <strong>${escapeHtml(gambling.fortune_value || bundle?.effective_stats?.fortune || bundle?.profile?.fortune || 0)}</strong>
+    </article>
+  `;
+  noteRoot.textContent = `${gambling.fortune_hint || "当前机缘未触发额外稀有加成。"} ${Number(gambling.broadcast_quality_level || 0) > 0 ? `抽到${gambling.broadcast_quality_level}阶及以上奖励时会自动群播。` : ""}`.trim();
+
+  if (!preview.length) {
+    listRoot.innerHTML = `<article class="stack-item"><strong>当前赌坊奖池未配置</strong><p>请等待主人在后台配置奖励后再来开启仙界奇石。</p></article>`;
+    return;
+  }
+
+  listRoot.innerHTML = preview.map((entry) => `
+    <article class="stack-item">
+      <div class="stack-item-head">
+        <strong>${escapeHtml(entry.item_name || "未知物品")}</strong>
+        ${qualityBadgeHtml(entry.quality_label || "凡品", entry.quality_color, "badge badge--normal")}
+      </div>
+      <p>${escapeHtml(entry.item_kind_label || entry.item_kind || "物品")} · 当前概率 ${escapeHtml(formatChancePercent(entry.chance_percent || 0))}</p>
+      <div class="item-tags">
+        <span class="tag">掉落数量 ${escapeHtml(gamblingQuantityText(entry))}</span>
+        <span class="tag">基础权重 ${escapeHtml(entry.base_weight || 0)}</span>
+        <span class="tag">修正权重 ${escapeHtml(Number(entry.effective_weight || 0).toFixed(3).replace(/\.?0+$/, ""))}</span>
+      </div>
+    </article>
+  `).join("");
+}
+
+const renderProfileWithGamblingBase = renderProfile;
+renderProfile = function renderProfileWithGambling(bundle) {
+  renderProfileWithGamblingBase(bundle);
+  const consented = Boolean(bundle?.profile?.consented);
+  const genderLocked = Boolean(bundle?.capabilities?.gender_required);
+  const visible = consented && !genderLocked;
+  ensureSectionState("#gambling-card", visible);
+  if (!visible) {
+    syncFoldToolbar();
+    return;
+  }
+
+  renderGamblingArea(bundle);
+  const gambling = bundle?.gambling || {};
+  const retreating = Boolean(bundle?.capabilities?.is_in_retreat);
+  const duelLockReason = currentDuelLockReason(bundle);
+  const poolBlockedReason = Number(gambling.pool_size || 0) > 0 ? "" : "当前赌坊奖池尚未配置。";
+  const disabledReason = retreating ? "闭关期间无法进入赌坊。" : (duelLockReason || poolBlockedReason);
+  ["#gambling-exchange-count", "#gambling-open-count"].forEach((selector) => {
+    setDisabled(document.querySelector(selector), Boolean(disabledReason), disabledReason);
+  });
+  setDisabled(document.querySelector("#gambling-exchange-form button[type='submit']"), Boolean(disabledReason), disabledReason);
+  setDisabled(document.querySelector("#gambling-open-form button[type='submit']"), Boolean(disabledReason), disabledReason);
   syncFoldToolbar();
 };
 
@@ -3951,6 +5597,152 @@ document.querySelector("#commission-list")?.addEventListener("click", async (eve
     await refreshLeaderboard(state.leaderboard.kind, state.leaderboard.page);
   } catch (error) {
     const message = normalizeError(error, "承接灵石委托失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
+});
+
+document.addEventListener("click", async (event) => {
+  const requestButton = event.target.closest("[data-marriage-request-action]");
+  const dualButton = event.target.closest("[data-marriage-dual-cultivate]");
+  const divorceButton = event.target.closest("[data-marriage-divorce]");
+  if (!requestButton && !dualButton && !divorceButton) return;
+
+  try {
+    if (requestButton) {
+      const action = requestButton.dataset.marriageRequestAction || "accept";
+      const requestId = Number(requestButton.dataset.marriageRequestId || 0);
+      const pendingText = action === "accept" ? "处理中…" : action === "reject" ? "婉拒中…" : "撤回中…";
+      const payload = await runButtonAction(requestButton, pendingText, () => postJson("/plugins/xiuxian/api/marriage/request/respond", {
+        request_id: requestId,
+        action,
+      }));
+      if (payload.bundle) applyProfileBundle(payload.bundle);
+      const result = payload.result || {};
+      const title = action === "accept" ? "已结为道侣" : action === "reject" ? "已婉拒" : "已撤回";
+      setStatus(result.message || title, action === "accept" ? "success" : "warning");
+      await popup(title, result.message || "操作已完成。", action === "accept" ? "success" : "warning");
+      return;
+    }
+
+    if (dualButton) {
+      const payload = await runButtonAction(dualButton, "双修中…", () => postJson("/plugins/xiuxian/api/marriage/dual-cultivate", {}));
+      if (payload.bundle) applyProfileBundle(payload.bundle);
+      const result = payload.result || {};
+      const lines = [result.message || "本次双修已完成。"];
+      lines.push(`你获得修为 +${Number(result.actor_gain || 0)}`);
+      lines.push(`道侣获得修为 +${Number(result.spouse_gain || 0)}`);
+      lines.push(`缘分 +${Number(result.bond_gain || 0)}`);
+      setStatus(result.message || "道侣双修完成。", "success");
+      await popup("双修完成", lines.join("\n"));
+      return;
+    }
+
+    if (divorceButton) {
+      const payload = await runButtonAction(divorceButton, "分家中…", () => postJson("/plugins/xiuxian/api/marriage/divorce", {}));
+      if (payload.bundle) applyProfileBundle(payload.bundle);
+      const result = payload.result || {};
+      const lines = [result.message || "双方已经和离。"];
+      lines.push(`${result.husband_name || "男方"} 灵石 ${Number(result.husband_stone || 0)}`);
+      lines.push(`${result.wife_name || "女方"} 灵石 ${Number(result.wife_stone || 0)}`);
+      setStatus(result.message || "和离分家已完成。", "warning");
+      await popup("和离分家", lines.join("\n"), "warning");
+    }
+  } catch (error) {
+    const message = normalizeError(error, "姻缘操作失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
+});
+
+document.addEventListener("click", async (event) => {
+  const requestButton = event.target.closest("[data-mentorship-request-action]");
+  const teachButton = event.target.closest("[data-mentorship-teach]");
+  const consultButton = event.target.closest("[data-mentorship-consult]");
+  const graduateButton = event.target.closest("[data-mentorship-graduate-target]");
+  const dissolveButton = event.target.closest("[data-mentorship-dissolve-target]");
+  if (!requestButton && !teachButton && !consultButton && !graduateButton && !dissolveButton) return;
+
+  try {
+    if (requestButton) {
+      const action = requestButton.dataset.mentorshipRequestAction || "accept";
+      const requestId = Number(requestButton.dataset.mentorshipRequestId || 0);
+      const pendingText = action === "accept" ? "处理中…" : action === "reject" ? "婉拒中…" : "撤回中…";
+      const payload = await runButtonAction(requestButton, pendingText, () => postJson("/plugins/xiuxian/api/mentorship/request/respond", {
+        request_id: requestId,
+        action,
+      }));
+      if (payload.bundle) applyProfileBundle(payload.bundle);
+      const result = payload.result || {};
+      const title = action === "accept" ? "师徒已结成" : action === "reject" ? "已婉拒" : "已撤回";
+      setStatus(result.message || title, action === "accept" ? "success" : "warning");
+      await popup(title, result.message || "操作已完成。", action === "accept" ? "success" : "warning");
+      return;
+    }
+
+    if (teachButton) {
+      const discipleTg = Number(teachButton.dataset.mentorshipTeach || 0);
+      const payload = await runButtonAction(teachButton, "传道中…", () => postJson("/plugins/xiuxian/api/mentorship/teach", {
+        disciple_tg: discipleTg,
+      }));
+      if (payload.bundle) applyProfileBundle(payload.bundle);
+      const result = payload.result || {};
+      const growthText = attributeGrowthText(result.attribute_growth || [], "额外感悟");
+      const message = result.message || `本次传道已完成，弟子修为 +${result.disciple_gain || 0}。`;
+      setStatus(message, "success");
+      await popup(
+        "传道完成",
+        `${message}\n师徒缘 +${result.bond_gain || 0}${growthText ? `\n${growthText}` : ""}`,
+      );
+      return;
+    }
+
+    if (consultButton) {
+      const payload = await runButtonAction(consultButton, "问道中…", () => postJson("/plugins/xiuxian/api/mentorship/consult", {}));
+      if (payload.bundle) applyProfileBundle(payload.bundle);
+      const result = payload.result || {};
+      const growthText = attributeGrowthText(result.attribute_growth || [], "额外领悟");
+      const message = result.message || `本次问道已完成，修为 +${result.disciple_gain || 0}。`;
+      setStatus(message, "success");
+      await popup(
+        "问道完成",
+        `${message}\n师徒缘 +${result.bond_gain || 0}${growthText ? `\n${growthText}` : ""}`,
+      );
+      return;
+    }
+
+    if (graduateButton) {
+      const targetTg = Number(graduateButton.dataset.mentorshipGraduateTarget || 0);
+      const payload = await runButtonAction(graduateButton, "出师中…", () => postJson("/plugins/xiuxian/api/mentorship/graduate", {
+        target_tg: targetTg,
+      }));
+      if (payload.bundle) applyProfileBundle(payload.bundle);
+      const result = payload.result || {};
+      const titleRewards = (result.title_rewards || [])
+        .map((item) => item?.title?.name)
+        .filter(Boolean)
+        .join("、");
+      const message = result.message || "本段师徒传承已正式完成。";
+      setStatus(message, "success");
+      await popup(
+        "正式出师",
+        `${message}\n师尊修为 +${result.mentor_gain || 0}\n弟子修为 +${result.disciple_gain || 0}${titleRewards ? `\n称号：${titleRewards}` : ""}`,
+      );
+      return;
+    }
+
+    if (dissolveButton) {
+      const targetTg = Number(dissolveButton.dataset.mentorshipDissolveTarget || 0);
+      const payload = await runButtonAction(dissolveButton, "处理中…", () => postJson("/plugins/xiuxian/api/mentorship/dissolve", {
+        target_tg: targetTg,
+      }));
+      if (payload.bundle) applyProfileBundle(payload.bundle);
+      const result = payload.result || {};
+      setStatus(result.message || "师徒关系已解除。", "warning");
+      await popup("关系已解除", result.message || "师徒关系已解除。", "warning");
+    }
+  } catch (error) {
+    const message = normalizeError(error, "师徒操作失败。");
     setStatus(message, "error");
     await popup("操作失败", message, "error");
   }

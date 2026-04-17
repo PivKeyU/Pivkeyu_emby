@@ -33,6 +33,9 @@ def upgrade() -> None:
             sa.ForeignKeyConstraint(["code"], ["Rcode.code"], ondelete="CASCADE"),
             sa.PrimaryKeyConstraint("id"),
             sa.UniqueConstraint("code", "user_id", name="uq_rcode_redeem_code_user"),
+            mysql_engine="InnoDB",
+            mysql_charset="utf8mb4",
+            mysql_collate="utf8mb4_unicode_ci",
         )
         op.create_index("ix_rcode_redeem_user_id", "RcodeRedeem", ["user_id"], unique=False)
         op.create_index("ix_rcode_redeem_redeemed_at", "RcodeRedeem", ["redeemed_at"], unique=False)

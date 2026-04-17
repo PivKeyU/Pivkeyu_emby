@@ -11,7 +11,7 @@ from bot import LOGGER
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import declarative_base
-from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlalchemy.orm import sessionmaker
 
 
 def _env_int(name: str, default: int, minimum: int = 0) -> int:
@@ -114,7 +114,7 @@ def _legacy_create_all_tables():
     """
     在未安装 Alembic 或配置缺失时兜底建表，保证服务可启动。
     """
-    from bot.sql_helper import sql_code, sql_emby, sql_emby2, sql_favorites, sql_partition, sql_plugin, sql_request_record, sql_shop, sql_xiuxian  # noqa: F401
+    from bot.sql_helper import sql_bot_access, sql_code, sql_emby, sql_emby2, sql_favorites, sql_partition, sql_plugin, sql_request_record, sql_shop, sql_xiuxian  # noqa: F401
 
     _run_with_db_retry(
         lambda: Base.metadata.create_all(bind=engine, checkfirst=True),
@@ -160,9 +160,26 @@ def run_migrations():
         os.environ.pop(_MIGRATION_GUARD_ENV, None)
 
 
-# 调用sql_start()函数，返回一个Session对象
-def sql_start() -> scoped_session:
-    return scoped_session(sessionmaker(bind=engine, autoflush=False))
+# 调用 sql_start() 返回一个轻量工厂。每次 Session() 都创建独立会话，
+# 避免同线程嵌套 with Session() 时复用 scoped_session，导致内层 close()
+# 把外层事务对象提前关闭，引发 "Instance ... is not persistent within this Session"。
+class _SessionFactory:
+    def __init__(self):
+        self._maker = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+
+    def __call__(self):
+        return self._maker()
+
+    def remove(self) -> None:
+        # 兼容旧调用路径；非 scoped_session 下无需显式移除线程本地会话。
+        return None
+
+    def close_all(self) -> None:
+        self._maker.close_all()
+
+
+def sql_start() -> _SessionFactory:
+    return _SessionFactory()
 
 
 Session = sql_start()

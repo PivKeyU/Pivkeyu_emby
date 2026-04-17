@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from bot import admins, api as api_config, bot_token, config, owner, pivkeyu, ranks
 from bot.plugins import list_plugins
+from bot.sql_helper.sql_bot_access import find_bot_access_block
 from bot.sql_helper.sql_emby import sql_get_emby
 from bot.web.presenters import serialize_emby_user
 
@@ -58,6 +59,12 @@ def verify_init_data(init_data: str) -> dict:
         raise HTTPException(status_code=400, detail="缺少小程序用户信息")
 
     parsed["user"] = json.loads(user_data)
+    matched_block = find_bot_access_block(
+        tg=parsed["user"].get("id"),
+        username=parsed["user"].get("username"),
+    )
+    if matched_block is not None:
+        raise HTTPException(status_code=403, detail="当前 Telegram 账号已被禁止使用 Bot")
     return parsed
 
 

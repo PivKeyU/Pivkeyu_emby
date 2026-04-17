@@ -128,9 +128,12 @@ ITEM_KIND_LABELS = {
     "technique": "功法",
     "recipe": "配方",
 }
+STARTER_ARTIFACT_NAME = "凡铁剑"
+STARTER_ARTIFACT_GRANTED_ACTION = "starter_artifact_grant"
+STARTER_ARTIFACT_RELEASED_ACTION = "starter_artifact_release"
 DUEL_MODE_LABELS = {
     "standard": "普通斗法",
-    "master": "主仆对决",
+    "master": "炉鼎对决",
     "death": "生死斗",
 }
 ARTIFACT_TYPE_LABELS = {
@@ -251,6 +254,32 @@ DEFAULT_ACTIVITY_STAT_GROWTH_RULES = {
     "exploration": {"chance_percent": 26, "gain_min": 1, "gain_max": 3, "attribute_count": 1},
     "duel": {"chance_percent": 20, "gain_min": 1, "gain_max": 2, "attribute_count": 2},
 }
+DEFAULT_GAMBLING_QUALITY_WEIGHT_RULES = {
+    "凡品": {"weight_multiplier": 1.0},
+    "下品": {"weight_multiplier": 0.72},
+    "中品": {"weight_multiplier": 0.44},
+    "上品": {"weight_multiplier": 0.22},
+    "极品": {"weight_multiplier": 0.1},
+    "仙品": {"weight_multiplier": 0.04},
+    "先天至宝": {"weight_multiplier": 0.015},
+}
+DEFAULT_GAMBLING_REWARD_POOL = [
+    {"item_kind": "material", "item_name": "灵露滴", "quantity_min": 2, "quantity_max": 5, "base_weight": 120, "enabled": True},
+    {"item_kind": "artifact", "item_name": "凡铁剑", "quantity_min": 1, "quantity_max": 1, "base_weight": 90, "enabled": True},
+    {"item_kind": "material", "item_name": "霜凌草", "quantity_min": 1, "quantity_max": 3, "base_weight": 84, "enabled": True},
+    {"item_kind": "pill", "item_name": "聚气丹", "quantity_min": 1, "quantity_max": 2, "base_weight": 72, "enabled": True},
+    {"item_kind": "talisman", "item_name": "御风符", "quantity_min": 1, "quantity_max": 1, "base_weight": 60, "enabled": True},
+    {"item_kind": "material", "item_name": "冰魄珠", "quantity_min": 1, "quantity_max": 2, "base_weight": 54, "enabled": True},
+    {"item_kind": "artifact", "item_name": "青罡剑", "quantity_min": 1, "quantity_max": 1, "base_weight": 38, "enabled": True},
+    {"item_kind": "pill", "item_name": "回春丹", "quantity_min": 1, "quantity_max": 2, "base_weight": 36, "enabled": True},
+    {"item_kind": "material", "item_name": "玄冰精髓", "quantity_min": 1, "quantity_max": 1, "base_weight": 18, "enabled": True},
+    {"item_kind": "talisman", "item_name": "镇岳符", "quantity_min": 1, "quantity_max": 1, "base_weight": 14, "enabled": True},
+    {"item_kind": "material", "item_name": "九幽寒莲", "quantity_min": 1, "quantity_max": 1, "base_weight": 8, "enabled": True},
+    {"item_kind": "talisman", "item_name": "摄魂符", "quantity_min": 1, "quantity_max": 1, "base_weight": 6, "enabled": True},
+    {"item_kind": "material", "item_name": "鸿蒙紫莲", "quantity_min": 1, "quantity_max": 1, "base_weight": 3, "enabled": True},
+    {"item_kind": "talisman", "item_name": "裂空符", "quantity_min": 1, "quantity_max": 1, "base_weight": 2, "enabled": True},
+    {"item_kind": "material", "item_name": "开天神石", "quantity_min": 1, "quantity_max": 1, "base_weight": 1, "enabled": True},
+]
 DEPRECATED_XIUXIAN_SETTING_KEYS = {
     "red_packet_merit_min_stone",
     "red_packet_merit_min_count",
@@ -272,6 +301,11 @@ DEFAULT_SETTINGS = {
     "task_publish_cost": 20,
     "user_task_daily_limit": 3,
     "artifact_equip_limit": 3,
+    "duel_bet_enabled": True,
+    "duel_bet_seconds": 120,
+    "duel_bet_min_amount": 10,
+    "duel_bet_max_amount": 100,
+    "duel_bet_amount_options": [10, 50, 100],
     "duel_winner_steal_percent": 25,
     "duel_invite_timeout_seconds": 90,
     "allow_non_admin_image_upload": False,
@@ -281,6 +315,14 @@ DEFAULT_SETTINGS = {
     "robbery_daily_limit": 3,
     "robbery_max_steal": 180,
     "high_quality_broadcast_level": 4,
+    "gambling_exchange_cost_stone": 120,
+    "gambling_exchange_max_count": 20,
+    "gambling_open_max_count": 20,
+    "gambling_broadcast_quality_level": 5,
+    "gambling_fortune_divisor": 6,
+    "gambling_fortune_bonus_per_quality_percent": 8,
+    "gambling_quality_weight_rules": DEFAULT_GAMBLING_QUALITY_WEIGHT_RULES,
+    "gambling_reward_pool": DEFAULT_GAMBLING_REWARD_POOL,
     "root_quality_value_rules": DEFAULT_ROOT_QUALITY_VALUE_RULES,
     "exploration_drop_weight_rules": DEFAULT_EXPLORATION_DROP_WEIGHT_RULES,
     "item_quality_value_rules": DEFAULT_ITEM_QUALITY_VALUE_RULES,
@@ -291,12 +333,17 @@ DEFAULT_SETTINGS = {
     "encounter_active_seconds": 90,
     "slave_tribute_percent": 20,
     "slave_challenge_cooldown_hours": 24,
+    "rebirth_cooldown_enabled": False,
+    "rebirth_cooldown_base_hours": 12,
+    "rebirth_cooldown_increment_hours": 6,
+    "furnace_harvest_cultivation_percent": 10,
     "sect_salary_min_stay_days": 30,
     "sect_betrayal_cooldown_days": 7,
     "sect_betrayal_stone_percent": 10,
     "sect_betrayal_stone_min": 20,
     "sect_betrayal_stone_max": 300,
     "error_log_retention_count": 500,
+    "seclusion_cultivation_efficiency_percent": 60,
 }
 DEFAULT_SETTINGS["duel_bet_minutes"] = 2
 STALE_DUEL_LOCK_GRACE_SECONDS = 120
@@ -337,6 +384,42 @@ QUALITY_LEVEL_FEATURES = {
     5: "固定强词条或核心特效",
     6: "强力特效，可能改变玩法节奏",
     7: "唯一机制、套装或事件级特效",
+}
+
+SOCIAL_MODE_LABELS = {
+    "worldly": "入世",
+    "secluded": "避世",
+}
+GENDER_LABELS = {
+    "male": "男",
+    "female": "女",
+}
+MENTORSHIP_REQUEST_ROLE_LABELS = {
+    "mentor": "收徒邀请",
+    "disciple": "拜师申请",
+}
+MENTORSHIP_STATUS_LABELS = {
+    "active": "师徒在籍",
+    "graduated": "已出师",
+    "dissolved": "已解除",
+}
+MENTORSHIP_REQUEST_STATUS_LABELS = {
+    "pending": "待处理",
+    "accepted": "已接受",
+    "rejected": "已婉拒",
+    "cancelled": "已撤回",
+    "expired": "已过期",
+}
+MARRIAGE_STATUS_LABELS = {
+    "active": "已结为道侣",
+    "divorced": "已和离",
+}
+MARRIAGE_REQUEST_STATUS_LABELS = {
+    "pending": "待处理",
+    "accepted": "已接受",
+    "rejected": "已婉拒",
+    "cancelled": "已撤回",
+    "expired": "已过期",
 }
 MATERIAL_QUALITY_NOTES = {
     1: "常见基础灵材，适合入门炼制、任务收集与日常积累。",
@@ -691,6 +774,7 @@ class XiuxianProfile(Base):
     display_name = Column(String(128), nullable=True)
     username = Column(String(64), nullable=True)
     consented = Column(Boolean, default=False, nullable=False)
+    gender = Column(String(16), nullable=True)
     root_type = Column(String(32), nullable=True)
     root_primary = Column(String(8), nullable=True)
     root_secondary = Column(String(8), nullable=True)
@@ -727,6 +811,7 @@ class XiuxianProfile(Base):
     master_tg = Column(BigInteger, nullable=True)
     servitude_started_at = Column(DateTime, nullable=True)
     servitude_challenge_available_at = Column(DateTime, nullable=True)
+    furnace_harvested_at = Column(DateTime, nullable=True)
     death_at = Column(DateTime, nullable=True)
     rebirth_count = Column(Integer, default=0, nullable=False)
     robbery_daily_count = Column(Integer, default=0, nullable=False)
@@ -739,6 +824,8 @@ class XiuxianProfile(Base):
     shop_name = Column(String(64), nullable=True)
     shop_broadcast = Column(Boolean, default=False, nullable=False)
     last_train_at = Column(DateTime, nullable=True)
+    social_mode = Column(String(16), default="worldly", nullable=False)
+    social_mode_updated_at = Column(DateTime, nullable=True)
     retreat_started_at = Column(DateTime, nullable=True)
     retreat_end_at = Column(DateTime, nullable=True)
     retreat_gain_per_minute = Column(Integer, default=0, nullable=False)
@@ -784,7 +871,7 @@ class XiuxianTitle(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(64), nullable=False, unique=True)
     description = Column(Text, nullable=True)
-    color = Column(String(32), nullable=True)
+    color = Column(String(255), nullable=True)
     image_url = Column(String(512), nullable=True)
     attack_bonus = Column(Integer, default=0, nullable=False)
     defense_bonus = Column(Integer, default=0, nullable=False)
@@ -861,6 +948,74 @@ class XiuxianUserAchievement(Base):
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
 
+class XiuxianMentorship(Base):
+    __tablename__ = "xiuxian_mentorships"
+    __table_args__ = (UniqueConstraint("mentor_tg", "disciple_tg", name="uq_xiuxian_mentorship_pair"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    mentor_tg = Column(BigInteger, nullable=False)
+    disciple_tg = Column(BigInteger, nullable=False)
+    status = Column(String(16), default="active", nullable=False)
+    bond_value = Column(Integer, default=0, nullable=False)
+    teach_count = Column(Integer, default=0, nullable=False)
+    consult_count = Column(Integer, default=0, nullable=False)
+    last_teach_at = Column(DateTime, nullable=True)
+    last_consult_at = Column(DateTime, nullable=True)
+    mentor_realm_stage_snapshot = Column(String(32), nullable=True)
+    mentor_realm_layer_snapshot = Column(Integer, default=0, nullable=False)
+    disciple_realm_stage_snapshot = Column(String(32), nullable=True)
+    disciple_realm_layer_snapshot = Column(Integer, default=0, nullable=False)
+    graduated_at = Column(DateTime, nullable=True)
+    ended_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianMentorshipRequest(Base):
+    __tablename__ = "xiuxian_mentorship_requests"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    sponsor_tg = Column(BigInteger, nullable=False)
+    target_tg = Column(BigInteger, nullable=False)
+    sponsor_role = Column(String(16), nullable=False)
+    message = Column(String(255), nullable=True)
+    status = Column(String(16), default="pending", nullable=False)
+    expires_at = Column(DateTime, nullable=True)
+    responded_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianMarriage(Base):
+    __tablename__ = "xiuxian_marriages"
+    __table_args__ = (UniqueConstraint("husband_tg", "wife_tg", name="uq_xiuxian_marriage_pair"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    husband_tg = Column(BigInteger, nullable=False)
+    wife_tg = Column(BigInteger, nullable=False)
+    status = Column(String(16), default="active", nullable=False)
+    bond_value = Column(Integer, default=0, nullable=False)
+    dual_cultivation_count = Column(Integer, default=0, nullable=False)
+    last_dual_cultivation_at = Column(DateTime, nullable=True)
+    ended_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianMarriageRequest(Base):
+    __tablename__ = "xiuxian_marriage_requests"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    sponsor_tg = Column(BigInteger, nullable=False)
+    target_tg = Column(BigInteger, nullable=False)
+    message = Column(String(255), nullable=True)
+    status = Column(String(16), default="pending", nullable=False)
+    expires_at = Column(DateTime, nullable=True)
+    responded_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
 class XiuxianSect(Base):
     __tablename__ = "xiuxian_sects"
 
@@ -921,6 +1076,13 @@ class XiuxianMaterial(Base):
     quality_level = Column(Integer, default=1, nullable=False)
     image_url = Column(String(512), nullable=True)
     description = Column(Text, nullable=True)
+    can_plant = Column(Boolean, default=False, nullable=False)
+    seed_price_stone = Column(Integer, default=0, nullable=False)
+    growth_minutes = Column(Integer, default=0, nullable=False)
+    yield_min = Column(Integer, default=0, nullable=False)
+    yield_max = Column(Integer, default=0, nullable=False)
+    unlock_realm_stage = Column(String(32), nullable=True)
+    unlock_realm_layer = Column(Integer, default=1, nullable=False)
     enabled = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
@@ -934,6 +1096,28 @@ class XiuxianMaterialInventory(Base):
     tg = Column(BigInteger, nullable=False)
     material_id = Column(Integer, ForeignKey("xiuxian_materials.id", ondelete="CASCADE"), nullable=False)
     quantity = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianFarmPlot(Base):
+    __tablename__ = "xiuxian_farm_plots"
+    __table_args__ = (UniqueConstraint("tg", "slot_index", name="uq_xiuxian_farm_plot_slot"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tg = Column(BigInteger, nullable=False)
+    slot_index = Column(Integer, nullable=False)
+    unlocked = Column(Boolean, default=False, nullable=False)
+    current_material_id = Column(Integer, ForeignKey("xiuxian_materials.id", ondelete="SET NULL"), nullable=True)
+    planted_at = Column(DateTime, nullable=True)
+    mature_at = Column(DateTime, nullable=True)
+    harvest_deadline_at = Column(DateTime, nullable=True)
+    base_yield = Column(Integer, default=0, nullable=False)
+    needs_watering = Column(Boolean, default=False, nullable=False)
+    watered = Column(Boolean, default=False, nullable=False)
+    pest_risk = Column(Boolean, default=False, nullable=False)
+    pest_cleared = Column(Boolean, default=False, nullable=False)
+    fertilized = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
@@ -1451,6 +1635,35 @@ class XiuxianAuctionBid(Base):
     created_at = Column(DateTime, default=utcnow, nullable=False)
 
 
+class XiuxianArena(Base):
+    __tablename__ = "xiuxian_arenas"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    owner_tg = Column(BigInteger, nullable=False)
+    owner_display_name = Column(String(128), nullable=True)
+    champion_tg = Column(BigInteger, nullable=False)
+    champion_display_name = Column(String(128), nullable=True)
+    group_chat_id = Column(BigInteger, nullable=False)
+    group_message_id = Column(Integer, nullable=True)
+    duration_minutes = Column(Integer, default=120, nullable=False)
+    challenge_count = Column(Integer, default=0, nullable=False)
+    defense_success_count = Column(Integer, default=0, nullable=False)
+    champion_change_count = Column(Integer, default=0, nullable=False)
+    battle_in_progress = Column(Boolean, default=False, nullable=False)
+    current_challenger_tg = Column(BigInteger, nullable=True)
+    current_challenger_display_name = Column(String(128), nullable=True)
+    last_winner_tg = Column(BigInteger, nullable=True)
+    last_winner_display_name = Column(String(128), nullable=True)
+    last_loser_tg = Column(BigInteger, nullable=True)
+    last_loser_display_name = Column(String(128), nullable=True)
+    latest_result_summary = Column(Text, nullable=True)
+    status = Column(String(16), default="active", nullable=False)
+    end_at = Column(DateTime, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
 class XiuxianDuelRecord(Base):
     __tablename__ = "xiuxian_duel_records"
 
@@ -1474,17 +1687,155 @@ def realm_index(stage: str | None) -> int:
         return 0
 
 
+def normalize_social_mode(mode: str | None) -> str:
+    value = str(mode or "").strip().lower()
+    aliases = {
+        "worldly": "worldly",
+        "world": "worldly",
+        "public": "worldly",
+        "visible": "worldly",
+        "入世": "worldly",
+        "出世": "worldly",
+        "secluded": "secluded",
+        "hidden": "secluded",
+        "hide": "secluded",
+        "private": "secluded",
+        "避世": "secluded",
+        "隐世": "secluded",
+    }
+    return aliases.get(value, "worldly")
+
+
+def normalize_mentorship_request_role(role: str | None) -> str:
+    value = str(role or "").strip().lower()
+    aliases = {
+        "mentor": "mentor",
+        "master": "mentor",
+        "teacher": "mentor",
+        "收徒": "mentor",
+        "invite": "mentor",
+        "disciple": "disciple",
+        "student": "disciple",
+        "apprentice": "disciple",
+        "拜师": "disciple",
+        "apply": "disciple",
+    }
+    return aliases.get(value, "disciple")
+
+
+def normalize_gender(gender: str | None) -> str | None:
+    value = str(gender or "").strip().lower()
+    if not value:
+        return None
+    aliases = {
+        "male": "male",
+        "man": "male",
+        "boy": "male",
+        "m": "male",
+        "男": "male",
+        "female": "female",
+        "woman": "female",
+        "girl": "female",
+        "f": "female",
+        "女": "female",
+    }
+    return aliases.get(value)
+
+
+def normalize_mentorship_status(status: str | None) -> str:
+    value = str(status or "").strip().lower()
+    aliases = {
+        "active": "active",
+        "ongoing": "active",
+        "在籍": "active",
+        "graduated": "graduated",
+        "graduate": "graduated",
+        "出师": "graduated",
+        "dissolved": "dissolved",
+        "ended": "dissolved",
+        "leave": "dissolved",
+        "解除": "dissolved",
+    }
+    return aliases.get(value, "active")
+
+
+def normalize_mentorship_request_status(status: str | None) -> str:
+    value = str(status or "").strip().lower()
+    aliases = {
+        "pending": "pending",
+        "wait": "pending",
+        "待处理": "pending",
+        "accepted": "accepted",
+        "accept": "accepted",
+        "同意": "accepted",
+        "rejected": "rejected",
+        "reject": "rejected",
+        "拒绝": "rejected",
+        "cancelled": "cancelled",
+        "canceled": "cancelled",
+        "cancel": "cancelled",
+        "撤回": "cancelled",
+        "expired": "expired",
+        "过期": "expired",
+    }
+    return aliases.get(value, "pending")
+
+
+def normalize_marriage_status(status: str | None) -> str:
+    value = str(status or "").strip().lower()
+    aliases = {
+        "active": "active",
+        "married": "active",
+        "已婚": "active",
+        "结为道侣": "active",
+        "divorced": "divorced",
+        "divorce": "divorced",
+        "ended": "divorced",
+        "离婚": "divorced",
+        "和离": "divorced",
+        "解除": "divorced",
+    }
+    return aliases.get(value, "active")
+
+
+def normalize_marriage_request_status(status: str | None) -> str:
+    value = str(status or "").strip().lower()
+    aliases = {
+        "pending": "pending",
+        "wait": "pending",
+        "待处理": "pending",
+        "accepted": "accepted",
+        "accept": "accepted",
+        "同意": "accepted",
+        "rejected": "rejected",
+        "reject": "rejected",
+        "拒绝": "rejected",
+        "cancelled": "cancelled",
+        "canceled": "cancelled",
+        "cancel": "cancelled",
+        "撤回": "cancelled",
+        "expired": "expired",
+        "过期": "expired",
+    }
+    return aliases.get(value, "pending")
+
+
 def serialize_profile(profile: XiuxianProfile | None) -> dict[str, Any] | None:
     if profile is None:
         return None
 
     realm_stage = normalize_realm_stage(profile.realm_stage)
+    social_mode = normalize_social_mode(profile.social_mode)
+    gender = normalize_gender(profile.gender)
     return {
         "tg": profile.tg,
         "display_name": profile.display_name,
         "username": profile.username,
         "display_label": profile.display_name or (f"@{profile.username}" if profile.username else f"TG {profile.tg}"),
         "consented": profile.consented,
+        "gender": gender,
+        "gender_label": GENDER_LABELS.get(gender, ""),
+        "gender_set": gender in GENDER_LABELS,
         "root_type": profile.root_type,
         "root_primary": profile.root_primary,
         "root_secondary": profile.root_secondary,
@@ -1522,6 +1873,7 @@ def serialize_profile(profile: XiuxianProfile | None) -> dict[str, Any] | None:
         "master_tg": profile.master_tg,
         "servitude_started_at": serialize_datetime(profile.servitude_started_at),
         "servitude_challenge_available_at": serialize_datetime(profile.servitude_challenge_available_at),
+        "furnace_harvested_at": serialize_datetime(profile.furnace_harvested_at),
         "death_at": serialize_datetime(profile.death_at),
         "rebirth_count": int(profile.rebirth_count or 0),
         "robbery_daily_count": profile.robbery_daily_count,
@@ -1534,6 +1886,10 @@ def serialize_profile(profile: XiuxianProfile | None) -> dict[str, Any] | None:
         "shop_name": profile.shop_name,
         "shop_broadcast": profile.shop_broadcast,
         "last_train_at": serialize_datetime(profile.last_train_at),
+        "social_mode": social_mode,
+        "social_mode_label": SOCIAL_MODE_LABELS.get(social_mode, "入世"),
+        "is_secluded": social_mode == "secluded",
+        "social_mode_updated_at": serialize_datetime(profile.social_mode_updated_at),
         "retreat_started_at": serialize_datetime(profile.retreat_started_at),
         "retreat_end_at": serialize_datetime(profile.retreat_end_at),
         "retreat_gain_per_minute": profile.retreat_gain_per_minute,
@@ -1653,6 +2009,98 @@ def serialize_user_achievement(
     }
 
 
+def serialize_mentorship(row: XiuxianMentorship | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    status = normalize_mentorship_status(row.status)
+    mentor_stage = normalize_realm_stage(row.mentor_realm_stage_snapshot)
+    disciple_stage = normalize_realm_stage(row.disciple_realm_stage_snapshot)
+    return {
+        "id": row.id,
+        "mentor_tg": int(row.mentor_tg or 0),
+        "disciple_tg": int(row.disciple_tg or 0),
+        "status": status,
+        "status_label": MENTORSHIP_STATUS_LABELS.get(status, "师徒在籍"),
+        "bond_value": max(int(row.bond_value or 0), 0),
+        "teach_count": max(int(row.teach_count or 0), 0),
+        "consult_count": max(int(row.consult_count or 0), 0),
+        "last_teach_at": serialize_datetime(row.last_teach_at),
+        "last_consult_at": serialize_datetime(row.last_consult_at),
+        "mentor_realm_stage_snapshot": mentor_stage,
+        "mentor_realm_layer_snapshot": max(int(row.mentor_realm_layer_snapshot or 0), 0),
+        "disciple_realm_stage_snapshot": disciple_stage,
+        "disciple_realm_layer_snapshot": max(int(row.disciple_realm_layer_snapshot or 0), 0),
+        "mentor_realm_snapshot_text": f"{mentor_stage}{max(int(row.mentor_realm_layer_snapshot or 0), 0)}层" if mentor_stage else "",
+        "disciple_realm_snapshot_text": f"{disciple_stage}{max(int(row.disciple_realm_layer_snapshot or 0), 0)}层" if disciple_stage else "",
+        "graduated_at": serialize_datetime(row.graduated_at),
+        "ended_at": serialize_datetime(row.ended_at),
+        "created_at": serialize_datetime(row.created_at),
+        "updated_at": serialize_datetime(row.updated_at),
+    }
+
+
+def serialize_mentorship_request(row: XiuxianMentorshipRequest | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    sponsor_role = normalize_mentorship_request_role(row.sponsor_role)
+    status = normalize_mentorship_request_status(row.status)
+    mentor_tg = int(row.sponsor_tg if sponsor_role == "mentor" else row.target_tg)
+    disciple_tg = int(row.target_tg if sponsor_role == "mentor" else row.sponsor_tg)
+    return {
+        "id": row.id,
+        "sponsor_tg": int(row.sponsor_tg or 0),
+        "target_tg": int(row.target_tg or 0),
+        "sponsor_role": sponsor_role,
+        "sponsor_role_label": MENTORSHIP_REQUEST_ROLE_LABELS.get(sponsor_role, "拜师申请"),
+        "mentor_tg": mentor_tg,
+        "disciple_tg": disciple_tg,
+        "message": str(row.message or "").strip(),
+        "status": status,
+        "status_label": MENTORSHIP_REQUEST_STATUS_LABELS.get(status, "待处理"),
+        "expires_at": serialize_datetime(row.expires_at),
+        "responded_at": serialize_datetime(row.responded_at),
+        "created_at": serialize_datetime(row.created_at),
+        "updated_at": serialize_datetime(row.updated_at),
+    }
+
+
+def serialize_marriage(row: XiuxianMarriage | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    status = normalize_marriage_status(row.status)
+    return {
+        "id": row.id,
+        "husband_tg": int(row.husband_tg or 0),
+        "wife_tg": int(row.wife_tg or 0),
+        "status": status,
+        "status_label": MARRIAGE_STATUS_LABELS.get(status, "已结为道侣"),
+        "bond_value": max(int(row.bond_value or 0), 0),
+        "dual_cultivation_count": max(int(row.dual_cultivation_count or 0), 0),
+        "last_dual_cultivation_at": serialize_datetime(row.last_dual_cultivation_at),
+        "ended_at": serialize_datetime(row.ended_at),
+        "created_at": serialize_datetime(row.created_at),
+        "updated_at": serialize_datetime(row.updated_at),
+    }
+
+
+def serialize_marriage_request(row: XiuxianMarriageRequest | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    status = normalize_marriage_request_status(row.status)
+    return {
+        "id": row.id,
+        "sponsor_tg": int(row.sponsor_tg or 0),
+        "target_tg": int(row.target_tg or 0),
+        "message": str(row.message or "").strip(),
+        "status": status,
+        "status_label": MARRIAGE_REQUEST_STATUS_LABELS.get(status, "待处理"),
+        "expires_at": serialize_datetime(row.expires_at),
+        "responded_at": serialize_datetime(row.responded_at),
+        "created_at": serialize_datetime(row.created_at),
+        "updated_at": serialize_datetime(row.updated_at),
+    }
+
+
 def serialize_sect(sect: XiuxianSect | None) -> dict[str, Any] | None:
     if sect is None:
         return None
@@ -1731,6 +2179,7 @@ def serialize_material(material: XiuxianMaterial | None) -> dict[str, Any] | Non
     quality = get_quality_meta(material.quality_level)
     description = str(material.description or "").strip()
     quality_note = description or MATERIAL_QUALITY_NOTES.get(int(quality["level"]), "") or quality["description"]
+    can_plant = bool(material.can_plant)
     return {
         "id": material.id,
         "name": material.name,
@@ -1741,6 +2190,13 @@ def serialize_material(material: XiuxianMaterial | None) -> dict[str, Any] | Non
         "quality_feature": quality_note,
         "image_url": material.image_url,
         "description": material.description,
+        "can_plant": can_plant,
+        "seed_price_stone": int(material.seed_price_stone or 0),
+        "growth_minutes": int(material.growth_minutes or 0),
+        "yield_min": int(material.yield_min or 0),
+        "yield_max": int(material.yield_max or 0),
+        "unlock_realm_stage": normalize_realm_stage(material.unlock_realm_stage) if material.unlock_realm_stage else None,
+        "unlock_realm_layer": int(material.unlock_realm_layer or 1),
         "enabled": material.enabled,
     }
 
@@ -1929,6 +2385,9 @@ def serialize_encounter_instance(instance: XiuxianEncounterInstance | None) -> d
 def serialize_red_envelope(envelope: XiuxianRedEnvelope | None) -> dict[str, Any] | None:
     if envelope is None:
         return None
+    target_display_name = ""
+    if envelope.target_tg:
+        target_display_name = get_emby_name_map([int(envelope.target_tg)]).get(int(envelope.target_tg), "")
     return {
         "id": envelope.id,
         "creator_tg": envelope.creator_tg,
@@ -1937,6 +2396,7 @@ def serialize_red_envelope(envelope: XiuxianRedEnvelope | None) -> dict[str, Any
         "mode": envelope.mode,
         "mode_label": ENVELOPE_MODE_LABELS.get(envelope.mode, envelope.mode),
         "target_tg": envelope.target_tg,
+        "target_display_name": target_display_name,
         "amount_total": envelope.amount_total,
         "count_total": envelope.count_total,
         "remaining_amount": envelope.remaining_amount,
@@ -2224,6 +2684,51 @@ def serialize_auction_bid(item: XiuxianAuctionBid | None) -> dict[str, Any] | No
     }
 
 
+def serialize_arena(item: XiuxianArena | None) -> dict[str, Any] | None:
+    if item is None:
+        return None
+    remaining_seconds = 0
+    if item.end_at is not None:
+        remaining_seconds = max(int((item.end_at - utcnow()).total_seconds()), 0)
+    status = str(item.status or "active")
+    status_label = {
+        "active": "开放挑战",
+        "finished": "已结束",
+        "cancelled": "已取消",
+    }.get(status, status)
+    if status == "active" and bool(item.battle_in_progress):
+        status_label = "攻擂中"
+    return {
+        "id": item.id,
+        "owner_tg": int(item.owner_tg or 0),
+        "owner_display_name": item.owner_display_name or "",
+        "champion_tg": int(item.champion_tg or 0),
+        "champion_display_name": item.champion_display_name or "",
+        "group_chat_id": int(item.group_chat_id or 0),
+        "group_message_id": int(item.group_message_id or 0) or None,
+        "duration_minutes": max(int(item.duration_minutes or 0), 0),
+        "challenge_count": max(int(item.challenge_count or 0), 0),
+        "defense_success_count": max(int(item.defense_success_count or 0), 0),
+        "champion_change_count": max(int(item.champion_change_count or 0), 0),
+        "battle_in_progress": bool(item.battle_in_progress),
+        "current_challenger_tg": int(item.current_challenger_tg or 0) or None,
+        "current_challenger_display_name": item.current_challenger_display_name or "",
+        "last_winner_tg": int(item.last_winner_tg or 0) or None,
+        "last_winner_display_name": item.last_winner_display_name or "",
+        "last_loser_tg": int(item.last_loser_tg or 0) or None,
+        "last_loser_display_name": item.last_loser_display_name or "",
+        "latest_result_summary": item.latest_result_summary or "",
+        "status": status,
+        "status_label": status_label,
+        "end_at": serialize_datetime(item.end_at),
+        "completed_at": serialize_datetime(item.completed_at),
+        "created_at": serialize_datetime(item.created_at),
+        "updated_at": serialize_datetime(item.updated_at),
+        "remaining_seconds": remaining_seconds,
+        "ended": item.end_at <= utcnow() if item.end_at is not None else False,
+    }
+
+
 def serialize_image_upload_permission(permission: XiuxianImageUploadPermission | None) -> dict[str, Any] | None:
     if permission is None:
         return None
@@ -2260,6 +2765,9 @@ def get_xiuxian_settings() -> dict[str, Any]:
         settings.pop(key, None)
     merged = copy.deepcopy(DEFAULT_SETTINGS)
     merged.update(settings)
+    if "duel_bet_seconds" not in settings and "duel_bet_minutes" in settings:
+        merged["duel_bet_seconds"] = max(_coerce_int(settings.get("duel_bet_minutes"), DEFAULT_SETTINGS["duel_bet_minutes"]), 1) * 60
+    merged.update(resolve_duel_bet_settings(merged))
     return merged
 
 
@@ -2323,7 +2831,6 @@ def get_profile(tg: int, create: bool = False) -> XiuxianProfile | None:
             profile = XiuxianProfile(tg=tg)
             session.add(profile)
             session.commit()
-            session.refresh(profile)
         return profile
 
 
@@ -2342,7 +2849,6 @@ def upsert_profile(tg: int, **fields) -> XiuxianProfile:
 
         profile.updated_at = utcnow()
         session.commit()
-        session.refresh(profile)
         return profile
 
 
@@ -2407,16 +2913,22 @@ def clear_all_xiuxian_user_data() -> dict[str, Any]:
             "duel_pools": session.query(XiuxianDuelBetPool).delete(synchronize_session=False),
             "auction_bids": session.query(XiuxianAuctionBid).delete(synchronize_session=False),
             "auction_items": session.query(XiuxianAuctionItem).delete(synchronize_session=False),
+            "arenas": session.query(XiuxianArena).delete(synchronize_session=False),
             "equipped_artifacts": session.query(XiuxianEquippedArtifact).delete(synchronize_session=False),
             "artifact_inventory": session.query(XiuxianArtifactInventory).delete(synchronize_session=False),
             "pill_inventory": session.query(XiuxianPillInventory).delete(synchronize_session=False),
             "talisman_inventory": session.query(XiuxianTalismanInventory).delete(synchronize_session=False),
             "material_inventory": session.query(XiuxianMaterialInventory).delete(synchronize_session=False),
+            "farm_plots": session.query(XiuxianFarmPlot).delete(synchronize_session=False),
             "user_titles": session.query(XiuxianUserTitle).delete(synchronize_session=False),
             "user_techniques": session.query(XiuxianUserTechnique).delete(synchronize_session=False),
             "user_recipes": session.query(XiuxianUserRecipe).delete(synchronize_session=False),
             "achievement_progress": session.query(XiuxianAchievementProgress).delete(synchronize_session=False),
             "user_achievements": session.query(XiuxianUserAchievement).delete(synchronize_session=False),
+            "marriage_requests": session.query(XiuxianMarriageRequest).delete(synchronize_session=False),
+            "marriages": session.query(XiuxianMarriage).delete(synchronize_session=False),
+            "mentorship_requests": session.query(XiuxianMentorshipRequest).delete(synchronize_session=False),
+            "mentorships": session.query(XiuxianMentorship).delete(synchronize_session=False),
             "explorations": session.query(XiuxianExploration).delete(synchronize_session=False),
             "task_claims": session.query(XiuxianTaskClaim).delete(synchronize_session=False),
             "encounter_instances": session.query(XiuxianEncounterInstance).delete(synchronize_session=False),
@@ -2571,6 +3083,90 @@ def _clear_servitude_fields(profile: XiuxianProfile) -> None:
     profile.master_tg = None
     profile.servitude_started_at = None
     profile.servitude_challenge_available_at = None
+    profile.furnace_harvested_at = None
+
+
+def _active_marriage_for_user(session: Session, tg: int, *, for_update: bool = False) -> XiuxianMarriage | None:
+    query = session.query(XiuxianMarriage).filter(
+        XiuxianMarriage.status == "active",
+        (XiuxianMarriage.husband_tg == int(tg)) | (XiuxianMarriage.wife_tg == int(tg)),
+    )
+    if for_update:
+        query = query.with_for_update()
+    return query.order_by(XiuxianMarriage.id.desc()).first()
+
+
+def _marriage_partner_tg(session: Session, tg: int, *, for_update: bool = False) -> int | None:
+    relation = _active_marriage_for_user(session, tg, for_update=for_update)
+    if relation is None:
+        return None
+    if int(relation.husband_tg or 0) == int(tg):
+        return int(relation.wife_tg or 0) or None
+    return int(relation.husband_tg or 0) or None
+
+
+def _shared_profile_tgs(session: Session, tg: int, *, for_update: bool = False) -> list[int]:
+    actor_tg = int(tg or 0)
+    if actor_tg <= 0:
+        return []
+    partner_tg = _marriage_partner_tg(session, actor_tg, for_update=for_update)
+    if not partner_tg or int(partner_tg) == actor_tg:
+        return [actor_tg]
+    return [actor_tg, int(partner_tg)]
+
+
+def _shared_profile_rows(session: Session, tg: int, *, for_update: bool = False) -> list[XiuxianProfile]:
+    tgs = _shared_profile_tgs(session, tg, for_update=for_update)
+    if not tgs:
+        return []
+    query = session.query(XiuxianProfile).filter(XiuxianProfile.tg.in_(tgs))
+    if for_update:
+        query = query.with_for_update()
+    rows = {int(row.tg): row for row in query.all()}
+    return [rows[item] for item in tgs if int(item) in rows]
+
+
+def get_shared_spiritual_stone_total(tg: int, *, session: Session | None = None, for_update: bool = False) -> int:
+    own_session = session is None
+    active_session = session or Session()
+    try:
+        rows = _shared_profile_rows(active_session, tg, for_update=for_update and not own_session)
+        return sum(max(int(row.spiritual_stone or 0), 0) for row in rows)
+    finally:
+        if own_session:
+            active_session.close()
+
+
+def _deduct_shared_spiritual_stone(
+    session: Session,
+    actor: XiuxianProfile,
+    amount: int,
+    *,
+    action_text: str,
+) -> None:
+    need = max(int(amount or 0), 0)
+    if need <= 0:
+        return
+    rows = _shared_profile_rows(session, int(actor.tg or 0), for_update=True)
+    if not rows:
+        raise ValueError("你还没有踏入仙途")
+    total = sum(max(int(row.spiritual_stone or 0), 0) for row in rows)
+    if total < need:
+        raise ValueError("灵石不足")
+    ordered_rows = sorted(rows, key=lambda row: (0 if int(row.tg or 0) == int(actor.tg or 0) else 1, int(row.tg or 0)))
+    now = utcnow()
+    for row in ordered_rows:
+        if need <= 0:
+            break
+        current = max(int(row.spiritual_stone or 0), 0)
+        if current <= 0:
+            continue
+        delta = min(current, need)
+        row.spiritual_stone = current - delta
+        row.updated_at = now
+        need -= delta
+    if need > 0:
+        raise ValueError(f"{action_text}失败：共享灵石扣减异常。")
 
 
 def apply_spiritual_stone_delta(
@@ -2600,8 +3196,14 @@ def apply_spiritual_stone_delta(
     current = int(profile.spiritual_stone or 0)
     tribute_amount = 0
     tribute_master = None
-    if amount < 0 and current + amount < 0:
-        raise ValueError("灵石不足")
+    if amount < 0:
+        _deduct_shared_spiritual_stone(session, profile, -amount, action_text=action_text)
+        return {
+            "profile": profile,
+            "tribute_amount": 0,
+            "tribute_master": None,
+            "net_delta": amount,
+        }
 
     if amount > 0 and apply_tribute and profile.consented and profile.master_tg:
         master = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(profile.master_tg)).with_for_update().first()
@@ -2821,6 +3423,76 @@ def _coerce_bool(value: Any, default: bool = True) -> bool:
     return bool(value)
 
 
+def _fallback_duel_bet_amount_options(minimum: int, maximum: int) -> list[int]:
+    if maximum <= minimum:
+        return [minimum]
+    midpoint = (minimum + maximum) // 2
+    values = [minimum]
+    if midpoint not in {minimum, maximum}:
+        values.append(midpoint)
+    values.append(maximum)
+    return sorted(set(values))
+
+
+def _normalize_duel_bet_amount_options(
+    raw_value: Any,
+    *,
+    minimum: int,
+    maximum: int,
+) -> list[int]:
+    if isinstance(raw_value, str):
+        items = [part for part in re.split(r"[\s,，、;；|/]+", raw_value.strip()) if part]
+    elif isinstance(raw_value, (list, tuple, set)):
+        items = list(raw_value)
+    elif raw_value is None:
+        items = list(DEFAULT_SETTINGS.get("duel_bet_amount_options") or [])
+    else:
+        items = [raw_value]
+
+    values: list[int] = []
+    seen: set[int] = set()
+    for item in items:
+        amount = _coerce_int(item, 0)
+        if amount < minimum or amount > maximum or amount in seen:
+            continue
+        seen.add(amount)
+        values.append(amount)
+    values.sort()
+    return values[:8]
+
+
+def resolve_duel_bet_settings(settings: dict[str, Any] | None = None) -> dict[str, Any]:
+    source = settings if isinstance(settings, dict) else {}
+    default_options = list(DEFAULT_SETTINGS.get("duel_bet_amount_options") or [10, 50, 100])
+    default_minimum = max(_coerce_int(DEFAULT_SETTINGS.get("duel_bet_min_amount"), min(default_options or [10])), 1)
+    default_maximum = max(
+        _coerce_int(DEFAULT_SETTINGS.get("duel_bet_max_amount"), max(default_options or [100])),
+        default_minimum,
+    )
+    legacy_minutes = max(_coerce_int(source.get("duel_bet_minutes"), DEFAULT_SETTINGS.get("duel_bet_minutes", 2)), 1)
+    raw_seconds = source.get("duel_bet_seconds")
+    if raw_seconds is None:
+        raw_seconds = legacy_minutes * 60
+    seconds = min(max(_coerce_int(raw_seconds, DEFAULT_SETTINGS.get("duel_bet_seconds", 120)), 10), 3600)
+    enabled = _coerce_bool(source.get("duel_bet_enabled"), _coerce_bool(DEFAULT_SETTINGS.get("duel_bet_enabled"), True))
+    minimum = min(max(_coerce_int(source.get("duel_bet_min_amount"), default_minimum), 1), 1_000_000)
+    maximum = min(max(_coerce_int(source.get("duel_bet_max_amount"), default_maximum), minimum), 1_000_000)
+    options = _normalize_duel_bet_amount_options(
+        source.get("duel_bet_amount_options"),
+        minimum=minimum,
+        maximum=maximum,
+    )
+    if not options:
+        options = _fallback_duel_bet_amount_options(minimum, maximum)
+    return {
+        "duel_bet_enabled": enabled,
+        "duel_bet_seconds": seconds,
+        "duel_bet_min_amount": minimum,
+        "duel_bet_max_amount": maximum,
+        "duel_bet_amount_options": options,
+    }
+
+
 def _sanitize_json_value(value: Any) -> Any:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
@@ -2937,7 +3609,7 @@ def _normalize_title_fields(fields: dict[str, Any]) -> dict[str, Any]:
     payload = {
         "name": name,
         "description": str(fields.get("description") or "").strip(),
-        "color": str(fields.get("color") or "").strip(),
+        "color": str(fields.get("color") or "").strip()[:255],
         "image_url": str(fields.get("image_url") or "").strip(),
         "enabled": _coerce_bool(fields.get("enabled"), True),
         "extra_effects": fields.get("extra_effects") if isinstance(fields.get("extra_effects"), dict) else {},
@@ -3432,23 +4104,64 @@ def grant_talisman_to_user(tg: int, talisman_id: int, quantity: int = 1) -> dict
         }
 
 
+def _shared_inventory_owner_tgs(session: Session, tg: int, *, for_update: bool = False) -> list[int]:
+    owner_tgs = _shared_profile_tgs(session, tg, for_update=for_update)
+    return [int(item) for item in owner_tgs if int(item) > 0]
+
+
+def _ordered_owner_rows(session: Session, model_cls, tg: int, ref_field: str, ref_id: int) -> list[Any]:
+    owner_tgs = _shared_inventory_owner_tgs(session, tg, for_update=True)
+    if not owner_tgs:
+        return []
+    ref_column = getattr(model_cls, ref_field)
+    rows = (
+        session.query(model_cls)
+        .filter(model_cls.tg.in_(owner_tgs), ref_column == int(ref_id))
+        .with_for_update()
+        .all()
+    )
+    row_map = {int(row.tg or 0): row for row in rows}
+    return [row_map[item] for item in owner_tgs if item in row_map]
+
+
 def list_user_artifacts(tg: int) -> list[dict[str, Any]]:
     with Session() as session:
+        owner_tgs = _shared_inventory_owner_tgs(session, tg)
+        if not owner_tgs:
+            return []
         rows = (
             session.query(XiuxianArtifactInventory, XiuxianArtifact)
             .join(XiuxianArtifact, XiuxianArtifact.id == XiuxianArtifactInventory.artifact_id)
-            .filter(XiuxianArtifactInventory.tg == tg)
+            .filter(XiuxianArtifactInventory.tg.in_(owner_tgs))
             .order_by(XiuxianArtifact.id.desc())
             .all()
         )
-        payload = [
-            {
-                "quantity": inventory.quantity,
-                "bound_quantity": max(min(int(inventory.bound_quantity or 0), int(inventory.quantity or 0)), 0),
-                "artifact": serialize_artifact(artifact),
-            }
-            for inventory, artifact in rows
-        ]
+        equipped_counts: dict[int, int] = {}
+        for equipped in (
+            session.query(XiuxianEquippedArtifact)
+            .filter(XiuxianEquippedArtifact.tg.in_(owner_tgs))
+            .all()
+        ):
+            artifact_id = int(equipped.artifact_id or 0)
+            if artifact_id <= 0:
+                continue
+            equipped_counts[artifact_id] = equipped_counts.get(artifact_id, 0) + 1
+        payload_map: dict[int, dict[str, Any]] = {}
+        for inventory, artifact in rows:
+            artifact_id = int(inventory.artifact_id or 0)
+            entry = payload_map.get(artifact_id)
+            if entry is None:
+                entry = {
+                    "quantity": 0,
+                    "bound_quantity": 0,
+                    "equipped_quantity": equipped_counts.get(artifact_id, 0),
+                    "artifact": serialize_artifact(artifact),
+                }
+                payload_map[artifact_id] = entry
+            quantity = max(int(inventory.quantity or 0), 0)
+            entry["quantity"] += quantity
+            entry["bound_quantity"] += max(min(int(inventory.bound_quantity or 0), quantity), 0)
+        payload = list(payload_map.values())
         return sorted(
             payload,
             key=lambda row: _named_quality_sort_key((row.get("artifact") or {}), "rarity_level"),
@@ -3492,6 +4205,8 @@ def plunder_random_artifact_to_user(receiver_tg: int, owner_tg: int) -> dict[str
         if not owner_rows:
             return None
 
+        starter_artifact_id = _starter_artifact_id_in_session(session)
+        starter_protection_active = bool(starter_artifact_id) and _starter_artifact_protection_active_in_session(session, owner_tg)
         equipped_rows = (
             session.query(XiuxianEquippedArtifact)
             .filter(XiuxianEquippedArtifact.tg == owner_tg)
@@ -3509,6 +4224,8 @@ def plunder_random_artifact_to_user(receiver_tg: int, owner_tg: int) -> dict[str
             total_quantity = int(row.quantity or 0)
             bound_quantity = max(min(int(row.bound_quantity or 0), total_quantity), 0)
             protected_quantity = min(total_quantity, bound_quantity + equipped_count_map.get(int(row.artifact_id), 0))
+            if starter_protection_active and int(row.artifact_id or 0) == int(starter_artifact_id or 0):
+                protected_quantity = max(protected_quantity, min(total_quantity, 1))
             weighted_ids.extend([int(row.artifact_id)] * max(total_quantity - protected_quantity, 0))
         if not weighted_ids:
             return None
@@ -3567,20 +4284,25 @@ def plunder_random_artifact_to_user(receiver_tg: int, owner_tg: int) -> dict[str
 
 def list_user_pills(tg: int) -> list[dict[str, Any]]:
     with Session() as session:
+        owner_tgs = _shared_inventory_owner_tgs(session, tg)
+        if not owner_tgs:
+            return []
         rows = (
             session.query(XiuxianPillInventory, XiuxianPill)
             .join(XiuxianPill, XiuxianPill.id == XiuxianPillInventory.pill_id)
-            .filter(XiuxianPillInventory.tg == tg)
+            .filter(XiuxianPillInventory.tg.in_(owner_tgs))
             .order_by(XiuxianPill.id.desc())
             .all()
         )
-        payload = [
-            {
-                "quantity": inventory.quantity,
-                "pill": serialize_pill(pill),
-            }
-            for inventory, pill in rows
-        ]
+        payload_map: dict[int, dict[str, Any]] = {}
+        for inventory, pill in rows:
+            pill_id = int(inventory.pill_id or 0)
+            entry = payload_map.get(pill_id)
+            if entry is None:
+                entry = {"quantity": 0, "pill": serialize_pill(pill)}
+                payload_map[pill_id] = entry
+            entry["quantity"] += max(int(inventory.quantity or 0), 0)
+        payload = list(payload_map.values())
         return sorted(
             payload,
             key=lambda row: _named_quality_sort_key((row.get("pill") or {}), "rarity_level"),
@@ -3589,21 +4311,31 @@ def list_user_pills(tg: int) -> list[dict[str, Any]]:
 
 def list_user_talismans(tg: int) -> list[dict[str, Any]]:
     with Session() as session:
+        owner_tgs = _shared_inventory_owner_tgs(session, tg)
+        if not owner_tgs:
+            return []
         rows = (
             session.query(XiuxianTalismanInventory, XiuxianTalisman)
             .join(XiuxianTalisman, XiuxianTalisman.id == XiuxianTalismanInventory.talisman_id)
-            .filter(XiuxianTalismanInventory.tg == tg)
+            .filter(XiuxianTalismanInventory.tg.in_(owner_tgs))
             .order_by(XiuxianTalisman.id.desc())
             .all()
         )
-        payload = [
-            {
-                "quantity": inventory.quantity,
-                "bound_quantity": max(min(int(inventory.bound_quantity or 0), int(inventory.quantity or 0)), 0),
-                "talisman": serialize_talisman(talisman),
-            }
-            for inventory, talisman in rows
-        ]
+        payload_map: dict[int, dict[str, Any]] = {}
+        for inventory, talisman in rows:
+            talisman_id = int(inventory.talisman_id or 0)
+            entry = payload_map.get(talisman_id)
+            if entry is None:
+                entry = {
+                    "quantity": 0,
+                    "bound_quantity": 0,
+                    "talisman": serialize_talisman(talisman),
+                }
+                payload_map[talisman_id] = entry
+            quantity = max(int(inventory.quantity or 0), 0)
+            entry["quantity"] += quantity
+            entry["bound_quantity"] += max(min(int(inventory.bound_quantity or 0), quantity), 0)
+        payload = list(payload_map.values())
         return sorted(
             payload,
             key=lambda row: _named_quality_sort_key((row.get("talisman") or {}), "rarity_level"),
@@ -3612,45 +4344,51 @@ def list_user_talismans(tg: int) -> list[dict[str, Any]]:
 
 def consume_user_pill(tg: int, pill_id: int, quantity: int = 1) -> bool:
     with Session() as session:
-        row = (
-            session.query(XiuxianPillInventory)
-            .filter(
-                XiuxianPillInventory.tg == tg,
-                XiuxianPillInventory.pill_id == pill_id,
-            )
-            .with_for_update()
-            .first()
-        )
-        if row is None or row.quantity < quantity:
+        remaining = max(int(quantity or 0), 1)
+        rows = _ordered_owner_rows(session, XiuxianPillInventory, tg, "pill_id", pill_id)
+        total_quantity = sum(max(int(row.quantity or 0), 0) for row in rows)
+        if total_quantity < remaining:
             return False
 
-        row.quantity -= quantity
-        row.updated_at = utcnow()
-        if row.quantity <= 0:
-            session.delete(row)
+        now = utcnow()
+        for row in rows:
+            if remaining <= 0:
+                break
+            available = max(int(row.quantity or 0), 0)
+            if available <= 0:
+                continue
+            delta = min(available, remaining)
+            row.quantity = available - delta
+            row.updated_at = now
+            remaining -= delta
+            if row.quantity <= 0:
+                session.delete(row)
         session.commit()
         return True
 
 
 def consume_user_talisman(tg: int, talisman_id: int, quantity: int = 1) -> bool:
     with Session() as session:
-        row = (
-            session.query(XiuxianTalismanInventory)
-            .filter(
-                XiuxianTalismanInventory.tg == tg,
-                XiuxianTalismanInventory.talisman_id == talisman_id,
-            )
-            .with_for_update()
-            .first()
-        )
-        if row is None or row.quantity < quantity:
+        remaining = max(int(quantity or 0), 1)
+        rows = _ordered_owner_rows(session, XiuxianTalismanInventory, tg, "talisman_id", talisman_id)
+        total_quantity = sum(max(int(row.quantity or 0), 0) for row in rows)
+        if total_quantity < remaining:
             return False
 
-        row.quantity -= quantity
-        row.bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
-        row.updated_at = utcnow()
-        if row.quantity <= 0:
-            session.delete(row)
+        now = utcnow()
+        for row in rows:
+            if remaining <= 0:
+                break
+            available = max(int(row.quantity or 0), 0)
+            if available <= 0:
+                continue
+            delta = min(available, remaining)
+            row.quantity = available - delta
+            row.bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
+            row.updated_at = now
+            remaining -= delta
+            if row.quantity <= 0:
+                session.delete(row)
         session.commit()
         return True
 
@@ -3832,104 +4570,140 @@ def admin_set_user_material_inventory(tg: int, material_id: int, quantity: int) 
 
 def use_user_artifact_listing_stock(tg: int, artifact_id: int, quantity: int = 1) -> bool:
     with Session() as session:
-        row = (
-            session.query(XiuxianArtifactInventory)
-            .filter(
-                XiuxianArtifactInventory.tg == tg,
-                XiuxianArtifactInventory.artifact_id == artifact_id,
-            )
-            .with_for_update()
-            .first()
-        )
-        if row is None or row.quantity < quantity:
+        remaining = max(int(quantity or 0), 1)
+        rows = _ordered_owner_rows(session, XiuxianArtifactInventory, tg, "artifact_id", artifact_id)
+        if not rows:
             return False
-        bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
-        equipped_count = (
+        starter_artifact_id = _starter_artifact_id_in_session(session)
+        owner_tgs = _shared_inventory_owner_tgs(session, tg, for_update=True)
+        equipped_count = 0
+        for _equipped in (
             session.query(XiuxianEquippedArtifact)
             .filter(
-                XiuxianEquippedArtifact.tg == tg,
-                XiuxianEquippedArtifact.artifact_id == artifact_id,
+                XiuxianEquippedArtifact.tg.in_(owner_tgs),
+                XiuxianEquippedArtifact.artifact_id == int(artifact_id),
             )
-            .count()
+            .with_for_update()
+            .all()
+        ):
+            equipped_count += 1
+        total_quantity = sum(max(int(row.quantity or 0), 0) for row in rows)
+        total_bound_quantity = sum(
+            max(min(int(row.bound_quantity or 0), max(int(row.quantity or 0), 0)), 0)
+            for row in rows
         )
-        available_quantity = int(row.quantity or 0) - bound_quantity - int(equipped_count or 0)
-        if available_quantity < quantity:
+        total_available = max(total_quantity - total_bound_quantity - equipped_count, 0)
+        if total_available < remaining:
             return False
 
-        row.quantity -= quantity
-        row.updated_at = utcnow()
-        if row.quantity <= 0:
-            session.delete(row)
+        now = utcnow()
+        release_owner_tgs: set[int] = set()
+        for row in rows:
+            if remaining <= 0:
+                break
+            quantity_value = max(int(row.quantity or 0), 0)
+            bound_quantity = max(min(int(row.bound_quantity or 0), quantity_value), 0)
+            available = max(quantity_value - bound_quantity, 0)
+            if available <= 0:
+                continue
+            delta = min(available, remaining)
+            row.quantity = quantity_value - delta
+            row.bound_quantity = max(min(bound_quantity, int(row.quantity or 0)), 0)
+            row.updated_at = now
+            if delta > 0 and int(artifact_id or 0) == int(starter_artifact_id or 0):
+                release_owner_tgs.add(int(row.tg or 0))
+            remaining -= delta
+            if row.quantity <= 0:
+                session.delete(row)
         session.commit()
+        for owner_tg in release_owner_tgs:
+            release_starter_artifact_protection(
+                owner_tg,
+                reason="你将新手法宝用于上架出售或拍卖，此后它不再受新手保护，日后重修也不会再次补发。",
+            )
         return True
 
 
 def use_user_pill_listing_stock(tg: int, pill_id: int, quantity: int = 1) -> bool:
     with Session() as session:
-        row = (
-            session.query(XiuxianPillInventory)
-            .filter(
-                XiuxianPillInventory.tg == tg,
-                XiuxianPillInventory.pill_id == pill_id,
-            )
-            .with_for_update()
-            .first()
-        )
-        if row is None or row.quantity < quantity:
+        remaining = max(int(quantity or 0), 1)
+        rows = _ordered_owner_rows(session, XiuxianPillInventory, tg, "pill_id", pill_id)
+        total_quantity = sum(max(int(row.quantity or 0), 0) for row in rows)
+        if total_quantity < remaining:
             return False
 
-        row.quantity -= quantity
-        row.updated_at = utcnow()
-        if row.quantity <= 0:
-            session.delete(row)
+        now = utcnow()
+        for row in rows:
+            if remaining <= 0:
+                break
+            available = max(int(row.quantity or 0), 0)
+            if available <= 0:
+                continue
+            delta = min(available, remaining)
+            row.quantity = available - delta
+            row.updated_at = now
+            remaining -= delta
+            if row.quantity <= 0:
+                session.delete(row)
         session.commit()
         return True
 
 
 def use_user_material_listing_stock(tg: int, material_id: int, quantity: int = 1) -> bool:
     with Session() as session:
-        row = (
-            session.query(XiuxianMaterialInventory)
-            .filter(
-                XiuxianMaterialInventory.tg == tg,
-                XiuxianMaterialInventory.material_id == material_id,
-            )
-            .with_for_update()
-            .first()
-        )
-        if row is None or row.quantity < quantity:
+        remaining = max(int(quantity or 0), 1)
+        rows = _ordered_owner_rows(session, XiuxianMaterialInventory, tg, "material_id", material_id)
+        total_quantity = sum(max(int(row.quantity or 0), 0) for row in rows)
+        if total_quantity < remaining:
             return False
 
-        row.quantity -= quantity
-        row.updated_at = utcnow()
-        if row.quantity <= 0:
-            session.delete(row)
+        now = utcnow()
+        for row in rows:
+            if remaining <= 0:
+                break
+            available = max(int(row.quantity or 0), 0)
+            if available <= 0:
+                continue
+            delta = min(available, remaining)
+            row.quantity = available - delta
+            row.updated_at = now
+            remaining -= delta
+            if row.quantity <= 0:
+                session.delete(row)
         session.commit()
         return True
 
 
 def use_user_talisman_listing_stock(tg: int, talisman_id: int, quantity: int = 1) -> bool:
     with Session() as session:
-        row = (
-            session.query(XiuxianTalismanInventory)
-            .filter(
-                XiuxianTalismanInventory.tg == tg,
-                XiuxianTalismanInventory.talisman_id == talisman_id,
-            )
-            .with_for_update()
-            .first()
-        )
-        if row is None or row.quantity < quantity:
+        remaining = max(int(quantity or 0), 1)
+        rows = _ordered_owner_rows(session, XiuxianTalismanInventory, tg, "talisman_id", talisman_id)
+        if not rows:
             return False
-        bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
-        available_quantity = int(row.quantity or 0) - bound_quantity
-        if available_quantity < quantity:
+        total_available = 0
+        for row in rows:
+            quantity_value = max(int(row.quantity or 0), 0)
+            bound_quantity = max(min(int(row.bound_quantity or 0), quantity_value), 0)
+            total_available += max(quantity_value - bound_quantity, 0)
+        if total_available < remaining:
             return False
 
-        row.quantity -= quantity
-        row.updated_at = utcnow()
-        if row.quantity <= 0:
-            session.delete(row)
+        now = utcnow()
+        for row in rows:
+            if remaining <= 0:
+                break
+            quantity_value = max(int(row.quantity or 0), 0)
+            bound_quantity = max(min(int(row.bound_quantity or 0), quantity_value), 0)
+            available = max(quantity_value - bound_quantity, 0)
+            if available <= 0:
+                continue
+            delta = min(available, remaining)
+            row.quantity = quantity_value - delta
+            row.bound_quantity = max(min(bound_quantity, int(row.quantity or 0)), 0)
+            row.updated_at = now
+            remaining -= delta
+            if row.quantity <= 0:
+                session.delete(row)
         session.commit()
         return True
 
@@ -3937,27 +4711,39 @@ def use_user_talisman_listing_stock(tg: int, talisman_id: int, quantity: int = 1
 def bind_user_artifact(tg: int, artifact_id: int, quantity: int = 1) -> dict[str, Any]:
     amount = max(int(quantity or 0), 1)
     with Session() as session:
-        row = (
-            session.query(XiuxianArtifactInventory)
-            .filter(
-                XiuxianArtifactInventory.tg == tg,
-                XiuxianArtifactInventory.artifact_id == artifact_id,
-            )
-            .with_for_update()
-            .first()
-        )
-        if row is None:
+        rows = _ordered_owner_rows(session, XiuxianArtifactInventory, tg, "artifact_id", artifact_id)
+        if not rows:
             raise ValueError("你的背包里没有这件法宝。")
-        bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
-        bindable_quantity = int(row.quantity or 0) - bound_quantity
+        bindable_quantity = 0
+        for row in rows:
+            quantity_value = max(int(row.quantity or 0), 0)
+            bound_quantity = max(min(int(row.bound_quantity or 0), quantity_value), 0)
+            bindable_quantity += max(quantity_value - bound_quantity, 0)
         if bindable_quantity < amount:
             raise ValueError("没有足够的未绑定法宝可供绑定。")
-        row.bound_quantity = bound_quantity + amount
-        row.updated_at = utcnow()
+        remaining = amount
+        now = utcnow()
+        for row in rows:
+            if remaining <= 0:
+                break
+            quantity_value = max(int(row.quantity or 0), 0)
+            bound_quantity = max(min(int(row.bound_quantity or 0), quantity_value), 0)
+            available = max(quantity_value - bound_quantity, 0)
+            if available <= 0:
+                continue
+            delta = min(available, remaining)
+            row.bound_quantity = bound_quantity + delta
+            row.updated_at = now
+            remaining -= delta
         session.commit()
+        total_quantity = sum(max(int(row.quantity or 0), 0) for row in rows)
+        total_bound_quantity = sum(
+            max(min(int(row.bound_quantity or 0), max(int(row.quantity or 0), 0)), 0)
+            for row in rows
+        )
         return {
-            "quantity": int(row.quantity or 0),
-            "bound_quantity": int(row.bound_quantity or 0),
+            "quantity": total_quantity,
+            "bound_quantity": total_bound_quantity,
         }
 
 
@@ -3967,59 +4753,86 @@ def unbind_user_artifact(tg: int, artifact_id: int, cost: int, quantity: int = 1
     total_cost = unit_cost * amount
     with Session() as session:
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
-        row = (
-            session.query(XiuxianArtifactInventory)
-            .filter(
-                XiuxianArtifactInventory.tg == tg,
-                XiuxianArtifactInventory.artifact_id == artifact_id,
-            )
-            .with_for_update()
-            .first()
-        )
-        if profile is None or row is None:
+        rows = _ordered_owner_rows(session, XiuxianArtifactInventory, tg, "artifact_id", artifact_id)
+        if profile is None or not rows:
             raise ValueError("你的背包里没有这件法宝。")
-        bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
-        if bound_quantity < amount:
+        total_bound_quantity = sum(
+            max(min(int(row.bound_quantity or 0), max(int(row.quantity or 0), 0)), 0)
+            for row in rows
+        )
+        if total_bound_quantity < amount:
             raise ValueError("没有足够的已绑定法宝可供解绑。")
-        if int(profile.spiritual_stone or 0) < total_cost:
-            raise ValueError(f"灵石不足，解绑需要 {total_cost} 灵石。")
-        profile.spiritual_stone = max(int(profile.spiritual_stone or 0) - total_cost, 0)
-        profile.updated_at = utcnow()
-        row.bound_quantity = bound_quantity - amount
-        row.updated_at = utcnow()
+        if total_cost > 0:
+            apply_spiritual_stone_delta(
+                session,
+                tg,
+                -total_cost,
+                action_text="解绑法宝",
+                allow_dead=False,
+                apply_tribute=False,
+            )
+        remaining = amount
+        now = utcnow()
+        for row in rows:
+            if remaining <= 0:
+                break
+            bound_quantity = max(min(int(row.bound_quantity or 0), max(int(row.quantity or 0), 0)), 0)
+            if bound_quantity <= 0:
+                continue
+            delta = min(bound_quantity, remaining)
+            row.bound_quantity = bound_quantity - delta
+            row.updated_at = now
+            remaining -= delta
         session.commit()
+        total_quantity = sum(max(int(row.quantity or 0), 0) for row in rows)
+        refreshed_bound_quantity = sum(
+            max(min(int(row.bound_quantity or 0), max(int(row.quantity or 0), 0)), 0)
+            for row in rows
+        )
         return {
-            "quantity": int(row.quantity or 0),
-            "bound_quantity": int(row.bound_quantity or 0),
+            "quantity": total_quantity,
+            "bound_quantity": refreshed_bound_quantity,
             "cost": total_cost,
-            "balance": int(profile.spiritual_stone or 0),
+            "balance": get_shared_spiritual_stone_total(tg, session=session, for_update=False),
         }
 
 
 def bind_user_talisman(tg: int, talisman_id: int, quantity: int = 1) -> dict[str, Any]:
     amount = max(int(quantity or 0), 1)
     with Session() as session:
-        row = (
-            session.query(XiuxianTalismanInventory)
-            .filter(
-                XiuxianTalismanInventory.tg == tg,
-                XiuxianTalismanInventory.talisman_id == talisman_id,
-            )
-            .with_for_update()
-            .first()
-        )
-        if row is None:
+        rows = _ordered_owner_rows(session, XiuxianTalismanInventory, tg, "talisman_id", talisman_id)
+        if not rows:
             raise ValueError("你的背包里没有这张符箓。")
-        bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
-        bindable_quantity = int(row.quantity or 0) - bound_quantity
+        bindable_quantity = 0
+        for row in rows:
+            quantity_value = max(int(row.quantity or 0), 0)
+            bound_quantity = max(min(int(row.bound_quantity or 0), quantity_value), 0)
+            bindable_quantity += max(quantity_value - bound_quantity, 0)
         if bindable_quantity < amount:
             raise ValueError("没有足够的未绑定符箓可供绑定。")
-        row.bound_quantity = bound_quantity + amount
-        row.updated_at = utcnow()
+        remaining = amount
+        now = utcnow()
+        for row in rows:
+            if remaining <= 0:
+                break
+            quantity_value = max(int(row.quantity or 0), 0)
+            bound_quantity = max(min(int(row.bound_quantity or 0), quantity_value), 0)
+            available = max(quantity_value - bound_quantity, 0)
+            if available <= 0:
+                continue
+            delta = min(available, remaining)
+            row.bound_quantity = bound_quantity + delta
+            row.updated_at = now
+            remaining -= delta
         session.commit()
+        total_quantity = sum(max(int(row.quantity or 0), 0) for row in rows)
+        total_bound_quantity = sum(
+            max(min(int(row.bound_quantity or 0), max(int(row.quantity or 0), 0)), 0)
+            for row in rows
+        )
         return {
-            "quantity": int(row.quantity or 0),
-            "bound_quantity": int(row.bound_quantity or 0),
+            "quantity": total_quantity,
+            "bound_quantity": total_bound_quantity,
         }
 
 
@@ -4029,32 +4842,47 @@ def unbind_user_talisman(tg: int, talisman_id: int, cost: int, quantity: int = 1
     total_cost = unit_cost * amount
     with Session() as session:
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
-        row = (
-            session.query(XiuxianTalismanInventory)
-            .filter(
-                XiuxianTalismanInventory.tg == tg,
-                XiuxianTalismanInventory.talisman_id == talisman_id,
-            )
-            .with_for_update()
-            .first()
-        )
-        if profile is None or row is None:
+        rows = _ordered_owner_rows(session, XiuxianTalismanInventory, tg, "talisman_id", talisman_id)
+        if profile is None or not rows:
             raise ValueError("你的背包里没有这张符箓。")
-        bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
-        if bound_quantity < amount:
+        total_bound_quantity = sum(
+            max(min(int(row.bound_quantity or 0), max(int(row.quantity or 0), 0)), 0)
+            for row in rows
+        )
+        if total_bound_quantity < amount:
             raise ValueError("没有足够的已绑定符箓可供解绑。")
-        if int(profile.spiritual_stone or 0) < total_cost:
-            raise ValueError(f"灵石不足，解绑需要 {total_cost} 灵石。")
-        profile.spiritual_stone = max(int(profile.spiritual_stone or 0) - total_cost, 0)
-        profile.updated_at = utcnow()
-        row.bound_quantity = bound_quantity - amount
-        row.updated_at = utcnow()
+        if total_cost > 0:
+            apply_spiritual_stone_delta(
+                session,
+                tg,
+                -total_cost,
+                action_text="解绑符箓",
+                allow_dead=False,
+                apply_tribute=False,
+            )
+        remaining = amount
+        now = utcnow()
+        for row in rows:
+            if remaining <= 0:
+                break
+            bound_quantity = max(min(int(row.bound_quantity or 0), max(int(row.quantity or 0), 0)), 0)
+            if bound_quantity <= 0:
+                continue
+            delta = min(bound_quantity, remaining)
+            row.bound_quantity = bound_quantity - delta
+            row.updated_at = now
+            remaining -= delta
         session.commit()
+        total_quantity = sum(max(int(row.quantity or 0), 0) for row in rows)
+        refreshed_bound_quantity = sum(
+            max(min(int(row.bound_quantity or 0), max(int(row.quantity or 0), 0)), 0)
+            for row in rows
+        )
         return {
-            "quantity": int(row.quantity or 0),
-            "bound_quantity": int(row.bound_quantity or 0),
+            "quantity": total_quantity,
+            "bound_quantity": refreshed_bound_quantity,
             "cost": total_cost,
-            "balance": int(profile.spiritual_stone or 0),
+            "balance": get_shared_spiritual_stone_total(tg, session=session, for_update=False),
         }
 
 
@@ -4116,7 +4944,6 @@ def set_equipped_artifact(tg: int, artifact_id: int, equip_limit: int = 3) -> di
         profile.current_artifact_id = refreshed[0].artifact_id if refreshed else None
         profile.updated_at = utcnow()
         session.commit()
-        session.refresh(profile)
         return {
             "profile": serialize_profile(profile),
             "action": action,
@@ -4135,7 +4962,6 @@ def set_active_talisman(tg: int, talisman_id: int | None) -> dict[str, Any] | No
         profile.active_talisman_id = talisman_id
         profile.updated_at = utcnow()
         session.commit()
-        session.refresh(profile)
         return serialize_profile(profile)
 
 
@@ -4147,7 +4973,6 @@ def set_current_technique(tg: int, technique_id: int | None) -> dict[str, Any] |
         profile.current_technique_id = technique_id
         profile.updated_at = utcnow()
         session.commit()
-        session.refresh(profile)
         return serialize_profile(profile)
 
 
@@ -4471,8 +5296,14 @@ def _settle_auction_row(session: Session, auction: XiuxianAuctionItem) -> dict[s
         .first()
     )
     if seller is not None and seller_income > 0:
-        seller.spiritual_stone = int(seller.spiritual_stone or 0) + seller_income
-        seller.updated_at = now
+        apply_spiritual_stone_delta(
+            session,
+            int(auction.owner_tg),
+            seller_income,
+            action_text="拍卖成交入账",
+            allow_dead=True,
+            apply_tribute=False,
+        )
 
     _grant_auction_item_to_inventory(
         session,
@@ -4554,8 +5385,14 @@ def cancel_auction_item(auction_id: int, *, owner_tg: int | None = None) -> dict
                 .first()
             )
             if bidder is not None:
-                bidder.spiritual_stone = int(bidder.spiritual_stone or 0) + current_price
-                bidder.updated_at = now
+                apply_spiritual_stone_delta(
+                    session,
+                    current_bidder_tg,
+                    current_price,
+                    action_text="拍卖撤销返还灵石",
+                    allow_dead=True,
+                    apply_tribute=False,
+                )
 
         _grant_auction_item_to_inventory(
             session,
@@ -4637,15 +5474,27 @@ def place_auction_bid(
             additional_cost = max(next_price - current_price, 0)
             if additional_cost <= 0:
                 raise ValueError("当前价格已经达到一口价")
-            if int(bidder.spiritual_stone or 0) < additional_cost:
+            if get_shared_spiritual_stone_total(int(bidder_tg), session=session, for_update=True) < additional_cost:
                 raise ValueError("灵石不足，无法完成一口价")
-            bidder.spiritual_stone = int(bidder.spiritual_stone or 0) - additional_cost
-            bidder.updated_at = now
+            apply_spiritual_stone_delta(
+                session,
+                int(bidder_tg),
+                -additional_cost,
+                action_text="拍卖一口价补差",
+                allow_dead=False,
+                apply_tribute=False,
+            )
         else:
-            if int(bidder.spiritual_stone or 0) < next_price:
+            if get_shared_spiritual_stone_total(int(bidder_tg), session=session, for_update=True) < next_price:
                 raise ValueError("灵石不足，无法完成出价")
-            bidder.spiritual_stone = int(bidder.spiritual_stone or 0) - next_price
-            bidder.updated_at = now
+            apply_spiritual_stone_delta(
+                session,
+                int(bidder_tg),
+                -next_price,
+                action_text="拍卖出价",
+                allow_dead=False,
+                apply_tribute=False,
+            )
             if current_bidder_tg > 0 and current_price > 0:
                 previous_bidder = (
                     session.query(XiuxianProfile)
@@ -4654,8 +5503,14 @@ def place_auction_bid(
                     .first()
                 )
                 if previous_bidder is not None:
-                    previous_bidder.spiritual_stone = int(previous_bidder.spiritual_stone or 0) + current_price
-                    previous_bidder.updated_at = now
+                    apply_spiritual_stone_delta(
+                        session,
+                        current_bidder_tg,
+                        current_price,
+                        action_text="拍卖退还出价",
+                        allow_dead=True,
+                        apply_tribute=False,
+                    )
 
         auction.current_price_stone = next_price
         auction.highest_bidder_tg = int(bidder_tg)
@@ -4719,11 +5574,17 @@ def purchase_shop_item(buyer_tg: int, item_id: int, quantity: int = 1) -> dict[s
             charisma_discount_percent = min(max(int(buyer.charisma or 0) - 10, 0) // 4, 20)
             discount_amount = base_total_cost * charisma_discount_percent // 100
         total_cost = max(base_total_cost - discount_amount, 0)
-        if buyer.spiritual_stone < total_cost:
+        if get_shared_spiritual_stone_total(int(buyer_tg), session=session, for_update=True) < total_cost:
             raise ValueError("灵石不足")
 
-        buyer.spiritual_stone -= total_cost
-        buyer.updated_at = utcnow()
+        apply_spiritual_stone_delta(
+            session,
+            int(buyer_tg),
+            -total_cost,
+            action_text="购买商品",
+            allow_dead=False,
+            apply_tribute=False,
+        )
 
         seller = None
         if item.owner_tg is not None:
@@ -4734,8 +5595,14 @@ def purchase_shop_item(buyer_tg: int, item_id: int, quantity: int = 1) -> dict[s
                 .first()
             )
             if seller is not None:
-                seller.spiritual_stone += total_cost
-                seller.updated_at = utcnow()
+                apply_spiritual_stone_delta(
+                    session,
+                    int(item.owner_tg),
+                    total_cost,
+                    action_text="商品售出入账",
+                    allow_dead=True,
+                    apply_tribute=False,
+                )
 
         seller_tg = item.owner_tg
         item.quantity -= amount
@@ -4804,8 +5671,8 @@ def purchase_shop_item(buyer_tg: int, item_id: int, quantity: int = 1) -> dict[s
 
         session.flush()
         serialized_item = serialize_shop_item(item)
-        buyer_balance = int(buyer.spiritual_stone or 0)
-        seller_balance = None if seller is None else int(seller.spiritual_stone or 0)
+        buyer_balance = get_shared_spiritual_stone_total(int(buyer_tg), session=session, for_update=False)
+        seller_balance = None if seller is None else get_shared_spiritual_stone_total(int(item.owner_tg), session=session, for_update=False)
         session.commit()
 
     name_map = get_emby_name_map([buyer_tg] + ([seller_tg] if seller_tg else []))
@@ -4922,12 +5789,15 @@ def search_profiles(
     query: str | None = None,
     page: int = 1,
     page_size: int = 20,
+    include_secluded: bool = True,
 ) -> dict[str, Any]:
     page = max(int(page or 1), 1)
     page_size = max(min(int(page_size or 20), 50), 1)
     offset = (page - 1) * page_size
     with Session() as session:
         q = session.query(XiuxianProfile).outerjoin(Emby, Emby.tg == XiuxianProfile.tg).filter(XiuxianProfile.consented.is_(True))
+        if not include_secluded:
+            q = q.filter(or_(XiuxianProfile.social_mode.is_(None), XiuxianProfile.social_mode != "secluded"))
         if query and query.strip():
             keyword = query.strip()
             normalized_keyword = keyword.lstrip("@")
@@ -5043,7 +5913,6 @@ def admin_patch_profile(tg: int, **fields) -> dict[str, Any] | None:
             setattr(profile, key, value)
         profile.updated_at = utcnow()
         session.commit()
-        session.refresh(profile)
         return serialize_profile(profile)
 
 
@@ -5125,6 +5994,37 @@ def get_material(material_id: int) -> XiuxianMaterial | None:
         return session.query(XiuxianMaterial).filter(XiuxianMaterial.id == material_id).first()
 
 
+def _normalize_material_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    payload = {
+        "name": str(fields.get("name") or "").strip(),
+        "quality_level": normalize_quality_level(fields.get("quality_level")),
+        "image_url": str(fields.get("image_url") or "").strip(),
+        "description": str(fields.get("description") or "").strip(),
+        "can_plant": _coerce_bool(fields.get("can_plant"), False),
+        "seed_price_stone": max(int(fields.get("seed_price_stone") or 0), 0),
+        "growth_minutes": max(int(fields.get("growth_minutes") or 0), 0),
+        "yield_min": max(int(fields.get("yield_min") or 0), 0),
+        "yield_max": max(int(fields.get("yield_max") or 0), 0),
+        "unlock_realm_stage": normalize_realm_stage(fields.get("unlock_realm_stage")) if fields.get("unlock_realm_stage") else None,
+        "unlock_realm_layer": max(int(fields.get("unlock_realm_layer") or 1), 1),
+        "enabled": _coerce_bool(fields.get("enabled"), True),
+    }
+    if not payload["can_plant"]:
+        payload["seed_price_stone"] = 0
+        payload["growth_minutes"] = 0
+        payload["yield_min"] = 0
+        payload["yield_max"] = 0
+        payload["unlock_realm_stage"] = None
+        payload["unlock_realm_layer"] = 1
+    else:
+        payload["growth_minutes"] = max(payload["growth_minutes"], 1)
+        payload["yield_min"] = max(payload["yield_min"], 1)
+        payload["yield_max"] = max(payload["yield_max"], payload["yield_min"])
+    if not payload["name"]:
+        raise ValueError("material name is required")
+    return payload
+
+
 def list_materials(enabled_only: bool = False) -> list[dict[str, Any]]:
     with Session() as session:
         query = session.query(XiuxianMaterial)
@@ -5134,9 +6034,16 @@ def list_materials(enabled_only: bool = False) -> list[dict[str, Any]]:
         return sorted(rows, key=lambda item: _named_quality_sort_key(item or {}, "quality_level"))
 
 
+def list_plantable_materials(enabled_only: bool = True) -> list[dict[str, Any]]:
+    return [
+        row
+        for row in list_materials(enabled_only=enabled_only)
+        if bool((row or {}).get("can_plant"))
+    ]
+
+
 def create_material(**fields) -> dict[str, Any]:
-    fields = dict(fields)
-    fields["quality_level"] = normalize_quality_level(fields.get("quality_level"))
+    fields = _normalize_material_fields(dict(fields))
     with Session() as session:
         material = XiuxianMaterial(**fields)
         session.add(material)
@@ -5146,15 +6053,7 @@ def create_material(**fields) -> dict[str, Any]:
 
 
 def sync_material_by_name(**fields) -> dict[str, Any]:
-    payload = {
-        "name": str(fields.get("name") or "").strip(),
-        "quality_level": normalize_quality_level(fields.get("quality_level")),
-        "image_url": str(fields.get("image_url") or "").strip(),
-        "description": str(fields.get("description") or "").strip(),
-        "enabled": _coerce_bool(fields.get("enabled"), True),
-    }
-    if not payload["name"]:
-        raise ValueError("material name is required")
+    payload = _normalize_material_fields(dict(fields))
     return _sync_named_entity(XiuxianMaterial, serialize_material, payload)
 
 
@@ -5166,13 +6065,7 @@ def patch_material(material_id: int, **fields) -> dict[str, Any] | None:
             return None
         current = serialize_material(row) or {}
         current.update(patch)
-        payload = {
-            "name": str(current.get("name") or "").strip(),
-            "quality_level": normalize_quality_level(current.get("quality_level")),
-            "image_url": str(current.get("image_url") or "").strip(),
-            "description": str(current.get("description") or "").strip(),
-            "enabled": _coerce_bool(current.get("enabled"), True),
-        }
+        payload = _normalize_material_fields(current)
         for key, value in payload.items():
             setattr(row, key, value)
         row.updated_at = utcnow()
@@ -5216,20 +6109,25 @@ def grant_material_to_user(tg: int, material_id: int, quantity: int = 1) -> dict
 
 def list_user_materials(tg: int) -> list[dict[str, Any]]:
     with Session() as session:
+        owner_tgs = _shared_inventory_owner_tgs(session, tg)
+        if not owner_tgs:
+            return []
         rows = (
             session.query(XiuxianMaterialInventory, XiuxianMaterial)
             .join(XiuxianMaterial, XiuxianMaterial.id == XiuxianMaterialInventory.material_id)
-            .filter(XiuxianMaterialInventory.tg == tg)
+            .filter(XiuxianMaterialInventory.tg.in_(owner_tgs))
             .order_by(XiuxianMaterial.id.desc())
             .all()
         )
-        payload = [
-            {
-                "quantity": inventory.quantity,
-                "material": serialize_material(material),
-            }
-            for inventory, material in rows
-        ]
+        payload_map: dict[int, dict[str, Any]] = {}
+        for inventory, material in rows:
+            material_id = int(inventory.material_id or 0)
+            entry = payload_map.get(material_id)
+            if entry is None:
+                entry = {"quantity": 0, "material": serialize_material(material)}
+                payload_map[material_id] = entry
+            entry["quantity"] += max(int(inventory.quantity or 0), 0)
+        payload = list(payload_map.values())
         return sorted(
             payload,
             key=lambda row: _named_quality_sort_key((row.get("material") or {}), "quality_level"),
@@ -5238,21 +6136,24 @@ def list_user_materials(tg: int) -> list[dict[str, Any]]:
 
 def consume_user_materials(tg: int, material_id: int, quantity: int = 1) -> bool:
     with Session() as session:
-        row = (
-            session.query(XiuxianMaterialInventory)
-            .filter(
-                XiuxianMaterialInventory.tg == tg,
-                XiuxianMaterialInventory.material_id == material_id,
-            )
-            .with_for_update()
-            .first()
-        )
-        if row is None or row.quantity < quantity:
+        remaining = max(int(quantity or 0), 1)
+        rows = _ordered_owner_rows(session, XiuxianMaterialInventory, tg, "material_id", material_id)
+        total_quantity = sum(max(int(row.quantity or 0), 0) for row in rows)
+        if total_quantity < remaining:
             return False
-        row.quantity -= quantity
-        row.updated_at = utcnow()
-        if row.quantity <= 0:
-            session.delete(row)
+        now = utcnow()
+        for row in rows:
+            if remaining <= 0:
+                break
+            available = max(int(row.quantity or 0), 0)
+            if available <= 0:
+                continue
+            delta = min(available, remaining)
+            row.quantity = available - delta
+            row.updated_at = now
+            remaining -= delta
+            if row.quantity <= 0:
+                session.delete(row)
         session.commit()
         return True
 
@@ -5721,6 +6622,109 @@ def create_journal(tg: int, action_type: str, title: str, detail: str | None = N
         return serialize_journal(row)
 
 
+def _has_journal_action_in_session(session: Session, tg: int, action_type: str) -> bool:
+    row = (
+        session.query(XiuxianJournal.id)
+        .filter(
+            XiuxianJournal.tg == int(tg),
+            XiuxianJournal.action_type == str(action_type or "").strip(),
+        )
+        .first()
+    )
+    return row is not None
+
+
+def _starter_artifact_id_in_session(session: Session) -> int | None:
+    row = session.query(XiuxianArtifact.id).filter(XiuxianArtifact.name == STARTER_ARTIFACT_NAME).first()
+    return int(row[0]) if row else None
+
+
+def _starter_artifact_protection_active_in_session(session: Session, tg: int) -> bool:
+    return _has_journal_action_in_session(session, tg, STARTER_ARTIFACT_GRANTED_ACTION) and not _has_journal_action_in_session(
+        session,
+        tg,
+        STARTER_ARTIFACT_RELEASED_ACTION,
+    )
+
+
+def has_starter_artifact_claim_record(tg: int) -> bool:
+    with Session() as session:
+        return _has_journal_action_in_session(session, tg, STARTER_ARTIFACT_GRANTED_ACTION)
+
+
+def starter_artifact_protection_active(tg: int) -> bool:
+    with Session() as session:
+        return _starter_artifact_protection_active_in_session(session, tg)
+
+
+def grant_starter_artifact_once(tg: int, artifact_id: int) -> dict[str, Any]:
+    with Session() as session:
+        artifact = session.query(XiuxianArtifact).filter(XiuxianArtifact.id == int(artifact_id)).first()
+        if artifact is None:
+            raise ValueError("artifact not found")
+        if _has_journal_action_in_session(session, tg, STARTER_ARTIFACT_GRANTED_ACTION):
+            row = (
+                session.query(XiuxianArtifactInventory)
+                .filter(
+                    XiuxianArtifactInventory.tg == int(tg),
+                    XiuxianArtifactInventory.artifact_id == int(artifact_id),
+                )
+                .first()
+            )
+            return {
+                "artifact": serialize_artifact(artifact),
+                "quantity": max(int((row.quantity if row is not None else 0) or 0), 0),
+                "bound_quantity": max(int((row.bound_quantity if row is not None else 0) or 0), 0),
+                "granted": False,
+            }
+        row = (
+            session.query(XiuxianArtifactInventory)
+            .filter(
+                XiuxianArtifactInventory.tg == int(tg),
+                XiuxianArtifactInventory.artifact_id == int(artifact_id),
+            )
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            row = XiuxianArtifactInventory(tg=int(tg), artifact_id=int(artifact_id), quantity=0, bound_quantity=0)
+            session.add(row)
+        row.quantity = max(int(row.quantity or 0), 0) + 1
+        row.bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
+        row.updated_at = utcnow()
+        session.add(
+            XiuxianJournal(
+                tg=int(tg),
+                action_type=STARTER_ARTIFACT_GRANTED_ACTION,
+                title="获赠新手法宝",
+                detail="入道时获赠【凡铁剑】。此宝默认不会因击杀掠夺失去；若你将其用于上架出售或拍卖，则保护失效，且日后重修不会再次补发。",
+            )
+        )
+        session.commit()
+        return {
+            "artifact": serialize_artifact(artifact),
+            "quantity": max(int(row.quantity or 0), 0),
+            "bound_quantity": max(int(row.bound_quantity or 0), 0),
+            "granted": True,
+        }
+
+
+def release_starter_artifact_protection(tg: int, *, reason: str = "") -> bool:
+    with Session() as session:
+        if not _starter_artifact_protection_active_in_session(session, tg):
+            return False
+        session.add(
+            XiuxianJournal(
+                tg=int(tg),
+                action_type=STARTER_ARTIFACT_RELEASED_ACTION,
+                title="新手法宝保护失效",
+                detail=(reason or "你已将新手法宝用于交易，它不再具备新手保护。").strip() or None,
+            )
+        )
+        session.commit()
+        return True
+
+
 def list_recent_journals(tg: int, hours: int = 24) -> list[dict[str, Any]]:
     since = utcnow() - timedelta(hours=max(int(hours or 24), 1))
     with Session() as session:
@@ -5759,7 +6763,6 @@ def create_error_log(
     message: str,
     detail: str | None = None,
 ) -> dict[str, Any]:
-    Session.remove()
     settings = get_xiuxian_settings()
     retention = max(int(settings.get("error_log_retention_count", DEFAULT_SETTINGS["error_log_retention_count"]) or 0), 1)
     with Session() as session:

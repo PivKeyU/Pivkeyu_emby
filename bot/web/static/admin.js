@@ -53,12 +53,14 @@ const state = {
   pageSize: 20,
   query: "",
   selectedTg: null,
+  selectedUser: null,
   codesPage: 1,
   codesPageSize: 20,
   codeStatus: "all",
   visibleCodes: [],
   selectedCodes: new Set(),
   visibleUsers: [],
+  botAccessBlocks: [],
   token: localStorage.getItem(storageKey) || "",
   authMode: null,
   telegramInitData: tgApp?.initData || "",
@@ -122,6 +124,14 @@ const refs = {
   pluginImportEnabled: document.querySelector("#plugin-import-enabled"),
   pluginImportReplace: document.querySelector("#plugin-import-replace"),
   pluginImportSubmit: document.querySelector("#plugin-import-submit"),
+  botBlockForm: document.querySelector("#bot-block-form"),
+  botBlockTg: document.querySelector("#bot-block-tg"),
+  botBlockUsername: document.querySelector("#bot-block-username"),
+  botBlockNote: document.querySelector("#bot-block-note"),
+  botBlockUseSelected: document.querySelector("#bot-block-use-selected"),
+  botBlockSubmit: document.querySelector("#bot-block-submit"),
+  botBlockStatus: document.querySelector("#bot-block-status"),
+  botBlockList: document.querySelector("#bot-block-list"),
   levelLegend: document.querySelector("#level-legend"),
   prevPage: document.querySelector("#prev-page"),
   nextPage: document.querySelector("#next-page"),
@@ -568,6 +578,18 @@ function fmtActor(actor) {
   return parts.join(" · ");
 }
 
+function fmtBotBlockTarget(item) {
+  if (!item) return "未指定目标";
+  const parts = [];
+  if (item.tg) {
+    parts.push(`TG ${item.tg}`);
+  }
+  if (item.username) {
+    parts.push(`@${item.username}`);
+  }
+  return parts.join(" / ") || "未指定目标";
+}
+
 function setCodeSummary(summary = {}) {
   document.querySelector("#codes-total").textContent = formatCount(summary.all);
   document.querySelector("#codes-unused").textContent = formatCount(summary.unused);
@@ -680,6 +702,12 @@ function renderUsers(items) {
       item.name ? `Emby 名称 ${escapeHtml(item.name)}` : ""
     ].filter(Boolean);
     const secondary = secondaryBits.join(" · ");
+    const badges = [
+      `<span class="badge badge--${escapeHtml(item.lv_tone || level.tone)}">${escapeHtml(item.lv_text || level.text)}</span>`
+    ];
+    if (item.bot_access_blocked) {
+      badges.push(`<span class="badge badge--danger">Bot 已屏蔽</span>`);
+    }
     const card = document.createElement("button");
     card.type = "button";
     card.className = `user-card${state.selectedTg === item.tg ? " is-selected" : ""}`;
@@ -689,7 +717,7 @@ function renderUsers(items) {
           <div class="user-name">${escapeHtml(primaryName)}</div>
           <div class="user-subline">${secondary}</div>
         </div>
-        <span class="badge badge--${escapeHtml(item.lv_tone || level.tone)}">${escapeHtml(item.lv_text || level.text)}</span>
+        <div class="code-card-badges">${badges.join("")}</div>
       </div>
       <div class="user-meta">
         <div>账户余额：${escapeHtml(item.iv ?? 0)} · 注册/续期天数：${escapeHtml(item.us ?? 0)}</div>
@@ -852,8 +880,41 @@ function renderPlugins(items) {
   }
 }
 
+function renderBotAccessBlocks(items) {
+  refs.botBlockList.innerHTML = "";
+
+  if (!items.length) {
+    refs.botBlockList.innerHTML = `
+      <article class="plugin-card">
+        <div class="plugin-name">当前没有黑名单规则</div>
+        <p class="plugin-meta stack-empty">加入黑名单后，Bot 会直接忽略该用户的消息、回调按钮和内联查询。</p>
+      </article>
+    `;
+    return;
+  }
+
+  for (const item of items) {
+    const card = document.createElement("article");
+    card.className = "plugin-card";
+    card.innerHTML = `
+      <div class="plugin-card-top">
+        <div class="plugin-name">${escapeHtml(fmtBotBlockTarget(item))}</div>
+        <span class="badge badge--danger">已禁止</span>
+      </div>
+      <div class="plugin-meta">规则 ID：${escapeHtml(item.id)} · 匹配方式：${escapeHtml(item.match_scope_text || "未知")}</div>
+      <div class="plugin-meta">创建时间：${escapeHtml(fmtDateTime(item.created_at))}</div>
+      <div class="plugin-meta">备注：${escapeHtml(item.note || "无")}</div>
+      <div class="plugin-actions">
+        <button type="button" data-bot-block-delete="${escapeHtml(item.id)}">移除限制</button>
+      </div>
+    `;
+    refs.botBlockList.appendChild(card);
+  }
+}
+
 function fillEditor(item) {
   const level = getLevelMeta(item.lv);
+  state.selectedUser = item;
 
   document.querySelector("#field-tg").value = item.tg ?? "";
   document.querySelector("#field-lv").value = item.lv ?? "d";
@@ -867,7 +928,9 @@ function fillEditor(item) {
   document.querySelector("#field-ex").value = toLocalValue(item.ex);
   document.querySelector("#field-ch").value = toLocalValue(item.ch);
 
-  refs.editorStatus.textContent = `当前正在编辑账号 ${item.tg} · ${item.lv_text || level.text}`;
+  refs.editorStatus.textContent = item.bot_access_blocked
+    ? `当前正在编辑账号 ${item.tg} · ${item.lv_text || level.text} · 已加入 Bot 黑名单`
+    : `当前正在编辑账号 ${item.tg} · ${item.lv_text || level.text}`;
   setSelectedUserPill(`正在编辑 ${item.tg_display_label || item.name || item.embyid || `TG ${item.tg}`}`);
   syncEditorShortcut();
 }
@@ -886,6 +949,12 @@ async function loadAutoUpdate() {
 async function loadPlugins() {
   const result = await api("/admin-api/plugins");
   renderPlugins(result.data);
+}
+
+async function loadBotAccessBlocks() {
+  const result = await api("/admin-api/bot-access-blocks");
+  state.botAccessBlocks = result.data || [];
+  renderBotAccessBlocks(state.botAccessBlocks);
 }
 
 async function loadUsers() {
@@ -944,8 +1013,17 @@ async function loadUser(tg) {
   }
 }
 
+async function refreshSelectedUser() {
+  if (!state.selectedTg) {
+    return;
+  }
+
+  const result = await api(`/admin-api/users/${state.selectedTg}`);
+  fillEditor(result.data);
+}
+
 async function refreshDashboard() {
-  await Promise.all([loadSummary(), loadAutoUpdate(), loadPlugins(), loadUsers(), loadCodes()]);
+  await Promise.all([loadSummary(), loadAutoUpdate(), loadPlugins(), loadBotAccessBlocks(), loadUsers(), loadCodes()]);
 }
 
 async function tryTelegramAuth() {
@@ -1053,6 +1131,97 @@ async function saveUser(event) {
     showToast(`保存失败：${message}`, "error");
     await popup("保存失败", message, "error");
   }
+}
+
+async function createBotAccessBlock(event) {
+  event.preventDefault();
+
+  const payload = {
+    tg: refs.botBlockTg.value ? Number(refs.botBlockTg.value) : null,
+    username: refs.botBlockUsername.value.trim() || null,
+    note: refs.botBlockNote.value.trim() || null
+  };
+
+  if (!payload.tg && !payload.username) {
+    const message = "TGID 和 TG 用户名至少需要填写一项。";
+    refs.botBlockStatus.textContent = message;
+    refs.botBlockStatus.dataset.tone = "error";
+    setAdminStatus(message, "warning");
+    showToast(message, "warning");
+    await popup("无法加入黑名单", message, "warning");
+    return;
+  }
+
+  try {
+    const result = await runButtonAction(refs.botBlockSubmit, "提交中...", () => api("/admin-api/bot-access-blocks", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }));
+    refs.botBlockForm.reset();
+    refs.botBlockStatus.textContent = `已加入黑名单：${fmtBotBlockTarget(result.data)}`;
+    refs.botBlockStatus.dataset.tone = "info";
+    await Promise.all([loadBotAccessBlocks(), loadUsers(), refreshSelectedUser().catch(() => null)]);
+    setAdminStatus(`已禁止 ${fmtBotBlockTarget(result.data)} 使用 Bot。`, "success");
+    showToast(`已禁止 ${fmtBotBlockTarget(result.data)} 使用 Bot。`, "success");
+    await popup("已加入黑名单", `规则已生效：${fmtBotBlockTarget(result.data)}。Bot 将不再响应该用户的消息、按钮和内联查询。`, "success");
+  } catch (error) {
+    const message = normalizeError(error);
+    refs.botBlockStatus.textContent = `加入黑名单失败：${message}`;
+    refs.botBlockStatus.dataset.tone = "error";
+    setAdminStatus(`加入 Bot 黑名单失败：${message}`, "error");
+    showToast(`加入黑名单失败：${message}`, "error");
+    await popup("加入失败", message, "error");
+  }
+}
+
+async function deleteBotAccessBlock(blockId) {
+  if (!blockId) {
+    return;
+  }
+
+  const target = state.botAccessBlocks.find((item) => String(item.id) === String(blockId));
+  const confirmed = window.confirm(`确认移除这条 Bot 黑名单规则吗？\n\n${fmtBotBlockTarget(target)}`);
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const result = await api(`/admin-api/bot-access-blocks/${encodeURIComponent(blockId)}`, {
+      method: "DELETE"
+    });
+    refs.botBlockStatus.textContent = `已移除黑名单：${fmtBotBlockTarget(result.data?.item)}`;
+    refs.botBlockStatus.dataset.tone = "info";
+    await Promise.all([loadBotAccessBlocks(), loadUsers(), refreshSelectedUser().catch(() => null)]);
+    setAdminStatus(`已解除 ${fmtBotBlockTarget(result.data?.item)} 的 Bot 限制。`, "success");
+    showToast(`已解除 ${fmtBotBlockTarget(result.data?.item)} 的 Bot 限制。`, "success");
+    await popup("已移除黑名单", `规则已删除：${fmtBotBlockTarget(result.data?.item)}。`, "success");
+  } catch (error) {
+    const message = normalizeError(error);
+    refs.botBlockStatus.textContent = `移除黑名单失败：${message}`;
+    refs.botBlockStatus.dataset.tone = "error";
+    setAdminStatus(`移除 Bot 黑名单失败：${message}`, "error");
+    showToast(`移除黑名单失败：${message}`, "error");
+    await popup("移除失败", message, "error");
+  }
+}
+
+function useSelectedUserForBotBlock() {
+  const item = state.selectedUser;
+  if (!item) {
+    const message = "请先从用户列表选择一个账号，再带入黑名单表单。";
+    refs.botBlockStatus.textContent = message;
+    refs.botBlockStatus.dataset.tone = "error";
+    setAdminStatus(message, "warning");
+    showToast(message, "warning");
+    return;
+  }
+
+  refs.botBlockTg.value = item.tg ?? "";
+  refs.botBlockUsername.value = item.tg_username ? `@${item.tg_username}` : "";
+  refs.botBlockStatus.textContent = `已带入当前选中账号：${fmtBotBlockTarget({ tg: item.tg, username: item.tg_username })}`;
+  refs.botBlockStatus.dataset.tone = "info";
+  focusSection("bot-block-section");
+  showToast("已带入当前选中账号。", "success");
 }
 
 async function createCodes(event) {
@@ -1173,6 +1342,8 @@ function syncSuffixField() {
 
 refs.codeCreateForm?.addEventListener("submit", createCodes);
 refs.autoUpdateForm?.addEventListener("submit", saveAutoUpdate);
+refs.botBlockForm?.addEventListener("submit", createBotAccessBlock);
+refs.botBlockUseSelected?.addEventListener("click", useSelectedUserForBotBlock);
 refs.codeCreateSuffixMode?.addEventListener("change", syncSuffixField);
 refs.jumpEditorButton?.addEventListener("click", () => {
   if (!state.selectedTg) return;
@@ -1255,6 +1426,13 @@ refs.codeClearSelection?.addEventListener("click", () => {
 });
 
 refs.codeDeleteSelected?.addEventListener("click", deleteSelectedCodes);
+refs.botBlockList?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-bot-block-delete]");
+  if (!button) {
+    return;
+  }
+  await deleteBotAccessBlock(button.dataset.botBlockDelete);
+});
 
 refs.migrationExportButton?.addEventListener("click", async () => {
   try {

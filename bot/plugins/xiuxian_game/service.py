@@ -37,6 +37,8 @@ from bot.sql_helper.sql_xiuxian import (
     ROOT_QUALITY_COLORS,
     ROOT_QUALITY_LEVELS,
     ROOT_VARIANT_ELEMENTS,
+    SOCIAL_MODE_LABELS,
+    STARTER_ARTIFACT_NAME,
     apply_spiritual_stone_delta,
     admin_patch_profile,
     assert_currency_operation_allowed,
@@ -64,11 +66,13 @@ from bot.sql_helper.sql_xiuxian import (
     get_talisman,
     get_xiuxian_settings,
     grant_artifact_to_user,
+    grant_starter_artifact_once,
     grant_material_to_user,
     grant_pill_to_user,
     grant_recipe_to_user,
     grant_talisman_to_user,
     grant_technique_to_user,
+    grant_title_to_user,
     list_artifacts,
     list_artifact_sets,
     list_auction_items,
@@ -81,6 +85,7 @@ from bot.sql_helper.sql_xiuxian import (
     list_shop_items,
     list_techniques,
     list_talismans,
+    list_titles,
     list_user_titles,
     list_user_artifacts,
     list_user_materials,
@@ -88,22 +93,37 @@ from bot.sql_helper.sql_xiuxian import (
     list_user_recipes,
     list_user_techniques,
     list_user_talismans,
-    migrate_all_profile_realms,
     migrate_legacy_realm_state,
+    normalize_mentorship_request_role,
+    normalize_mentorship_request_status,
+    normalize_mentorship_status,
+    normalize_gender,
+    normalize_marriage_request_status,
+    normalize_marriage_status,
     normalize_realm_stage,
+    normalize_social_mode,
     rebase_immortal_realm_state,
     finalize_auction_item as sql_finalize_auction_item,
     place_auction_bid as sql_place_auction_bid,
     purchase_shop_item as sql_purchase_shop_item,
     plunder_random_artifact_to_user,
     realm_index,
+    resolve_duel_bet_settings,
     search_profiles,
     serialize_artifact,
     serialize_datetime,
+    serialize_material,
+    serialize_marriage,
+    serialize_marriage_request,
+    serialize_mentorship,
+    serialize_mentorship_request,
+    serialize_arena,
     serialize_pill,
     serialize_profile,
     serialize_technique,
     serialize_talisman,
+    starter_artifact_protection_active,
+    get_quality_meta,
     get_active_duel_lock,
     set_current_technique,
     set_current_title,
@@ -132,12 +152,18 @@ from bot.sql_helper.sql_xiuxian import (
     update_shop_item,
     update_auction_item,
     upsert_profile,
+    XiuxianArtifact,
     XiuxianProfile,
     XiuxianArtifactInventory,
     XiuxianEquippedArtifact,
     XiuxianExploration,
     XiuxianJournal,
+    XiuxianMarriage,
+    XiuxianMarriageRequest,
     XiuxianMaterialInventory,
+    XiuxianMentorship,
+    XiuxianMentorshipRequest,
+    XiuxianArena,
     XiuxianPillInventory,
     XiuxianTalismanInventory,
     XiuxianTaskClaim,
@@ -149,13 +175,18 @@ from bot.sql_helper.sql_xiuxian import (
     use_user_talisman_listing_stock,
     consume_user_pill,
     consume_user_talisman,
+    get_shared_spiritual_stone_total,
     utcnow,
+    _ordered_owner_rows,
 )
 from bot.plugins.xiuxian_game.achievement_service import (
     build_user_achievement_overview,
+    record_achievement_progress,
+    record_arena_metrics,
     record_duel_metrics,
 )
 from bot.plugins.xiuxian_game.probability import (
+    FORTUNE_BASELINE,
     adjust_probability_rate,
     roll_probability_percent,
 )
@@ -173,6 +204,7 @@ from bot.plugins.xiuxian_game.features.content_catalog import (
     EXTRA_RECIPES,
     EXTRA_SCENES,
     EXTRA_TALISMANS,
+    apply_farmable_material_overrides,
 )
 
 
@@ -185,6 +217,10 @@ ROOT_SPECIAL_QUALITIES = {"天灵根", "变异灵根"}
 ROOT_TRANSFORM_PILL_TYPES = {"root_single", "root_double", "root_earth", "root_heaven", "root_variant"}
 
 PERSONAL_SHOP_NAME = "游仙小铺"
+IMMORTAL_STONE_NAME = "仙界奇石"
+GAMBLING_SUPPORTED_ITEM_KINDS = {"artifact", "pill", "talisman", "material"}
+STARTER_TECHNIQUE_NAME = "长青诀"
+STARTER_TITLE_NAME = "初入仙途"
 
 DEFAULT_ARTIFACTS = [
     {
@@ -1113,6 +1149,7 @@ DEFAULT_TECHNIQUES = [
 ]
 
 DEFAULT_TITLES = [
+    {"name": "初入仙途", "description": "才刚踏上问道之路，衣袍犹带凡尘风，却已真正推开仙门。", "color": "#94a3b8", "fortune_bonus": 1},
     {"name": "红尘初行者", "description": "踏入仙途后的第一段旅程仍算平凡，却已不再是凡人。", "color": "#94a3b8", "fortune_bonus": 1},
     {"name": "斗法常客", "description": "常在斗法台露面，出手已不再生涩。", "color": "#ef4444", "attack_bonus": 2, "defense_bonus": 2, "duel_rate_bonus": 2},
     {"name": "秘境行者", "description": "熟悉山川遗府与古道残阵，遇事更懂趋吉避凶。", "color": "#0f766e", "divine_sense_bonus": 3, "fortune_bonus": 3},
@@ -1121,9 +1158,14 @@ DEFAULT_TITLES = [
     {"name": "炼器熟手", "description": "已经懂得分辨火候与材质，不再轻易炸炉。", "color": "#92400e", "comprehension_bonus": 4, "defense_bonus": 2},
     {"name": "丹心妙手", "description": "丹火温润，识药识性，对药力流转颇有心得。", "color": "#059669", "comprehension_bonus": 4, "true_yuan_bonus": 30},
     {"name": "夺宝老手", "description": "见财知势，动手之前总能先找准最值钱的那一件。", "color": "#7c3aed", "attack_bonus": 4, "fortune_bonus": 2, "duel_rate_bonus": 3},
+    {"name": "杏坛初开", "description": "第一次收徒立下传承，自此开始教人问道。", "color": "#0ea5e9", "comprehension_bonus": 3, "fortune_bonus": 2},
+    {"name": "传道授业", "description": "讲道不倦，已能把门下弟子一路带到出师。", "color": "#2563eb", "comprehension_bonus": 5, "true_yuan_bonus": 36, "cultivation_bonus": 4},
+    {"name": "门下高徒", "description": "承其衣钵，终于凭本事独当一面。", "color": "#16a34a", "comprehension_bonus": 3, "attack_bonus": 2, "defense_bonus": 2},
+    {"name": "桃李满门", "description": "门下弟子各有成材之姿，传承已成气候。", "color": "#9333ea", "comprehension_bonus": 6, "fortune_bonus": 4, "cultivation_bonus": 6},
 ]
 
-DEFAULT_MATERIALS = [
+DEFAULT_MATERIALS = apply_farmable_material_overrides([
+    {"name": IMMORTAL_STONE_NAME, "quality_level": 5, "description": "赌坊流出的封灵奇石，石中自藏一缕仙机，可在赌坊中开启随机宝物。"},
     {"name": "寒铁矿", "quality_level": 1, "description": "常见矿料，适合炼制剑胚与基础法器。"},
     {"name": "灵木芯", "quality_level": 1, "description": "灵木深处凝出的芯材，可稳固器物中的灵纹。"},
     {"name": "云纹丝", "quality_level": 1, "description": "轻若无物的灵丝，常用于鞋履与轻甲。"},
@@ -1140,7 +1182,7 @@ DEFAULT_MATERIALS = [
     {"name": "地脉岩芯", "quality_level": 3, "description": "深埋地脉的凝实核心，能稳住法宝结构。"},
     {"name": "破损青罡剑胚", "quality_level": 3, "description": "从残剑崖捡回的残损剑胚，尚有修复价值。"},
     {"name": "破损玄龟盾片", "quality_level": 3, "description": "古盾脱落的一角残片，内里灵纹还未彻底断绝。"},
-]
+])
 
 DEFAULT_RECIPES = [
     {"name": "青罡剑炼制图", "recipe_kind": "artifact", "result_kind": "artifact", "result_name": "青罡剑", "result_quantity": 1, "base_success_rate": 58, "broadcast_on_success": False, "ingredients": [{"material_name": "寒铁矿", "quantity": 3}, {"material_name": "赤炎晶砂", "quantity": 1}, {"material_name": "青罡剑谱残页", "quantity": 1}]},
@@ -1256,11 +1298,20 @@ DEFAULT_ACHIEVEMENTS = [
     {"achievement_key": "rob_novice", "name": "顺手牵机缘", "description": "累计尝试偷窃 1 次。", "metric_key": "rob_attempt_count", "target_value": 1, "sort_order": 30, "reward_config": {"spiritual_stone": 16}},
     {"achievement_key": "rob_success", "name": "夺宝老手", "description": "累计偷窃成功 10 次。", "metric_key": "rob_success_count", "target_value": 10, "sort_order": 31, "reward_config": {"cultivation": 180, "reward_title_names": ["夺宝老手"]}},
     {"achievement_key": "gift_kindness", "name": "同道相助", "description": "累计赠送 300 灵石。", "metric_key": "gift_sent_stone", "target_value": 300, "sort_order": 40, "reward_config": {"cultivation": 100}},
+    {"achievement_key": "mentor_first", "name": "杏坛开讲", "description": "累计成功收下 1 名徒弟。", "metric_key": "mentor_accept_count", "target_value": 1, "sort_order": 45, "reward_config": {"spiritual_stone": 48, "reward_title_names": ["杏坛初开"]}},
+    {"achievement_key": "mentor_teach_many", "name": "言传身教", "description": "累计完成 10 次传道。", "metric_key": "mentor_teach_count", "target_value": 10, "sort_order": 46, "reward_config": {"cultivation": 140}},
+    {"achievement_key": "mentor_graduate", "name": "桃李成行", "description": "累计带出 3 名出师弟子。", "metric_key": "mentor_graduate_count", "target_value": 3, "sort_order": 47, "reward_config": {"cultivation": 220, "reward_title_names": ["桃李满门"]}},
+    {"achievement_key": "disciple_seek", "name": "勤学不辍", "description": "累计完成 8 次问道。", "metric_key": "disciple_consult_count", "target_value": 8, "sort_order": 48, "reward_config": {"spiritual_stone": 80}},
+    {"achievement_key": "disciple_graduate", "name": "承道出山", "description": "累计成功出师 1 次。", "metric_key": "disciple_graduate_count", "target_value": 1, "sort_order": 49, "reward_config": {"cultivation": 180, "reward_title_names": ["门下高徒"]}},
     {"achievement_key": "craft_first_success", "name": "炉火初明", "description": "累计成功炼制 1 次。", "metric_key": "craft_success_count", "target_value": 1, "sort_order": 50, "reward_config": {"spiritual_stone": 28}},
     {"achievement_key": "craft_ten_success", "name": "炼器熟手", "description": "累计成功炼制 10 次。", "metric_key": "craft_success_count", "target_value": 10, "sort_order": 51, "reward_config": {"cultivation": 180, "reward_title_names": ["炼器熟手"]}},
     {"achievement_key": "repair_master", "name": "残器归真", "description": "累计成功修复 1 件破损法宝。", "metric_key": "repair_success_count", "target_value": 1, "sort_order": 52, "reward_config": {"spiritual_stone": 120, "titles": []}},
     {"achievement_key": "explore_ten", "name": "秘境行者", "description": "累计完成 10 次秘境探索。", "metric_key": "exploration_count", "target_value": 10, "sort_order": 60, "reward_config": {"cultivation": 120, "reward_title_names": ["秘境行者"]}},
     {"achievement_key": "explore_recipe", "name": "残页搜罗者", "description": "累计获得 5 次配方残页。", "metric_key": "exploration_recipe_drop_count", "target_value": 5, "sort_order": 61, "reward_config": {"spiritual_stone": 88}},
+    {"achievement_key": "arena_founder", "name": "开坛立擂", "description": "累计开启 1 次群擂台。", "metric_key": "arena_open_count", "target_value": 1, "sort_order": 70, "reward_config": {"spiritual_stone": 36}},
+    {"achievement_key": "arena_crowned", "name": "初登擂主", "description": "累计成为 1 次擂主。", "metric_key": "arena_crowned_count", "target_value": 1, "sort_order": 71, "reward_config": {"cultivation": 96}},
+    {"achievement_key": "arena_defender", "name": "擂上留名", "description": "累计守擂成功 3 次。", "metric_key": "arena_defend_win_count", "target_value": 3, "sort_order": 72, "reward_config": {"spiritual_stone": 120, "cultivation": 120}},
+    {"achievement_key": "arena_final_winner", "name": "擂台终主", "description": "累计以最终擂主身份完成 1 次擂台结算。", "metric_key": "arena_final_win_count", "target_value": 1, "sort_order": 73, "reward_config": {"spiritual_stone": 188, "cultivation": 188}},
 ]
 
 SEED_QUALITY_LEVELS = {
@@ -2693,6 +2744,7 @@ def claim_spirit_stone_commission(tg: int, commission_key: str) -> dict[str, Any
     cultivation_gain = random.randint(*config["cultivation_range"]) + _commission_reward_bonus(stats, config.get("cultivation_bonus_divisors", {}))
     stone_gain = max(int(stone_gain), int(config["stone_range"][0]))
     cultivation_gain = max(int(cultivation_gain), int(config["cultivation_range"][0]))
+    raw_cultivation_gain = cultivation_gain
     activity_growth = {"triggered": False, "changes": [], "patch": {}, "chance": 0, "roll": None}
 
     cooldown_until = None
@@ -2710,6 +2762,7 @@ def claim_spirit_stone_commission(tg: int, commission_key: str) -> dict[str, Any
             cooldown_until = last_entry.created_at + timedelta(hours=int(config["cooldown_hours"]))
             if cooldown_until > now:
                 raise ValueError(f"{config['name']}仍在冷却中，还需 {_format_countdown(cooldown_until - now)}。")
+        cultivation_gain, cultivation_meta = adjust_cultivation_gain_for_social_mode(row, raw_cultivation_gain)
         stage = normalize_realm_stage(row.realm_stage or FIRST_REALM_STAGE)
         layer, cultivation, upgraded_layers, remaining = apply_cultivation_gain(
             stage,
@@ -2742,7 +2795,15 @@ def claim_spirit_stone_commission(tg: int, commission_key: str) -> dict[str, Any
         tg,
         SPIRIT_STONE_COMMISSION_ACTION,
         config["name"],
-        f"{detail_text} 获得 {stone_gain} 灵石，修为 +{cultivation_gain}。{growth_text}",
+        (
+            f"{detail_text} 获得 {stone_gain} 灵石，修为 +{cultivation_gain}"
+            + (
+                f"（避世效率 {cultivation_meta['efficiency_percent']}%，原始 {raw_cultivation_gain}）"
+                if cultivation_meta.get("reduced")
+                else ""
+            )
+            + f"。{growth_text}"
+        ),
     )
     return {
         "commission": {
@@ -2750,6 +2811,8 @@ def claim_spirit_stone_commission(tg: int, commission_key: str) -> dict[str, Any
             "name": config["name"],
             "stone_gain": stone_gain,
             "cultivation_gain": cultivation_gain,
+            "cultivation_gain_raw": raw_cultivation_gain,
+            "cultivation_efficiency_percent": int(cultivation_meta.get("efficiency_percent") or 100),
             "detail": detail_text,
             "attribute_growth": activity_growth.get("changes") or [],
         },
@@ -3062,6 +3125,17 @@ def _realm_progress_score(stage: str | None, layer: int | None) -> int:
     return max(realm_index(stage), 0) * 9 + max(int(layer or 1), 1) - 1
 
 
+def _profile_layer_progress(profile: dict[str, Any]) -> tuple[int, float, float]:
+    stage = normalize_realm_stage(profile.get("realm_stage") or FIRST_REALM_STAGE)
+    layer = max(int(profile.get("realm_layer") or 1), 1)
+    threshold = max(cultivation_threshold(stage, layer), 1)
+    current_cultivation = min(max(int(profile.get("cultivation") or 0), 0), threshold)
+    progress_ratio = current_cultivation / threshold
+    # 把当前层内修为折算成连续层进度，保证同层修炼时数值平滑增长，升层后不会回落。
+    layer_progress_value = max(layer - 1, 0) + progress_ratio
+    return layer, progress_ratio, layer_progress_value
+
+
 def _profile_growth_floor(profile: dict[str, Any]) -> dict[str, int]:
     quality = _root_quality_payload(_normalized_root_quality(profile))
     quality_level = int(quality["level"])
@@ -3069,21 +3143,23 @@ def _profile_growth_floor(profile: dict[str, Any]) -> dict[str, int]:
     root_type = str(profile.get("root_type") or "").strip()
     primary = str(profile.get("root_primary") or "").strip()
     stage_index = max(realm_index(profile.get("realm_stage")), 0)
-    layer = max(int(profile.get("realm_layer") or 1), 1)
-    layer_progress = max(layer - 1, 0)
+    layer, progress_ratio, layer_progress = _profile_layer_progress(profile)
+    layer_progress_half = int(layer_progress // 2)
+    layer_progress_third = int(layer_progress // 3)
+    layer_progress_full = int(layer_progress)
     special_bonus = 2 if root_type == "天灵根" else 1 if root_type == "变异灵根" else 0
-    bone = 10 + quality_level + stage_index * 2 + layer_progress // 2 + (2 if primary in {"土", "金"} else 0) + special_bonus
-    comprehension = 10 + quality_level + stage_index * 2 + layer_progress // 2 + (2 if primary in {"木", "水"} else 0) + special_bonus
-    divine_sense = 9 + quality_level + stage_index * 2 + layer_progress // 3 + (2 if primary in {"雷", "风", "水"} else 0) + special_bonus
-    fortune = 8 + quality_level + stage_index + layer_progress // 3 + (2 if root_type in {"地灵根", "天灵根", "变异灵根"} else 0)
-    willpower = 8 + quality_level + stage_index + layer_progress // 2 + (2 if root_type in {"地灵根", "天灵根"} else 0)
-    charisma = 8 + quality_level + stage_index + layer_progress // 3 + (2 if primary in {"木", "水", "风"} else 0)
-    karma = 8 + quality_level + stage_index + layer_progress // 2 + (2 if quality_name in {"上品灵根", "极品灵根", "天灵根", "变异灵根"} else 0)
-    attack_power = 10 + quality_level * 2 + stage_index * 3 + layer_progress + (3 if primary in {"火", "金", "雷"} else 0)
-    defense_power = 10 + quality_level * 2 + stage_index * 3 + layer_progress + (3 if primary in {"土", "金", "水"} else 0)
-    body_movement = 8 + quality_level + stage_index * 2 + layer_progress // 2 + (2 if primary in {"风", "火", "雷"} else 0)
-    qi_blood = 180 + bone * 14 + defense_power * 6 + quality_level * 28 + stage_index * 60 + layer * 18
-    true_yuan = 160 + comprehension * 10 + divine_sense * 8 + quality_level * 24 + stage_index * 54 + layer * 16
+    bone = 10 + quality_level + stage_index * 2 + layer_progress_half + (2 if primary in {"土", "金"} else 0) + special_bonus
+    comprehension = 10 + quality_level + stage_index * 2 + layer_progress_half + (2 if primary in {"木", "水"} else 0) + special_bonus
+    divine_sense = 9 + quality_level + stage_index * 2 + layer_progress_third + (2 if primary in {"雷", "风", "水"} else 0) + special_bonus
+    fortune = 8 + quality_level + stage_index + layer_progress_third + (2 if root_type in {"地灵根", "天灵根", "变异灵根"} else 0)
+    willpower = 8 + quality_level + stage_index + layer_progress_half + (2 if root_type in {"地灵根", "天灵根"} else 0)
+    charisma = 8 + quality_level + stage_index + layer_progress_third + (2 if primary in {"木", "水", "风"} else 0)
+    karma = 8 + quality_level + stage_index + layer_progress_half + (2 if quality_name in {"上品灵根", "极品灵根", "天灵根", "变异灵根"} else 0)
+    attack_power = 10 + quality_level * 2 + stage_index * 3 + layer_progress_full + (3 if primary in {"火", "金", "雷"} else 0)
+    defense_power = 10 + quality_level * 2 + stage_index * 3 + layer_progress_full + (3 if primary in {"土", "金", "水"} else 0)
+    body_movement = 8 + quality_level + stage_index * 2 + layer_progress_half + (2 if primary in {"风", "火", "雷"} else 0)
+    qi_blood = 180 + bone * 14 + defense_power * 6 + quality_level * 28 + stage_index * 60 + int(round((layer + progress_ratio) * 18))
+    true_yuan = 160 + comprehension * 10 + divine_sense * 8 + quality_level * 24 + stage_index * 54 + int(round((layer + progress_ratio) * 16))
     return {
         "bone": bone,
         "comprehension": comprehension,
@@ -3158,19 +3234,20 @@ def _effective_stats(
     title_effects: dict[str, Any] | None = None,
 ) -> dict[str, float]:
     totals = _sum_item_stats(artifact_effects, talisman_effects, sect_effects, technique_effects, title_effects)
+    growth_floor = _profile_growth_floor(profile)
     stats = {
-        "bone": float(profile.get("bone", 0) or 0) + totals["bone_bonus"],
-        "comprehension": float(profile.get("comprehension", 0) or 0) + totals["comprehension_bonus"],
-        "divine_sense": float(profile.get("divine_sense", 0) or 0) + totals["divine_sense_bonus"],
-        "fortune": float(profile.get("fortune", 0) or 0) + totals["fortune_bonus"],
-        "willpower": float(profile.get("willpower", 0) or 0),
-        "charisma": float(profile.get("charisma", 0) or 0),
-        "karma": float(profile.get("karma", 0) or 0),
-        "qi_blood": float(profile.get("qi_blood", 0) or 0) + totals["qi_blood_bonus"],
-        "true_yuan": float(profile.get("true_yuan", 0) or 0) + totals["true_yuan_bonus"],
-        "body_movement": float(profile.get("body_movement", 0) or 0) + totals["body_movement_bonus"],
-        "attack_power": float(profile.get("attack_power", 0) or 0) + totals["attack_bonus"],
-        "defense_power": float(profile.get("defense_power", 0) or 0) + totals["defense_bonus"],
+        "bone": max(float(profile.get("bone", 0) or 0), float(growth_floor["bone"])) + totals["bone_bonus"],
+        "comprehension": max(float(profile.get("comprehension", 0) or 0), float(growth_floor["comprehension"])) + totals["comprehension_bonus"],
+        "divine_sense": max(float(profile.get("divine_sense", 0) or 0), float(growth_floor["divine_sense"])) + totals["divine_sense_bonus"],
+        "fortune": max(float(profile.get("fortune", 0) or 0), float(growth_floor["fortune"])) + totals["fortune_bonus"],
+        "willpower": max(float(profile.get("willpower", 0) or 0), float(growth_floor["willpower"])),
+        "charisma": max(float(profile.get("charisma", 0) or 0), float(growth_floor["charisma"])),
+        "karma": max(float(profile.get("karma", 0) or 0), float(growth_floor["karma"])),
+        "qi_blood": max(float(profile.get("qi_blood", 0) or 0), float(growth_floor["qi_blood"])) + totals["qi_blood_bonus"],
+        "true_yuan": max(float(profile.get("true_yuan", 0) or 0), float(growth_floor["true_yuan"])) + totals["true_yuan_bonus"],
+        "body_movement": max(float(profile.get("body_movement", 0) or 0), float(growth_floor["body_movement"])) + totals["body_movement_bonus"],
+        "attack_power": max(float(profile.get("attack_power", 0) or 0), float(growth_floor["attack_power"])) + totals["attack_bonus"],
+        "defense_power": max(float(profile.get("defense_power", 0) or 0), float(growth_floor["defense_power"])) + totals["defense_bonus"],
         "duel_rate_bonus": totals["duel_rate_bonus"],
         "cultivation_bonus": totals["cultivation_bonus"],
     }
@@ -3645,10 +3722,10 @@ def build_user_artifact_rows(
     for row in list_user_artifacts(tg):
         total_quantity = max(int(row.get("quantity") or 0), 0)
         bound_quantity = max(min(int(row.get("bound_quantity") or 0), total_quantity), 0)
+        equipped_quantity = max(min(int(row.get("equipped_quantity") or 0), total_quantity - bound_quantity), 0)
         item = _decorate_artifact_with_set(row["artifact"], artifact_set_map)
         item["resolved_effects"] = resolve_artifact_effects(profile_data, item)
         item["equipped"] = int(item["id"]) in equipped_ids
-        equipped_quantity = 1 if item["equipped"] else 0
         row["bound_quantity"] = bound_quantity
         row["unbound_quantity"] = max(total_quantity - bound_quantity, 0)
         row["consumable_quantity"] = max(total_quantity - bound_quantity - equipped_quantity, 0)
@@ -4078,6 +4155,7 @@ def immortal_touch_infuse_cultivation(actor_tg: int, target_tg: int) -> dict[str
     gain = _compute_immortal_touch_gain(stage, current_layer, current_cultivation, configured_layers)
     if gain <= 0:
         raise ValueError("对方当前修为已圆满，暂时无法继续灌注。")
+    gain, gain_meta = adjust_cultivation_gain_for_social_mode(target, gain, settings=settings)
 
     next_layer, next_cultivation, upgraded_layers, remaining = apply_cultivation_gain(
         stage,
@@ -4091,8 +4169,9 @@ def immortal_touch_infuse_cultivation(actor_tg: int, target_tg: int) -> dict[str
         realm_layer=next_layer,
     )
     threshold = cultivation_threshold(stage, next_layer)
-    create_journal(actor_tg, "immortal_touch", "仙人抚顶", f"为 TG {target_tg} 灌注了 {gain} 点修为")
-    create_journal(target_tg, "immortal_touch", "获仙人抚顶", f"获得 TG {actor_tg} 灌注的 {gain} 点修为")
+    extra_note = f"（避世效率 {gain_meta['efficiency_percent']}%）" if gain_meta.get("reduced") else ""
+    create_journal(actor_tg, "immortal_touch", "仙人抚顶", f"为 TG {target_tg} 灌注了 {gain} 点修为{extra_note}")
+    create_journal(target_tg, "immortal_touch", "获仙人抚顶", f"获得 TG {actor_tg} 灌注的 {gain} 点修为{extra_note}")
     return {
         "gain": gain,
         "configured_layers": configured_layers,
@@ -4162,7 +4241,7 @@ def _settle_retreat_progress(tg: int) -> dict[str, Any] | None:
     if profile is None or not _is_retreating(profile):
         return None
 
-    now = utcnow()
+    now = datetime.now(available_at.tzinfo) if available_at is not None and available_at.tzinfo is not None else utcnow()
     end_at = profile.retreat_end_at or now
     started_at = profile.retreat_started_at or now
     total_minutes = max(int(profile.retreat_minutes_total or 0), 0)
@@ -4190,20 +4269,24 @@ def _settle_retreat_progress(tg: int) -> dict[str, Any] | None:
     insufficient_stone = False
     if cost_per_minute > 0:
         # 灵石不足时只结算当前能支付的分钟数，避免把剩余闭关进度直接跳过。
-        affordable_minutes = min(delta_minutes, max(int(profile.spiritual_stone or 0), 0) // cost_per_minute)
+        available_stone = max(int(get_shared_spiritual_stone_total(tg) or 0), 0)
+        affordable_minutes = min(delta_minutes, available_stone // cost_per_minute)
         insufficient_stone = affordable_minutes < delta_minutes
 
     if affordable_minutes <= 0:
         if insufficient_stone or now >= end_at:
-            updated = upsert_profile(
-                tg,
-                retreat_started_at=None,
-                retreat_end_at=None,
-                retreat_gain_per_minute=0,
-                retreat_cost_per_minute=0,
-                retreat_minutes_total=0,
-                retreat_minutes_resolved=0,
-            )
+            with Session() as session:
+                updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(tg)).with_for_update().first()
+                if updated is None:
+                    return None
+                updated.retreat_started_at = None
+                updated.retreat_end_at = None
+                updated.retreat_gain_per_minute = 0
+                updated.retreat_cost_per_minute = 0
+                updated.retreat_minutes_total = 0
+                updated.retreat_minutes_resolved = 0
+                updated.updated_at = utcnow()
+                session.commit()
             return {
                 "gain": 0,
                 "cost": 0,
@@ -4226,18 +4309,30 @@ def _settle_retreat_progress(tg: int) -> dict[str, Any] | None:
 
     settled_minutes = min(resolved_minutes + affordable_minutes, total_minutes)
     finished = insufficient_stone or settled_minutes >= total_minutes or now >= end_at
-    updated = upsert_profile(
-        tg,
-        cultivation=cultivation,
-        realm_layer=layer,
-        spiritual_stone=max(int(profile.spiritual_stone or 0) - cost, 0),
-        retreat_minutes_resolved=0 if finished else settled_minutes,
-        retreat_started_at=None if finished else profile.retreat_started_at,
-        retreat_end_at=None if finished else profile.retreat_end_at,
-        retreat_gain_per_minute=0 if finished else int(profile.retreat_gain_per_minute or 0),
-        retreat_cost_per_minute=0 if finished else int(profile.retreat_cost_per_minute or 0),
-        retreat_minutes_total=0 if finished else total_minutes,
-    )
+    with Session() as session:
+        updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(tg)).with_for_update().first()
+        if updated is None:
+            return None
+        if cost > 0:
+            apply_spiritual_stone_delta(
+                session,
+                tg,
+                -cost,
+                action_text="闭关消耗灵石",
+                enforce_currency_lock=True,
+                allow_dead=False,
+                apply_tribute=False,
+            )
+        updated.cultivation = cultivation
+        updated.realm_layer = layer
+        updated.retreat_minutes_resolved = 0 if finished else settled_minutes
+        updated.retreat_started_at = None if finished else profile.retreat_started_at
+        updated.retreat_end_at = None if finished else profile.retreat_end_at
+        updated.retreat_gain_per_minute = 0 if finished else int(profile.retreat_gain_per_minute or 0)
+        updated.retreat_cost_per_minute = 0 if finished else int(profile.retreat_cost_per_minute or 0)
+        updated.retreat_minutes_total = 0 if finished else total_minutes
+        updated.updated_at = utcnow()
+        session.commit()
 
     return {
         "gain": gain,
@@ -4252,6 +4347,8 @@ def _settle_retreat_progress(tg: int) -> dict[str, Any] | None:
 
 def ensure_not_in_retreat(tg: int) -> None:
     profile = get_profile(tg, create=False)
+    if profile is not None:
+        _assert_gender_ready(profile, "执行当前操作")
     if profile is not None and _is_retreating(profile):
         raise ValueError("你正在闭关中，当前不能执行这个操作。")
 
@@ -4301,21 +4398,21 @@ def leaderboard_keyboard(kind: str, page: int, total_pages: int) -> InlineKeyboa
     return keyboard
 
 
-def duel_keyboard(challenger_tg: int, defender_tg: int, stake: int, bet_minutes: int, duel_mode: str = "standard") -> InlineKeyboard:
+def duel_keyboard(challenger_tg: int, defender_tg: int, stake: int, bet_seconds: int, duel_mode: str = "standard") -> InlineKeyboard:
     mode = _normalize_duel_mode(duel_mode)
     accept_label = {
         "standard": "🟢 接受斗法",
-        "master": "⛓️ 接下名帖",
+        "master": "⛓️ 接下炉鼎契",
         "death": "☠️ 立下血契",
     }.get(mode, "🟢 接受斗法")
     return ikb(
         [
             [
-                (accept_label, f"xiuxian:duel:accept:{mode}:{challenger_tg}:{defender_tg}:{stake}:{bet_minutes}"),
-                ("🚫 拒绝", f"xiuxian:duel:reject:{mode}:{challenger_tg}:{defender_tg}:{stake}:{bet_minutes}"),
+                (accept_label, f"xiuxian:duel:accept:{mode}:{challenger_tg}:{defender_tg}:{stake}:{bet_seconds}"),
+                ("🚫 拒绝", f"xiuxian:duel:reject:{mode}:{challenger_tg}:{defender_tg}:{stake}:{bet_seconds}"),
             ],
             [
-                ("🛑 发起者撤销", f"xiuxian:duel:cancel:{mode}:{challenger_tg}:{defender_tg}:{stake}:{bet_minutes}"),
+                ("🛑 发起者撤销", f"xiuxian:duel:cancel:{mode}:{challenger_tg}:{defender_tg}:{stake}:{bet_seconds}"),
             ],
         ]
     )
@@ -4352,11 +4449,20 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         profile = get_profile(tg, create=True)
     if profile and profile.consented:
         _settle_retreat_progress(tg)
+        _apply_profile_growth_floor(tg)
         profile = _repair_profile_realm_state(tg) or get_profile(tg, create=False)
 
     profile_data = serialize_profile(profile)
     if profile_data is None:
         raise ValueError("未找到修仙档案。")
+    raw_spiritual_stone = int(profile_data.get("spiritual_stone") or 0)
+    shared_spiritual_stone = (
+        get_shared_spiritual_stone_total(tg)
+        if profile_data.get("consented")
+        else raw_spiritual_stone
+    )
+    profile_data["personal_spiritual_stone"] = raw_spiritual_stone
+    profile_data["spiritual_stone"] = shared_spiritual_stone
 
     progress = build_progress(
         profile_data["realm_stage"],
@@ -4390,10 +4496,23 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
     profile_data["current_title_name"] = (current_title or {}).get("name")
     profile_data["display_name_with_title"] = _profile_name_with_title(profile_data, current_title)
     profile_data["is_dead"] = bool(profile_data.get("death_at"))
+    profile_data["social_mode"] = profile_social_mode(profile_data)
+    profile_data["social_mode_label"] = SOCIAL_MODE_LABELS.get(profile_data["social_mode"], "入世")
+    profile_data["is_secluded"] = profile_data["social_mode"] == "secluded"
     master_profile = serialize_profile(get_profile(int(profile_data["master_tg"]), create=False)) if profile_data.get("master_tg") else None
-    slave_profiles = list_slave_profiles(tg)
+    slave_profiles = [_decorate_furnace_profile_for_owner(profile_data, row) for row in list_slave_profiles(tg)]
     profile_data["master_name"] = (master_profile or {}).get("display_label")
     profile_data["slave_names"] = [item.get("display_label") or f"TG {item.get('tg')}" for item in slave_profiles]
+    gender_lock_reason = _gender_lock_reason(profile_data)
+    gender_locked = bool(gender_lock_reason)
+    profile_data["furnace_harvested_today"] = is_same_china_day(profile.furnace_harvested_at, utcnow())
+    rebirth_cooldown = _rebirth_cooldown_state(profile_data, xiuxian_settings)
+    profile_data["rebirth_cooldown_enabled"] = rebirth_cooldown["enabled"]
+    profile_data["rebirth_cooldown_hours"] = rebirth_cooldown["cooldown_hours"]
+    profile_data["rebirth_cooldown_remaining_seconds"] = rebirth_cooldown["remaining_seconds"]
+    profile_data["rebirth_available_at"] = rebirth_cooldown["available_at"]
+    profile_data["rebirth_locked"] = rebirth_cooldown["blocked"]
+    profile_data["rebirth_cooldown_reason"] = rebirth_cooldown["reason"]
 
     artifact_set_bundle = _resolve_active_artifact_sets(equipped)
     artifacts = build_user_artifact_rows(profile_data, tg, retreating, equip_limit, equipped_ids, equipped_slot_names)
@@ -4470,12 +4589,35 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         "user_task_daily_limit": max(int(xiuxian_settings.get("user_task_daily_limit", DEFAULT_SETTINGS["user_task_daily_limit"]) or 0), 0),
         "slave_tribute_percent": max(int(xiuxian_settings.get("slave_tribute_percent", DEFAULT_SETTINGS["slave_tribute_percent"]) or 0), 0),
         "slave_challenge_cooldown_hours": max(int(xiuxian_settings.get("slave_challenge_cooldown_hours", DEFAULT_SETTINGS["slave_challenge_cooldown_hours"]) or 0), 1),
+        "rebirth_cooldown_enabled": bool(xiuxian_settings.get("rebirth_cooldown_enabled", DEFAULT_SETTINGS["rebirth_cooldown_enabled"])),
+        "rebirth_cooldown_base_hours": min(
+            max(
+                int(xiuxian_settings.get("rebirth_cooldown_base_hours", DEFAULT_SETTINGS["rebirth_cooldown_base_hours"]) or 0),
+                0,
+            ),
+            8760,
+        ),
+        "rebirth_cooldown_increment_hours": min(
+            max(
+                int(
+                    xiuxian_settings.get(
+                        "rebirth_cooldown_increment_hours",
+                        DEFAULT_SETTINGS["rebirth_cooldown_increment_hours"],
+                    )
+                    or 0
+                ),
+                0,
+            ),
+            8760,
+        ),
+        "furnace_harvest_cultivation_percent": max(int(xiuxian_settings.get("furnace_harvest_cultivation_percent", DEFAULT_SETTINGS["furnace_harvest_cultivation_percent"]) or 0), 0),
         "sect_salary_min_stay_days": max(int(xiuxian_settings.get("sect_salary_min_stay_days", DEFAULT_SETTINGS["sect_salary_min_stay_days"]) or 0), 1),
         "sect_betrayal_cooldown_days": max(int(xiuxian_settings.get("sect_betrayal_cooldown_days", DEFAULT_SETTINGS["sect_betrayal_cooldown_days"]) or 0), 1),
         "sect_betrayal_stone_percent": max(int(xiuxian_settings.get("sect_betrayal_stone_percent", DEFAULT_SETTINGS["sect_betrayal_stone_percent"]) or 0), 0),
         "sect_betrayal_stone_min": max(int(xiuxian_settings.get("sect_betrayal_stone_min", DEFAULT_SETTINGS["sect_betrayal_stone_min"]) or 0), 0),
         "sect_betrayal_stone_max": max(int(xiuxian_settings.get("sect_betrayal_stone_max", DEFAULT_SETTINGS["sect_betrayal_stone_max"]) or 0), 0),
         "error_log_retention_count": max(int(xiuxian_settings.get("error_log_retention_count", DEFAULT_SETTINGS["error_log_retention_count"]) or 0), 1),
+        "seclusion_cultivation_efficiency_percent": seclusion_cultivation_efficiency_percent(xiuxian_settings),
     }
     active_duel_lock = get_active_duel_lock(tg)
     breakthrough_requirement = _breakthrough_requirement(profile_data.get("realm_stage"))
@@ -4504,17 +4646,59 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
     ]
 
     capabilities = {
-        "can_train": profile_data["consented"] and not profile_data["is_dead"] and not retreating and not is_same_china_day(profile.last_train_at, utcnow()),
-        "train_reason": "角色已死亡，只能重新踏出仙途" if profile_data["is_dead"] else ("" if not retreating and not is_same_china_day(profile.last_train_at, utcnow()) else ("闭关期间无法吐纳修炼" if retreating else "今日已经完成过吐纳修炼了")),
-        "can_breakthrough": profile_data["consented"] and not profile_data["is_dead"] and not retreating and int(profile_data["realm_layer"] or 0) >= 9 and bool(progress["breakthrough_ready"]),
-        "breakthrough_reason": "角色已死亡，只能重新踏出仙途" if profile_data["is_dead"] else ("" if not retreating and int(profile_data["realm_layer"] or 0) >= 9 and progress["breakthrough_ready"] else ("闭关期间无法突破" if retreating else "只有达到当前境界九层且满修为后才能突破")),
+        "can_train": profile_data["consented"] and not profile_data["is_dead"] and not gender_locked and not retreating and not is_same_china_day(profile.last_train_at, utcnow()),
+        "train_reason": (
+            gender_lock_reason
+            if gender_locked
+            else (
+                "角色已死亡，只能重新踏出仙途"
+                if profile_data["is_dead"]
+                else ("" if not retreating and not is_same_china_day(profile.last_train_at, utcnow()) else ("闭关期间无法吐纳修炼" if retreating else "今日已经完成过吐纳修炼了"))
+            )
+        ),
+        "can_breakthrough": profile_data["consented"] and not profile_data["is_dead"] and not gender_locked and not retreating and int(profile_data["realm_layer"] or 0) >= 9 and bool(progress["breakthrough_ready"]),
+        "breakthrough_reason": (
+            gender_lock_reason
+            if gender_locked
+            else (
+                "角色已死亡，只能重新踏出仙途"
+                if profile_data["is_dead"]
+                else ("" if not retreating and int(profile_data["realm_layer"] or 0) >= 9 and progress["breakthrough_ready"] else ("闭关期间无法突破" if retreating else "只有达到当前境界九层且满修为后才能突破"))
+            )
+        ),
         "required_breakthrough_pill_name": (breakthrough_requirement or {}).get("pill_name"),
         "required_breakthrough_scene_name": (breakthrough_requirement or {}).get("scene_name"),
-        "can_retreat": profile_data["consented"] and not profile_data["is_dead"] and not retreating,
-        "retreat_reason": "角色已死亡，只能重新踏出仙途" if profile_data["is_dead"] else ("" if not retreating else "你正在闭关中"),
+        "can_retreat": profile_data["consented"] and not profile_data["is_dead"] and not gender_locked and not retreating,
+        "retreat_reason": gender_lock_reason if gender_locked else ("角色已死亡，只能重新踏出仙途" if profile_data["is_dead"] else ("" if not retreating else "你正在闭关中")),
         "is_in_retreat": retreating,
         "is_dead": profile_data["is_dead"],
-        "death_reason": "角色已死亡，只能重新踏出仙途" if profile_data["is_dead"] else "",
+        "death_reason": rebirth_cooldown["reason"] if rebirth_cooldown["blocked"] else ("角色已死亡，只能重新踏出仙途" if profile_data["is_dead"] else ""),
+        "can_enter_path": not profile_data["consented"] and not rebirth_cooldown["blocked"],
+        "enter_reason": rebirth_cooldown["reason"],
+        "rebirth_locked": rebirth_cooldown["blocked"],
+        "social_mode": profile_data["social_mode"],
+        "social_mode_label": profile_data["social_mode_label"],
+        "is_secluded": profile_data["is_secluded"],
+        "can_toggle_social_mode": profile_data["consented"] and not profile_data["is_dead"] and not gender_locked,
+        "social_mode_toggle_reason": gender_lock_reason if gender_locked else ("角色已死亡，只能重新踏出仙途" if profile_data["is_dead"] else ""),
+        "social_interaction_lock_reason": (
+            gender_lock_reason
+            if gender_locked
+            else (
+                f"你当前处于避世状态，对外互动已关闭，修为收益按 {settings['seclusion_cultivation_efficiency_percent']}% 结算。"
+                if profile_data["is_secluded"]
+                else ""
+            )
+        ),
+        "gender_required": gender_locked,
+        "gender_lock_reason": gender_lock_reason,
+        "shared_spiritual_stone_total": shared_spiritual_stone,
+        "shared_inventory_enabled": False,
+        "shared_inventory_note": (
+            "结为道侣后，灵石与背包会自动共享。"
+            if not gender_locked
+            else ""
+        ),
         "artifact_equip_limit": equip_limit,
         "equipped_artifact_count": len(equipped),
         "duel_locked": bool(active_duel_lock),
@@ -4575,12 +4759,1782 @@ def _find_pill_in_inventory_by_name(tg: int, pill_name: str) -> dict[str, Any] |
     return None
 
 
-def _require_alive_profile_obj(tg: int, action_text: str) -> Any:
+def _gender_lock_reason(profile: XiuxianProfile | dict[str, Any] | None) -> str:
+    if profile is None:
+        return "请先设置性别。"
+    if isinstance(profile, dict):
+        if profile.get("gender_set"):
+            return ""
+        consented = bool(profile.get("consented"))
+    else:
+        if normalize_gender(getattr(profile, "gender", None)):
+            return ""
+        consented = bool(getattr(profile, "consented", False))
+    if not consented:
+        return ""
+    return "请先在姻缘面板设置性别，设置后才能继续使用修仙玩法。"
+
+
+def _assert_gender_ready(profile: XiuxianProfile | dict[str, Any] | None, action_text: str) -> None:
+    reason = _gender_lock_reason(profile)
+    if reason:
+        raise ValueError(reason)
+
+
+def _require_consented_profile_obj(tg: int, action_text: str) -> Any:
     profile = _repair_profile_realm_state(tg)
     if profile is None or not profile.consented:
         raise ValueError("你还没有踏入仙途。")
     assert_profile_alive(profile, action_text)
     return profile
+
+
+def _require_alive_profile_obj(tg: int, action_text: str) -> Any:
+    profile = _require_consented_profile_obj(tg, action_text)
+    _assert_gender_ready(profile, action_text)
+    return profile
+
+
+def profile_social_mode(profile: Any | dict[str, Any] | None) -> str:
+    if isinstance(profile, dict):
+        return normalize_social_mode(profile.get("social_mode"))
+    return normalize_social_mode(getattr(profile, "social_mode", None))
+
+
+def is_profile_secluded(profile: Any | dict[str, Any] | None) -> bool:
+    return profile_social_mode(profile) == "secluded"
+
+
+def seclusion_cultivation_efficiency_percent(settings: dict[str, Any] | None = None) -> int:
+    source = settings or get_xiuxian_settings()
+    raw = source.get(
+        "seclusion_cultivation_efficiency_percent",
+        DEFAULT_SETTINGS["seclusion_cultivation_efficiency_percent"],
+    )
+    return min(max(int(raw or 0), 0), 100)
+
+
+def adjust_cultivation_gain_for_social_mode(
+    profile: Any | dict[str, Any] | None,
+    gain: int,
+    *,
+    settings: dict[str, Any] | None = None,
+) -> tuple[int, dict[str, Any]]:
+    base_gain = max(int(gain or 0), 0)
+    mode = profile_social_mode(profile)
+    efficiency_percent = 100 if mode != "secluded" else seclusion_cultivation_efficiency_percent(settings)
+    effective_gain = base_gain
+    if mode == "secluded":
+        effective_gain = int(round(base_gain * efficiency_percent / 100.0))
+        if base_gain > 0 and efficiency_percent > 0:
+            effective_gain = max(effective_gain, 1)
+    effective_gain = max(effective_gain, 0)
+    return effective_gain, {
+        "base_gain": base_gain,
+        "effective_gain": effective_gain,
+        "mode": mode,
+        "mode_label": SOCIAL_MODE_LABELS.get(mode, "入世"),
+        "efficiency_percent": efficiency_percent,
+        "reduced": effective_gain != base_gain,
+    }
+
+
+def _social_action_error(profile: Any | dict[str, Any] | None, action_text: str, *, actor: bool) -> None:
+    if not is_profile_secluded(profile):
+        return
+    display_label = ""
+    if isinstance(profile, dict):
+        display_label = str(profile.get("display_label") or "").strip()
+    else:
+        display_name = getattr(profile, "display_name", None)
+        username = getattr(profile, "username", None)
+        if display_name:
+            display_label = str(display_name).strip()
+        elif username:
+            display_label = f"@{username}"
+    if actor:
+        raise ValueError(f"你当前处于避世状态，无法进行{action_text}。")
+    if display_label:
+        raise ValueError(f"{display_label} 当前处于避世状态，无法进行{action_text}。")
+    raise ValueError(f"对方当前处于避世状态，无法进行{action_text}。")
+
+
+def assert_social_action_allowed(
+    actor_profile: Any | dict[str, Any] | None,
+    target_profile: Any | dict[str, Any] | None,
+    action_text: str,
+) -> None:
+    _social_action_error(actor_profile, action_text, actor=True)
+    _social_action_error(target_profile, action_text, actor=False)
+
+
+def switch_social_mode_for_user(tg: int, social_mode: str) -> dict[str, Any]:
+    profile = _require_alive_profile_obj(tg, "切换入世状态")
+    target_mode = normalize_social_mode(social_mode)
+    current_mode = profile_social_mode(profile)
+    if current_mode == target_mode:
+        return {
+            "changed": False,
+            "social_mode": target_mode,
+            "social_mode_label": SOCIAL_MODE_LABELS.get(target_mode, "入世"),
+            "profile": serialize_full_profile(tg),
+        }
+
+    updated = upsert_profile(
+        tg,
+        social_mode=target_mode,
+        social_mode_updated_at=utcnow(),
+    )
+    create_journal(
+        tg,
+        "social_mode",
+        "切换入世状态",
+        f"由【{SOCIAL_MODE_LABELS.get(current_mode, '入世')}】切换为【{SOCIAL_MODE_LABELS.get(target_mode, '入世')}】。",
+    )
+    return {
+        "changed": True,
+        "social_mode": target_mode,
+        "social_mode_label": SOCIAL_MODE_LABELS.get(target_mode, "入世"),
+        "profile": serialize_full_profile(updated.tg),
+    }
+
+
+def harvest_furnace_for_user(tg: int, furnace_tg: int) -> dict[str, Any]:
+    actor_tg = int(tg)
+    target_tg = int(furnace_tg)
+    if actor_tg <= 0 or target_tg <= 0:
+        raise ValueError("采补对象无效。")
+    if actor_tg == target_tg:
+        raise ValueError("你不能采补自己。")
+
+    now = utcnow()
+    settings = get_xiuxian_settings()
+    with Session() as session:
+        owner = session.query(XiuxianProfile).filter(XiuxianProfile.tg == actor_tg).with_for_update().first()
+        if owner is None or not owner.consented:
+            raise ValueError("你还没有踏入仙途。")
+        assert_profile_alive(owner, "采补炉鼎")
+        furnace = session.query(XiuxianProfile).filter(XiuxianProfile.tg == target_tg).with_for_update().first()
+        if furnace is None or not furnace.consented:
+            raise ValueError("对方还没有踏入仙途。")
+        furnace_name = _profile_display_label(furnace, "该炉鼎")
+        if furnace.death_at is not None:
+            raise ValueError(f"{furnace_name} 当前已身死道消，无法继续采补。")
+        reason = _furnace_harvest_reason(owner, furnace, settings=settings, now=now)
+        if reason:
+            raise ValueError(reason)
+
+        preview = _furnace_harvest_preview(owner, furnace, settings=settings)
+        if preview["furnace_loss"] <= 0 or preview["master_gain_raw"] <= 0:
+            raise ValueError(f"{furnace_name} 当前修为过低，暂无可采补收益。")
+
+        owner_layer, owner_cultivation, upgraded_layers, remaining = apply_cultivation_gain(
+            normalize_realm_stage(owner.realm_stage or FIRST_REALM_STAGE),
+            int(owner.realm_layer or 1),
+            int(owner.cultivation or 0),
+            preview["master_gain_raw"],
+        )
+        furnace.cultivation = max(int(furnace.cultivation or 0) - preview["furnace_loss"], 0)
+        furnace.furnace_harvested_at = now
+        furnace.updated_at = now
+        owner.realm_layer = owner_layer
+        owner.cultivation = owner_cultivation
+        owner.updated_at = now
+        session.commit()
+        owner_name = _profile_display_label(owner, "主人")
+        furnace_realm_text = f"{normalize_realm_stage(furnace.realm_stage or FIRST_REALM_STAGE)}{max(int(furnace.realm_layer or 1), 1)}层"
+        owner_realm_text = f"{normalize_realm_stage(owner.realm_stage or FIRST_REALM_STAGE)}{owner_layer}层"
+
+    create_journal(
+        actor_tg,
+        "furnace",
+        "采补炉鼎",
+        f"今日从 {furnace_name} 身上采补一次，抽取其 {preview['furnace_loss']} 点修为，折算为自身 {preview['master_gain_raw']} 点修为。",
+    )
+    create_journal(
+        target_tg,
+        "furnace",
+        "被主人采补",
+        f"{owner_name} 今日对你采补一次，你流失了 {preview['furnace_loss']} 点当前修为。",
+    )
+    return {
+        "owner_tg": actor_tg,
+        "owner_name": owner_name,
+        "owner_realm_text": owner_realm_text,
+        "furnace_tg": target_tg,
+        "furnace_name": furnace_name,
+        "furnace_realm_text": furnace_realm_text,
+        "harvest_percent": preview["harvest_percent"],
+        "furnace_loss": preview["furnace_loss"],
+        "master_gain": preview["master_gain_raw"],
+        "upgraded_layers": upgraded_layers,
+        "remaining": remaining,
+        "harvested_at": serialize_datetime(now),
+        "message": f"你与 {furnace_name} 完成一次采补，抽取其 {preview['furnace_loss']} 点当前修为，折算为自身 {preview['master_gain_raw']} 点修为。",
+    }
+
+
+MENTORSHIP_REQUEST_EXPIRE_HOURS = 72
+MENTORSHIP_GRADUATE_BOND = 120
+MENTORSHIP_GRADUATE_TEACH_COUNT = 5
+MENTORSHIP_GRADUATE_CONSULT_COUNT = 3
+MARRIAGE_REQUEST_EXPIRE_HOURS = 72
+
+
+def _normalize_mentorship_action(action: str | None) -> str:
+    value = str(action or "").strip().lower()
+    aliases = {
+        "accept": "accept",
+        "agree": "accept",
+        "同意": "accept",
+        "reject": "reject",
+        "decline": "reject",
+        "refuse": "reject",
+        "拒绝": "reject",
+        "cancel": "cancel",
+        "revoke": "cancel",
+        "撤回": "cancel",
+    }
+    return aliases.get(value, "accept")
+
+
+def _mentorship_realm_score(profile: XiuxianProfile | dict[str, Any]) -> int:
+    if isinstance(profile, dict):
+        stage = profile.get("realm_stage")
+        layer = profile.get("realm_layer")
+    else:
+        stage = profile.realm_stage
+        layer = profile.realm_layer
+    return max(realm_index(stage), 0) * 10 + max(int(layer or 0), 0)
+
+
+def _mentorship_capacity(profile: XiuxianProfile | dict[str, Any]) -> int:
+    score = _mentorship_realm_score(profile)
+    base = 1 + max(score // 15, 0)
+    return min(max(base, 1), 5)
+
+
+def _mentorship_bond_label(value: int) -> str:
+    bond = max(int(value or 0), 0)
+    if bond >= 180:
+        return "衣钵相承"
+    if bond >= 120:
+        return "心印相通"
+    if bond >= 60:
+        return "相知相授"
+    if bond >= 20:
+        return "渐入佳境"
+    return "初结师缘"
+
+
+def _mentorship_pending_expire_at() -> datetime:
+    return utcnow() + timedelta(hours=MENTORSHIP_REQUEST_EXPIRE_HOURS)
+
+
+def _mentorship_profile_row(session: Session, tg: int, action_text: str) -> XiuxianProfile:
+    row = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(tg)).with_for_update().first()
+    if row is None or not row.consented:
+        raise ValueError("你还没有踏入仙途。")
+    assert_profile_alive(row, action_text)
+    _assert_gender_ready(row, action_text)
+    return row
+
+
+def _ensure_target_profile_active(profile: XiuxianProfile | None, fallback: str = "对方") -> XiuxianProfile:
+    if profile is None or not profile.consented:
+        raise ValueError(f"{fallback}还没有踏入仙途。")
+    if profile.death_at is not None:
+        label = str(profile.display_name or (f"@{profile.username}" if profile.username else fallback)).strip() or fallback
+        raise ValueError(f"{label} 当前已身死道消，无法结下新的师徒因果。")
+    _assert_gender_ready(profile, f"{fallback}参与互动")
+    return profile
+
+
+def _expire_pending_mentorship_requests(session: Session) -> int:
+    now = utcnow()
+    rows = (
+        session.query(XiuxianMentorshipRequest)
+        .filter(
+            XiuxianMentorshipRequest.status == "pending",
+            XiuxianMentorshipRequest.expires_at.isnot(None),
+            XiuxianMentorshipRequest.expires_at <= now,
+        )
+        .all()
+    )
+    for row in rows:
+        row.status = "expired"
+        row.responded_at = now
+        row.updated_at = now
+    return len(rows)
+
+
+def _active_mentor_relations(session: Session, mentor_tg: int, *, for_update: bool = False) -> list[XiuxianMentorship]:
+    query = session.query(XiuxianMentorship).filter(
+        XiuxianMentorship.mentor_tg == int(mentor_tg),
+        XiuxianMentorship.status == "active",
+    )
+    if for_update:
+        query = query.with_for_update()
+    return query.order_by(XiuxianMentorship.created_at.asc(), XiuxianMentorship.id.asc()).all()
+
+
+def _active_mentorship_for_disciple(session: Session, disciple_tg: int, *, for_update: bool = False) -> XiuxianMentorship | None:
+    query = session.query(XiuxianMentorship).filter(
+        XiuxianMentorship.disciple_tg == int(disciple_tg),
+        XiuxianMentorship.status == "active",
+    )
+    if for_update:
+        query = query.with_for_update()
+    return query.order_by(XiuxianMentorship.created_at.desc(), XiuxianMentorship.id.desc()).first()
+
+
+def _pair_mentorship(
+    session: Session,
+    mentor_tg: int,
+    disciple_tg: int,
+    *,
+    for_update: bool = False,
+) -> XiuxianMentorship | None:
+    query = session.query(XiuxianMentorship).filter(
+        XiuxianMentorship.mentor_tg == int(mentor_tg),
+        XiuxianMentorship.disciple_tg == int(disciple_tg),
+    )
+    if for_update:
+        query = query.with_for_update()
+    return query.order_by(XiuxianMentorship.id.desc()).first()
+
+
+def _profile_display_label(profile: XiuxianProfile | dict[str, Any] | None, fallback: str = "道友") -> str:
+    if profile is None:
+        return fallback
+    if isinstance(profile, dict):
+        return (
+            str(profile.get("display_name_with_title") or "").strip()
+            or str(profile.get("display_label") or "").strip()
+            or fallback
+        )
+    return (
+        str(profile.display_name or "").strip()
+        or (f"@{profile.username}" if profile.username else "")
+        or fallback
+    )
+
+
+def _mentorship_chain_has_target(session: Session, start_tg: int, target_tg: int) -> bool:
+    visited: set[int] = set()
+    current = int(start_tg)
+    while current and current not in visited:
+        visited.add(current)
+        relation = _active_mentorship_for_disciple(session, current)
+        if relation is None:
+            return False
+        current = int(relation.mentor_tg or 0)
+        if current == int(target_tg):
+            return True
+    return False
+
+
+def _mentorship_profile_summary(profile: XiuxianProfile | dict[str, Any] | None, *, bundle: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    data = dict(profile) if isinstance(profile, dict) else serialize_profile(profile)
+    if not data:
+        return None
+    title = bundle.get("current_title") if bundle and int((bundle.get("profile") or {}).get("tg") or 0) == int(data.get("tg") or 0) else None
+    if title is None and data.get("current_title_id"):
+        title = get_current_title(int(data["tg"]))
+    display_name_with_title = _profile_name_with_title(data, title)
+    combat_power = int(bundle.get("combat_power") or 0) if bundle and int((bundle.get("profile") or {}).get("tg") or 0) == int(data.get("tg") or 0) else int(round(_battle_bundle(data)["power"]))
+    return {
+        "tg": int(data.get("tg") or 0),
+        "display_label": data.get("display_label") or f"TG {data.get('tg')}",
+        "display_name_with_title": display_name_with_title,
+        "username": data.get("username"),
+        "realm_stage": data.get("realm_stage"),
+        "realm_layer": int(data.get("realm_layer") or 0),
+        "realm_text": f"{data.get('realm_stage') or '炼气'}{int(data.get('realm_layer') or 0)}层",
+        "combat_power": combat_power,
+        "social_mode": data.get("social_mode") or "worldly",
+        "social_mode_label": data.get("social_mode_label") or SOCIAL_MODE_LABELS.get(data.get("social_mode") or "worldly", "入世"),
+        "is_secluded": bool(data.get("is_secluded")),
+        "current_title_name": (title or {}).get("name"),
+    }
+
+
+def _mentorship_validate_pair(
+    session: Session,
+    mentor_profile: XiuxianProfile,
+    disciple_profile: XiuxianProfile,
+) -> dict[str, Any]:
+    mentor_tg = int(mentor_profile.tg or 0)
+    disciple_tg = int(disciple_profile.tg or 0)
+    if mentor_tg <= 0 or disciple_tg <= 0:
+        raise ValueError("师徒目标无效。")
+    if mentor_tg == disciple_tg:
+        raise ValueError("不能自己和自己结为师徒。")
+    _ensure_target_profile_active(mentor_profile, "师尊")
+    _ensure_target_profile_active(disciple_profile, "徒弟")
+    assert_social_action_allowed(mentor_profile, disciple_profile, "师徒往来")
+
+    current_master = _active_mentorship_for_disciple(session, disciple_tg, for_update=True)
+    if current_master is not None and int(current_master.mentor_tg or 0) != mentor_tg:
+        raise ValueError("对方已有师尊，需先解除当前师门关系。")
+    if current_master is not None and int(current_master.mentor_tg or 0) == mentor_tg:
+        raise ValueError("双方当前已经是正式师徒，无需重复递交拜帖。")
+
+    active_relations = _active_mentor_relations(session, mentor_tg, for_update=True)
+    capacity = _mentorship_capacity(mentor_profile)
+    if all(int(item.disciple_tg or 0) != disciple_tg for item in active_relations) and len(active_relations) >= capacity:
+        raise ValueError(f"你当前最多只能带 {capacity} 名弟子，已没有空闲名额。")
+
+    mentor_score = _mentorship_realm_score(mentor_profile)
+    disciple_score = _mentorship_realm_score(disciple_profile)
+    if mentor_score <= disciple_score:
+        raise ValueError("师尊的境界至少需要高过弟子当前境界。")
+
+    mentor_power = int(round(_battle_bundle(serialize_profile(mentor_profile) or {})["power"]))
+    disciple_power = int(round(_battle_bundle(serialize_profile(disciple_profile) or {})["power"]))
+    min_required_power = max(int(round(disciple_power * 1.15)), disciple_power + 120)
+    if mentor_power < min_required_power:
+        raise ValueError("师尊当前战力压制还不够稳妥，至少需要高出对方约 15% 才能收徒。")
+
+    if _mentorship_chain_has_target(session, mentor_tg, disciple_tg):
+        raise ValueError("当前传承链会形成循环师门，暂不允许这样结成师徒。")
+
+    return {
+        "mentor_score": mentor_score,
+        "disciple_score": disciple_score,
+        "mentor_power": mentor_power,
+        "disciple_power": disciple_power,
+        "capacity": capacity,
+        "used_slots": len(active_relations),
+    }
+
+
+def _mentorship_graduation_state(relation: XiuxianMentorship, disciple_profile: XiuxianProfile) -> dict[str, Any]:
+    start_score = max(
+        realm_index(relation.disciple_realm_stage_snapshot) * 10 + max(int(relation.disciple_realm_layer_snapshot or 0), 0),
+        0,
+    )
+    current_score = _mentorship_realm_score(disciple_profile)
+    growth_score = max(current_score - start_score, 0)
+    required_growth = 5
+    ready = (
+        int(relation.bond_value or 0) >= MENTORSHIP_GRADUATE_BOND
+        and int(relation.teach_count or 0) >= MENTORSHIP_GRADUATE_TEACH_COUNT
+        and int(relation.consult_count or 0) >= MENTORSHIP_GRADUATE_CONSULT_COUNT
+        and growth_score >= required_growth
+    )
+    hint = (
+        f"师徒缘 {int(relation.bond_value or 0)}/{MENTORSHIP_GRADUATE_BOND}，"
+        f"传道 {int(relation.teach_count or 0)}/{MENTORSHIP_GRADUATE_TEACH_COUNT}，"
+        f"问道 {int(relation.consult_count or 0)}/{MENTORSHIP_GRADUATE_CONSULT_COUNT}，"
+        f"道行提升 {growth_score}/{required_growth}。"
+    )
+    return {
+        "ready": ready,
+        "hint": hint,
+        "growth_score": growth_score,
+        "required_growth": required_growth,
+    }
+
+
+def _roll_mentorship_consult_growth(mentor_stats: dict[str, Any] | None = None) -> dict[str, Any]:
+    stats = mentor_stats if isinstance(mentor_stats, dict) else {}
+    count = 1 + (1 if max(int(stats.get("comprehension") or 0), 0) >= 80 and random.randint(1, 100) <= 35 else 0)
+    pool = ["comprehension", "divine_sense", "willpower", "fortune", "true_yuan"]
+    random.shuffle(pool)
+    patch: dict[str, int] = {}
+    changes: list[dict[str, Any]] = []
+    for key in pool[:count]:
+        if key == "true_yuan":
+            delta = random.randint(12, 24)
+        else:
+            delta = random.randint(1, 3)
+        patch[key] = patch.get(key, 0) + delta
+        changes.append({"key": key, "label": _attribute_growth_label(key), "value": delta})
+    return {"patch": patch, "changes": changes}
+
+
+def _apply_mentorship_titles(mentor_tg: int, disciple_tg: int) -> list[dict[str, Any]]:
+    awarded: list[dict[str, Any]] = []
+    mentor_title = sync_title_by_name(
+        name="传道授业",
+        description="讲道不倦，已能把门下弟子一路带到出师。",
+        color="#2563eb",
+        comprehension_bonus=5,
+        true_yuan_bonus=36,
+        cultivation_bonus=4,
+        enabled=True,
+    )
+    disciple_title = sync_title_by_name(
+        name="门下高徒",
+        description="承其衣钵，终于凭本事独当一面。",
+        color="#16a34a",
+        comprehension_bonus=3,
+        attack_bonus=2,
+        defense_bonus=2,
+        enabled=True,
+    )
+    mentor_grant = grant_title_to_user(mentor_tg, int(mentor_title["id"]), source="mentorship", auto_equip_if_empty=True)
+    disciple_grant = grant_title_to_user(disciple_tg, int(disciple_title["id"]), source="mentorship", auto_equip_if_empty=True)
+    awarded.append({"tg": mentor_tg, "title": (mentor_grant or {}).get("title") or mentor_title})
+    awarded.append({"tg": disciple_tg, "title": (disciple_grant or {}).get("title") or disciple_title})
+    return awarded
+
+
+def build_mentorship_overview(tg: int, *, bundle: dict[str, Any] | None = None) -> dict[str, Any]:
+    with Session() as session:
+        expired = _expire_pending_mentorship_requests(session)
+        if expired:
+            session.commit()
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(tg)).first()
+        if profile is None or not profile.consented:
+            return {
+                "self_profile": None,
+                "mentor_relation": None,
+                "disciple_relations": [],
+                "incoming_requests": [],
+                "outgoing_requests": [],
+                "mentor_capacity": 0,
+                "used_slots": 0,
+                "available_slots": 0,
+                "can_take_disciple": False,
+                "can_seek_mentor": False,
+                "request_hint": "踏入仙途后才可缔结师徒关系。",
+            }
+
+        mentor_relation = _active_mentorship_for_disciple(session, tg)
+        disciple_relations = _active_mentor_relations(session, tg)
+        request_rows = (
+            session.query(XiuxianMentorshipRequest)
+            .filter(
+                XiuxianMentorshipRequest.status == "pending",
+                (XiuxianMentorshipRequest.sponsor_tg == int(tg)) | (XiuxianMentorshipRequest.target_tg == int(tg)),
+            )
+            .order_by(XiuxianMentorshipRequest.created_at.desc(), XiuxianMentorshipRequest.id.desc())
+            .all()
+        )
+
+        related_tgs = {int(tg)}
+        if mentor_relation is not None:
+            related_tgs.add(int(mentor_relation.mentor_tg or 0))
+            related_tgs.add(int(mentor_relation.disciple_tg or 0))
+        for row in disciple_relations:
+            related_tgs.add(int(row.mentor_tg or 0))
+            related_tgs.add(int(row.disciple_tg or 0))
+        for row in request_rows:
+            related_tgs.add(int(row.sponsor_tg or 0))
+            related_tgs.add(int(row.target_tg or 0))
+            payload = serialize_mentorship_request(row) or {}
+            related_tgs.add(int(payload.get("mentor_tg") or 0))
+            related_tgs.add(int(payload.get("disciple_tg") or 0))
+
+        profile_rows = {
+            int(row.tg): row
+            for row in session.query(XiuxianProfile).filter(XiuxianProfile.tg.in_([item for item in related_tgs if item > 0])).all()
+        }
+        profile_cards: dict[int, dict[str, Any] | None] = {}
+        for related_tg in related_tgs:
+            row = profile_rows.get(int(related_tg))
+            if row is None:
+                continue
+            if bundle and int((bundle.get("profile") or {}).get("tg") or 0) == int(related_tg):
+                profile_cards[int(related_tg)] = _mentorship_profile_summary(bundle.get("profile") or {}, bundle=bundle)
+            else:
+                profile_cards[int(related_tg)] = _mentorship_profile_summary(row)
+
+        def relation_view(row: XiuxianMentorship) -> dict[str, Any]:
+            payload = serialize_mentorship(row) or {}
+            mentor_profile = profile_rows.get(int(row.mentor_tg or 0))
+            disciple_profile = profile_rows.get(int(row.disciple_tg or 0))
+            mentor_card = profile_cards.get(int(row.mentor_tg or 0))
+            disciple_card = profile_cards.get(int(row.disciple_tg or 0))
+            social_reason = ""
+            try:
+                assert_social_action_allowed(mentor_profile, disciple_profile, "师徒往来")
+            except ValueError as exc:
+                social_reason = str(exc)
+            graduation = _mentorship_graduation_state(row, disciple_profile) if disciple_profile is not None else {"ready": False, "hint": "徒弟档案异常，暂不可出师。"}
+            payload.update(
+                {
+                    "bond_label": _mentorship_bond_label(payload.get("bond_value") or 0),
+                    "mentor_profile": mentor_card,
+                    "disciple_profile": disciple_card,
+                    "actor_role": "mentor" if int(row.mentor_tg or 0) == int(tg) else "disciple",
+                    "can_teach_today": row.status == "active" and not social_reason and not is_same_china_day(row.last_teach_at, utcnow()),
+                    "teach_reason": social_reason or ("今日已经传道过了。" if is_same_china_day(row.last_teach_at, utcnow()) else ""),
+                    "can_consult_today": row.status == "active" and not social_reason and not is_same_china_day(row.last_consult_at, utcnow()),
+                    "consult_reason": social_reason or ("今日已经问道过了。" if is_same_china_day(row.last_consult_at, utcnow()) else ""),
+                    "graduation_ready": bool(graduation.get("ready")),
+                    "graduation_hint": graduation.get("hint") or "",
+                }
+            )
+            return payload
+
+        incoming_requests: list[dict[str, Any]] = []
+        outgoing_requests: list[dict[str, Any]] = []
+        for row in request_rows:
+            payload = serialize_mentorship_request(row) or {}
+            payload["sponsor_profile"] = profile_cards.get(int(payload.get("sponsor_tg") or 0))
+            payload["target_profile"] = profile_cards.get(int(payload.get("target_tg") or 0))
+            payload["mentor_profile"] = profile_cards.get(int(payload.get("mentor_tg") or 0))
+            payload["disciple_profile"] = profile_cards.get(int(payload.get("disciple_tg") or 0))
+            payload["counterpart_profile"] = (
+                payload["target_profile"] if int(payload.get("sponsor_tg") or 0) == int(tg) else payload["sponsor_profile"]
+            )
+            if int(payload.get("target_tg") or 0) == int(tg):
+                incoming_requests.append(payload)
+            else:
+                outgoing_requests.append(payload)
+
+        mentor_capacity = _mentorship_capacity(profile)
+        used_slots = len(disciple_relations)
+        request_hint = "可主动搜索道友，递上拜师申请或发出收徒邀请。"
+        is_dead = bool(profile.death_at)
+        if is_dead:
+            request_hint = "当前角色已身死道消，无法再处理师徒因果。"
+        elif is_profile_secluded(profile):
+            request_hint = "你当前处于避世状态，暂时无法发起或接受师徒往来。"
+        elif mentor_relation is not None:
+            request_hint = "你已有师尊，仍可继续带徒，但无法再拜入新的师门。"
+
+        return {
+            "self_profile": profile_cards.get(int(tg)),
+            "mentor_relation": relation_view(mentor_relation) if mentor_relation is not None else None,
+            "disciple_relations": [relation_view(row) for row in disciple_relations],
+            "incoming_requests": incoming_requests,
+            "outgoing_requests": outgoing_requests,
+            "mentor_capacity": mentor_capacity,
+            "used_slots": used_slots,
+            "available_slots": max(mentor_capacity - used_slots, 0),
+            "can_take_disciple": not is_dead and not is_profile_secluded(profile) and used_slots < mentor_capacity,
+            "can_seek_mentor": not is_dead and not is_profile_secluded(profile) and mentor_relation is None,
+            "request_hint": request_hint,
+        }
+
+
+def create_mentorship_request_for_user(tg: int, target_tg: int, sponsor_role: str, message: str = "") -> dict[str, Any]:
+    role = normalize_mentorship_request_role(sponsor_role)
+    note = str(message or "").strip()[:255]
+    with Session() as session:
+        _expire_pending_mentorship_requests(session)
+        actor = _mentorship_profile_row(session, tg, "递上师徒拜帖")
+        target = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(target_tg)).with_for_update().first()
+        _ensure_target_profile_active(target, "对方")
+        mentor = actor if role == "mentor" else target
+        disciple = target if role == "mentor" else actor
+        _mentorship_validate_pair(session, mentor, disciple)
+        duplicate = (
+            session.query(XiuxianMentorshipRequest)
+            .filter(
+                XiuxianMentorshipRequest.status == "pending",
+                XiuxianMentorshipRequest.sponsor_tg == int(actor.tg),
+                XiuxianMentorshipRequest.target_tg == int(target.tg),
+                XiuxianMentorshipRequest.sponsor_role == role,
+            )
+            .first()
+        )
+        if duplicate is not None:
+            raise ValueError("同一封师徒拜帖还在等待对方处理。")
+        pair_duplicate = None
+        for row in (
+            session.query(XiuxianMentorshipRequest)
+            .filter(
+                XiuxianMentorshipRequest.status == "pending",
+                (
+                    (XiuxianMentorshipRequest.sponsor_tg == int(actor.tg))
+                    & (XiuxianMentorshipRequest.target_tg == int(target.tg))
+                )
+                | (
+                    (XiuxianMentorshipRequest.sponsor_tg == int(target.tg))
+                    & (XiuxianMentorshipRequest.target_tg == int(actor.tg))
+                ),
+            )
+            .all()
+        ):
+            payload = serialize_mentorship_request(row) or {}
+            if int(payload.get("mentor_tg") or 0) == int(mentor.tg) and int(payload.get("disciple_tg") or 0) == int(disciple.tg):
+                pair_duplicate = row
+                break
+        if pair_duplicate is not None:
+            raise ValueError("双方已有待处理的师徒因果帖，请先处理现有申请。")
+
+        row = XiuxianMentorshipRequest(
+            sponsor_tg=int(actor.tg),
+            target_tg=int(target.tg),
+            sponsor_role=role,
+            message=note or None,
+            status="pending",
+            expires_at=_mentorship_pending_expire_at(),
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        payload = serialize_mentorship_request(row) or {}
+        actor_name = _profile_display_label(serialize_profile(actor), "道友")
+        target_name = _profile_display_label(serialize_profile(target), "对方")
+    create_journal(tg, "mentorship", "递上师徒拜帖", f"向 {target_name} 发起了{payload.get('sponsor_role_label') or '师徒申请'}。")
+    create_journal(int(target_tg), "mentorship", "收到师徒拜帖", f"{actor_name} 向你发来了{payload.get('sponsor_role_label') or '师徒申请'}。")
+    return {
+        "request": payload,
+        "message": f"已向 {target_name} 送出{payload.get('sponsor_role_label') or '师徒拜帖'}。",
+    }
+
+
+def respond_mentorship_request_for_user(tg: int, request_id: int, action: str) -> dict[str, Any]:
+    normalized_action = _normalize_mentorship_action(action)
+    now = utcnow()
+    with Session() as session:
+        _expire_pending_mentorship_requests(session)
+        row = (
+            session.query(XiuxianMentorshipRequest)
+            .filter(XiuxianMentorshipRequest.id == int(request_id))
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            raise ValueError("未找到对应的师徒拜帖。")
+        if normalize_mentorship_request_status(row.status) != "pending":
+            raise ValueError("这封师徒拜帖已经处理过了。")
+        if row.expires_at and row.expires_at <= now:
+            row.status = "expired"
+            row.responded_at = now
+            row.updated_at = now
+            session.commit()
+            raise ValueError("这封师徒拜帖已经过期。")
+
+        actor = _mentorship_profile_row(session, tg, "处理师徒拜帖")
+        payload = serialize_mentorship_request(row) or {}
+        sponsor = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(row.sponsor_tg)).with_for_update().first()
+        target = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(row.target_tg)).with_for_update().first()
+        _ensure_target_profile_active(sponsor, "发帖人")
+        _ensure_target_profile_active(target, "目标道友")
+
+        if normalized_action == "cancel":
+            if int(row.sponsor_tg or 0) != int(actor.tg):
+                raise ValueError("只有发帖人自己才能撤回这封师徒拜帖。")
+            row.status = "cancelled"
+            row.responded_at = now
+            row.updated_at = now
+            session.commit()
+            create_journal(int(actor.tg), "mentorship", "撤回师徒拜帖", "你撤回了一封待处理的师徒拜帖。")
+            return {
+                "action": "cancel",
+                "request": payload,
+                "message": "已撤回这封师徒拜帖。",
+                "achievement_unlocks": [],
+            }
+
+        if int(row.target_tg or 0) != int(actor.tg):
+            raise ValueError("只有收帖方才能处理这封师徒拜帖。")
+
+        if normalized_action == "reject":
+            row.status = "rejected"
+            row.responded_at = now
+            row.updated_at = now
+            session.commit()
+            actor_name = _profile_display_label(serialize_profile(actor), "对方")
+            create_journal(int(actor.tg), "mentorship", "婉拒师徒拜帖", "你婉拒了一封师徒拜帖。")
+            create_journal(int(row.sponsor_tg), "mentorship", "师徒拜帖被婉拒", f"{actor_name} 婉拒了你的师徒拜帖。")
+            return {
+                "action": "reject",
+                "request": payload,
+                "message": "你已婉拒这封师徒拜帖。",
+                "achievement_unlocks": [],
+            }
+
+        mentor = sponsor if payload.get("sponsor_role") == "mentor" else target
+        disciple = target if payload.get("sponsor_role") == "mentor" else sponsor
+        _mentorship_validate_pair(session, mentor, disciple)
+
+        relation = _pair_mentorship(session, int(mentor.tg), int(disciple.tg), for_update=True)
+        if relation is None:
+            relation = XiuxianMentorship(mentor_tg=int(mentor.tg), disciple_tg=int(disciple.tg))
+            session.add(relation)
+        relation.status = "active"
+        relation.bond_value = 0
+        relation.teach_count = 0
+        relation.consult_count = 0
+        relation.last_teach_at = None
+        relation.last_consult_at = None
+        relation.mentor_realm_stage_snapshot = mentor.realm_stage
+        relation.mentor_realm_layer_snapshot = int(mentor.realm_layer or 0)
+        relation.disciple_realm_stage_snapshot = disciple.realm_stage
+        relation.disciple_realm_layer_snapshot = int(disciple.realm_layer or 0)
+        relation.graduated_at = None
+        relation.ended_at = None
+        relation.updated_at = now
+        if relation.created_at is None:
+            relation.created_at = now
+
+        row.status = "accepted"
+        row.responded_at = now
+        row.updated_at = now
+        other_requests = (
+            session.query(XiuxianMentorshipRequest)
+            .filter(
+                XiuxianMentorshipRequest.status == "pending",
+                XiuxianMentorshipRequest.id != int(row.id),
+                (
+                    (XiuxianMentorshipRequest.sponsor_tg == int(disciple.tg))
+                    | (XiuxianMentorshipRequest.target_tg == int(disciple.tg))
+                ),
+            )
+            .all()
+        )
+        for item in other_requests:
+            item.status = "cancelled"
+            item.responded_at = now
+            item.updated_at = now
+        session.commit()
+        session.refresh(relation)
+        relation_payload = serialize_mentorship(relation) or {}
+        mentor_name = _profile_display_label(serialize_profile(mentor), "师尊")
+        disciple_name = _profile_display_label(serialize_profile(disciple), "徒弟")
+
+    mentor_unlocks = record_achievement_progress(
+        int(relation_payload.get("mentor_tg") or 0),
+        {"mentor_accept_count": 1},
+        source="mentorship_accept",
+    )["unlocks"]
+    create_journal(int(relation_payload["mentor_tg"]), "mentorship", "收下一名弟子", f"{disciple_name} 正式拜入门下。")
+    create_journal(int(relation_payload["disciple_tg"]), "mentorship", "拜入师门", f"正式拜入 {mentor_name} 门下。")
+    return {
+        "action": "accept",
+        "request": payload,
+        "mentorship": relation_payload,
+        "message": f"{disciple_name} 与 {mentor_name} 的师徒关系已正式结成。",
+        "achievement_unlocks": mentor_unlocks,
+    }
+
+
+def mentor_teach_for_user(tg: int, disciple_tg: int) -> dict[str, Any]:
+    now = utcnow()
+    with Session() as session:
+        relation = _pair_mentorship(session, tg, disciple_tg, for_update=True)
+        if relation is None or normalize_mentorship_status(relation.status) != "active":
+            raise ValueError("你与该道友之间没有有效的师徒关系。")
+        mentor = _mentorship_profile_row(session, tg, "向弟子传道")
+        disciple = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(disciple_tg)).with_for_update().first()
+        disciple = _ensure_target_profile_active(disciple, "徒弟")
+        assert_social_action_allowed(mentor, disciple, "师徒往来")
+        if is_same_china_day(relation.last_teach_at, now):
+            raise ValueError("今日已经为这名弟子传道过了。")
+
+        mentor_profile = serialize_profile(mentor) or {}
+        disciple_profile = serialize_profile(disciple) or {}
+        mentor_score = _mentorship_realm_score(mentor_profile)
+        disciple_score = _mentorship_realm_score(disciple_profile)
+        mentor_power = int(round(_battle_bundle(mentor_profile)["power"]))
+        disciple_power = int(round(_battle_bundle(disciple_profile)["power"]))
+        stage_gap = max(mentor_score - disciple_score, 1)
+        raw_disciple_gain = min(42 + mentor_score * 3 + stage_gap * 6 + max((mentor_power - disciple_power) // 600, 0), 520)
+        raw_mentor_gain = max(int(round(raw_disciple_gain * 0.28)), 18)
+        disciple_gain, disciple_meta = adjust_cultivation_gain_for_social_mode(disciple, raw_disciple_gain)
+        mentor_gain, mentor_meta = adjust_cultivation_gain_for_social_mode(mentor, raw_mentor_gain)
+
+        disciple_bundle = _battle_bundle(disciple_profile)
+        attribute_growth = _apply_activity_stat_growth_to_profile_row(disciple, "practice", disciple_bundle.get("stats"))
+        bond_gain = min(8 + stage_gap * 2, 20)
+
+        mentor.cultivation = int(mentor.cultivation or 0) + mentor_gain
+        disciple.cultivation = int(disciple.cultivation or 0) + disciple_gain
+        relation.bond_value = int(relation.bond_value or 0) + bond_gain
+        relation.teach_count = int(relation.teach_count or 0) + 1
+        relation.last_teach_at = now
+        relation.updated_at = now
+        mentor.updated_at = now
+        disciple.updated_at = now
+        session.commit()
+        current_bond = int(relation.bond_value or 0)
+
+    unlocks = record_achievement_progress(int(tg), {"mentor_teach_count": 1}, source="mentorship_teach")["unlocks"]
+    disciple_name = _profile_display_label(serialize_profile(get_profile(int(disciple_tg), create=False)), "弟子")
+    create_journal(int(tg), "mentorship", "传道授业", f"今日为 {disciple_name} 传道一次，师徒缘增加 {bond_gain}。")
+    create_journal(int(disciple_tg), "mentorship", "得师尊传道", f"{_profile_display_label(serialize_profile(get_profile(int(tg), create=False)), '师尊')} 今日为你传道一次。")
+    return {
+        "disciple_tg": int(disciple_tg),
+        "disciple_name": disciple_name,
+        "disciple_gain": disciple_gain,
+        "mentor_gain": mentor_gain,
+        "bond_gain": bond_gain,
+        "bond_value": current_bond,
+        "bond_label": _mentorship_bond_label(current_bond),
+        "attribute_growth": attribute_growth.get("changes") or [],
+        "disciple_gain_raw": disciple_meta.get("base_gain", raw_disciple_gain),
+        "mentor_gain_raw": mentor_meta.get("base_gain", raw_mentor_gain),
+        "achievement_unlocks": unlocks,
+        "message": f"你为 {disciple_name} 讲解一轮功法关窍，对方获得 {disciple_gain} 修为，你自身也沉淀了 {mentor_gain} 修为。",
+    }
+
+
+def consult_mentor_for_user(tg: int) -> dict[str, Any]:
+    now = utcnow()
+    with Session() as session:
+        relation = _active_mentorship_for_disciple(session, tg, for_update=True)
+        if relation is None or normalize_mentorship_status(relation.status) != "active":
+            raise ValueError("你当前没有可问道的师尊。")
+        mentor = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(relation.mentor_tg)).with_for_update().first()
+        mentor = _ensure_target_profile_active(mentor, "师尊")
+        disciple = _mentorship_profile_row(session, tg, "向师尊问道")
+        assert_social_action_allowed(disciple, mentor, "师徒往来")
+        if is_same_china_day(relation.last_consult_at, now):
+            raise ValueError("今日已经向师尊问道过了。")
+
+        mentor_profile = serialize_profile(mentor) or {}
+        disciple_profile = serialize_profile(disciple) or {}
+        mentor_score = _mentorship_realm_score(mentor_profile)
+        disciple_score = _mentorship_realm_score(disciple_profile)
+        stage_gap = max(mentor_score - disciple_score, 1)
+        raw_disciple_gain = min(26 + mentor_score * 2 + stage_gap * 4, 360)
+        raw_mentor_gain = max(int(round(raw_disciple_gain * 0.2)), 12)
+        disciple_gain, _ = adjust_cultivation_gain_for_social_mode(disciple, raw_disciple_gain)
+        mentor_gain, _ = adjust_cultivation_gain_for_social_mode(mentor, raw_mentor_gain)
+        mentor_stats = _battle_bundle(mentor_profile).get("stats")
+        growth = _roll_mentorship_consult_growth(mentor_stats)
+        for key, delta in (growth.get("patch") or {}).items():
+            setattr(disciple, key, int(getattr(disciple, key, 0) or 0) + int(delta or 0))
+
+        bond_gain = min(6 + stage_gap, 14)
+        disciple.cultivation = int(disciple.cultivation or 0) + disciple_gain
+        mentor.cultivation = int(mentor.cultivation or 0) + mentor_gain
+        relation.bond_value = int(relation.bond_value or 0) + bond_gain
+        relation.consult_count = int(relation.consult_count or 0) + 1
+        relation.last_consult_at = now
+        relation.updated_at = now
+        mentor.updated_at = now
+        disciple.updated_at = now
+        session.commit()
+        mentor_tg = int(relation.mentor_tg or 0)
+
+    unlocks = record_achievement_progress(int(tg), {"disciple_consult_count": 1}, source="mentorship_consult")["unlocks"]
+    mentor_name = _profile_display_label(serialize_profile(get_profile(mentor_tg, create=False)), "师尊")
+    create_journal(int(tg), "mentorship", "向师尊问道", f"今日向 {mentor_name} 问道一次，师徒缘增加 {bond_gain}。")
+    create_journal(mentor_tg, "mentorship", "为弟子解惑", f"{_profile_display_label(serialize_profile(get_profile(int(tg), create=False)), '弟子')} 今日前来问道。")
+    return {
+        "mentor_tg": mentor_tg,
+        "mentor_name": mentor_name,
+        "disciple_gain": disciple_gain,
+        "mentor_gain": mentor_gain,
+        "bond_gain": bond_gain,
+        "attribute_growth": growth.get("changes") or [],
+        "achievement_unlocks": unlocks,
+        "message": f"你向 {mentor_name} 问清了几处修行疑难，获得 {disciple_gain} 修为，并在细节上有了新的体悟。",
+    }
+
+
+def _resolve_active_mentorship_for_actor(session: Session, tg: int, target_tg: int, *, for_update: bool = False) -> XiuxianMentorship:
+    relation = _pair_mentorship(session, tg, target_tg, for_update=for_update)
+    if relation is None:
+        relation = _pair_mentorship(session, target_tg, tg, for_update=for_update)
+    if relation is None or normalize_mentorship_status(relation.status) != "active":
+        raise ValueError("双方当前没有有效的师徒关系。")
+    if int(tg) not in {int(relation.mentor_tg or 0), int(relation.disciple_tg or 0)}:
+        raise ValueError("你无权处理这段师徒关系。")
+    return relation
+
+
+def graduate_mentorship_for_user(tg: int, target_tg: int) -> dict[str, Any]:
+    now = utcnow()
+    with Session() as session:
+        relation = _resolve_active_mentorship_for_actor(session, tg, target_tg, for_update=True)
+        mentor = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(relation.mentor_tg)).with_for_update().first()
+        disciple = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(relation.disciple_tg)).with_for_update().first()
+        mentor = _ensure_target_profile_active(mentor, "师尊")
+        disciple = _ensure_target_profile_active(disciple, "徒弟")
+        assert_social_action_allowed(mentor, disciple, "师徒往来")
+        graduation = _mentorship_graduation_state(relation, disciple)
+        if not graduation.get("ready"):
+            raise ValueError(graduation.get("hint") or "当前仍未满足出师条件。")
+
+        mentor_score = _mentorship_realm_score(mentor)
+        disciple_gain = min(160 + mentor_score * 6 + int(relation.bond_value or 0) // 2, 880)
+        mentor_gain = max(int(round(disciple_gain * 0.65)), 120)
+        mentor.cultivation = int(mentor.cultivation or 0) + mentor_gain
+        disciple.cultivation = int(disciple.cultivation or 0) + disciple_gain
+        relation.status = "graduated"
+        relation.graduated_at = now
+        relation.ended_at = now
+        relation.updated_at = now
+        mentor.updated_at = now
+        disciple.updated_at = now
+        session.commit()
+        mentor_tg = int(relation.mentor_tg or 0)
+        disciple_tg_value = int(relation.disciple_tg or 0)
+
+    title_rewards = _apply_mentorship_titles(mentor_tg, disciple_tg_value)
+    unlocks = []
+    unlocks.extend(record_achievement_progress(mentor_tg, {"mentor_graduate_count": 1}, source="mentorship_graduate")["unlocks"])
+    unlocks.extend(record_achievement_progress(disciple_tg_value, {"disciple_graduate_count": 1}, source="mentorship_graduate")["unlocks"])
+    mentor_name = _profile_display_label(serialize_profile(get_profile(mentor_tg, create=False)), "师尊")
+    disciple_name = _profile_display_label(serialize_profile(get_profile(disciple_tg_value, create=False)), "弟子")
+    create_journal(mentor_tg, "mentorship", "门下弟子出师", f"{disciple_name} 已经正式出师，传承告一段落。")
+    create_journal(disciple_tg_value, "mentorship", "正式出师", f"在 {mentor_name} 门下修成，今日正式出师。")
+    return {
+        "mentor_tg": mentor_tg,
+        "disciple_tg": disciple_tg_value,
+        "mentor_name": mentor_name,
+        "disciple_name": disciple_name,
+        "mentor_gain": mentor_gain,
+        "disciple_gain": disciple_gain,
+        "title_rewards": title_rewards,
+        "achievement_unlocks": unlocks,
+        "message": f"{disciple_name} 已正式出师，双方都从这段传承中获得了新的体悟。",
+    }
+
+
+def dissolve_mentorship_for_user(tg: int, target_tg: int) -> dict[str, Any]:
+    now = utcnow()
+    with Session() as session:
+        relation = _resolve_active_mentorship_for_actor(session, tg, target_tg, for_update=True)
+        relation.status = "dissolved"
+        relation.ended_at = now
+        relation.updated_at = now
+        session.commit()
+        mentor_tg = int(relation.mentor_tg or 0)
+        disciple_tg_value = int(relation.disciple_tg or 0)
+    mentor_name = _profile_display_label(serialize_profile(get_profile(mentor_tg, create=False)), "师尊")
+    disciple_name = _profile_display_label(serialize_profile(get_profile(disciple_tg_value, create=False)), "弟子")
+    actor_role = "mentor" if int(tg) == mentor_tg else "disciple"
+    if actor_role == "mentor":
+        create_journal(mentor_tg, "mentorship", "解除师徒关系", f"你与 {disciple_name} 的师徒关系已解除。")
+        create_journal(disciple_tg_value, "mentorship", "被逐出师门", f"{mentor_name} 已解除与你的师徒关系。")
+    else:
+        create_journal(disciple_tg_value, "mentorship", "离开师门", f"你与 {mentor_name} 的师徒关系已解除。")
+        create_journal(mentor_tg, "mentorship", "弟子离开师门", f"{disciple_name} 主动离开了门下。")
+    return {
+        "mentor_tg": mentor_tg,
+        "disciple_tg": disciple_tg_value,
+        "mentor_name": mentor_name,
+        "disciple_name": disciple_name,
+        "message": f"{mentor_name} 与 {disciple_name} 的师徒关系已解除。",
+        "achievement_unlocks": [],
+    }
+
+
+def _normalize_marriage_action(action: str | None) -> str:
+    value = str(action or "").strip().lower()
+    aliases = {
+        "accept": "accept",
+        "agree": "accept",
+        "同意": "accept",
+        "reject": "reject",
+        "decline": "reject",
+        "拒绝": "reject",
+        "cancel": "cancel",
+        "revoke": "cancel",
+        "撤回": "cancel",
+    }
+    return aliases.get(value, "accept")
+
+
+def _marriage_bond_label(value: int) -> str:
+    bond = max(int(value or 0), 0)
+    if bond >= 180:
+        return "比翼同修"
+    if bond >= 100:
+        return "灵契相守"
+    if bond >= 40:
+        return "情丝初结"
+    return "新缔良缘"
+
+
+def _marriage_pending_expire_at() -> datetime:
+    return utcnow() + timedelta(hours=MARRIAGE_REQUEST_EXPIRE_HOURS)
+
+
+def _marriage_profile_row(session: Session, tg: int, action_text: str) -> XiuxianProfile:
+    row = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(tg)).with_for_update().first()
+    if row is None or not row.consented:
+        raise ValueError("你还没有踏入仙途。")
+    assert_profile_alive(row, action_text)
+    _assert_gender_ready(row, action_text)
+    return row
+
+
+def _ensure_marriage_target_profile(profile: XiuxianProfile | None, fallback: str = "对方") -> XiuxianProfile:
+    if profile is None or not profile.consented:
+        raise ValueError(f"{fallback}还没有踏入仙途。")
+    if profile.death_at is not None:
+        label = str(profile.display_name or (f"@{profile.username}" if profile.username else fallback)).strip() or fallback
+        raise ValueError(f"{label} 当前已身死道消，无法缔结姻缘。")
+    _assert_gender_ready(profile, f"{fallback}参与姻缘")
+    return profile
+
+
+def _expire_pending_marriage_requests(session: Session) -> int:
+    now = utcnow()
+    rows = (
+        session.query(XiuxianMarriageRequest)
+        .filter(
+            XiuxianMarriageRequest.status == "pending",
+            XiuxianMarriageRequest.expires_at.isnot(None),
+            XiuxianMarriageRequest.expires_at <= now,
+        )
+        .all()
+    )
+    for row in rows:
+        row.status = "expired"
+        row.responded_at = now
+        row.updated_at = now
+    return len(rows)
+
+
+def _active_marriage_for_user_service(session: Session, tg: int, *, for_update: bool = False) -> XiuxianMarriage | None:
+    query = session.query(XiuxianMarriage).filter(
+        XiuxianMarriage.status == "active",
+        (XiuxianMarriage.husband_tg == int(tg)) | (XiuxianMarriage.wife_tg == int(tg)),
+    )
+    if for_update:
+        query = query.with_for_update()
+    return query.order_by(XiuxianMarriage.id.desc()).first()
+
+
+def _pair_marriage(session: Session, husband_tg: int, wife_tg: int, *, for_update: bool = False) -> XiuxianMarriage | None:
+    query = session.query(XiuxianMarriage).filter(
+        XiuxianMarriage.husband_tg == int(husband_tg),
+        XiuxianMarriage.wife_tg == int(wife_tg),
+    )
+    if for_update:
+        query = query.with_for_update()
+    return query.order_by(XiuxianMarriage.id.desc()).first()
+
+
+def _marriage_spouse_tg(relation: XiuxianMarriage, tg: int) -> int:
+    return int(relation.wife_tg if int(relation.husband_tg or 0) == int(tg) else relation.husband_tg or 0)
+
+
+def _cancel_pending_marriage_requests_for_tgs(session: Session, tgs: list[int], *, now: datetime | None = None) -> int:
+    valid_tgs = [int(item) for item in tgs if int(item or 0) > 0]
+    if not valid_tgs:
+        return 0
+    current = now or utcnow()
+    rows = (
+        session.query(XiuxianMarriageRequest)
+        .filter(
+            XiuxianMarriageRequest.status == "pending",
+            (
+                XiuxianMarriageRequest.sponsor_tg.in_(valid_tgs)
+                | XiuxianMarriageRequest.target_tg.in_(valid_tgs)
+            ),
+        )
+        .with_for_update()
+        .all()
+    )
+    for row in rows:
+        row.status = "cancelled"
+        row.responded_at = current
+        row.updated_at = current
+    return len(rows)
+
+
+def _end_marriage_for_user(session: Session, tg: int, *, ended_at: datetime | None = None) -> dict[str, Any] | None:
+    current = ended_at or utcnow()
+    relation = _active_marriage_for_user_service(session, tg, for_update=True)
+    if relation is None or normalize_marriage_status(relation.status) != "active":
+        _cancel_pending_marriage_requests_for_tgs(session, [tg], now=current)
+        return None
+    spouse_tg = _marriage_spouse_tg(relation, tg)
+    relation.status = "divorced"
+    relation.ended_at = current
+    relation.updated_at = current
+    _cancel_pending_marriage_requests_for_tgs(
+        session,
+        [int(relation.husband_tg or 0), int(relation.wife_tg or 0)],
+        now=current,
+    )
+    return {
+        "relation": serialize_marriage(relation) or {},
+        "spouse_tg": int(spouse_tg or 0),
+    }
+
+
+def _marriage_profile_summary(profile: XiuxianProfile | dict[str, Any] | None, *, bundle: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    payload = _mentorship_profile_summary(profile, bundle=bundle)
+    if payload is None:
+        return None
+    source = dict(profile) if isinstance(profile, dict) else serialize_profile(profile)
+    payload["gender"] = source.get("gender") if source else None
+    payload["gender_label"] = source.get("gender_label") if source else ""
+    return payload
+
+
+def _marriage_validate_pair(session: Session, husband_profile: XiuxianProfile, wife_profile: XiuxianProfile) -> None:
+    husband_tg = int(husband_profile.tg or 0)
+    wife_tg = int(wife_profile.tg or 0)
+    if husband_tg <= 0 or wife_tg <= 0:
+        raise ValueError("姻缘目标无效。")
+    if husband_tg == wife_tg:
+        raise ValueError("不能和自己结为道侣。")
+    _ensure_marriage_target_profile(husband_profile, "男方")
+    _ensure_marriage_target_profile(wife_profile, "女方")
+    if normalize_gender(husband_profile.gender) != "male" or normalize_gender(wife_profile.gender) != "female":
+        raise ValueError("当前姻缘系统仅支持男女缔结道侣。")
+    assert_social_action_allowed(husband_profile, wife_profile, "缔结姻缘")
+    husband_relation = _active_marriage_for_user_service(session, husband_tg, for_update=True)
+    if husband_relation is not None and int(_marriage_spouse_tg(husband_relation, husband_tg) or 0) != wife_tg:
+        raise ValueError("男方当前已有道侣，需先和离。")
+    wife_relation = _active_marriage_for_user_service(session, wife_tg, for_update=True)
+    if wife_relation is not None and int(_marriage_spouse_tg(wife_relation, wife_tg) or 0) != husband_tg:
+        raise ValueError("女方当前已有道侣，需先和离。")
+    if husband_relation is not None and wife_relation is not None:
+        raise ValueError("双方当前已经是道侣，无需重复缔结。")
+
+
+def build_marriage_overview(tg: int, *, bundle: dict[str, Any] | None = None) -> dict[str, Any]:
+    with Session() as session:
+        expired = _expire_pending_marriage_requests(session)
+        if expired:
+            session.commit()
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(tg)).first()
+        if profile is None or not profile.consented:
+            return {
+                "self_profile": None,
+                "gender": None,
+                "gender_label": "",
+                "gender_set": False,
+                "can_set_gender": False,
+                "gender_change_reason": "踏入仙途后才可设置性别。",
+                "current_marriage": None,
+                "incoming_requests": [],
+                "outgoing_requests": [],
+                "can_request_marriage": False,
+                "request_hint": "踏入仙途后才可缔结姻缘。",
+                "shared_assets_enabled": False,
+                "shared_assets_hint": "结为道侣后，灵石与背包会自动共享。",
+            }
+
+        gender = normalize_gender(profile.gender)
+        relation = _active_marriage_for_user_service(session, tg)
+        request_rows = (
+            session.query(XiuxianMarriageRequest)
+            .filter(
+                XiuxianMarriageRequest.status == "pending",
+                (XiuxianMarriageRequest.sponsor_tg == int(tg)) | (XiuxianMarriageRequest.target_tg == int(tg)),
+            )
+            .order_by(XiuxianMarriageRequest.created_at.desc(), XiuxianMarriageRequest.id.desc())
+            .all()
+        )
+        related_tgs = {int(tg)}
+        if relation is not None:
+            related_tgs.add(int(relation.husband_tg or 0))
+            related_tgs.add(int(relation.wife_tg or 0))
+        for row in request_rows:
+            related_tgs.add(int(row.sponsor_tg or 0))
+            related_tgs.add(int(row.target_tg or 0))
+        profile_rows = {
+            int(row.tg): row
+            for row in session.query(XiuxianProfile).filter(XiuxianProfile.tg.in_([item for item in related_tgs if item > 0])).all()
+        }
+        profile_cards: dict[int, dict[str, Any] | None] = {}
+        for related_tg in related_tgs:
+            row = profile_rows.get(int(related_tg))
+            if row is None:
+                continue
+            if bundle and int((bundle.get("profile") or {}).get("tg") or 0) == int(related_tg):
+                profile_cards[int(related_tg)] = _marriage_profile_summary(bundle.get("profile") or {}, bundle=bundle)
+            else:
+                profile_cards[int(related_tg)] = _marriage_profile_summary(row)
+
+        marriage_payload = None
+        if relation is not None:
+            spouse_tg = _marriage_spouse_tg(relation, tg)
+            spouse_profile = profile_rows.get(int(spouse_tg))
+            social_reason = ""
+            try:
+                assert_social_action_allowed(profile, spouse_profile, "道侣双修")
+            except ValueError as exc:
+                social_reason = str(exc)
+            marriage_payload = serialize_marriage(relation) or {}
+            marriage_payload.update(
+                {
+                    "bond_label": _marriage_bond_label(marriage_payload.get("bond_value") or 0),
+                    "actor_role": "husband" if int(relation.husband_tg or 0) == int(tg) else "wife",
+                    "spouse_tg": int(spouse_tg or 0),
+                    "spouse_profile": profile_cards.get(int(spouse_tg or 0)),
+                    "husband_profile": profile_cards.get(int(relation.husband_tg or 0)),
+                    "wife_profile": profile_cards.get(int(relation.wife_tg or 0)),
+                    "can_dual_cultivate_today": not social_reason and not is_same_china_day(relation.last_dual_cultivation_at, utcnow()),
+                    "dual_cultivate_reason": social_reason or ("今日已经双修过了。" if is_same_china_day(relation.last_dual_cultivation_at, utcnow()) else ""),
+                    "shared_spiritual_stone_total": get_shared_spiritual_stone_total(tg),
+                }
+            )
+
+        incoming_requests: list[dict[str, Any]] = []
+        outgoing_requests: list[dict[str, Any]] = []
+        for row in request_rows:
+            payload = serialize_marriage_request(row) or {}
+            payload["sponsor_profile"] = profile_cards.get(int(payload.get("sponsor_tg") or 0))
+            payload["target_profile"] = profile_cards.get(int(payload.get("target_tg") or 0))
+            payload["counterpart_profile"] = (
+                payload["target_profile"] if int(payload.get("sponsor_tg") or 0) == int(tg) else payload["sponsor_profile"]
+            )
+            if int(payload.get("target_tg") or 0) == int(tg):
+                incoming_requests.append(payload)
+            else:
+                outgoing_requests.append(payload)
+
+        is_dead = bool(profile.death_at)
+        shared_assets_enabled = relation is not None and not is_dead
+        if is_dead:
+            request_hint = "当前角色已身死道消，无法处理姻缘事务。"
+        elif not gender:
+            request_hint = "请先设置性别，不设置则无法继续使用修仙玩法。"
+        elif relation is not None:
+            request_hint = "你已结为道侣，婚后灵石与背包自动共享。"
+        elif is_profile_secluded(profile):
+            request_hint = "你当前处于避世状态，暂时无法发起或接受姻缘请求。"
+        else:
+            request_hint = "可搜索异性道友，递上结缘信物。"
+
+        return {
+            "self_profile": profile_cards.get(int(tg)),
+            "gender": gender,
+            "gender_label": (serialize_profile(profile) or {}).get("gender_label") or "",
+            "gender_set": bool(gender),
+            "can_set_gender": relation is None and not is_dead,
+            "gender_change_reason": "已结为道侣，当前不可更改性别。" if relation is not None else ("角色已死亡，当前不可设置性别。" if is_dead else ""),
+            "current_marriage": marriage_payload,
+            "incoming_requests": incoming_requests,
+            "outgoing_requests": outgoing_requests,
+            "can_request_marriage": bool(gender) and relation is None and not is_dead and not is_profile_secluded(profile),
+            "request_hint": request_hint,
+            "shared_assets_enabled": shared_assets_enabled,
+            "shared_assets_hint": "当前灵石与背包已共享。" if shared_assets_enabled else "结为道侣后，灵石与背包会自动共享。",
+        }
+
+
+def set_gender_for_user(tg: int, gender: str) -> dict[str, Any]:
+    normalized = normalize_gender(gender)
+    if normalized not in {"male", "female"}:
+        raise ValueError("性别仅支持设置为男或女。")
+    with Session() as session:
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(tg)).with_for_update().first()
+        if profile is None or not profile.consented:
+            raise ValueError("你还没有踏入仙途。")
+        assert_profile_alive(profile, "设置性别")
+        relation = _active_marriage_for_user_service(session, tg, for_update=True)
+        current_gender = normalize_gender(profile.gender)
+        if relation is not None and current_gender and current_gender != normalized:
+            raise ValueError("已结为道侣，当前不可更改性别。")
+        profile.gender = normalized
+        profile.updated_at = utcnow()
+        session.commit()
+    label = "男" if normalized == "male" else "女"
+    create_journal(tg, "marriage", "设置性别", f"将自身性别设为【{label}】。")
+    return {
+        "gender": normalized,
+        "gender_label": label,
+        "message": f"性别已设置为{label}。",
+        "profile": serialize_full_profile(tg),
+    }
+
+
+def create_marriage_request_for_user(tg: int, target_tg: int, message: str = "") -> dict[str, Any]:
+    note = str(message or "").strip()[:255]
+    with Session() as session:
+        _expire_pending_marriage_requests(session)
+        actor = _marriage_profile_row(session, tg, "递上结缘信物")
+        target = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(target_tg)).with_for_update().first()
+        target = _ensure_marriage_target_profile(target, "对方")
+        actor_gender = normalize_gender(actor.gender)
+        target_gender = normalize_gender(target.gender)
+        if actor_gender == target_gender:
+            raise ValueError("当前姻缘系统仅支持男女缔结道侣。")
+        husband = actor if actor_gender == "male" else target
+        wife = target if actor_gender == "male" else actor
+        _marriage_validate_pair(session, husband, wife)
+        pair_duplicate = (
+            session.query(XiuxianMarriageRequest)
+            .filter(
+                XiuxianMarriageRequest.status == "pending",
+                (
+                    (XiuxianMarriageRequest.sponsor_tg == int(actor.tg))
+                    & (XiuxianMarriageRequest.target_tg == int(target.tg))
+                )
+                | (
+                    (XiuxianMarriageRequest.sponsor_tg == int(target.tg))
+                    & (XiuxianMarriageRequest.target_tg == int(actor.tg))
+                ),
+            )
+            .first()
+        )
+        if pair_duplicate is not None:
+            raise ValueError("双方已有待处理的姻缘请求，请先处理现有信物。")
+        row = XiuxianMarriageRequest(
+            sponsor_tg=int(actor.tg),
+            target_tg=int(target.tg),
+            message=note or None,
+            status="pending",
+            expires_at=_marriage_pending_expire_at(),
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        payload = serialize_marriage_request(row) or {}
+        actor_name = _profile_display_label(serialize_profile(actor), "道友")
+        target_name = _profile_display_label(serialize_profile(target), "对方")
+    create_journal(tg, "marriage", "递上结缘信物", f"向 {target_name} 发起了道侣请求。")
+    create_journal(int(target_tg), "marriage", "收到结缘信物", f"{actor_name} 向你递来了一封结缘信物。")
+    return {
+        "request": payload,
+        "message": f"已向 {target_name} 送出结缘信物。",
+    }
+
+
+def respond_marriage_request_for_user(tg: int, request_id: int, action: str) -> dict[str, Any]:
+    normalized_action = _normalize_marriage_action(action)
+    now = utcnow()
+    with Session() as session:
+        _expire_pending_marriage_requests(session)
+        row = (
+            session.query(XiuxianMarriageRequest)
+            .filter(XiuxianMarriageRequest.id == int(request_id))
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            raise ValueError("未找到对应的结缘信物。")
+        if normalize_marriage_request_status(row.status) != "pending":
+            raise ValueError("这封结缘信物已经处理过了。")
+        if row.expires_at and row.expires_at <= now:
+            row.status = "expired"
+            row.responded_at = now
+            row.updated_at = now
+            session.commit()
+            raise ValueError("这封结缘信物已经过期。")
+        actor = _marriage_profile_row(session, tg, "处理结缘信物")
+        payload = serialize_marriage_request(row) or {}
+        sponsor = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(row.sponsor_tg)).with_for_update().first()
+        target = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(row.target_tg)).with_for_update().first()
+        sponsor = _ensure_marriage_target_profile(sponsor, "发信人")
+        target = _ensure_marriage_target_profile(target, "目标道友")
+
+        if normalized_action == "cancel":
+            if int(row.sponsor_tg or 0) != int(actor.tg):
+                raise ValueError("只有发信人自己才能撤回这封结缘信物。")
+            row.status = "cancelled"
+            row.responded_at = now
+            row.updated_at = now
+            session.commit()
+            create_journal(int(actor.tg), "marriage", "撤回结缘信物", "你撤回了一封待处理的结缘信物。")
+            return {"action": "cancel", "request": payload, "message": "已撤回这封结缘信物。"}
+
+        if int(row.target_tg or 0) != int(actor.tg):
+            raise ValueError("只有收信人才能处理这封结缘信物。")
+
+        if normalized_action == "reject":
+            row.status = "rejected"
+            row.responded_at = now
+            row.updated_at = now
+            session.commit()
+            actor_name = _profile_display_label(serialize_profile(actor), "对方")
+            create_journal(int(actor.tg), "marriage", "婉拒结缘信物", "你婉拒了一封结缘信物。")
+            create_journal(int(row.sponsor_tg), "marriage", "结缘信物被婉拒", f"{actor_name} 婉拒了你的结缘信物。")
+            return {"action": "reject", "request": payload, "message": "你已婉拒这封结缘信物。"}
+
+        sponsor_gender = normalize_gender(sponsor.gender)
+        target_gender = normalize_gender(target.gender)
+        if sponsor_gender == target_gender:
+            raise ValueError("当前姻缘系统仅支持男女缔结道侣。")
+        husband = sponsor if sponsor_gender == "male" else target
+        wife = target if sponsor_gender == "male" else sponsor
+        _marriage_validate_pair(session, husband, wife)
+
+        relation = _pair_marriage(session, int(husband.tg), int(wife.tg), for_update=True)
+        if relation is None:
+            relation = XiuxianMarriage(husband_tg=int(husband.tg), wife_tg=int(wife.tg))
+            session.add(relation)
+        relation.status = "active"
+        relation.bond_value = 0
+        relation.dual_cultivation_count = 0
+        relation.last_dual_cultivation_at = None
+        relation.ended_at = None
+        relation.updated_at = now
+        if relation.created_at is None:
+            relation.created_at = now
+        row.status = "accepted"
+        row.responded_at = now
+        row.updated_at = now
+        other_requests = (
+            session.query(XiuxianMarriageRequest)
+            .filter(
+                XiuxianMarriageRequest.status == "pending",
+                XiuxianMarriageRequest.id != int(row.id),
+                (
+                    XiuxianMarriageRequest.sponsor_tg.in_([int(sponsor.tg), int(target.tg)])
+                    | XiuxianMarriageRequest.target_tg.in_([int(sponsor.tg), int(target.tg)])
+                ),
+            )
+            .all()
+        )
+        for item in other_requests:
+            item.status = "cancelled"
+            item.responded_at = now
+            item.updated_at = now
+        session.commit()
+        session.refresh(relation)
+        relation_payload = serialize_marriage(relation) or {}
+        husband_name = _profile_display_label(serialize_profile(husband), "男方")
+        wife_name = _profile_display_label(serialize_profile(wife), "女方")
+    create_journal(int(relation_payload["husband_tg"]), "marriage", "喜结道侣", f"与 {wife_name} 结成道侣，自此共修仙途。")
+    create_journal(int(relation_payload["wife_tg"]), "marriage", "喜结道侣", f"与 {husband_name} 结成道侣，自此共修仙途。")
+    return {
+        "action": "accept",
+        "request": payload,
+        "marriage": relation_payload,
+        "message": f"{husband_name} 与 {wife_name} 已正式结为道侣。",
+    }
+
+
+def _marriage_item_payload(kind: str, item_ref_id: int) -> dict[str, Any] | None:
+    if kind == "artifact":
+        return serialize_artifact(get_artifact(item_ref_id))
+    if kind == "pill":
+        return serialize_pill(get_pill(item_ref_id))
+    if kind == "talisman":
+        return serialize_talisman(get_talisman(item_ref_id))
+    if kind == "material":
+        return serialize_material(get_material(item_ref_id))
+    return None
+
+
+def _marriage_item_quality_level(kind: str, payload: dict[str, Any] | None) -> int:
+    if not payload:
+        return 1
+    if kind == "material":
+        return max(int(payload.get("quality_level") or 1), 1)
+    return max(int(payload.get("rarity_level") or 1), 1)
+
+
+def _marriage_collect_inventory_entries(session: Session, left_tg: int, right_tg: int) -> list[dict[str, Any]]:
+    pair_tgs = [int(left_tg), int(right_tg)]
+    result: list[dict[str, Any]] = []
+    for kind, model_cls, ref_field in (
+        ("artifact", XiuxianArtifactInventory, "artifact_id"),
+        ("pill", XiuxianPillInventory, "pill_id"),
+        ("talisman", XiuxianTalismanInventory, "talisman_id"),
+        ("material", XiuxianMaterialInventory, "material_id"),
+    ):
+        rows = session.query(model_cls).filter(model_cls.tg.in_(pair_tgs)).with_for_update().all()
+        grouped: dict[int, dict[str, Any]] = {}
+        for row in rows:
+            ref_id = int(getattr(row, ref_field) or 0)
+            if ref_id <= 0:
+                continue
+            entry = grouped.get(ref_id)
+            if entry is None:
+                payload = _marriage_item_payload(kind, ref_id) or {"id": ref_id}
+                entry = {
+                    "kind": kind,
+                    "ref_id": ref_id,
+                    "quantity": 0,
+                    "bound_quantity": 0,
+                    "payload": payload,
+                    "quality_level": _marriage_item_quality_level(kind, payload),
+                }
+                grouped[ref_id] = entry
+            quantity = max(int(getattr(row, "quantity", 0) or 0), 0)
+            entry["quantity"] += quantity
+            if hasattr(row, "bound_quantity"):
+                entry["bound_quantity"] += max(min(int(getattr(row, "bound_quantity", 0) or 0), quantity), 0)
+        result.extend(entry for entry in grouped.values() if int(entry.get("quantity") or 0) > 0)
+    return sorted(
+        result,
+        key=lambda item: (
+            -int(item.get("quality_level") or 1),
+            -int(item.get("quantity") or 0),
+            str(item.get("kind") or ""),
+            int(item.get("ref_id") or 0),
+        ),
+    )
+
+
+def _marriage_pick_target(score_map: dict[int, int], count_map: dict[int, int], left_tg: int, right_tg: int) -> int:
+    targets = [int(left_tg), int(right_tg)]
+    random.shuffle(targets)
+    return min(targets, key=lambda item: (score_map.get(int(item), 0), count_map.get(int(item), 0)))
+
+
+def _marriage_split_inventory(entries: list[dict[str, Any]], left_tg: int, right_tg: int) -> dict[int, dict[str, dict[int, dict[str, Any]]]]:
+    allocations: dict[int, dict[str, dict[int, dict[str, Any]]]] = {
+        int(left_tg): {kind: {} for kind in ("artifact", "pill", "talisman", "material")},
+        int(right_tg): {kind: {} for kind in ("artifact", "pill", "talisman", "material")},
+    }
+    score_map = {int(left_tg): 0, int(right_tg): 0}
+    count_map = {int(left_tg): 0, int(right_tg): 0}
+    for entry in entries:
+        kind = str(entry.get("kind") or "")
+        ref_id = int(entry.get("ref_id") or 0)
+        quantity = max(int(entry.get("quantity") or 0), 0)
+        bound_quantity = max(min(int(entry.get("bound_quantity") or 0), quantity), 0)
+        payload = entry.get("payload") or {"id": ref_id}
+        quality_weight = max(int(entry.get("quality_level") or 1), 1) * 100
+        for index in range(quantity):
+            chosen_tg = _marriage_pick_target(score_map, count_map, left_tg, right_tg)
+            bucket = allocations[int(chosen_tg)][kind].setdefault(
+                ref_id,
+                {"quantity": 0, "bound_quantity": 0, "payload": payload},
+            )
+            bucket["quantity"] += 1
+            if index < bound_quantity:
+                bucket["bound_quantity"] += 1
+            score_map[int(chosen_tg)] += quality_weight
+            count_map[int(chosen_tg)] += 1
+    return allocations
+
+
+def _marriage_reset_inventory_state(session: Session, tgs: list[int]) -> None:
+    now = utcnow()
+    session.query(XiuxianEquippedArtifact).filter(XiuxianEquippedArtifact.tg.in_(tgs)).delete(synchronize_session=False)
+    for model_cls in (XiuxianArtifactInventory, XiuxianPillInventory, XiuxianTalismanInventory, XiuxianMaterialInventory):
+        session.query(model_cls).filter(model_cls.tg.in_(tgs)).delete(synchronize_session=False)
+    rows = session.query(XiuxianProfile).filter(XiuxianProfile.tg.in_(tgs)).with_for_update().all()
+    for row in rows:
+        row.current_artifact_id = None
+        row.active_talisman_id = None
+        row.updated_at = now
+
+
+def _marriage_restore_allocations(session: Session, allocations: dict[int, dict[str, dict[int, dict[str, Any]]]]) -> None:
+    for tg_value, kind_map in (allocations or {}).items():
+        for kind, ref_map in (kind_map or {}).items():
+            for ref_id, payload in (ref_map or {}).items():
+                quantity = max(int((payload or {}).get("quantity") or 0), 0)
+                if quantity <= 0:
+                    continue
+                if kind == "artifact":
+                    session.add(
+                        XiuxianArtifactInventory(
+                            tg=int(tg_value),
+                            artifact_id=int(ref_id),
+                            quantity=quantity,
+                            bound_quantity=max(min(int((payload or {}).get("bound_quantity") or 0), quantity), 0),
+                        )
+                    )
+                elif kind == "pill":
+                    session.add(XiuxianPillInventory(tg=int(tg_value), pill_id=int(ref_id), quantity=quantity))
+                elif kind == "talisman":
+                    session.add(
+                        XiuxianTalismanInventory(
+                            tg=int(tg_value),
+                            talisman_id=int(ref_id),
+                            quantity=quantity,
+                            bound_quantity=max(min(int((payload or {}).get("bound_quantity") or 0), quantity), 0),
+                        )
+                    )
+                elif kind == "material":
+                    session.add(XiuxianMaterialInventory(tg=int(tg_value), material_id=int(ref_id), quantity=quantity))
+
+
+def dual_cultivate_with_spouse(tg: int) -> dict[str, Any]:
+    now = utcnow()
+    with Session() as session:
+        relation = _active_marriage_for_user_service(session, tg, for_update=True)
+        if relation is None or normalize_marriage_status(relation.status) != "active":
+            raise ValueError("你当前没有可双修的道侣。")
+        actor = _marriage_profile_row(session, tg, "道侣双修")
+        spouse_tg = _marriage_spouse_tg(relation, tg)
+        spouse = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(spouse_tg)).with_for_update().first()
+        spouse = _ensure_marriage_target_profile(spouse, "道侣")
+        assert_social_action_allowed(actor, spouse, "道侣双修")
+        if is_same_china_day(relation.last_dual_cultivation_at, now):
+            raise ValueError("今日已经和道侣双修过了。")
+
+        actor_profile = serialize_profile(actor) or {}
+        spouse_profile = serialize_profile(spouse) or {}
+        actor_score = _mentorship_realm_score(actor_profile)
+        spouse_score = _mentorship_realm_score(spouse_profile)
+        base_gain = min(36 + min(actor_score, spouse_score) * 3 + max(abs(actor_score - spouse_score), 0), 260)
+        actor_gain, actor_meta = adjust_cultivation_gain_for_social_mode(actor, base_gain)
+        spouse_gain, spouse_meta = adjust_cultivation_gain_for_social_mode(spouse, base_gain)
+        bond_gain = 8 + max(min(abs(actor_score - spouse_score), 6), 0)
+        actor.cultivation = int(actor.cultivation or 0) + actor_gain
+        spouse.cultivation = int(spouse.cultivation or 0) + spouse_gain
+        relation.bond_value = int(relation.bond_value or 0) + bond_gain
+        relation.dual_cultivation_count = int(relation.dual_cultivation_count or 0) + 1
+        relation.last_dual_cultivation_at = now
+        relation.updated_at = now
+        actor.updated_at = now
+        spouse.updated_at = now
+        session.commit()
+        current_bond = int(relation.bond_value or 0)
+    actor_name = _profile_display_label(serialize_profile(get_profile(int(tg), create=False)), "道侣")
+    spouse_name = _profile_display_label(serialize_profile(get_profile(int(spouse_tg), create=False)), "道侣")
+    create_journal(int(tg), "marriage", "道侣双修", f"今日与 {spouse_name} 双修一次，修为有所精进。")
+    create_journal(int(spouse_tg), "marriage", "道侣双修", f"今日与 {actor_name} 双修一次，修为有所精进。")
+    return {
+        "spouse_tg": int(spouse_tg),
+        "spouse_name": spouse_name,
+        "actor_gain": actor_gain,
+        "spouse_gain": spouse_gain,
+        "actor_gain_raw": actor_meta.get("base_gain", base_gain),
+        "spouse_gain_raw": spouse_meta.get("base_gain", base_gain),
+        "bond_gain": bond_gain,
+        "bond_value": current_bond,
+        "bond_label": _marriage_bond_label(current_bond),
+        "message": f"你与 {spouse_name} 完成了一次双修，双方都略微提升了修为。",
+    }
+
+
+def divorce_with_spouse(tg: int) -> dict[str, Any]:
+    now = utcnow()
+    with Session() as session:
+        relation = _active_marriage_for_user_service(session, tg, for_update=True)
+        if relation is None or normalize_marriage_status(relation.status) != "active":
+            raise ValueError("双方当前没有有效的道侣关系。")
+        left_tg = int(relation.husband_tg or 0)
+        right_tg = int(relation.wife_tg or 0)
+        profiles = {
+            int(row.tg): row
+            for row in session.query(XiuxianProfile).filter(XiuxianProfile.tg.in_([left_tg, right_tg])).with_for_update().all()
+        }
+        left_profile = profiles.get(left_tg)
+        right_profile = profiles.get(right_tg)
+        if left_profile is None or right_profile is None:
+            raise ValueError("道侣档案异常，暂时无法和离。")
+        total_stone = max(int(left_profile.spiritual_stone or 0), 0) + max(int(right_profile.spiritual_stone or 0), 0)
+        entries = _marriage_collect_inventory_entries(session, left_tg, right_tg)
+        allocations = _marriage_split_inventory(entries, left_tg, right_tg)
+        _marriage_reset_inventory_state(session, [left_tg, right_tg])
+        _marriage_restore_allocations(session, allocations)
+        stone_base = total_stone // 2
+        extra_owner = random.choice([left_tg, right_tg]) if total_stone % 2 else left_tg
+        left_profile.spiritual_stone = stone_base + (1 if total_stone % 2 and extra_owner == left_tg else 0)
+        right_profile.spiritual_stone = stone_base + (1 if total_stone % 2 and extra_owner == right_tg else 0)
+        left_profile.updated_at = now
+        right_profile.updated_at = now
+        relation.status = "divorced"
+        relation.ended_at = now
+        relation.updated_at = now
+        for request in (
+            session.query(XiuxianMarriageRequest)
+            .filter(
+                XiuxianMarriageRequest.status == "pending",
+                (
+                    XiuxianMarriageRequest.sponsor_tg.in_([left_tg, right_tg])
+                    | XiuxianMarriageRequest.target_tg.in_([left_tg, right_tg])
+                ),
+            )
+            .all()
+        ):
+            request.status = "cancelled"
+            request.responded_at = now
+            request.updated_at = now
+        session.commit()
+
+    left_name = _profile_display_label(serialize_profile(get_profile(left_tg, create=False)), "道侣")
+    right_name = _profile_display_label(serialize_profile(get_profile(right_tg, create=False)), "道侣")
+    create_journal(left_tg, "marriage", "和离分家", f"你与 {right_name} 已经和离，灵石与背包已完成重新分配。")
+    create_journal(right_tg, "marriage", "和离分家", f"你与 {left_name} 已经和离，灵石与背包已完成重新分配。")
+    return {
+        "husband_tg": left_tg,
+        "wife_tg": right_tg,
+        "husband_name": left_name,
+        "wife_name": right_name,
+        "husband_stone": max(int((serialize_profile(get_profile(left_tg, create=False)) or {}).get("spiritual_stone") or 0), 0),
+        "wife_stone": max(int((serialize_profile(get_profile(right_tg, create=False)) or {}).get("spiritual_stone") or 0), 0),
+        "message": f"{left_name} 与 {right_name} 已完成和离，灵石已平分，背包物品也重新分配完毕。",
+    }
 
 
 def equip_artifact_for_user(tg: int, artifact_id: int) -> dict[str, Any]:
@@ -4729,7 +6683,7 @@ def start_retreat_for_user(tg: int, hours: int) -> dict[str, Any]:
     plan = _compute_retreat_plan(profile)
     total_minutes = retreat_hours * 60
     total_cost = plan["cost_per_minute"] * total_minutes
-    if int(profile.spiritual_stone or 0) < total_cost:
+    if max(int(get_shared_spiritual_stone_total(tg) or 0), 0) < total_cost:
         raise ValueError(f"灵石不足，闭关 {retreat_hours} 小时预计需要 {total_cost} 灵石。")
 
     now = utcnow()
@@ -4823,7 +6777,7 @@ def create_personal_shop_listing(
     broadcast_cost = int(settings.get("shop_broadcast_cost", DEFAULT_SETTINGS["shop_broadcast_cost"]) or 0)
     charisma_discount = min(max(int(profile.charisma or 0) - 10, 0) // 4, broadcast_cost)
     final_broadcast_cost = max(broadcast_cost - charisma_discount, 0)
-    if broadcast and int(profile.spiritual_stone or 0) < final_broadcast_cost:
+    if broadcast and max(int(get_shared_spiritual_stone_total(tg) or 0), 0) < final_broadcast_cost:
         raise ValueError("灵石不足，无法支付全群播报费用。")
 
     resolved_shop_name = str(shop_name or profile.shop_name or PERSONAL_SHOP_NAME).strip() or PERSONAL_SHOP_NAME
@@ -5000,7 +6954,26 @@ def patch_auction_listing(auction_id: int, **fields) -> dict[str, Any] | None:
 
 
 def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
+    current_settings = get_xiuxian_settings()
     patch = dict(payload)
+    if "duel_bet_minutes" in patch and patch.get("duel_bet_seconds") is None:
+        patch["duel_bet_seconds"] = max(
+            _coerce_int(patch.get("duel_bet_minutes"), DEFAULT_SETTINGS.get("duel_bet_minutes", 2), 1),
+            1,
+        ) * 60
+    duel_bet_keys = {
+        "duel_bet_enabled",
+        "duel_bet_seconds",
+        "duel_bet_min_amount",
+        "duel_bet_max_amount",
+        "duel_bet_amount_options",
+        "duel_bet_minutes",
+    }
+    if duel_bet_keys & set(patch):
+        candidate = dict(current_settings)
+        candidate.update(patch)
+        patch.update(resolve_duel_bet_settings(candidate))
+        patch.pop("duel_bet_minutes", None)
     if "auction_fee_percent" in patch and patch["auction_fee_percent"] is not None:
         patch["auction_fee_percent"] = min(
             max(_coerce_int(patch["auction_fee_percent"], DEFAULT_SETTINGS["auction_fee_percent"], 0), 0),
@@ -5149,6 +7122,35 @@ def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
             ),
             720,
         )
+    if "rebirth_cooldown_enabled" in patch:
+        patch["rebirth_cooldown_enabled"] = bool(patch["rebirth_cooldown_enabled"])
+    if "rebirth_cooldown_base_hours" in patch and patch["rebirth_cooldown_base_hours"] is not None:
+        patch["rebirth_cooldown_base_hours"] = min(
+            _coerce_int(
+                patch["rebirth_cooldown_base_hours"],
+                DEFAULT_SETTINGS["rebirth_cooldown_base_hours"],
+                0,
+            ),
+            8760,
+        )
+    if "rebirth_cooldown_increment_hours" in patch and patch["rebirth_cooldown_increment_hours"] is not None:
+        patch["rebirth_cooldown_increment_hours"] = min(
+            _coerce_int(
+                patch["rebirth_cooldown_increment_hours"],
+                DEFAULT_SETTINGS["rebirth_cooldown_increment_hours"],
+                0,
+            ),
+            8760,
+        )
+    if "furnace_harvest_cultivation_percent" in patch and patch["furnace_harvest_cultivation_percent"] is not None:
+        patch["furnace_harvest_cultivation_percent"] = min(
+            _coerce_int(
+                patch["furnace_harvest_cultivation_percent"],
+                DEFAULT_SETTINGS["furnace_harvest_cultivation_percent"],
+                0,
+            ),
+            100,
+        )
     if "sect_salary_min_stay_days" in patch and patch["sect_salary_min_stay_days"] is not None:
         patch["sect_salary_min_stay_days"] = min(
             _coerce_int(
@@ -5220,6 +7222,15 @@ def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
             ),
             86400,
         )
+    if "seclusion_cultivation_efficiency_percent" in patch and patch["seclusion_cultivation_efficiency_percent"] is not None:
+        patch["seclusion_cultivation_efficiency_percent"] = min(
+            _coerce_int(
+                patch["seclusion_cultivation_efficiency_percent"],
+                DEFAULT_SETTINGS["seclusion_cultivation_efficiency_percent"],
+                0,
+            ),
+            100,
+        )
     if "root_quality_value_rules" in patch:
         patch["root_quality_value_rules"] = _normalize_root_quality_value_rules(patch["root_quality_value_rules"])
     if "item_quality_value_rules" in patch:
@@ -5243,6 +7254,72 @@ def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
             _coerce_int(patch["high_quality_broadcast_level"], DEFAULT_SETTINGS["high_quality_broadcast_level"], 1),
             max(ROOT_QUALITY_LEVELS.values()),
         )
+    if "gambling_exchange_cost_stone" in patch and patch["gambling_exchange_cost_stone"] is not None:
+        patch["gambling_exchange_cost_stone"] = min(
+            _coerce_int(
+                patch["gambling_exchange_cost_stone"],
+                DEFAULT_SETTINGS["gambling_exchange_cost_stone"],
+                1,
+            ),
+            1000000,
+        )
+    if "gambling_exchange_max_count" in patch and patch["gambling_exchange_max_count"] is not None:
+        patch["gambling_exchange_max_count"] = min(
+            _coerce_int(
+                patch["gambling_exchange_max_count"],
+                DEFAULT_SETTINGS["gambling_exchange_max_count"],
+                1,
+            ),
+            999,
+        )
+    if "gambling_open_max_count" in patch and patch["gambling_open_max_count"] is not None:
+        patch["gambling_open_max_count"] = min(
+            _coerce_int(
+                patch["gambling_open_max_count"],
+                DEFAULT_SETTINGS["gambling_open_max_count"],
+                1,
+            ),
+            999,
+        )
+    if "gambling_broadcast_quality_level" in patch and patch["gambling_broadcast_quality_level"] is not None:
+        patch["gambling_broadcast_quality_level"] = min(
+            _coerce_int(
+                patch["gambling_broadcast_quality_level"],
+                DEFAULT_SETTINGS["gambling_broadcast_quality_level"],
+                1,
+            ),
+            max(ROOT_QUALITY_LEVELS.values()),
+        )
+    if "gambling_fortune_divisor" in patch and patch["gambling_fortune_divisor"] is not None:
+        patch["gambling_fortune_divisor"] = min(
+            _coerce_int(
+                patch["gambling_fortune_divisor"],
+                DEFAULT_SETTINGS["gambling_fortune_divisor"],
+                1,
+            ),
+            1000,
+        )
+    if "gambling_fortune_bonus_per_quality_percent" in patch and patch["gambling_fortune_bonus_per_quality_percent"] is not None:
+        patch["gambling_fortune_bonus_per_quality_percent"] = min(
+            _coerce_int(
+                patch["gambling_fortune_bonus_per_quality_percent"],
+                DEFAULT_SETTINGS["gambling_fortune_bonus_per_quality_percent"],
+                0,
+            ),
+            500,
+        )
+    if "gambling_quality_weight_rules" in patch:
+        patch["gambling_quality_weight_rules"] = _normalize_gambling_quality_weight_rules(patch["gambling_quality_weight_rules"])
+    source_gambling_pool = patch.get("gambling_reward_pool", current_settings.get("gambling_reward_pool"))
+    if isinstance(source_gambling_pool, list):
+        normalized_gambling_pool = _normalize_gambling_reward_pool(source_gambling_pool)
+        should_persist_pool = "gambling_reward_pool" in patch or any(
+            not int((entry or {}).get("item_ref_id") or 0) or not int((entry or {}).get("quality_level") or 0)
+            for entry in source_gambling_pool
+            if isinstance(entry, dict)
+        )
+        if should_persist_pool:
+            patch["gambling_reward_pool"] = normalized_gambling_pool
     if "immortal_touch_infusion_layers" in patch and patch["immortal_touch_infusion_layers"] is not None:
         patch["immortal_touch_infusion_layers"] = min(
             _coerce_int(
@@ -5256,6 +7333,270 @@ def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
     if "official_shop_name" in patch:
         sync_official_shop_name(settings["official_shop_name"])
     return settings
+
+
+def build_gambling_bundle(tg: int, bundle: dict[str, Any] | None = None) -> dict[str, Any]:
+    ensure_seed_data()
+    current_bundle = bundle or {}
+    settings = get_xiuxian_settings()
+    immortal_stone = _immortal_stone_material()
+    material_rows = current_bundle.get("materials") if isinstance(current_bundle.get("materials"), list) else list_user_materials(tg)
+    owned_row = next(
+        (
+            row
+            for row in material_rows or []
+            if str(((row or {}).get("material") or {}).get("name") or "").strip() == IMMORTAL_STONE_NAME
+        ),
+        None,
+    )
+    owned_quantity = int((owned_row or {}).get("quantity") or 0)
+    effective_stats = current_bundle.get("effective_stats") or {}
+    profile = current_bundle.get("profile") or serialize_profile(get_profile(tg, create=False)) or {}
+    fortune_value = int(effective_stats.get("fortune", profile.get("fortune", FORTUNE_BASELINE)) or FORTUNE_BASELINE)
+    quality_rules = _normalize_gambling_quality_weight_rules(settings.get("gambling_quality_weight_rules"))
+    raw_pool = _configured_gambling_pool(settings)
+    enabled_pool = []
+    total_effective_weight = 0.0
+    for entry in raw_pool:
+        weight = _gambling_entry_effective_weight(entry, fortune_value, settings)
+        payload = {
+            **entry,
+            "effective_weight": round(weight, 6),
+        }
+        total_effective_weight += weight
+        if bool(entry.get("enabled")) and int(entry.get("item_ref_id") or 0) > 0 and weight > 0:
+            enabled_pool.append(payload)
+    for entry in enabled_pool:
+        chance = (float(entry.get("effective_weight") or 0.0) / total_effective_weight * 100.0) if total_effective_weight > 0 else 0.0
+        entry["chance_percent"] = round(chance, 3)
+    enabled_pool.sort(
+        key=lambda item: (
+            -int(item.get("quality_level") or 0),
+            -float(item.get("chance_percent") or 0.0),
+            str(item.get("item_name") or ""),
+        )
+    )
+    return {
+        "immortal_stone_material_id": int(immortal_stone.get("id") or 0),
+        "immortal_stone_name": IMMORTAL_STONE_NAME,
+        "immortal_stone_item": immortal_stone,
+        "owned_count": owned_quantity,
+        "exchange_cost_stone": max(
+            int(settings.get("gambling_exchange_cost_stone", DEFAULT_SETTINGS["gambling_exchange_cost_stone"]) or 0),
+            1,
+        ),
+        "exchange_max_count": max(
+            int(settings.get("gambling_exchange_max_count", DEFAULT_SETTINGS["gambling_exchange_max_count"]) or 0),
+            1,
+        ),
+        "open_max_count": max(
+            int(settings.get("gambling_open_max_count", DEFAULT_SETTINGS["gambling_open_max_count"]) or 0),
+            1,
+        ),
+        "broadcast_quality_level": max(
+            int(settings.get("gambling_broadcast_quality_level", DEFAULT_SETTINGS["gambling_broadcast_quality_level"]) or 0),
+            1,
+        ),
+        "fortune_value": fortune_value,
+        "fortune_hint": _gambling_fortune_hint(fortune_value, settings),
+        "quality_weight_rules": quality_rules,
+        "pool_preview": enabled_pool,
+        "pool_size": len(enabled_pool),
+    }
+
+
+def exchange_immortal_stones(tg: int, count: int) -> dict[str, Any]:
+    ensure_seed_data()
+    amount = max(int(count or 0), 0)
+    if amount <= 0:
+        raise ValueError("兑换数量必须大于 0。")
+    settings = get_xiuxian_settings()
+    max_count = max(int(settings.get("gambling_exchange_max_count", DEFAULT_SETTINGS["gambling_exchange_max_count"]) or 0), 1)
+    if amount > max_count:
+        raise ValueError(f"单次最多只能兑换 {max_count} 枚仙界奇石。")
+    if not _configured_gambling_pool(settings):
+        raise ValueError("当前赌坊奖池尚未配置，请稍后再试。")
+    stone_cost = max(int(settings.get("gambling_exchange_cost_stone", DEFAULT_SETTINGS["gambling_exchange_cost_stone"]) or 0), 1)
+    total_cost = stone_cost * amount
+    immortal_stone = _immortal_stone_material()
+    material_id = int(immortal_stone.get("id") or 0)
+
+    ensure_not_in_retreat(tg)
+    with Session() as session:
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(tg)).with_for_update().first()
+        if profile is None or not profile.consented:
+            raise ValueError("请先踏入仙途后再进入赌坊。")
+        assert_profile_alive(profile, "兑换仙界奇石")
+        assert_currency_operation_allowed(int(tg), "兑换仙界奇石", session=session, profile=profile)
+        apply_spiritual_stone_delta(
+            session,
+            int(tg),
+            -total_cost,
+            action_text=f"兑换{amount}枚仙界奇石",
+            allow_dead=False,
+            apply_tribute=False,
+        )
+        row = (
+            session.query(XiuxianMaterialInventory)
+            .filter(XiuxianMaterialInventory.tg == int(tg), XiuxianMaterialInventory.material_id == material_id)
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            row = XiuxianMaterialInventory(tg=int(tg), material_id=material_id, quantity=0)
+            session.add(row)
+        row.quantity = int(row.quantity or 0) + amount
+        row.updated_at = utcnow()
+        session.commit()
+        remaining_quantity = int(row.quantity or 0)
+
+    create_journal(
+        int(tg),
+        "gambling",
+        "兑换仙界奇石",
+        f"消耗 {total_cost} 灵石，兑换了 {amount} 枚{IMMORTAL_STONE_NAME}。",
+    )
+    profile = serialize_profile(get_profile(int(tg), create=False)) or {}
+    return {
+        "exchange_count": amount,
+        "cost_per_stone": stone_cost,
+        "total_cost_stone": total_cost,
+        "immortal_stone_quantity": remaining_quantity,
+        "immortal_stone_item": immortal_stone,
+        "profile": profile,
+    }
+
+
+def open_immortal_stones(tg: int, count: int) -> dict[str, Any]:
+    ensure_seed_data()
+    amount = max(int(count or 0), 0)
+    if amount <= 0:
+        raise ValueError("开启数量必须大于 0。")
+    settings = get_xiuxian_settings()
+    max_count = max(int(settings.get("gambling_open_max_count", DEFAULT_SETTINGS["gambling_open_max_count"]) or 0), 1)
+    if amount > max_count:
+        raise ValueError(f"单次最多只能开启 {max_count} 枚仙界奇石。")
+
+    preview_bundle = serialize_full_profile(int(tg))
+    fortune_value = int(
+        (preview_bundle.get("effective_stats") or {}).get(
+            "fortune",
+            (preview_bundle.get("profile") or {}).get("fortune", FORTUNE_BASELINE),
+        )
+        or FORTUNE_BASELINE
+    )
+    reward_pool = [
+        entry
+        for entry in _configured_gambling_pool(settings)
+        if bool(entry.get("enabled")) and int(entry.get("item_ref_id") or 0) > 0
+    ]
+    weighted_pool = [
+        {
+            **entry,
+            "effective_weight": _gambling_entry_effective_weight(entry, fortune_value, settings),
+        }
+        for entry in reward_pool
+    ]
+    weighted_pool = [entry for entry in weighted_pool if float(entry.get("effective_weight") or 0.0) > 0]
+    if not weighted_pool:
+        raise ValueError("当前赌坊奖池为空，请联系主人先配置奖励。")
+
+    drawn_entries = random.choices(
+        weighted_pool,
+        weights=[float(entry["effective_weight"]) for entry in weighted_pool],
+        k=amount,
+    )
+    immortal_stone = _immortal_stone_material()
+    immortal_stone_id = int(immortal_stone.get("id") or 0)
+    broadcast_level = max(
+        int(settings.get("gambling_broadcast_quality_level", DEFAULT_SETTINGS["gambling_broadcast_quality_level"]) or 0),
+        1,
+    )
+
+    ensure_not_in_retreat(int(tg))
+    results: list[dict[str, Any]] = []
+    with Session() as session:
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(tg)).with_for_update().first()
+        if profile is None or not profile.consented:
+            raise ValueError("请先踏入仙途后再进入赌坊。")
+        assert_profile_alive(profile, "开启仙界奇石")
+        assert_currency_operation_allowed(int(tg), "开启仙界奇石", session=session, profile=profile)
+        remaining = amount
+        rows = _ordered_owner_rows(session, XiuxianMaterialInventory, int(tg), "material_id", immortal_stone_id)
+        total_owned = sum(max(int(row.quantity or 0), 0) for row in rows)
+        if total_owned < remaining:
+            raise ValueError(f"你的{IMMORTAL_STONE_NAME}数量不足。")
+        for row in rows:
+            if remaining <= 0:
+                break
+            available = max(int(row.quantity or 0), 0)
+            if available <= 0:
+                continue
+            delta = min(available, remaining)
+            row.quantity = available - delta
+            row.updated_at = utcnow()
+            remaining -= delta
+            if row.quantity <= 0:
+                session.delete(row)
+        for entry in drawn_entries:
+            quantity = random.randint(
+                max(int(entry.get("quantity_min") or 1), 1),
+                max(int(entry.get("quantity_max") or entry.get("quantity_min") or 1), max(int(entry.get("quantity_min") or 1), 1)),
+            )
+            reward_payload = _grant_gambling_reward_in_session(
+                session,
+                int(tg),
+                str(entry.get("item_kind") or ""),
+                int(entry.get("item_ref_id") or 0),
+                quantity,
+            )
+            results.append(
+                {
+                    "item_kind": entry.get("item_kind"),
+                    "item_kind_label": entry.get("item_kind_label"),
+                    "item_ref_id": entry.get("item_ref_id"),
+                    "item_name": entry.get("item_name"),
+                    "quality_level": entry.get("quality_level"),
+                    "quality_label": entry.get("quality_label"),
+                    "quality_color": entry.get("quality_color"),
+                    "quantity": quantity,
+                    "broadcasted": int(entry.get("quality_level") or 0) >= broadcast_level,
+                    "reward": reward_payload,
+                }
+            )
+        session.commit()
+
+    summary = _format_gambling_reward_summary(results)
+    summary_text = "、".join(
+        f"[{row['quality_label']}] {row['item_name']} x{row['quantity']}"
+        for row in summary[:8]
+    )
+    if len(summary) > 8:
+        summary_text += f" 等 {len(summary)} 项"
+    create_journal(
+        int(tg),
+        "gambling",
+        "开启仙界奇石",
+        f"开启了 {amount} 枚{IMMORTAL_STONE_NAME}，获得：{summary_text or '未知奖励'}。",
+    )
+    remaining_quantity = next(
+        (
+            int(row.get("quantity") or 0)
+            for row in list_user_materials(int(tg))
+            if str(((row or {}).get("material") or {}).get("name") or "").strip() == IMMORTAL_STONE_NAME
+        ),
+        0,
+    )
+    return {
+        "opened_count": amount,
+        "remaining_immortal_stone": remaining_quantity,
+        "fortune_value": fortune_value,
+        "fortune_hint": _gambling_fortune_hint(fortune_value, settings),
+        "broadcast_quality_level": broadcast_level,
+        "results": results,
+        "summary": summary,
+        "summary_text": summary_text,
+    }
 
 
 def grant_item_to_user(tg: int, item_kind: str, item_ref_id: int, quantity: int) -> dict[str, Any]:
@@ -5445,6 +7786,49 @@ def create_foundation_pill_for_user_if_missing(tg: int) -> None:
             return
 
 
+def _grant_entry_starter_assets(tg: int) -> None:
+    ensure_seed_data()
+    starter_title = next((item for item in list_titles(enabled_only=True) if str(item.get("name") or "") == STARTER_TITLE_NAME), None)
+    starter_technique = next((item for item in list_techniques(enabled_only=True) if str(item.get("name") or "") == STARTER_TECHNIQUE_NAME), None)
+    starter_artifact = next((item for item in list_artifacts(enabled_only=True) if str(item.get("name") or "") == STARTER_ARTIFACT_NAME), None)
+
+    if starter_title is not None:
+        grant_title_to_user(
+            tg,
+            int(starter_title["id"]),
+            source="entry",
+            obtained_note="初入仙途赠礼",
+            auto_equip_if_empty=True,
+        )
+    if starter_technique is not None:
+        grant_technique_to_user(
+            tg,
+            int(starter_technique["id"]),
+            source="entry",
+            obtained_note="初入仙途赠礼",
+            auto_equip_if_empty=True,
+        )
+    if starter_artifact is not None:
+        grant_starter_artifact_once(tg, int(starter_artifact["id"]))
+
+    if starter_artifact is None:
+        return
+
+    starter_artifact_id = int(starter_artifact["id"])
+    owned_artifact_ids = {
+        int(((item.get("artifact") or {}).get("id") or 0))
+        for item in list_user_artifacts(tg)
+    }
+    if starter_artifact_id not in owned_artifact_ids:
+        return
+    equipped_artifact_ids = {
+        int(((item.get("artifact") or {}).get("id") or 0))
+        for item in list_equipped_artifacts(tg)
+    }
+    if starter_artifact_id not in equipped_artifact_ids:
+        set_equipped_artifact(tg, starter_artifact_id)
+
+
 def admin_seed_demo_assets(tg: int) -> dict[str, Any]:
     ensure_seed_data()
     first_artifact = next((item for item in list_artifacts(enabled_only=True)), None)
@@ -5485,7 +7869,8 @@ def maybe_gain_cultivation_from_chat(tg: int) -> dict[str, Any] | None:
 
     min_gain = max(int(settings.get("chat_cultivation_min_gain", DEFAULT_SETTINGS["chat_cultivation_min_gain"]) or 1), 1)
     max_gain = max(int(settings.get("chat_cultivation_max_gain", DEFAULT_SETTINGS["chat_cultivation_max_gain"]) or min_gain), min_gain)
-    gain = random.randint(min_gain, max_gain)
+    raw_gain = random.randint(min_gain, max_gain)
+    gain, gain_meta = adjust_cultivation_gain_for_social_mode(profile, raw_gain, settings=settings)
     layer, cultivation, upgraded_layers, remaining = apply_cultivation_gain(
         normalize_realm_stage(profile.realm_stage or FIRST_REALM_STAGE),
         int(profile.realm_layer or 1),
@@ -5500,6 +7885,8 @@ def maybe_gain_cultivation_from_chat(tg: int) -> dict[str, Any] | None:
     _apply_profile_growth_floor(tg)
     return {
         "gain": gain,
+        "gain_raw": raw_gain,
+        "cultivation_efficiency_percent": int(gain_meta.get("efficiency_percent") or 100),
         "upgraded_layers": upgraded_layers,
         "remaining": remaining,
         "profile": serialize_profile(get_profile(updated.tg, create=False)),
@@ -5513,6 +7900,280 @@ def broadcast_shop_copy(seller_name: str, shop_name: str, item_name: str, price_
         f"💰 售价：{price_stone} 灵石\n"
         "🛍️ 感兴趣的道友可以前往修仙面板查看。"
     )
+
+
+def _immortal_stone_material() -> dict[str, Any]:
+    ensure_seed_data()
+    material = next(
+        (row for row in list_materials(enabled_only=True) if str(row.get("name") or "").strip() == IMMORTAL_STONE_NAME),
+        None,
+    )
+    if material is None:
+        raise ValueError(f"未找到特殊材料【{IMMORTAL_STONE_NAME}】。")
+    return material
+
+
+def _item_quality_level(kind: str, item: dict[str, Any]) -> int:
+    if kind == "material":
+        return int(item.get("quality_level") or 1)
+    return int(get_quality_meta(item.get("rarity")).get("level") or 1)
+
+
+def _resolve_gambling_reward_item(
+    item_kind: str,
+    *,
+    item_ref_id: int | None = None,
+    item_name: str | None = None,
+) -> dict[str, Any] | None:
+    kind = str(item_kind or "").strip()
+    ref_id = int(item_ref_id or 0) or None
+    target_name = str(item_name or "").strip()
+    if kind not in GAMBLING_SUPPORTED_ITEM_KINDS:
+        return None
+
+    rows = {
+        "artifact": list_artifacts(enabled_only=True),
+        "pill": list_pills(enabled_only=True),
+        "talisman": list_talismans(enabled_only=True),
+        "material": list_materials(enabled_only=True),
+    }.get(kind, [])
+    row = None
+    if ref_id:
+        row = next((item for item in rows if int(item.get("id") or 0) == ref_id), None)
+    if row is None and target_name:
+        row = next((item for item in rows if str(item.get("name") or "").strip() == target_name), None)
+    if row is None:
+        return None
+    quality_level = _item_quality_level(kind, row)
+    quality = get_quality_meta(quality_level)
+    return {
+        "item_kind": kind,
+        "item_kind_label": ITEM_KIND_LABELS.get(kind, kind),
+        "item_ref_id": int(row.get("id") or 0),
+        "item_name": str(row.get("name") or "").strip(),
+        "quality_level": int(quality["level"]),
+        "quality_label": str(quality["label"]),
+        "quality_color": str(quality["color"]),
+        "item": row,
+    }
+
+
+def _default_gambling_quality_weight_rules() -> dict[str, dict[str, float]]:
+    defaults = DEFAULT_SETTINGS.get("gambling_quality_weight_rules") or {}
+    result: dict[str, dict[str, float]] = {}
+    for quality_label, payload in defaults.items():
+        result[str(quality_label)] = {
+            "weight_multiplier": max(float((payload or {}).get("weight_multiplier", 1.0) or 0.0), 0.0),
+        }
+    return result
+
+
+def _normalize_gambling_quality_weight_rules(raw: Any) -> dict[str, dict[str, float]]:
+    defaults = _default_gambling_quality_weight_rules()
+    rows = raw if isinstance(raw, dict) else {}
+    result: dict[str, dict[str, float]] = {}
+    for quality_label in defaults:
+        payload = rows.get(quality_label) if isinstance(rows.get(quality_label), dict) else {}
+        result[quality_label] = {
+            "weight_multiplier": max(
+                float(payload.get("weight_multiplier", defaults[quality_label]["weight_multiplier"]) or 0.0),
+                0.0,
+            ),
+        }
+    return result
+
+
+def _normalize_gambling_reward_pool(raw: Any) -> list[dict[str, Any]]:
+    entries = raw if isinstance(raw, list) else []
+    normalized: list[dict[str, Any]] = []
+    for entry in entries:
+        payload = entry if isinstance(entry, dict) else {}
+        item_kind = str(payload.get("item_kind") or "").strip()
+        item_name = str(payload.get("item_name") or "").strip() or None
+        item_ref_id = _coerce_int(payload.get("item_ref_id"), 0) or None
+        resolved = _resolve_gambling_reward_item(item_kind, item_ref_id=item_ref_id, item_name=item_name)
+        invalid_reason = ""
+        if item_kind not in GAMBLING_SUPPORTED_ITEM_KINDS:
+            invalid_reason = "不支持的物品类型"
+        elif resolved is None:
+            invalid_reason = "未找到对应物品"
+        elif str((resolved or {}).get("item_name") or "").strip() == IMMORTAL_STONE_NAME:
+            invalid_reason = "仙界奇石不能作为自身奖池奖励"
+            resolved = None
+
+        quality_level = int((resolved or {}).get("quality_level") or get_quality_meta(payload.get("quality_level")).get("level") or 1)
+        quality = get_quality_meta(quality_level)
+        quantity_min = max(_coerce_int(payload.get("quantity_min"), 1, 1), 1)
+        quantity_max = max(_coerce_int(payload.get("quantity_max"), quantity_min, quantity_min), quantity_min)
+        normalized.append(
+            {
+                "item_kind": item_kind if item_kind in GAMBLING_SUPPORTED_ITEM_KINDS else "material",
+                "item_kind_label": ITEM_KIND_LABELS.get(item_kind, item_kind or "材料"),
+                "item_ref_id": int((resolved or {}).get("item_ref_id") or 0) or None,
+                "item_name": str((resolved or {}).get("item_name") or item_name or "").strip() or None,
+                "quality_level": int(quality["level"]),
+                "quality_label": str(quality["label"]),
+                "quality_color": str(quality["color"]),
+                "quantity_min": quantity_min,
+                "quantity_max": quantity_max,
+                "base_weight": max(float(payload.get("base_weight", 1.0) or 0.0), 0.0),
+                "enabled": bool(payload.get("enabled", True)) and not invalid_reason,
+                "invalid_reason": invalid_reason,
+            }
+        )
+    return normalized
+
+
+def _configured_gambling_pool(settings: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    current = settings or get_xiuxian_settings()
+    return _normalize_gambling_reward_pool(current.get("gambling_reward_pool"))
+
+
+def _gambling_entry_effective_weight(entry: dict[str, Any], fortune_value: int | float, settings: dict[str, Any]) -> float:
+    if not bool(entry.get("enabled")):
+        return 0.0
+    quality_label = str(entry.get("quality_label") or get_quality_meta(entry.get("quality_level")).get("label") or "凡品")
+    quality_level = int(entry.get("quality_level") or get_quality_meta(quality_label).get("level") or 1)
+    quality_rules = _normalize_gambling_quality_weight_rules(settings.get("gambling_quality_weight_rules"))
+    base_weight = max(float(entry.get("base_weight") or 0.0), 0.0)
+    quality_multiplier = max(float((quality_rules.get(quality_label) or {}).get("weight_multiplier", 1.0) or 0.0), 0.0)
+    if base_weight <= 0 or quality_multiplier <= 0:
+        return 0.0
+    fortune_gap = max(float(fortune_value or 0.0) - float(FORTUNE_BASELINE), 0.0)
+    fortune_divisor = max(int(settings.get("gambling_fortune_divisor", DEFAULT_SETTINGS["gambling_fortune_divisor"]) or 1), 1)
+    bonus_percent = max(
+        int(
+            settings.get(
+                "gambling_fortune_bonus_per_quality_percent",
+                DEFAULT_SETTINGS["gambling_fortune_bonus_per_quality_percent"],
+            )
+            or 0
+        ),
+        0,
+    )
+    rare_steps = max(quality_level - 1, 0)
+    fortune_multiplier = 1.0 + min((fortune_gap / fortune_divisor) * rare_steps * (bonus_percent / 100.0), 5.0)
+    return base_weight * quality_multiplier * fortune_multiplier
+
+
+def _gambling_fortune_hint(fortune_value: int | float, settings: dict[str, Any]) -> str:
+    fortune_gap = max(float(fortune_value or 0.0) - float(FORTUNE_BASELINE), 0.0)
+    if fortune_gap <= 0:
+        return "当前机缘未触发额外稀有加成。"
+    divisor = max(int(settings.get("gambling_fortune_divisor", DEFAULT_SETTINGS["gambling_fortune_divisor"]) or 1), 1)
+    bonus_percent = max(
+        int(
+            settings.get(
+                "gambling_fortune_bonus_per_quality_percent",
+                DEFAULT_SETTINGS["gambling_fortune_bonus_per_quality_percent"],
+            )
+            or 0
+        ),
+        0,
+    )
+    top_bonus = min((fortune_gap / divisor) * 6 * bonus_percent, 500)
+    return f"当前机缘可为高品阶奖励额外提供约 {round(top_bonus, 1)}% 权重加成。"
+
+
+def _grant_gambling_reward_in_session(
+    session: Session,
+    tg: int,
+    item_kind: str,
+    item_ref_id: int,
+    quantity: int,
+) -> dict[str, Any]:
+    def _get_or_create_inventory_row(model_cls, ref_field: str, **defaults: Any):
+        for pending in session.new:
+            if not isinstance(pending, model_cls):
+                continue
+            if int(getattr(pending, "tg", 0) or 0) != int(tg):
+                continue
+            if int(getattr(pending, ref_field, 0) or 0) != int(item_ref_id):
+                continue
+            return pending
+        row = (
+            session.query(model_cls)
+            .filter(model_cls.tg == int(tg), getattr(model_cls, ref_field) == int(item_ref_id))
+            .with_for_update()
+            .first()
+        )
+        if row is not None:
+            return row
+        row = model_cls(tg=int(tg), **{ref_field: int(item_ref_id)}, **defaults)
+        session.add(row)
+        return row
+
+    amount = max(int(quantity or 0), 1)
+    if item_kind == "artifact":
+        row = _get_or_create_inventory_row(
+            XiuxianArtifactInventory,
+            "artifact_id",
+            quantity=0,
+            bound_quantity=0,
+        )
+        row.quantity = int(row.quantity or 0) + amount
+        row.updated_at = utcnow()
+        return {"artifact": serialize_artifact(get_artifact(int(item_ref_id))), "quantity": amount}
+    if item_kind == "pill":
+        row = _get_or_create_inventory_row(
+            XiuxianPillInventory,
+            "pill_id",
+            quantity=0,
+        )
+        row.quantity = int(row.quantity or 0) + amount
+        row.updated_at = utcnow()
+        return {"pill": serialize_pill(get_pill(int(item_ref_id))), "quantity": amount}
+    if item_kind == "talisman":
+        row = _get_or_create_inventory_row(
+            XiuxianTalismanInventory,
+            "talisman_id",
+            quantity=0,
+            bound_quantity=0,
+        )
+        row.quantity = int(row.quantity or 0) + amount
+        row.updated_at = utcnow()
+        return {"talisman": serialize_talisman(get_talisman(int(item_ref_id))), "quantity": amount}
+    if item_kind == "material":
+        row = _get_or_create_inventory_row(
+            XiuxianMaterialInventory,
+            "material_id",
+            quantity=0,
+        )
+        row.quantity = int(row.quantity or 0) + amount
+        row.updated_at = utcnow()
+        return {"material": serialize_material(get_material(int(item_ref_id))), "quantity": amount}
+    raise ValueError("当前奖池仅支持法宝、丹药、符箓和材料。")
+
+
+def _format_gambling_reward_summary(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    summary_map: dict[tuple[str, int], dict[str, Any]] = {}
+    for row in results:
+        key = (str(row.get("item_kind") or ""), int(row.get("item_ref_id") or 0))
+        current = summary_map.get(key)
+        if current is None:
+            current = {
+                "item_kind": row.get("item_kind"),
+                "item_kind_label": row.get("item_kind_label"),
+                "item_ref_id": row.get("item_ref_id"),
+                "item_name": row.get("item_name"),
+                "quality_level": row.get("quality_level"),
+                "quality_label": row.get("quality_label"),
+                "quality_color": row.get("quality_color"),
+                "quantity": 0,
+                "broadcasted": False,
+            }
+            summary_map[key] = current
+        current["quantity"] = int(current.get("quantity") or 0) + int(row.get("quantity") or 0)
+        current["broadcasted"] = bool(current.get("broadcasted")) or bool(row.get("broadcasted"))
+    summary = list(summary_map.values())
+    summary.sort(
+        key=lambda item: (
+            -int(item.get("quality_level") or 0),
+            -int(item.get("quantity") or 0),
+            str(item.get("item_name") or ""),
+        )
+    )
+    return summary
 
 
 def convert_emby_coin_to_stone(tg: int, amount: int) -> dict[str, Any]:
@@ -5537,12 +8198,9 @@ def search_xiuxian_players(
     query: str | None = None,
     page: int = 1,
     page_size: int = 20,
+    include_secluded: bool = True,
 ) -> dict[str, Any]:
-    return search_profiles(query=query, page=page, page_size=page_size)
-
-
-def admin_migrate_all_profile_realms(preview_limit: int = 20) -> dict[str, Any]:
-    return migrate_all_profile_realms(preview_limit=preview_limit)
+    return search_profiles(query=query, page=page, page_size=page_size, include_secluded=include_secluded)
 
 
 def admin_clear_all_xiuxian_data() -> dict[str, Any]:
@@ -5745,8 +8403,8 @@ def _battle_bundle(bundle_or_profile: dict[str, Any], opponent_profile: dict[str
     stats = _effective_stats(profile, artifact_effects, talisman_effects, sect_effects, technique_effects, title_effects)
 
     stage_index = max(realm_index(profile.get("realm_stage")), 0)
-    layer = max(int(profile.get("realm_layer") or 0), 1)
-    realm_score = 220 + stage_index * 260 + layer * 36
+    layer, progress_ratio, _ = _profile_layer_progress(profile)
+    realm_score = 220 + stage_index * 260 + (layer + progress_ratio) * 36
     attribute_score = (
         stats["bone"] * 8.0
         + stats["comprehension"] * 8.5
@@ -5807,6 +8465,10 @@ def serialize_full_profile(tg: int) -> dict[str, Any]:
     }
     bundle["combat_power"] = int(round(battle["power"]))
     bundle["commissions"] = build_spirit_stone_commissions(tg)
+    bundle["mentorship"] = build_mentorship_overview(tg, bundle=bundle)
+    bundle["marriage"] = build_marriage_overview(tg, bundle=bundle)
+    bundle["capabilities"]["shared_inventory_enabled"] = bool((bundle.get("marriage") or {}).get("shared_assets_enabled"))
+    bundle["capabilities"]["shared_inventory_note"] = str((bundle.get("marriage") or {}).get("shared_assets_hint") or "")
     for entry in bundle.get("attribute_effects") or []:
         key = str(entry.get("key") or "")
         if key in bundle["effective_stats"]:
@@ -6045,6 +8707,10 @@ def init_path_for_user(tg: int) -> dict[str, Any]:
 
     is_rebirth = bool(profile and profile.death_at is not None)
     if is_rebirth:
+        rebirth_cooldown = _rebirth_cooldown_state(profile)
+        if rebirth_cooldown["blocked"]:
+            raise ValueError(rebirth_cooldown["reason"])
+    if is_rebirth:
         with Session() as session:
             session.query(XiuxianExploration).filter(
                 XiuxianExploration.tg == int(tg),
@@ -6053,6 +8719,7 @@ def init_path_for_user(tg: int) -> dict[str, Any]:
             session.query(XiuxianTaskClaim).filter(
                 XiuxianTaskClaim.tg == int(tg),
             ).delete(synchronize_session=False)
+            _end_marriage_for_user(session, tg)
             session.commit()
 
     root_payload = generate_root_payload()
@@ -6072,10 +8739,12 @@ def init_path_for_user(tg: int) -> dict[str, Any]:
         realm_layer=1,
         cultivation=0,
         spiritual_stone=50,
+        gender=None,
         dan_poison=0,
         master_tg=None,
         servitude_started_at=None,
         servitude_challenge_available_at=None,
+        furnace_harvested_at=None,
         death_at=None,
         sect_id=None,
         sect_role_key=None,
@@ -6101,6 +8770,7 @@ def init_path_for_user(tg: int) -> dict[str, Any]:
         rebirth_count=int(profile.rebirth_count or 0) + (1 if is_rebirth else 0),
         **stats,
     )
+    _grant_entry_starter_assets(tg)
     return serialize_full_profile(tg)
 
 
@@ -6127,27 +8797,52 @@ def practice_for_user(tg: int) -> dict[str, Any]:
     base_gain = random.randint(int(stage_rule["practice_gain_min"]), int(stage_rule["practice_gain_max"]))
     gain = int(round((base_gain + stats["bone"] * 0.55 + stats["comprehension"] * 0.75 + stats["cultivation_bonus"]) * quality["cultivation_rate"] * max(0.55, 1 - poison_penalty)))
     gain = max(gain, max(int(stage_rule["practice_gain_min"] * 0.6), 8))
+    raw_gain = gain
     stone_gain = (
         random.randint(int(stage_rule["practice_stone_min"]), int(stage_rule["practice_stone_max"]))
         + int(stats["fortune"] // 8)
         + int(stats["charisma"] // 10)
     )
     activity_growth = {"triggered": False, "changes": [], "patch": {}, "chance": 0, "roll": None}
-    layer, cultivation, upgraded_layers, remaining = apply_cultivation_gain(stage, int(profile.realm_layer or 1), int(profile.cultivation or 0), gain)
+    cultivation_meta = {
+        "base_gain": raw_gain,
+        "effective_gain": raw_gain,
+        "efficiency_percent": 100,
+        "reduced": False,
+    }
+    layer = int(profile.realm_layer or 1)
+    cultivation = int(profile.cultivation or 0)
+    upgraded_layers: list[int] = []
+    remaining = 0
     with Session() as session:
         updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if updated is None or not updated.consented:
             raise ValueError("你还没有踏入仙途。")
+        if _is_retreating(updated):
+            raise ValueError("闭关期间无法吐纳修炼。")
+        now = utcnow()
+        # 再次在行锁内校验，避免双击或并发请求绕过“每日一次”的限制。
+        if is_same_china_day(updated.last_train_at, now):
+            raise ValueError("今日已经完成过吐纳修炼了。")
+        gain, cultivation_meta = adjust_cultivation_gain_for_social_mode(updated, raw_gain)
+        layer, cultivation, upgraded_layers, remaining = apply_cultivation_gain(
+            normalize_realm_stage(updated.realm_stage or FIRST_REALM_STAGE),
+            int(updated.realm_layer or 1),
+            int(updated.cultivation or 0),
+            gain,
+        )
         apply_spiritual_stone_delta(session, tg, stone_gain, action_text="获取吐纳灵石", allow_dead=False, apply_tribute=True)
         updated.cultivation = cultivation
         updated.realm_layer = layer
-        updated.last_train_at = utcnow()
+        updated.last_train_at = now
         activity_growth = _apply_activity_stat_growth_to_profile_row(updated, "practice", stats)
-        updated.updated_at = utcnow()
+        updated.updated_at = now
         session.commit()
     _apply_profile_growth_floor(tg)
     return {
         "gain": gain,
+        "gain_raw": raw_gain,
+        "cultivation_efficiency_percent": int(cultivation_meta.get("efficiency_percent") or 100),
         "stone_gain": stone_gain,
         "attribute_growth": activity_growth.get("changes") or [],
         "upgraded_layers": upgraded_layers,
@@ -6864,9 +9559,11 @@ def _normalize_duel_mode(raw: str | None) -> str:
         "standard": "standard",
         "normal": "standard",
         "master": "master",
+        "furnace": "master",
         "slave": "master",
         "servant": "master",
         "主仆": "master",
+        "炉鼎": "master",
         "death": "death",
         "dead": "death",
         "生死": "death",
@@ -6890,6 +9587,198 @@ def _slave_cooldown_delta() -> timedelta:
     return timedelta(hours=hours)
 
 
+def _furnace_harvest_percent(settings: dict[str, Any] | None = None) -> int:
+    source = settings or get_xiuxian_settings()
+    return max(
+        min(int(source.get("furnace_harvest_cultivation_percent", DEFAULT_SETTINGS["furnace_harvest_cultivation_percent"]) or 0), 100),
+        0,
+    )
+
+
+def _profile_optional_datetime_value(profile: XiuxianProfile | dict[str, Any] | None, field: str) -> datetime | None:
+    if profile is None:
+        return None
+    raw = profile.get(field) if isinstance(profile, dict) else getattr(profile, field, None)
+    if isinstance(raw, datetime):
+        return raw
+    return _parse_optional_datetime(raw)
+
+
+def _rebirth_cooldown_state(
+    profile: XiuxianProfile | dict[str, Any] | None,
+    settings: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    source = settings or get_xiuxian_settings()
+    enabled = bool(source.get("rebirth_cooldown_enabled", DEFAULT_SETTINGS["rebirth_cooldown_enabled"]))
+    base_hours = min(
+        max(_coerce_int(source.get("rebirth_cooldown_base_hours"), DEFAULT_SETTINGS["rebirth_cooldown_base_hours"], 0), 0),
+        8760,
+    )
+    increment_hours = min(
+        max(
+            _coerce_int(
+                source.get("rebirth_cooldown_increment_hours"),
+                DEFAULT_SETTINGS["rebirth_cooldown_increment_hours"],
+                0,
+            ),
+            0,
+        ),
+        8760,
+    )
+    rebirth_count = 0
+    if profile is not None:
+        rebirth_count = int((profile.get("rebirth_count") if isinstance(profile, dict) else getattr(profile, "rebirth_count", 0)) or 0)
+    death_at = _profile_optional_datetime_value(profile, "death_at")
+    configured_cooldown_hours = max(base_hours + rebirth_count * increment_hours, 0) if death_at is not None else 0
+    cooldown_hours = configured_cooldown_hours if enabled else 0
+    available_at = death_at + timedelta(hours=cooldown_hours) if death_at is not None and cooldown_hours > 0 else None
+    now = datetime.now(available_at.tzinfo) if available_at is not None and available_at.tzinfo is not None else utcnow()
+    remaining_seconds = max(int((available_at - now).total_seconds()), 0) if available_at is not None else 0
+    blocked = bool(enabled and death_at is not None and cooldown_hours > 0 and remaining_seconds > 0)
+    reason = ""
+    if blocked and available_at is not None:
+        reason = (
+            f"转世重修冷却中，还需等待 {_format_countdown(timedelta(seconds=remaining_seconds))}，"
+            f"预计 {serialize_datetime(available_at) or '稍后'} 后可重新踏入仙途。"
+        )
+    return {
+        "enabled": enabled,
+        "base_hours": base_hours,
+        "increment_hours": increment_hours,
+        "cooldown_hours": cooldown_hours,
+        "started_at": serialize_datetime(death_at),
+        "available_at": serialize_datetime(available_at),
+        "remaining_seconds": remaining_seconds,
+        "blocked": blocked,
+        "reason": reason,
+    }
+
+
+def _profile_is_dead(profile: XiuxianProfile | dict[str, Any] | None) -> bool:
+    return _profile_optional_datetime_value(profile, "death_at") is not None
+
+
+def _profile_retreating_state(profile: XiuxianProfile | dict[str, Any] | None) -> bool:
+    if profile is None:
+        return False
+    if isinstance(profile, dict):
+        return bool(
+            profile.get("retreat_started_at")
+            and profile.get("retreat_end_at")
+            and int(profile.get("retreat_minutes_total") or 0) > int(profile.get("retreat_minutes_resolved") or 0)
+        )
+    return _is_retreating(profile)
+
+
+def _profile_realm_layer_value(profile: XiuxianProfile | dict[str, Any] | None) -> int:
+    if profile is None:
+        return 1
+    raw = profile.get("realm_layer") if isinstance(profile, dict) else getattr(profile, "realm_layer", 1)
+    return max(int(raw or 1), 1)
+
+
+def _profile_cultivation_threshold(profile: XiuxianProfile | dict[str, Any] | None) -> int:
+    if isinstance(profile, dict):
+        stage = normalize_realm_stage(profile.get("realm_stage") or FIRST_REALM_STAGE)
+    else:
+        stage = normalize_realm_stage(getattr(profile, "realm_stage", None) or FIRST_REALM_STAGE)
+    return cultivation_threshold(stage, _profile_realm_layer_value(profile))
+
+
+def _furnace_harvest_preview(
+    owner_profile: XiuxianProfile | dict[str, Any] | None,
+    furnace_profile: XiuxianProfile | dict[str, Any] | None,
+    settings: dict[str, Any] | None = None,
+) -> dict[str, int]:
+    percent = _furnace_harvest_percent(settings)
+    owner_threshold = _profile_cultivation_threshold(owner_profile)
+    furnace_threshold = _profile_cultivation_threshold(furnace_profile)
+    if isinstance(furnace_profile, dict):
+        furnace_current = max(int(furnace_profile.get("cultivation") or 0), 0)
+    else:
+        furnace_current = max(int(getattr(furnace_profile, "cultivation", 0) or 0), 0)
+    furnace_loss = 0
+    if percent > 0 and furnace_current > 0:
+        furnace_loss = max(int(round(furnace_current * percent / 100)), 1)
+        furnace_loss = min(furnace_loss, furnace_current)
+    master_gain_raw = 0
+    if furnace_loss > 0:
+        master_gain_raw = max(int(round(furnace_loss * owner_threshold / max(furnace_threshold, 1))), 1)
+    return {
+        "harvest_percent": percent,
+        "owner_threshold": owner_threshold,
+        "furnace_threshold": furnace_threshold,
+        "furnace_current": furnace_current,
+        "furnace_loss": furnace_loss,
+        "master_gain_raw": master_gain_raw,
+    }
+
+
+def _furnace_harvest_reason(
+    owner_profile: XiuxianProfile | dict[str, Any] | None,
+    furnace_profile: XiuxianProfile | dict[str, Any] | None,
+    settings: dict[str, Any] | None = None,
+    now: datetime | None = None,
+) -> str:
+    if owner_profile is None or furnace_profile is None:
+        return "当前没有可采补的炉鼎。"
+    if isinstance(owner_profile, dict):
+        owner_tg = int(owner_profile.get("tg") or 0)
+    else:
+        owner_tg = int(getattr(owner_profile, "tg", 0) or 0)
+    if isinstance(furnace_profile, dict):
+        furnace_master_tg = int(furnace_profile.get("master_tg") or 0)
+    else:
+        furnace_master_tg = int(getattr(furnace_profile, "master_tg", 0) or 0)
+    furnace_name = _profile_display_label(furnace_profile, "该炉鼎")
+    if owner_tg <= 0 or furnace_master_tg != owner_tg:
+        return f"{furnace_name} 并非你的炉鼎。"
+    if _profile_is_dead(owner_profile):
+        return "角色已死亡，只能重新踏出仙途。"
+    if _profile_is_dead(furnace_profile):
+        return f"{furnace_name} 当前已身死道消，无法继续采补。"
+    if _profile_retreating_state(owner_profile):
+        return "闭关期间无法采补炉鼎。"
+    if _profile_retreating_state(furnace_profile):
+        return f"{furnace_name} 正在闭关，暂时无法采补。"
+    try:
+        assert_social_action_allowed(owner_profile, furnace_profile, "采补")
+    except ValueError as exc:
+        return str(exc)
+    if _furnace_harvest_percent(settings) <= 0:
+        return "当前炉鼎采补比例为 0%，已被后台关闭。"
+    timestamp = _profile_optional_datetime_value(furnace_profile, "furnace_harvested_at")
+    current_time = now or utcnow()
+    if is_same_china_day(timestamp, current_time):
+        return "今日已经对这名炉鼎采补过了。"
+    preview = _furnace_harvest_preview(owner_profile, furnace_profile, settings=settings)
+    if preview["furnace_current"] <= 0 or preview["furnace_loss"] <= 0 or preview["master_gain_raw"] <= 0:
+        return f"{furnace_name} 当前修为过低，暂无可采补收益。"
+    return ""
+
+
+def _decorate_furnace_profile_for_owner(
+    owner_profile: dict[str, Any],
+    furnace_profile: dict[str, Any],
+    settings: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload = dict(furnace_profile or {})
+    preview = _furnace_harvest_preview(owner_profile, payload, settings=settings)
+    reason = _furnace_harvest_reason(owner_profile, payload, settings=settings)
+    payload.update(
+        {
+            "can_harvest_today": not reason,
+            "harvest_reason": reason,
+            "estimated_harvest_gain": preview["master_gain_raw"],
+            "estimated_harvest_loss": preview["furnace_loss"],
+            "harvest_percent": preview["harvest_percent"],
+            "realm_text": f"{payload.get('realm_stage') or FIRST_REALM_STAGE}{_profile_realm_layer_value(payload)}层",
+            "furnace_relation_label": "炉鼎",
+        }
+    )
+    return payload
+
+
 def _validate_duel_mode(duel: dict[str, Any], duel_mode: str) -> dict[str, Any]:
     challenger_profile = duel["challenger"]["profile"]
     defender_profile = duel["defender"]["profile"]
@@ -6906,23 +9795,23 @@ def _validate_duel_mode(duel: dict[str, Any], duel_mode: str) -> dict[str, Any]:
     challenger_master = int(challenger_profile.get("master_tg") or 0)
     defender_master = int(defender_profile.get("master_tg") or 0)
     if challenger_master and challenger_master != defender_tg:
-        raise ValueError("你已是他人奴仆，只能向自己的主人发起赎身挑战。")
+        raise ValueError("你已是他人炉鼎，只能向自己的主人发起脱离挑战。")
     if defender_master and defender_master != challenger_tg:
-        raise ValueError("对方已归于他人麾下，无法再发起新的主仆对决。")
+        raise ValueError("对方已归于他人名下，无法再发起新的炉鼎对决。")
     if challenger_master == defender_tg:
         available = _parse_optional_datetime(challenger_profile.get("servitude_challenge_available_at"))
         if available and available > utcnow():
             remaining = available - utcnow()
             hours = max(int(remaining.total_seconds() // 3600), 0)
             minutes = max(int((remaining.total_seconds() % 3600) // 60), 0)
-            raise ValueError(f"赎身挑战冷却中，还需约 {hours} 小时 {minutes} 分钟。")
+            raise ValueError(f"脱离挑战冷却中，还需约 {hours} 小时 {minutes} 分钟。")
         context["break_free_tg"] = challenger_tg
         context["owner_tg"] = defender_tg
         return context
     if defender_master == challenger_tg:
-        raise ValueError("主人无需再次发起主仆对决，等待奴仆自行挑战即可。")
+        raise ValueError("主人无需再次发起炉鼎对决，等待炉鼎自行挑战即可。")
     if challenger_master or defender_master:
-        raise ValueError("主仆对决只允许自由身之间对决，或奴仆向主人发起赎身挑战。")
+        raise ValueError("炉鼎对决只允许自由身之间对决，或炉鼎向主人发起脱离挑战。")
     return context
 
 
@@ -6933,10 +9822,10 @@ def _duel_mode_preview_lines(duel: dict[str, Any], duel_mode: str) -> list[str]:
     if mode == "master":
         if int(challenger_profile.get("master_tg") or 0) == int(defender_profile["tg"]):
             return [
-                "⛓️ 赎身挑战：奴仆胜，则立即摆脱主仆印记；主人胜，则延长下一次强制挑战冷却。",
+                "⛓️ 脱离挑战：炉鼎胜，则立即摆脱炉鼎印记；主人胜，则延长下一次强制挑战冷却。",
             ]
         return [
-            "⛓️ 主仆对决：败者将被烙上主仆印记，名帖公开归属，后续灵石收益按后台比例上供。",
+            "⛓️ 炉鼎对决：败者将被烙上炉鼎印记，名帖公开归属，后续灵石收益按后台比例上供。",
         ]
     if mode == "death":
         return [
@@ -7038,6 +9927,7 @@ def compute_duel_odds(challenger_tg: int, defender_tg: int, duel_mode: str = "st
         raise ValueError("斗法双方都必须已经踏入仙途。")
     assert_profile_alive(challenger_profile, "发起斗法")
     assert_profile_alive(defender_profile, "应战斗法")
+    assert_social_action_allowed(challenger_profile, defender_profile, "斗法")
 
     challenger_state = _battle_bundle(challenger, defender_profile)
     defender_state = _battle_bundle(defender, challenger_profile)
@@ -7123,6 +10013,7 @@ def _clear_servitude_marks(row: XiuxianProfile) -> None:
     row.master_tg = None
     row.servitude_started_at = None
     row.servitude_challenge_available_at = None
+    row.furnace_harvested_at = None
 
 
 def _reassign_slave_roster(session: Session, from_master_tg: int, to_master_tg: int) -> list[int]:
@@ -7135,6 +10026,7 @@ def _reassign_slave_roster(session: Session, from_master_tg: int, to_master_tg: 
     reassigned: list[int] = []
     for row in rows:
         row.master_tg = int(to_master_tg)
+        row.furnace_harvested_at = None
         row.updated_at = utcnow()
         reassigned.append(int(row.tg))
     return reassigned
@@ -7143,8 +10035,32 @@ def _reassign_slave_roster(session: Session, from_master_tg: int, to_master_tg: 
 def _transfer_inventory_rows(session: Session, model_cls, ref_field: str, loser_tg: int, winner_tg: int) -> None:
     rows = session.query(model_cls).filter(model_cls.tg == int(loser_tg)).with_for_update().all()
     ref_column = getattr(model_cls, ref_field)
+    protected_starter_artifact_id = None
+    protect_starter_artifact = False
+    if model_cls is XiuxianArtifactInventory and ref_field == "artifact_id":
+        starter_artifact = session.query(XiuxianArtifact.id).filter(XiuxianArtifact.name == STARTER_ARTIFACT_NAME).first()
+        protected_starter_artifact_id = int(starter_artifact[0]) if starter_artifact else None
+        protect_starter_artifact = bool(protected_starter_artifact_id and starter_artifact_protection_active(loser_tg))
     for row in rows:
         ref_id = int(getattr(row, ref_field))
+        total_quantity = max(int(getattr(row, "quantity", 0) or 0), 0)
+        total_bound_quantity = 0
+        if hasattr(row, "bound_quantity"):
+            total_bound_quantity = max(min(int(getattr(row, "bound_quantity", 0) or 0), total_quantity), 0)
+        retained_quantity = 0
+        retained_bound_quantity = 0
+        if protect_starter_artifact and int(ref_id) == int(protected_starter_artifact_id or 0):
+            retained_quantity = min(total_quantity, 1)
+            retained_bound_quantity = min(total_bound_quantity, retained_quantity)
+        transfer_quantity = max(total_quantity - retained_quantity, 0)
+        transfer_bound_quantity = max(total_bound_quantity - retained_bound_quantity, 0)
+        if transfer_quantity <= 0:
+            if retained_quantity > 0:
+                row.quantity = retained_quantity
+                if hasattr(row, "bound_quantity"):
+                    row.bound_quantity = retained_bound_quantity
+                row.updated_at = utcnow()
+            continue
         existing = (
             session.query(model_cls)
             .filter(model_cls.tg == int(winner_tg), ref_column == ref_id)
@@ -7152,14 +10068,37 @@ def _transfer_inventory_rows(session: Session, model_cls, ref_field: str, loser_
             .first()
         )
         if existing is None:
-            row.tg = int(winner_tg)
-            row.updated_at = utcnow()
+            if retained_quantity > 0:
+                transfer_payload = {
+                    "tg": int(winner_tg),
+                    ref_field: ref_id,
+                    "quantity": transfer_quantity,
+                }
+                if hasattr(row, "bound_quantity"):
+                    transfer_payload["bound_quantity"] = transfer_bound_quantity
+                session.add(model_cls(**transfer_payload))
+                row.quantity = retained_quantity
+                if hasattr(row, "bound_quantity"):
+                    row.bound_quantity = retained_bound_quantity
+                row.updated_at = utcnow()
+            else:
+                row.tg = int(winner_tg)
+                row.quantity = transfer_quantity
+                if hasattr(row, "bound_quantity"):
+                    row.bound_quantity = transfer_bound_quantity
+                row.updated_at = utcnow()
             continue
-        existing.quantity = int(existing.quantity or 0) + int(row.quantity or 0)
+        existing.quantity = int(existing.quantity or 0) + transfer_quantity
         if hasattr(existing, "bound_quantity"):
-            existing.bound_quantity = int(getattr(existing, "bound_quantity", 0) or 0) + int(getattr(row, "bound_quantity", 0) or 0)
+            existing.bound_quantity = int(getattr(existing, "bound_quantity", 0) or 0) + transfer_bound_quantity
         existing.updated_at = utcnow()
-        session.delete(row)
+        if retained_quantity > 0:
+            row.quantity = retained_quantity
+            if hasattr(row, "bound_quantity"):
+                row.bound_quantity = retained_bound_quantity
+            row.updated_at = utcnow()
+        else:
+            session.delete(row)
 
 
 def _transfer_user_knowledge(session: Session, model_cls, ref_field: str, loser_tg: int, winner_tg: int) -> None:
@@ -7180,8 +10119,10 @@ def _transfer_user_knowledge(session: Session, model_cls, ref_field: str, loser_
         session.delete(row)
 
 
-def _mark_profile_dead(row: XiuxianProfile) -> None:
+def _mark_profile_dead(session: Session, row: XiuxianProfile) -> None:
+    _end_marriage_for_user(session, int(row.tg or 0), ended_at=utcnow())
     row.consented = False
+    row.gender = None
     row.root_type = None
     row.root_primary = None
     row.root_secondary = None
@@ -7251,6 +10192,7 @@ def _apply_master_duel_outcome(
     loser.master_tg = int(winner_tg)
     loser.servitude_started_at = now
     loser.servitude_challenge_available_at = cooldown_until
+    loser.furnace_harvested_at = None
     loser.updated_at = now
     inherited_slaves = _reassign_slave_roster(session, int(loser_tg), int(winner_tg))
     return {
@@ -7282,7 +10224,7 @@ def _apply_death_duel_outcome(session: Session, winner_tg: int, loser_tg: int) -
     _transfer_user_knowledge(session, XiuxianUserTechnique, "technique_id", loser_tg, winner_tg)
     inherited_slaves = _reassign_slave_roster(session, loser_tg, winner_tg)
     session.query(XiuxianEquippedArtifact).filter(XiuxianEquippedArtifact.tg == int(loser_tg)).delete()
-    _mark_profile_dead(loser)
+    _mark_profile_dead(session, loser)
     return {
         "kind": "death",
         "winner_tg": int(winner_tg),
@@ -7414,6 +10356,438 @@ def resolve_duel(challenger_tg: int, defender_tg: int, stake: int = 0, duel_mode
     }
 
 
+ARENA_MIN_DURATION_MINUTES = 10
+ARENA_MAX_DURATION_MINUTES = 720
+ARENA_DEFAULT_DURATION_MINUTES = 120
+ARENA_FINALIZE_BUSY_RETRY_SECONDS = 5
+
+
+def _arena_duration_minutes(raw: int | None) -> int:
+    return min(max(int(raw or ARENA_DEFAULT_DURATION_MINUTES), ARENA_MIN_DURATION_MINUTES), ARENA_MAX_DURATION_MINUTES)
+
+
+def _arena_reward_values(profile: XiuxianProfile, arena: XiuxianArena) -> dict[str, int]:
+    stage = normalize_realm_stage(profile.realm_stage or FIRST_REALM_STAGE)
+    layer = max(int(profile.realm_layer or 1), 1)
+    threshold = cultivation_threshold(stage, layer)
+    stage_rank = realm_index(stage) + 1
+    fortune = max(int(profile.fortune or 0), 0)
+    defense_count = max(int(arena.defense_success_count or 0), 0)
+    challenge_count = max(int(arena.challenge_count or 0), 0)
+    stone_reward = max(
+        40,
+        min(
+            240000,
+            threshold // 24 + stage_rank * 18 + fortune * 6 + defense_count * 28 + challenge_count * 10,
+        ),
+    )
+    cultivation_reward = max(
+        60,
+        min(
+            1200000,
+            threshold // 5
+            + stage_rank * 36
+            + fortune * 10
+            + defense_count * max(threshold // 80, 12)
+            + challenge_count * max(threshold // 180, 8),
+        ),
+    )
+    return {
+        "threshold": threshold,
+        "stage_rank": stage_rank,
+        "fortune": fortune,
+        "stone_reward": stone_reward,
+        "cultivation_reward": cultivation_reward,
+    }
+
+
+def list_group_arenas(*, status: str | None = None, group_chat_id: int | None = None) -> list[dict[str, Any]]:
+    with Session() as session:
+        query = session.query(XiuxianArena)
+        if status:
+            query = query.filter(XiuxianArena.status == str(status))
+        if group_chat_id is not None:
+            query = query.filter(XiuxianArena.group_chat_id == int(group_chat_id))
+        query = query.order_by(XiuxianArena.id.desc())
+        return [serialize_arena(row) for row in query.all()]
+
+
+def get_group_arena(arena_id: int) -> dict[str, Any] | None:
+    with Session() as session:
+        row = session.query(XiuxianArena).filter(XiuxianArena.id == int(arena_id)).first()
+        return serialize_arena(row)
+
+
+def get_active_group_arena(group_chat_id: int) -> dict[str, Any] | None:
+    with Session() as session:
+        row = (
+            session.query(XiuxianArena)
+            .filter(XiuxianArena.group_chat_id == int(group_chat_id), XiuxianArena.status == "active")
+            .order_by(XiuxianArena.id.desc())
+            .first()
+        )
+        return serialize_arena(row)
+
+
+def patch_group_arena(arena_id: int, **fields) -> dict[str, Any] | None:
+    with Session() as session:
+        row = session.query(XiuxianArena).filter(XiuxianArena.id == int(arena_id)).first()
+        if row is None:
+            return None
+        for key, value in fields.items():
+            if not hasattr(row, key):
+                continue
+            setattr(row, key, value)
+        row.updated_at = utcnow()
+        session.commit()
+        session.refresh(row)
+        return serialize_arena(row)
+
+
+def cancel_group_arena(arena_id: int, *, owner_tg: int | None = None, reason: str = "") -> dict[str, Any] | None:
+    with Session() as session:
+        row = (
+            session.query(XiuxianArena)
+            .filter(XiuxianArena.id == int(arena_id))
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            return None
+        if owner_tg is not None and int(row.owner_tg or 0) != int(owner_tg):
+            raise ValueError("你无权取消这座擂台。")
+        if str(row.status or "") != "active":
+            return {"result": "noop", "arena": serialize_arena(row)}
+        row.status = "cancelled"
+        row.battle_in_progress = False
+        row.current_challenger_tg = None
+        row.current_challenger_display_name = None
+        row.completed_at = utcnow()
+        row.updated_at = row.completed_at
+        if reason:
+            row.latest_result_summary = str(reason).strip()
+        session.commit()
+        return {"result": "cancelled", "arena": serialize_arena(row)}
+
+
+def open_group_arena_for_user(
+    tg: int,
+    *,
+    group_chat_id: int,
+    champion_display_name: str = "",
+    duration_minutes: int | None = None,
+) -> dict[str, Any]:
+    actor_tg = int(tg)
+    chat_id = int(group_chat_id)
+    if actor_tg <= 0 or chat_id == 0:
+        raise ValueError("擂台参数无效。")
+    duration = _arena_duration_minutes(duration_minutes)
+
+    with Session() as session:
+        active = (
+            session.query(XiuxianArena)
+            .filter(XiuxianArena.group_chat_id == chat_id, XiuxianArena.status == "active")
+            .with_for_update()
+            .order_by(XiuxianArena.id.desc())
+            .first()
+        )
+        if active is not None:
+            raise ValueError("当前群里已有一座擂台正在开启，请先等这一期结束。")
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == actor_tg).with_for_update().first()
+        if profile is None or not profile.consented:
+            raise ValueError("你还没有踏入仙途。")
+        assert_currency_operation_allowed(actor_tg, "开设擂台", session=session, profile=profile)
+        if is_profile_secluded(profile):
+            raise ValueError("你当前处于避世状态，无法开设擂台。")
+        display_name = str(champion_display_name or "").strip() or _profile_display_label(profile, f"TG {actor_tg}")
+        now = utcnow()
+        row = XiuxianArena(
+            owner_tg=actor_tg,
+            owner_display_name=display_name,
+            champion_tg=actor_tg,
+            champion_display_name=display_name,
+            group_chat_id=chat_id,
+            duration_minutes=duration,
+            challenge_count=0,
+            defense_success_count=0,
+            champion_change_count=0,
+            battle_in_progress=False,
+            end_at=now + timedelta(minutes=duration),
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        arena = serialize_arena(row)
+
+    create_journal(actor_tg, "arena", "开设擂台", f"在群 {chat_id} 开设一座持续 {duration} 分钟的擂台。")
+    achievement_unlocks = record_arena_metrics(actor_tg, opened=1, crowned=1)
+    return {"arena": arena, "achievement_unlocks": achievement_unlocks}
+
+
+def challenge_group_arena_for_user(
+    arena_id: int,
+    challenger_tg: int,
+    *,
+    challenger_display_name: str = "",
+) -> dict[str, Any]:
+    arena_id_value = int(arena_id)
+    actor_tg = int(challenger_tg)
+    if arena_id_value <= 0 or actor_tg <= 0:
+        raise ValueError("擂台参数无效。")
+
+    challenger_name = str(challenger_display_name or "").strip()
+    champion_tg = 0
+    champion_display_name = ""
+    current_summary = ""
+    forfeit = False
+
+    with Session() as session:
+        arena = (
+            session.query(XiuxianArena)
+            .filter(XiuxianArena.id == arena_id_value)
+            .with_for_update()
+            .first()
+        )
+        if arena is None:
+            raise ValueError("擂台不存在。")
+        if str(arena.status or "") != "active":
+            raise ValueError("这座擂台已经结束。")
+        if arena.end_at <= utcnow():
+            raise ValueError("这座擂台已经到期。")
+        if arena.battle_in_progress:
+            raise ValueError("当前已有道友正在攻擂，请稍后再试。")
+        if int(arena.champion_tg or 0) == actor_tg:
+            raise ValueError("你已经是当前擂主，无需再次挑战自己。")
+
+        challenger = session.query(XiuxianProfile).filter(XiuxianProfile.tg == actor_tg).with_for_update().first()
+        if challenger is None or not challenger.consented:
+            raise ValueError("你还没有踏入仙途。")
+        assert_currency_operation_allowed(actor_tg, "攻擂", session=session, profile=challenger)
+        if is_profile_secluded(challenger):
+            raise ValueError("你当前处于避世状态，无法攻擂。")
+
+        if not challenger_name:
+            challenger_name = _profile_display_label(challenger, f"TG {actor_tg}")
+
+        champion_tg = int(arena.champion_tg or 0)
+        champion = session.query(XiuxianProfile).filter(XiuxianProfile.tg == champion_tg).with_for_update().first()
+        champion_display_name = str(arena.champion_display_name or "").strip() or _profile_display_label(champion, f"TG {champion_tg}")
+
+        if (
+            champion is None
+            or not champion.consented
+            or champion.death_at is not None
+            or is_profile_secluded(champion)
+        ):
+            forfeit = True
+            current_summary = f"{challenger_name} 登台时发现旧擂主已失去守擂资格，直接接掌擂台。"
+            now = utcnow()
+            arena.challenge_count = max(int(arena.challenge_count or 0), 0) + 1
+            arena.champion_change_count = max(int(arena.champion_change_count or 0), 0) + 1
+            arena.champion_tg = actor_tg
+            arena.champion_display_name = challenger_name
+            arena.last_winner_tg = actor_tg
+            arena.last_winner_display_name = challenger_name
+            arena.last_loser_tg = champion_tg or None
+            arena.last_loser_display_name = champion_display_name
+            arena.latest_result_summary = current_summary
+            arena.updated_at = now
+            session.commit()
+            arena_payload = serialize_arena(arena)
+        else:
+            arena.battle_in_progress = True
+            arena.current_challenger_tg = actor_tg
+            arena.current_challenger_display_name = challenger_name
+            arena.updated_at = utcnow()
+            session.commit()
+            arena_payload = None
+
+    if forfeit:
+        create_journal(actor_tg, "arena", "登擂夺冠", current_summary)
+        if champion_tg > 0:
+            create_journal(champion_tg, "arena", "擂主失位", f"{challenger_name} 登台时，你已失去守擂资格，擂主之位被直接接管。")
+        achievement_unlocks = record_arena_metrics(actor_tg, crowned=1)
+        return {
+            "result": "forfeit",
+            "arena": arena_payload,
+            "duel_result": None,
+            "champion_changed": True,
+            "achievement_unlocks": achievement_unlocks,
+            "summary": current_summary,
+        }
+
+    duel_result = None
+    try:
+        duel_result = resolve_duel(actor_tg, champion_tg, 0, duel_mode="standard")
+    except Exception:
+        with Session() as session:
+            arena = session.query(XiuxianArena).filter(XiuxianArena.id == arena_id_value).with_for_update().first()
+            if arena is not None and str(arena.status or "") == "active":
+                arena.battle_in_progress = False
+                arena.current_challenger_tg = None
+                arena.current_challenger_display_name = None
+                arena.updated_at = utcnow()
+                session.commit()
+        raise
+
+    winner_tg = int(duel_result.get("winner_tg") or 0)
+    loser_tg = int(duel_result.get("loser_tg") or 0)
+    challenger_profile = (duel_result.get("challenger") or {}).get("profile") or {}
+    defender_profile = (duel_result.get("defender") or {}).get("profile") or {}
+    winner_profile = challenger_profile if int(challenger_profile.get("tg") or 0) == winner_tg else defender_profile
+    loser_profile = defender_profile if int(defender_profile.get("tg") or 0) == loser_tg else challenger_profile
+    winner_name = _duel_display_name(winner_profile)
+    loser_name = _duel_display_name(loser_profile)
+    champion_changed = winner_tg == actor_tg
+    summary = f"{winner_name} 在擂台斗法中击败 {loser_name}。{duel_result.get('summary') or ''}".strip()
+
+    with Session() as session:
+        arena = (
+            session.query(XiuxianArena)
+            .filter(XiuxianArena.id == arena_id_value)
+            .with_for_update()
+            .first()
+        )
+        if arena is None:
+            raise ValueError("擂台记录丢失，无法回写结果。")
+        now = utcnow()
+        arena.challenge_count = max(int(arena.challenge_count or 0), 0) + 1
+        if champion_changed:
+            arena.champion_change_count = max(int(arena.champion_change_count or 0), 0) + 1
+            arena.champion_tg = winner_tg
+            arena.champion_display_name = winner_name
+        else:
+            arena.defense_success_count = max(int(arena.defense_success_count or 0), 0) + 1
+        arena.last_winner_tg = winner_tg
+        arena.last_winner_display_name = winner_name
+        arena.last_loser_tg = loser_tg
+        arena.last_loser_display_name = loser_name
+        arena.latest_result_summary = summary
+        arena.battle_in_progress = False
+        arena.current_challenger_tg = None
+        arena.current_challenger_display_name = None
+        arena.updated_at = now
+        session.commit()
+        arena_payload = serialize_arena(arena)
+
+    create_journal(winner_tg, "arena", "擂台胜出", f"在擂台斗法中击败 {loser_name}。")
+    create_journal(loser_tg, "arena", "擂台落败", f"在擂台斗法中败给 {winner_name}。")
+
+    achievement_unlocks = list(duel_result.get("achievement_unlocks") or [])
+    if champion_changed:
+        achievement_unlocks.extend(record_arena_metrics(winner_tg, crowned=1))
+    else:
+        achievement_unlocks.extend(record_arena_metrics(winner_tg, defended=1))
+
+    return {
+        "result": "duel",
+        "arena": arena_payload,
+        "duel_result": duel_result,
+        "champion_changed": champion_changed,
+        "achievement_unlocks": achievement_unlocks,
+        "summary": summary,
+        "ended": bool(arena_payload and arena_payload.get("ended")),
+    }
+
+
+def finalize_group_arena(arena_id: int, *, force: bool = False) -> dict[str, Any] | None:
+    arena_id_value = int(arena_id)
+    if arena_id_value <= 0:
+        return None
+
+    with Session() as session:
+        arena = (
+            session.query(XiuxianArena)
+            .filter(XiuxianArena.id == arena_id_value)
+            .with_for_update()
+            .first()
+        )
+        if arena is None:
+            return None
+        if str(arena.status or "") != "active":
+            return {"result": "noop", "arena": serialize_arena(arena), "achievement_unlocks": []}
+        if not force and arena.end_at > utcnow():
+            raise ValueError("擂台尚未结束。")
+        if arena.battle_in_progress:
+            return {"result": "busy", "arena": serialize_arena(arena), "achievement_unlocks": []}
+
+        now = utcnow()
+        arena.status = "finished"
+        arena.completed_at = now
+        arena.updated_at = now
+        arena.current_challenger_tg = None
+        arena.current_challenger_display_name = None
+
+        champion = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(arena.champion_tg or 0)).with_for_update().first()
+        if (
+            champion is None
+            or not champion.consented
+            or champion.death_at is not None
+        ):
+            arena.latest_result_summary = arena.latest_result_summary or "擂台期满，但最终已无合格擂主可领取奖励。"
+            session.commit()
+            return {
+                "result": "finished_no_reward",
+                "arena": serialize_arena(arena),
+                "champion_tg": int(arena.champion_tg or 0) or None,
+                "champion_name": str(arena.champion_display_name or "").strip(),
+                "achievement_unlocks": [],
+            }
+
+        reward = _arena_reward_values(champion, arena)
+        if reward["stone_reward"] > 0:
+            apply_spiritual_stone_delta(
+                session,
+                int(champion.tg),
+                reward["stone_reward"],
+                action_text="擂台结算奖励",
+                allow_dead=False,
+                apply_tribute=False,
+            )
+        layer, cultivation, upgraded_layers, remaining = apply_cultivation_gain(
+            normalize_realm_stage(champion.realm_stage or FIRST_REALM_STAGE),
+            int(champion.realm_layer or 1),
+            int(champion.cultivation or 0),
+            reward["cultivation_reward"],
+        )
+        champion.realm_layer = layer
+        champion.cultivation = cultivation
+        champion.updated_at = now
+        arena.latest_result_summary = (
+            f"{_profile_display_label(champion, '擂主')} 守到擂台落幕，"
+            f"收下 {reward['stone_reward']} 灵石与 {reward['cultivation_reward']} 修为奖励。"
+        )
+        session.commit()
+        arena_payload = serialize_arena(arena)
+        champion_name = _profile_display_label(champion, "擂主")
+        champion_tg = int(champion.tg or 0)
+        stage = normalize_realm_stage(champion.realm_stage or FIRST_REALM_STAGE)
+
+    create_journal(
+        champion_tg,
+        "arena",
+        "擂台结算",
+        f"擂台落幕，作为最终擂主收下 {reward['stone_reward']} 灵石、{reward['cultivation_reward']} 修为。",
+    )
+    achievement_unlocks = record_arena_metrics(champion_tg, final_win=1)
+    return {
+        "result": "finished",
+        "arena": arena_payload,
+        "champion_tg": champion_tg,
+        "champion_name": champion_name,
+        "champion_stage": stage,
+        "champion_layer": layer,
+        "defense_success_count": max(int(arena_payload.get("defense_success_count") or 0), 0),
+        "challenge_count": max(int(arena_payload.get("challenge_count") or 0), 0),
+        "stone_reward": reward["stone_reward"],
+        "cultivation_reward": reward["cultivation_reward"],
+        "fortune_used": reward["fortune"],
+        "upgraded_layers": upgraded_layers,
+        "remaining": remaining,
+        "achievement_unlocks": achievement_unlocks,
+    }
+
+
 def generate_shop_name(first_name: str) -> str:
     return PERSONAL_SHOP_NAME
 
@@ -7434,7 +10808,7 @@ def format_duel_settlement_text(
     lines = [
         {
             "standard": "⚖️ **斗法已结算**",
-            "master": "⛓️ **主仆对决已结算**",
+            "master": "⛓️ **炉鼎对决已结算**",
             "death": "☠️ **生死斗已结算**",
         }.get(duel_mode, "⚖️ **斗法已结算**"),
         f"胜者：{winner_name}",
@@ -7445,11 +10819,11 @@ def format_duel_settlement_text(
     if mode_outcome:
         lines.append("")
         if mode_outcome.get("kind") == "subjugated":
-            lines.append(f"主仆结果：{winner_name} 收下 {loser_name} 为奴仆。")
+            lines.append(f"炉鼎结果：{winner_name} 收下 {loser_name} 为炉鼎。")
         elif mode_outcome.get("kind") == "break_free":
-            lines.append(f"赎身结果：{winner_name} 斩断主仆印记，重获自由。")
+            lines.append(f"脱离结果：{winner_name} 斩断炉鼎印记，重获自由。")
         elif mode_outcome.get("kind") == "master_defended":
-            lines.append(f"赎身结果：{winner_name} 守住主仆印记，{loser_name} 需等待下一次强制挑战。")
+            lines.append(f"脱离结果：{winner_name} 守住炉鼎印记，{loser_name} 需等待下一次强制挑战。")
         elif mode_outcome.get("kind") == "death":
             lines.append(f"生死结果：{winner_name} 继承了 {loser_name} 的全部遗产，{loser_name} 已身死道消。")
 
@@ -7558,7 +10932,7 @@ def generate_duel_preview_text(duel: dict[str, Any], stake: int = 0, duel_mode: 
     mode = _normalize_duel_mode(duel_mode or duel.get("duel_mode"))
     title = {
         "standard": "⚔️ **斗法邀请**",
-        "master": "⛓️ **主仆对决名帖**",
+        "master": "⛓️ **炉鼎对决名帖**",
         "death": "☠️ **生死斗血契**",
     }.get(mode, "⚔️ **斗法邀请**")
     return format_duel_matchup_text(duel, stake=stake, title=title, duel_mode=mode)

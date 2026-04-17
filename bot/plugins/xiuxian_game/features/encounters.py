@@ -10,6 +10,7 @@ from bot.sql_helper.sql_xiuxian import (
     XiuxianEncounterInstance,
     XiuxianEncounterTemplate,
     XiuxianProfile,
+    apply_spiritual_stone_delta,
     create_encounter_instance,
     create_encounter_template as sql_create_encounter_template,
     delete_encounter_template as sql_delete_encounter_template,
@@ -191,11 +192,18 @@ def render_group_encounter_text(template: dict[str, Any], instance: dict[str, An
     reward_summary = _encounter_reward_summary(instance.get("reward_payload") or {})
     action_text = template.get("broadcast_text") or f"群内忽有异象显化，{template.get('name') or '一桩奇遇'} 出世。"
     expires_at = instance.get("expires_at") or "很快"
+    requirements = []
+    if template.get("min_realm_stage"):
+        requirements.append(f"境界至少 {_claim_requirement_message(template)}")
+    if int(template.get("min_combat_power") or 0) > 0:
+        requirements.append(f"战力至少 {int(template.get('min_combat_power') or 0)}")
+    requirement_text = "；".join(requirements) if requirements else "无门槛，先到先得"
     return (
         f"🌠 **群机缘降世**\n"
         f"📜 **{template.get('name') or '未命名奇遇'}**\n"
         f"{action_text}\n\n"
         f"🎁 奖励预览：{reward_summary}\n"
+        f"📌 领取要求：{requirement_text}\n"
         f"⏳ 截止：{expires_at}\n"
         "谁先抢到，机缘便归谁。"
     )
@@ -214,6 +222,8 @@ def claim_group_encounter(instance_id: int, tg: int) -> dict[str, Any]:
     profile_data = bundle.get("profile") or {}
     if not profile_data.get("consented"):
         raise ValueError("你还没有踏入仙途。")
+    if bundle.get("capabilities", {}).get("gender_required"):
+        raise ValueError(str(bundle.get("capabilities", {}).get("gender_lock_reason") or "请先设置性别。"))
 
     with Session() as session:
         instance = (
@@ -259,6 +269,12 @@ def claim_group_encounter(instance_id: int, tg: int) -> dict[str, Any]:
             raise ValueError("你还没有踏入仙途。")
 
         cultivation_gain = max(int(reward_payload.get("cultivation_reward") or 0), 0)
+        raw_cultivation_gain = cultivation_gain
+        cultivation_gain, gain_meta = legacy_service.adjust_cultivation_gain_for_social_mode(
+            profile,
+            cultivation_gain,
+            settings=legacy_service.get_xiuxian_settings(),
+        )
         stone_reward = max(int(reward_payload.get("stone_reward") or 0), 0)
         layer, cultivation, upgraded_layers, remaining = legacy_service.apply_cultivation_gain(
             legacy_service.normalize_realm_stage(profile.realm_stage or legacy_service.FIRST_REALM_STAGE),
@@ -266,7 +282,16 @@ def claim_group_encounter(instance_id: int, tg: int) -> dict[str, Any]:
             int(profile.cultivation or 0),
             cultivation_gain,
         )
-        profile.spiritual_stone = int(profile.spiritual_stone or 0) + stone_reward
+        if stone_reward > 0:
+            apply_spiritual_stone_delta(
+                session,
+                tg,
+                stone_reward,
+                action_text="群内奇遇奖励灵石",
+                enforce_currency_lock=False,
+                allow_dead=False,
+                apply_tribute=True,
+            )
         profile.cultivation = cultivation
         profile.realm_layer = layer
         profile.updated_at = now
@@ -301,6 +326,8 @@ def claim_group_encounter(instance_id: int, tg: int) -> dict[str, Any]:
         "profile": final_bundle,
         "upgraded_layers": upgraded_layers,
         "remaining": remaining,
+        "cultivation_gain_raw": raw_cultivation_gain,
+        "cultivation_efficiency_percent": int(gain_meta.get("efficiency_percent") or 100),
     }
 
 

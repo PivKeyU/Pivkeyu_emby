@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import re
 from datetime import timedelta
 from typing import Any
 
@@ -16,6 +17,7 @@ from bot.sql_helper.sql_xiuxian import (
     XiuxianScene,
     XiuxianSceneDrop,
     XiuxianUserTechnique,
+    apply_spiritual_stone_delta,
     create_journal,
     create_scene,
     create_scene_drop,
@@ -25,6 +27,7 @@ from bot.sql_helper.sql_xiuxian import (
     get_profile,
     get_recipe,
     get_scene,
+    get_shared_spiritual_stone_total,
     get_technique,
     get_talisman,
     get_xiuxian_settings,
@@ -48,7 +51,6 @@ from bot.sql_helper.sql_xiuxian import (
     serialize_scene,
     serialize_technique,
     serialize_talisman,
-    upsert_profile,
     utcnow,
 )
 from bot.plugins.xiuxian_game.achievement_service import record_exploration_metrics
@@ -68,6 +70,43 @@ def _legacy_service():
     from bot.plugins.xiuxian_game import service as legacy_service
 
     return legacy_service
+
+
+def _clean_scene_fragment(raw: Any) -> str:
+    text = re.sub(r"\s+", " ", str(raw or "")).strip()
+    if not text:
+        return ""
+    return text.strip("，。！？；、,.!?; ")
+
+
+def _join_scene_fragments(*parts: Any) -> str:
+    rows: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        text = _clean_scene_fragment(part)
+        if not text or text in seen:
+            continue
+        rows.append(text)
+        seen.add(text)
+    if not rows:
+        return ""
+    combined = "，".join(rows)
+    combined = re.sub(r"[，、]{2,}", "，", combined)
+    combined = re.sub(r"[。！？]{2,}", "。", combined)
+    combined = re.sub(r"[；;]{2,}", "；", combined)
+    return combined.strip("，。！？；、 ")
+
+
+def _risk_level_label(risk_percent: int) -> tuple[str, str]:
+    if risk_percent <= 5:
+        return "stable", "稳妥"
+    if risk_percent <= 18:
+        return "light", "可控"
+    if risk_percent <= 40:
+        return "medium", "有压"
+    if risk_percent <= 70:
+        return "high", "高危"
+    return "extreme", "九死一生"
 
 
 def _grant_item_by_kind(tg: int, kind: str, ref_id: int, quantity: int) -> dict[str, Any]:
@@ -462,19 +501,16 @@ def _build_exploration_outcome(
                 "quantity": max(int(round(raw_quantity * (0.6 + duration_ratio * 1.2))), 1),
                 "is_recipe_like": _recipe_like_bonus_item(bonus_reward_kind, bonus_reward_ref_id),
             }
-    parts = []
-    if event.get("name"):
-        parts.append(str(event.get("name")))
-    if chosen_drop.get("event_text"):
-        parts.append(str(chosen_drop.get("event_text")))
-    if event.get("description"):
-        parts.append(str(event.get("description")))
     return {
         "event": event,
         "stone_bonus": stone_bonus,
         "stone_loss": stone_loss,
         "bonus_reward": bonus_reward,
-        "event_text": "，".join([part for part in parts if part]).strip("，"),
+        "event_text": _join_scene_fragments(
+            event.get("name"),
+            chosen_drop.get("event_text"),
+            event.get("description"),
+        ),
         "duration_minutes": int(duration),
         "duration_ratio": round(duration_ratio, 4),
         "scene_quality_level": max(int(scene_quality or 1), 1),
@@ -498,6 +534,7 @@ def _scene_requirement_state(
     combat_power: int,
 ) -> dict[str, Any]:
     current_stage = realm_index(profile.get("realm_stage"))
+    current_stage_name = profile.get("realm_stage") or "炼气"
     current_layer = int(profile.get("realm_layer") or 1)
     required_stage_name = scene.get("min_realm_stage")
     required_stage = realm_index(required_stage_name) if required_stage_name else None
@@ -506,43 +543,85 @@ def _scene_requirement_state(
 
     reasons: list[str] = []
     realm_gap_score = 0
+    realm_surplus_score = 0
     if required_stage is not None:
         stage_gap = required_stage - current_stage
-        layer_gap = required_layer - current_layer if stage_gap <= 0 else required_layer
         if stage_gap > 0:
             realm_gap_score = stage_gap * 9 + max(required_layer - 1, 0)
             reasons.append(
-                f"当前境界 {profile.get('realm_stage')}{current_layer}层，低于秘境要求 {required_stage_name}{required_layer}层"
+                f"当前境界 {current_stage_name}{current_layer}层，低于秘境要求 {required_stage_name}{required_layer}层"
             )
         elif current_stage == required_stage and current_layer < required_layer:
             realm_gap_score = required_layer - current_layer
             reasons.append(
-                f"当前境界 {profile.get('realm_stage')}{current_layer}层，低于秘境要求 {required_stage_name}{required_layer}层"
+                f"当前境界 {current_stage_name}{current_layer}层，低于秘境要求 {required_stage_name}{required_layer}层"
             )
+        else:
+            realm_surplus_score = max((current_stage - required_stage) * 9 + (current_layer - required_layer), 0)
 
     power_gap = max(min_power - max(int(combat_power or 0), 0), 0)
     power_gap_ratio = (power_gap / max(min_power, 1)) if min_power > 0 else 0.0
+    power_surplus = max(max(int(combat_power or 0), 0) - min_power, 0)
+    power_surplus_ratio = (power_surplus / max(min_power, 1)) if min_power > 0 else 0.0
     if power_gap > 0:
         reasons.append(f"当前战力 {combat_power}，低于秘境要求 {min_power}")
 
-    death_chance = 0
+    risk_score = 0.0
     if realm_gap_score > 0:
-        death_chance += 55 + min(realm_gap_score * 5, 25)
+        risk_score += 36 + min(realm_gap_score * 6.5, 34)
+    elif required_stage is not None:
+        risk_score += max(12 - min(realm_surplus_score * 2.6, 12), 0)
     if power_gap > 0:
-        death_chance += 28 + min(int(round(power_gap_ratio * 70)), 32)
-    survival_offset = max(int(profile.get("willpower") or 0) - 10, 0) // 2 + max(int(profile.get("karma") or 0) - 10, 0) // 3
-    death_chance -= survival_offset
-    death_chance = max(min(death_chance, 95), 0)
+        risk_score += 24 + min(power_gap_ratio * 46, 34)
+    elif min_power > 0:
+        risk_score += max(10 - min(power_surplus_ratio * 18, 10), 0)
+    if not reasons:
+        risk_score -= 18
+    survival_offset = (
+        max(int(profile.get("willpower") or 0) - 10, 0) * 0.9
+        + max(int(profile.get("karma") or 0) - 10, 0) * 0.65
+        + max(int(profile.get("fortune") or 0) - 10, 0) * 0.35
+    )
+    risk_score -= survival_offset
+    if len(reasons) >= 2:
+        risk_score += 8
+    risk_percent = max(min(int(round(risk_score)), 95), 0)
+    risk_level, risk_label = _risk_level_label(risk_percent)
+    item_loss_risk = 0 if risk_percent < 20 else max(min(int(round(risk_percent * 0.55 + max(realm_gap_score - 1, 0) * 4)), 85), 8)
+    cultivation_loss_risk = 0 if risk_percent < 10 else min(int(round(risk_percent * 0.42)), 70)
+    death_chance = 0 if risk_percent <= 0 else min(max(int(round(risk_percent * 0.82 + (18 if reasons else 0))), 3), 95)
+    requirement_rows = []
+    if required_stage_name:
+        requirement_rows.append(f"境界至少 {required_stage_name}{required_layer}层")
+    if min_power > 0:
+        requirement_rows.append(f"战力至少 {min_power}")
+    requirement_summary = "；".join(requirement_rows) if requirement_rows else "无硬性门槛"
+    safe_note = "当前境界与战力已能压住此地反噬，适合稳定刷取材料与功法。" if risk_percent <= 5 else ""
+    item_loss_warning = ""
+    if item_loss_risk > 0:
+        item_loss_warning = f"若强闯失手，存在掉落未绑定法宝与折损修为的风险。"
     return {
         "min_realm_stage": required_stage_name,
         "min_realm_layer": required_layer,
         "min_combat_power": min_power,
         "combat_power": max(int(combat_power or 0), 0),
+        "current_realm_display": f"{current_stage_name}{current_layer}层",
+        "requirement_summary": requirement_summary,
         "risk_reasons": reasons,
+        "risk_percent": risk_percent,
+        "risk_level": risk_level,
+        "risk_label": risk_label,
+        "item_loss_risk": item_loss_risk,
+        "cultivation_loss_risk": cultivation_loss_risk,
+        "item_loss_warning": item_loss_warning,
+        "safe_note": safe_note,
         "death_chance": death_chance,
         "realm_gap_score": realm_gap_score,
+        "realm_surplus_score": realm_surplus_score,
         "power_gap": power_gap,
         "power_gap_ratio": round(power_gap_ratio, 4),
+        "power_surplus": power_surplus,
+        "power_surplus_ratio": round(power_surplus_ratio, 4),
         "requirements_met": not reasons,
     }
 
@@ -664,6 +743,8 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
     profile = bundle.get("profile") or {}
     if not profile or not profile.get("consented"):
         raise ValueError("你还没有踏入仙途")
+    if bundle.get("capabilities", {}).get("gender_required"):
+        raise ValueError(str(bundle.get("capabilities", {}).get("gender_lock_reason") or "请先设置性别。"))
     active = _get_active_exploration(tg)
     if active and not active.get("claimed"):
         raise ValueError("你还有未结算的探索")
@@ -743,7 +824,7 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
     event_text = outcome.get("event_text") or chosen.get("event_text") or ""
     if not drop_succeeded:
         miss_note = "你在秘境中有所收获，却没能真正带出那件材料。"
-        event_text = f"{event_text}，{miss_note}".strip("，") if event_text else miss_note
+        event_text = _join_scene_fragments(event_text, miss_note)
 
     death_chance = int(requirement_state.get("death_chance") or 0)
     death_chance = min(death_chance + max(scene_quality - 3, 0) * 4, 95)
@@ -767,7 +848,10 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
             }
             outcome["fatal_outcome"] = fatal_outcome
         else:
-            outcome["risk_note"] = "你此次硬着头皮闯入高危秘境，侥幸活着撑了下来。"
+            outcome["risk_note"] = _join_scene_fragments(
+                requirement_state.get("item_loss_warning"),
+                "你此次硬着头皮闯入高危秘境，侥幸活着撑了下来。",
+            )
     outcome["requirement_state"] = requirement_state
 
     with Session() as session:
@@ -787,6 +871,7 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
         session.add(exploration)
         session.commit()
         session.refresh(exploration)
+        scene["requirement_state"] = requirement_state
         return {"scene": scene, "exploration": serialize_exploration(exploration)}
 
 
@@ -857,11 +942,14 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
     legacy_service = _legacy_service()
     profile_row = legacy_service._repair_profile_realm_state(tg) or get_profile(tg, create=False)
     profile = serialize_profile(profile_row) if profile_row is not None else None
+    profile_bundle = legacy_service.serialize_full_profile(tg)
+    if profile_bundle.get("capabilities", {}).get("gender_required"):
+        raise ValueError(str(profile_bundle.get("capabilities", {}).get("gender_lock_reason") or "请先设置性别。"))
     fatal_outcome = outcome.get("fatal_outcome") if isinstance(outcome.get("fatal_outcome"), dict) else None
     if fatal_outcome:
         if profile is None:
             raise ValueError("用户不存在")
-        current_stone = int(profile.get("spiritual_stone") or 0)
+        current_stone = max(int(get_shared_spiritual_stone_total(tg) or 0), 0)
         planned_stone_loss = max(
             int(round(current_stone * int(fatal_outcome.get("stone_loss_percent") or 0) / 100)),
             12 if current_stone > 0 else 0,
@@ -886,13 +974,25 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
             tg,
             int(fatal_outcome.get("artifact_drop_count") or 0),
         )
-        updated = upsert_profile(
-            tg,
-            spiritual_stone=max(current_stone - actual_stone_loss, 0),
-            realm_layer=next_layer,
-            cultivation=next_cultivation,
-        )
-        updated_profile = serialize_profile(updated)
+        with Session() as session:
+            updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(tg)).with_for_update().first()
+            if updated is None or not updated.consented:
+                raise ValueError("你还没有踏入仙途")
+            if actual_stone_loss > 0:
+                apply_spiritual_stone_delta(
+                    session,
+                    tg,
+                    -actual_stone_loss,
+                    action_text="探索失利损失灵石",
+                    enforce_currency_lock=False,
+                    allow_dead=False,
+                    apply_tribute=False,
+                )
+            updated.realm_layer = next_layer
+            updated.cultivation = next_cultivation
+            updated.updated_at = utcnow()
+            session.commit()
+        updated_profile = (legacy_service.serialize_full_profile(tg) or {}).get("profile")
         death_reasons = list(fatal_outcome.get("reasons") or [])
         reason_text = "；".join(death_reasons) if death_reasons else "误入凶险秘境"
         create_journal(
@@ -942,7 +1042,7 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
 
     event_stone_bonus = max(int(outcome.get("stone_bonus") or 0), 0)
     event_stone_loss = max(int(outcome.get("stone_loss") or 0), 0)
-    current_stone = int(profile.get("spiritual_stone") or 0) if profile else 0
+    current_stone = max(int(get_shared_spiritual_stone_total(tg) or 0), 0)
     actual_stone_loss = min(current_stone, event_stone_loss)
     total_stone_delta = stone_reward + event_stone_bonus - actual_stone_loss
     activity_growth = {"triggered": False, "changes": [], "patch": {}, "chance": 0, "roll": None}
@@ -951,7 +1051,16 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
         updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if updated is None or not updated.consented:
             raise ValueError("你还没有踏入仙途")
-        updated.spiritual_stone = max(current_stone + total_stone_delta, 0)
+        if total_stone_delta:
+            apply_spiritual_stone_delta(
+                session,
+                tg,
+                total_stone_delta,
+                action_text="探索结算灵石",
+                enforce_currency_lock=False,
+                allow_dead=False,
+                apply_tribute=total_stone_delta > 0,
+            )
         activity_growth = legacy_service._apply_activity_stat_growth_to_profile_row(
             updated,
             "exploration",

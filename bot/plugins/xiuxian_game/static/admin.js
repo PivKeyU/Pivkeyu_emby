@@ -43,6 +43,8 @@ const ROLE_PRESETS = [
   ["outer_disciple", "外门弟子"],
 ];
 const PLAYER_SEARCH_PAGE_SIZE = 10;
+const GRANT_USER_SEARCH_PAGE_SIZE = 8;
+const GRANT_USER_SEARCH_DEBOUNCE_MS = 220;
 
 const state = {
   token: localStorage.getItem("xiuxian_admin_token") || "",
@@ -56,12 +58,43 @@ const state = {
     pageSize: PLAYER_SEARCH_PAGE_SIZE,
     total: 0,
   },
+  grantForm: {
+    userOptions: [],
+    userQuery: "",
+    userSearchSeq: 0,
+    userSearchTimer: null,
+  },
 };
 const backState = {
   fallbackPath: DEFAULT_BACK_PATH,
   returnTo: "",
   referrerPath: ""
 };
+const TITLE_COLOR_DEFAULT = "#0f766e";
+const TITLE_GRADIENT_DEFAULT_END = "#38bdf8";
+const TITLE_SOLID_SWATCHES = [
+  { label: "青玉", value: "#0f766e" },
+  { label: "沧海", value: "#2563eb" },
+  { label: "金霞", value: "#f59e0b" },
+  { label: "赤霄", value: "#dc2626" },
+  { label: "紫府", value: "#7c3aed" },
+  { label: "桃华", value: "#ec4899" },
+  { label: "霜银", value: "#94a3b8" },
+  { label: "玄曜", value: "#111827" },
+];
+const TITLE_GRADIENT_PRESETS = [
+  { label: "青霄流光", value: "linear-gradient(135deg, #0f766e 0%, #38bdf8 100%)" },
+  { label: "赤金焰尾", value: "linear-gradient(135deg, #dc2626 0%, #f59e0b 100%)" },
+  { label: "紫电星河", value: "linear-gradient(135deg, #7c3aed 0%, #2563eb 100%)" },
+  { label: "琼华朝露", value: "linear-gradient(135deg, #14b8a6 0%, #e879f9 100%)" },
+];
+const TITLE_RAINBOW_PRESETS = [
+  { label: "霓虹天幕", value: "linear-gradient(135deg, #fb7185 0%, #f59e0b 18%, #fde047 36%, #34d399 54%, #60a5fa 72%, #a78bfa 88%, #f472b6 100%)" },
+  { label: "极光潮汐", value: "linear-gradient(135deg, #22d3ee 0%, #0ea5e9 18%, #6366f1 40%, #a855f7 64%, #ec4899 100%)" },
+  { label: "琉璃焰轮", value: "linear-gradient(135deg, #f97316 0%, #ef4444 24%, #e879f9 52%, #8b5cf6 78%, #38bdf8 100%)" },
+  { label: "仙虹织锦", value: "linear-gradient(135deg, #f43f5e 0%, #fb7185 15%, #facc15 35%, #4ade80 58%, #38bdf8 78%, #818cf8 100%)" },
+];
+let titleColorEditorMode = "solid";
 
 const ADMIN_SECTION_LABELS = {
   settings: "\u57fa\u7840\u8bbe\u5b9a",
@@ -154,6 +187,21 @@ const DEFAULT_ACTIVITY_GROWTH_RULES = {
   exploration: { chance_percent: 26, gain_min: 1, gain_max: 3, attribute_count: 1 },
   duel: { chance_percent: 20, gain_min: 1, gain_max: 2, attribute_count: 2 },
 };
+const GAMBLING_ITEM_KIND_OPTIONS = [
+  { value: "material", label: "材料" },
+  { value: "artifact", label: "法宝" },
+  { value: "pill", label: "丹药" },
+  { value: "talisman", label: "符箓" },
+];
+const DEFAULT_GAMBLING_QUALITY_RULES = {
+  凡品: { weight_multiplier: 1.0 },
+  下品: { weight_multiplier: 0.72 },
+  中品: { weight_multiplier: 0.44 },
+  上品: { weight_multiplier: 0.22 },
+  极品: { weight_multiplier: 0.1 },
+  仙品: { weight_multiplier: 0.04 },
+  先天至宝: { weight_multiplier: 0.015 },
+};
 const PLAYER_STRING_FIELDS = new Set([
   "realm_stage",
   "root_type",
@@ -227,6 +275,113 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+function normalizeHexColor(value) {
+  const raw = String(value || "").trim();
+  if (/^#[0-9a-f]{3}$/i.test(raw)) {
+    const [, r, g, b] = raw;
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+  if (/^#[0-9a-f]{6}$/i.test(raw)) return raw.toLowerCase();
+  if (/^#[0-9a-f]{8}$/i.test(raw)) return `#${raw.slice(1, 7)}`.toLowerCase();
+  return "";
+}
+
+function hexWithAlpha(value, alpha) {
+  const hex = normalizeHexColor(value);
+  return hex ? `${hex}${alpha}` : "";
+}
+
+function isGradientDecorColor(value) {
+  return /gradient\s*\(/i.test(String(value || ""));
+}
+
+function normalizeDecorColor(value, fallback = "") {
+  const raw = String(value || "").trim();
+  if (!raw) return fallback;
+  if (raw.length > 255) return fallback;
+  if (!/^[#(),.%/+\-\sa-zA-Z0-9]+$/.test(raw)) return fallback;
+  const lower = raw.toLowerCase();
+  if (lower.includes("url(") || lower.includes("expression(") || lower.includes("javascript:") || lower.includes("var(")) {
+    return fallback;
+  }
+  if (/^#[0-9a-f]{3,8}$/i.test(raw)) return raw;
+  if (/^(rgb|rgba|hsl|hsla)\([#0-9a-z.,%/+\-\s]+\)$/i.test(raw)) return raw;
+  if (/^(linear|radial|conic)-gradient\([#0-9a-z.,%/+\-\s]+\)$/i.test(raw)) return raw;
+  return fallback;
+}
+
+function buildDecorBadgeStyle(color, fallback = "#9ca3af") {
+  const safeColor = normalizeDecorColor(color, fallback) || fallback;
+  if (isGradientDecorColor(safeColor)) {
+    return `background:${safeColor};color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.28);`;
+  }
+  const hex = normalizeHexColor(safeColor);
+  if (hex) {
+    return `background:${hexWithAlpha(hex, "22")};color:${hex};box-shadow:inset 0 0 0 1px ${hexWithAlpha(hex, "33")};`;
+  }
+  return `background:rgba(148,163,184,.14);color:${safeColor};box-shadow:inset 0 0 0 1px rgba(148,163,184,.24);`;
+}
+
+function buildDecorTextStyle(color) {
+  const safeColor = normalizeDecorColor(color, "");
+  if (!safeColor) return "";
+  if (isGradientDecorColor(safeColor)) {
+    return `display:inline-block;background:${safeColor};background-size:100% 100%;background-clip:text;-webkit-background-clip:text;color:transparent;-webkit-text-fill-color:transparent;`;
+  }
+  return `color:${safeColor};`;
+}
+
+function titleColoredNameHtml(label, color) {
+  const safeLabel = escapeHtml(label || "未命名称号");
+  const style = escapeHtml(buildDecorTextStyle(color));
+  return `<span class="title-colored-name"${style ? ` style="${style}"` : ""}>${safeLabel}</span>`;
+}
+
+function titleColorBadgeHtml(label, color, className = "badge badge--normal") {
+  const safeLabel = escapeHtml(label || "称号预览");
+  const style = escapeHtml(buildDecorBadgeStyle(color));
+  return `<span class="${className}" style="${style}">${safeLabel}</span>`;
+}
+
+function summarizeDecorColor(color) {
+  const safeColor = normalizeDecorColor(color, "");
+  if (!safeColor) return "默认";
+  if (isGradientDecorColor(safeColor)) return "渐变 / 炫彩";
+  return safeColor;
+}
+
+function toColorPickerHex(value, fallback = TITLE_COLOR_DEFAULT) {
+  return normalizeHexColor(value) || fallback;
+}
+
+function clampGradientAngle(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 135;
+  return Math.min(360, Math.max(0, Math.round(numeric)));
+}
+
+function buildLinearGradient(start, end, angle) {
+  return `linear-gradient(${clampGradientAngle(angle)}deg, ${toColorPickerHex(start, TITLE_COLOR_DEFAULT)} 0%, ${toColorPickerHex(end, TITLE_GRADIENT_DEFAULT_END)} 100%)`;
+}
+
+function inferTitleColorMode(value) {
+  const safeColor = normalizeDecorColor(value, "");
+  if (!isGradientDecorColor(safeColor)) return "solid";
+  if (TITLE_RAINBOW_PRESETS.some((item) => item.value === safeColor)) return "rainbow";
+  return "gradient";
+}
+
+function extractGradientMeta(value) {
+  const safeColor = normalizeDecorColor(value, "");
+  const matches = safeColor.match(/#[0-9a-f]{3,8}/ig) || [];
+  const angleMatch = safeColor.match(/(-?\d+(?:\.\d+)?)deg/i);
+  return {
+    start: toColorPickerHex(matches[0], TITLE_COLOR_DEFAULT),
+    end: toColorPickerHex(matches[matches.length - 1], TITLE_GRADIENT_DEFAULT_END),
+    angle: clampGradientAngle(angleMatch?.[1] || 135),
+  };
+}
+
 function parseJsonInput(raw, fallback = {}) {
   const text = String(raw ?? "").trim();
   if (!text) return fallback;
@@ -235,6 +390,18 @@ function parseJsonInput(raw, fallback = {}) {
   } catch (error) {
     throw new Error(`JSON 解析失败: ${error.message}`);
   }
+}
+
+function parseIntegerListInput(raw) {
+  return String(raw ?? "")
+    .split(/[\s,，、;；|/]+/)
+    .map((item) => Number(item))
+    .filter((item) => Number.isFinite(item) && item > 0)
+    .map((item) => Math.trunc(item));
+}
+
+function formatIntegerListInput(values) {
+  return Array.isArray(values) ? values.map((item) => Number(item)).filter((item) => Number.isFinite(item) && item > 0).join(",") : "";
 }
 
 function parseShanghaiDate(value) {
@@ -601,7 +768,7 @@ function realmRows() {
   return [{ value: "", label: "无限制" }, ...REALM_OPTIONS.map((label) => ({ value: label, label }))];
 }
 
-function itemRows(kind) {
+function itemRows(kind, query = "") {
   const bundle = state.bundle || {};
   const key = kind === "artifact"
     ? "artifacts"
@@ -617,9 +784,13 @@ function itemRows(kind) {
               ? "techniques"
               : "";
   const rows = bundle[key] || [];
+  const keyword = String(query || "").trim().toLowerCase();
   return rows.map((item) => {
     const data = item.material || item;
     return { value: data.id, label: `${data.id} · ${data.name}` };
+  }).filter((row) => {
+    if (!keyword) return true;
+    return String(row.value).includes(keyword) || row.label.toLowerCase().includes(keyword);
   });
 }
 
@@ -629,6 +800,148 @@ function sectRows() {
 
 function materialRows() {
   return (state.bundle?.materials || []).map((row) => ({ value: row.id, label: `${row.id} · ${row.name}` }));
+}
+
+function grantUserRows(items = []) {
+  return items.map((item) => {
+    const extras = [`TG ${item.tg}`];
+    if (item.username) extras.push(`@${item.username}`);
+    if (item.emby_account?.name) extras.push(item.emby_account.name);
+    if (item.emby_account?.embyid) extras.push(`Emby ${item.emby_account.embyid}`);
+    return {
+      value: item.tg,
+      label: `${playerDisplayName(item, item.tg)} · ${extras.join(" · ")}`,
+    };
+  });
+}
+
+function findGrantUserByTg(tg) {
+  return (state.grantForm?.userOptions || []).find((item) => Number(item.tg) === Number(tg)) || null;
+}
+
+function syncGrantItemSearchTip(rows = null) {
+  const tip = $("grant-item-search-tip");
+  if (!tip) return;
+  const keyword = String($("grant-item-search")?.value || "").trim();
+  const matches = Array.isArray(rows) ? rows : itemRows($("grant-kind")?.value || "artifact", keyword);
+  if (!keyword) {
+    tip.textContent = `当前共 ${matches.length} 件可发放物品。`;
+    return;
+  }
+  tip.textContent = matches.length ? `已筛出 ${matches.length} 件匹配物品。` : "没有匹配的物品。";
+}
+
+function syncGrantItemOptions() {
+  const rows = itemRows($("grant-kind")?.value || "artifact", $("grant-item-search")?.value || "");
+  setOptions($("grant-ref-id"), rows, $("grant-ref-id")?.value);
+  syncGrantItemSearchTip(rows);
+}
+
+function syncGrantUserSearchTip() {
+  const tip = $("grant-user-search-tip");
+  if (!tip) return;
+  const query = String($("grant-user-search")?.value || "").trim();
+  const targetTg = Number($("grant-tg")?.value || 0);
+  if (targetTg > 0) {
+    const matched = findGrantUserByTg(targetTg);
+    tip.textContent = matched
+      ? `当前目标：${playerDisplayName(matched, targetTg)}（TG ${targetTg}）。`
+      : `当前目标 TG ${targetTg}。`;
+    return;
+  }
+  if (!query) {
+    tip.textContent = "支持按 TG 昵称、@username、Emby 账号名或 TG ID 搜索，也可直接手填 TG ID。";
+    return;
+  }
+  tip.textContent = (state.grantForm?.userOptions || []).length
+    ? "从“匹配用户”中选择目标后，会自动写入 TG ID。"
+    : "未找到匹配用户，可继续修改关键词或直接手填 TG ID。";
+}
+
+function syncGrantUserMatches() {
+  const rows = grantUserRows(state.grantForm?.userOptions || []);
+  const placeholder = state.grantForm?.userQuery
+    ? (rows.length ? "请选择匹配用户" : "未找到匹配用户")
+    : "先输入关键词搜索";
+  setOptions($("grant-user-match"), rows, $("grant-tg")?.value || $("grant-user-match")?.value, placeholder);
+  syncGrantUserSearchTip();
+}
+
+async function fetchGrantUserMatches(query, seq = state.grantForm.userSearchSeq) {
+  const keyword = String(query || "").trim();
+  state.grantForm.userQuery = keyword;
+  if (!keyword) {
+    state.grantForm.userOptions = [];
+    syncGrantUserMatches();
+    return;
+  }
+  try {
+    const data = await request("GET", `/plugins/xiuxian/admin-api/players?q=${encodeURIComponent(keyword)}&page=1&page_size=${GRANT_USER_SEARCH_PAGE_SIZE}`);
+    if (seq !== state.grantForm.userSearchSeq) return;
+    state.grantForm.userOptions = Array.isArray(data?.items) ? data.items : [];
+    syncGrantUserMatches();
+    const numericTg = /^\d+$/.test(keyword) ? Number(keyword) : 0;
+    if (numericTg > 0 && findGrantUserByTg(numericTg)) {
+      $("grant-user-match").value = String(numericTg);
+      $("grant-tg").value = String(numericTg);
+      syncGrantUserSearchTip();
+    }
+  } catch (error) {
+    if (seq !== state.grantForm.userSearchSeq) return;
+    state.grantForm.userOptions = [];
+    syncGrantUserMatches();
+    const tip = $("grant-user-search-tip");
+    if (tip) tip.textContent = "用户搜索失败，可直接手填 TG ID。";
+    console.warn("grant user search failed", error);
+  }
+}
+
+function queueGrantUserSearch() {
+  const keyword = String($("grant-user-search")?.value || "").trim();
+  state.grantForm.userQuery = keyword;
+  state.grantForm.userSearchSeq = Number(state.grantForm.userSearchSeq || 0) + 1;
+  const seq = state.grantForm.userSearchSeq;
+  if (state.grantForm.userSearchTimer) {
+    window.clearTimeout(state.grantForm.userSearchTimer);
+    state.grantForm.userSearchTimer = null;
+  }
+  if (/^\d+$/.test(keyword) && Number(keyword) > 0 && $("grant-tg")) {
+    $("grant-tg").value = keyword;
+  }
+  if (!keyword) {
+    state.grantForm.userOptions = [];
+    syncGrantUserMatches();
+    return;
+  }
+  if (!/^\d+$/.test(keyword) && keyword.length < 2) {
+    state.grantForm.userOptions = [];
+    syncGrantUserMatches();
+    return;
+  }
+  syncGrantUserSearchTip();
+  state.grantForm.userSearchTimer = window.setTimeout(() => {
+    fetchGrantUserMatches(keyword, seq);
+  }, GRANT_USER_SEARCH_DEBOUNCE_MS);
+}
+
+function syncGrantTargetTg() {
+  const tg = Number($("grant-tg")?.value || 0);
+  const matchNode = $("grant-user-match");
+  if (matchNode) {
+    const hasMatch = [...matchNode.options].some((opt) => Number(opt.value || 0) === tg);
+    matchNode.value = hasMatch && tg > 0 ? String(tg) : "";
+  }
+  syncGrantUserSearchTip();
+}
+
+function applyGrantTargetPlayer(profile = {}) {
+  const tg = Number(profile?.tg || 0);
+  if (!tg) return;
+  if ($("grant-tg")) $("grant-tg").value = String(tg);
+  if ($("grant-user-search")) $("grant-user-search").value = playerDisplayName(profile, tg);
+  state.grantForm.userOptions = [profile];
+  state.grantForm.userQuery = playerDisplayName(profile, tg);
+  syncGrantUserMatches();
 }
 
 function ensureAffixFields(prefix, includeMerit = false, includeCultivation = false) {
@@ -857,6 +1170,45 @@ function addSceneDropRow(data = {}) {
   rows.appendChild(wrapper);
 }
 
+function addGamblingPoolRow(data = {}) {
+  const rows = $("setting-gambling-pool-rows");
+  if (!rows) return;
+  const itemKind = String(data.item_kind || "material");
+  const wrapper = createBuilderRow(`
+    <label>奖励类型
+      <select data-gambling-kind>
+        ${GAMBLING_ITEM_KIND_OPTIONS.map((item) => `<option value="${item.value}" ${itemKind === item.value ? "selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}
+      </select>
+    </label>
+    <label>奖励物品
+      <select data-gambling-ref></select>
+    </label>
+    <label>最小数量
+      <input data-gambling-min type="number" min="1" value="${escapeHtml(data.quantity_min || 1)}">
+    </label>
+    <label>最大数量
+      <input data-gambling-max type="number" min="1" value="${escapeHtml(data.quantity_max || data.quantity_min || 1)}">
+    </label>
+    <label>基础权重
+      <input data-gambling-weight type="number" min="0" step="0.01" value="${escapeHtml(data.base_weight ?? 1)}">
+    </label>
+    <label class="inline-check">
+      <input data-gambling-enabled type="checkbox" ${data.enabled === false ? "" : "checked"}>
+      参与抽取
+    </label>
+  `);
+  const kindNode = wrapper.querySelector("[data-gambling-kind]");
+  const refNode = wrapper.querySelector("[data-gambling-ref]");
+  const sync = (selected = null) => {
+    const rowsForKind = itemRows(kindNode.value || "material");
+    setOptions(refNode, rowsForKind, selected ?? data.item_ref_id ?? "", "请选择物品");
+    refNode.disabled = !rowsForKind.length;
+  };
+  kindNode.addEventListener("change", () => sync(""));
+  sync(data.item_ref_id ? String(data.item_ref_id) : "");
+  rows.appendChild(wrapper);
+}
+
 function ensureSettingRuleRows() {
   const rootRows = $("setting-root-quality-rows");
   if (rootRows && rootRows.dataset.ready !== "1") {
@@ -954,6 +1306,26 @@ function ensureSettingRuleRows() {
     });
     activityRows.dataset.ready = "1";
   }
+
+  const gamblingQualityRows = $("setting-gambling-quality-rows");
+  if (gamblingQualityRows && gamblingQualityRows.dataset.ready !== "1") {
+    gamblingQualityRows.innerHTML = "";
+    ITEM_QUALITY_RULES.forEach(({ key, label }) => {
+      const row = document.createElement("div");
+      row.className = "builder-row";
+      row.innerHTML = `
+        <label>品阶
+          <input type="text" value="${escapeHtml(label)}" disabled>
+        </label>
+        <label>权重倍率
+          <input data-gambling-quality="${escapeHtml(key)}" data-gambling-rule="weight_multiplier" type="number" min="0" step="0.001" value="${escapeHtml(DEFAULT_GAMBLING_QUALITY_RULES[key].weight_multiplier)}">
+        </label>
+        <p class="muted">该倍率会先作用于对应品阶的基础权重，随后再叠加机缘对高品阶的额外增幅。</p>
+      `;
+      gamblingQualityRows.appendChild(row);
+    });
+    gamblingQualityRows.dataset.ready = "1";
+  }
 }
 
 function collectRootQualityRules() {
@@ -1000,6 +1372,33 @@ function collectActivityGrowthRules() {
     };
     return result;
   }, {});
+}
+
+function collectGamblingQualityRules() {
+  ensureSettingRuleRows();
+  return ITEM_QUALITY_RULES.reduce((result, { key }) => {
+    result[key] = {
+      weight_multiplier: Number(document.querySelector(`[data-gambling-quality="${key}"][data-gambling-rule="weight_multiplier"]`)?.value || DEFAULT_GAMBLING_QUALITY_RULES[key].weight_multiplier),
+    };
+    return result;
+  }, {});
+}
+
+function collectGamblingRewardPool() {
+  return [...document.querySelectorAll("#setting-gambling-pool-rows .builder-row")]
+    .map((row) => {
+      const quantityMin = Math.max(Number(row.querySelector("[data-gambling-min]")?.value || 1), 1);
+      const quantityMax = Math.max(Number(row.querySelector("[data-gambling-max]")?.value || 1), quantityMin);
+      return {
+        item_kind: row.querySelector("[data-gambling-kind]")?.value || "material",
+        item_ref_id: Number(row.querySelector("[data-gambling-ref]")?.value || 0) || null,
+        quantity_min: quantityMin,
+        quantity_max: quantityMax,
+        base_weight: Number(row.querySelector("[data-gambling-weight]")?.value || 0),
+        enabled: Boolean(row.querySelector("[data-gambling-enabled]")?.checked),
+      };
+    })
+    .filter((row) => row.item_ref_id && row.base_weight >= 0);
 }
 
 function applyRootQualityRules(settings = {}) {
@@ -1053,6 +1452,28 @@ function applyActivityGrowthRules(settings = {}) {
     if (maxNode) maxNode.value = current.gain_max ?? DEFAULT_ACTIVITY_GROWTH_RULES[key].gain_max;
     if (countNode) countNode.value = current.attribute_count ?? DEFAULT_ACTIVITY_GROWTH_RULES[key].attribute_count;
   });
+}
+
+function applyGamblingQualityRules(settings = {}) {
+  ensureSettingRuleRows();
+  const rules = settings.gambling_quality_weight_rules || DEFAULT_GAMBLING_QUALITY_RULES;
+  ITEM_QUALITY_RULES.forEach(({ key }) => {
+    const current = rules[key] || DEFAULT_GAMBLING_QUALITY_RULES[key];
+    const node = document.querySelector(`[data-gambling-quality="${key}"][data-gambling-rule="weight_multiplier"]`);
+    if (node) node.value = current.weight_multiplier ?? DEFAULT_GAMBLING_QUALITY_RULES[key].weight_multiplier;
+  });
+}
+
+function applyGamblingRewardPool(settings = {}) {
+  const root = $("setting-gambling-pool-rows");
+  if (!root) return;
+  root.innerHTML = "";
+  const rows = Array.isArray(settings.gambling_reward_pool) ? settings.gambling_reward_pool : [];
+  if (!rows.length) {
+    addGamblingPoolRow();
+    return;
+  }
+  rows.forEach((row) => addGamblingPoolRow(row));
 }
 
 function collectSectRoles() {
@@ -1224,7 +1645,7 @@ function syncSelects() {
   setOptions($("sect-assign-id"), sectRows(), $("sect-assign-id")?.value);
   setOptions($("admin-task-sect-id"), [{ value: "", label: "无" }, ...sectRows()], $("admin-task-sect-id")?.value);
   setOptions($("recipe-result-id"), itemRows($("recipe-result-kind")?.value || "pill"), $("recipe-result-id")?.value);
-  setOptions($("grant-ref-id"), itemRows($("grant-kind")?.value || "artifact"), $("grant-ref-id")?.value);
+  syncGrantItemOptions();
   setOptions($("official-ref-id"), itemRows($("official-kind")?.value || "artifact"), $("official-ref-id")?.value);
   setOptions($("encounter-item-id"), [{ value: "", label: "无" }, ...itemRows($("encounter-item-kind")?.value || "")], $("encounter-item-id")?.value);
   setOptions($("admin-task-item-id"), [{ value: "", label: "无" }, ...itemRows($("admin-task-item-kind")?.value || "")], $("admin-task-item-id")?.value);
@@ -1239,6 +1660,11 @@ function syncSelects() {
     const kind = row.querySelector("[data-scene-bonus-kind]")?.value || "";
     setOptions(row.querySelector("[data-scene-bonus-ref]"), itemRows(kind || "material"), row.querySelector("[data-scene-bonus-ref]")?.value, "无");
   });
+  document.querySelectorAll("#setting-gambling-pool-rows .builder-row").forEach((row) => {
+    const kind = row.querySelector("[data-gambling-kind]")?.value || "material";
+    setOptions(row.querySelector("[data-gambling-ref]"), itemRows(kind), row.querySelector("[data-gambling-ref]")?.value, "请选择物品");
+  });
+  syncGrantUserMatches();
 }
 
 function applySettings(settings = {}) {
@@ -1246,7 +1672,11 @@ function applySettings(settings = {}) {
   $("setting-rate").value = settings.coin_exchange_rate ?? 100;
   $("setting-fee").value = settings.exchange_fee_percent ?? 1;
   $("setting-min").value = settings.min_coin_exchange ?? 1;
-  $("setting-duel-minutes").value = settings.duel_bet_minutes ?? 2;
+  $("setting-duel-bet-enabled").checked = settings.duel_bet_enabled ?? true;
+  $("setting-duel-seconds").value = settings.duel_bet_seconds ?? 120;
+  $("setting-duel-bet-min").value = settings.duel_bet_min_amount ?? 10;
+  $("setting-duel-bet-max").value = settings.duel_bet_max_amount ?? 100;
+  $("setting-duel-bet-options").value = formatIntegerListInput(settings.duel_bet_amount_options ?? [10, 50, 100]);
   $("setting-duel-invite-timeout").value = settings.duel_invite_timeout_seconds ?? 90;
   $("setting-duel-steal").value = settings.duel_winner_steal_percent ?? 25;
   $("setting-artifact-plunder").value = settings.artifact_plunder_chance ?? 20;
@@ -1259,6 +1689,12 @@ function applySettings(settings = {}) {
   $("setting-task-publish-cost").value = settings.task_publish_cost ?? 20;
   $("setting-user-task-daily-limit").value = settings.user_task_daily_limit ?? 3;
   $("setting-allow-user-task-publish").checked = settings.allow_user_task_publish ?? true;
+  $("setting-gambling-exchange-cost").value = settings.gambling_exchange_cost_stone ?? 120;
+  $("setting-gambling-exchange-max").value = settings.gambling_exchange_max_count ?? 20;
+  $("setting-gambling-open-max").value = settings.gambling_open_max_count ?? 20;
+  $("setting-gambling-broadcast-quality").value = settings.gambling_broadcast_quality_level ?? 5;
+  $("setting-gambling-fortune-divisor").value = settings.gambling_fortune_divisor ?? 6;
+  $("setting-gambling-fortune-bonus").value = settings.gambling_fortune_bonus_per_quality_percent ?? 8;
   if ($("official-shop-name")) $("official-shop-name").value = settings.official_shop_name ?? "官方商店";
   $("setting-artifact-limit").value = settings.artifact_equip_limit ?? 3;
   $("setting-user-upload").checked = Boolean(settings.allow_non_admin_image_upload);
@@ -1267,9 +1703,14 @@ function applySettings(settings = {}) {
   $("setting-chat-max").value = settings.chat_cultivation_max_gain ?? 3;
   $("setting-robbery-limit").value = settings.robbery_daily_limit ?? 3;
   $("setting-robbery-max").value = settings.robbery_max_steal ?? 180;
+  $("setting-seclusion-efficiency").value = settings.seclusion_cultivation_efficiency_percent ?? 60;
   $("setting-quality-broadcast").value = settings.high_quality_broadcast_level ?? 4;
   $("setting-slave-tribute").value = settings.slave_tribute_percent ?? 20;
+  $("setting-furnace-harvest").value = settings.furnace_harvest_cultivation_percent ?? 10;
   $("setting-slave-cooldown").value = settings.slave_challenge_cooldown_hours ?? 24;
+  $("setting-rebirth-cooldown-enabled").checked = settings.rebirth_cooldown_enabled ?? false;
+  $("setting-rebirth-cooldown-base").value = settings.rebirth_cooldown_base_hours ?? 12;
+  $("setting-rebirth-cooldown-increment").value = settings.rebirth_cooldown_increment_hours ?? 6;
   $("setting-sect-salary-stay").value = settings.sect_salary_min_stay_days ?? 30;
   if ($("sect-salary-stay-days") && !$("sect-id")?.value) $("sect-salary-stay-days").value = settings.sect_salary_min_stay_days ?? 30;
   $("setting-sect-betrayal-cooldown").value = settings.sect_betrayal_cooldown_days ?? 7;
@@ -1281,6 +1722,8 @@ function applySettings(settings = {}) {
   applyItemQualityRules(settings);
   applyDropWeightRules(settings);
   applyActivityGrowthRules(settings);
+  applyGamblingQualityRules(settings);
+  applyGamblingRewardPool(settings);
 }
 
 function renderErrorLogs(rows = []) {
@@ -1336,9 +1779,18 @@ async function submitAndRefresh(handler, successTitle, successMessage) {
 }
 
 function bindEvents() {
+  initTitleColorEditor();
   $("pill-type")?.addEventListener("change", updatePillEffectLabel);
   $("recipe-result-kind")?.addEventListener("change", syncSelects);
   $("grant-kind")?.addEventListener("change", syncSelects);
+  $("grant-item-search")?.addEventListener("input", syncGrantItemOptions);
+  $("grant-user-search")?.addEventListener("input", queueGrantUserSearch);
+  $("grant-user-match")?.addEventListener("change", () => {
+    const tg = Number($("grant-user-match")?.value || 0);
+    if (tg > 0 && $("grant-tg")) $("grant-tg").value = String(tg);
+    syncGrantUserSearchTip();
+  });
+  $("grant-tg")?.addEventListener("input", syncGrantTargetTg);
   $("official-kind")?.addEventListener("change", syncSelects);
   $("encounter-item-kind")?.addEventListener("change", syncSelects);
   $("admin-task-item-kind")?.addEventListener("change", syncSelects);
@@ -1349,6 +1801,7 @@ function bindEvents() {
   $("recipe-ingredient-add")?.addEventListener("click", () => addRecipeIngredientRow());
   $("scene-event-add")?.addEventListener("click", () => addSceneEventRow());
   $("scene-drop-add")?.addEventListener("click", () => addSceneDropRow());
+  $("setting-gambling-pool-add")?.addEventListener("click", () => addGamblingPoolRow());
 
   $("token-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -1377,10 +1830,19 @@ function bindEvents() {
       chat_cultivation_max_gain: Number($("setting-chat-max").value || 3),
       robbery_daily_limit: Number($("setting-robbery-limit").value || 3),
       robbery_max_steal: Number($("setting-robbery-max").value || 180),
+      seclusion_cultivation_efficiency_percent: Number($("setting-seclusion-efficiency").value || 60),
+      gambling_exchange_cost_stone: Number($("setting-gambling-exchange-cost").value || 120),
+      gambling_exchange_max_count: Number($("setting-gambling-exchange-max").value || 20),
+      gambling_open_max_count: Number($("setting-gambling-open-max").value || 20),
+      gambling_broadcast_quality_level: Number($("setting-gambling-broadcast-quality").value || 5),
+      gambling_fortune_divisor: Number($("setting-gambling-fortune-divisor").value || 6),
+      gambling_fortune_bonus_per_quality_percent: Number($("setting-gambling-fortune-bonus").value || 8),
       root_quality_value_rules: collectRootQualityRules(),
       item_quality_value_rules: collectItemQualityRules(),
       exploration_drop_weight_rules: collectDropWeightRules(),
       activity_stat_growth_rules: collectActivityGrowthRules(),
+      gambling_quality_weight_rules: collectGamblingQualityRules(),
+      gambling_reward_pool: collectGamblingRewardPool(),
     }), "保存成功", "基础规则已更新。");
   });
 
@@ -1393,7 +1855,11 @@ function bindEvents() {
   $("duel-settings-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/settings", {
-      duel_bet_minutes: Number($("setting-duel-minutes").value || 2),
+      duel_bet_enabled: $("setting-duel-bet-enabled").checked,
+      duel_bet_seconds: Number($("setting-duel-seconds").value || 120),
+      duel_bet_min_amount: Number($("setting-duel-bet-min").value || 10),
+      duel_bet_max_amount: Number($("setting-duel-bet-max").value || 100),
+      duel_bet_amount_options: parseIntegerListInput($("setting-duel-bet-options").value),
       duel_invite_timeout_seconds: Number($("setting-duel-invite-timeout").value || 90),
       duel_winner_steal_percent: Number($("setting-duel-steal").value || 25),
       artifact_plunder_chance: Number($("setting-artifact-plunder").value || 20),
@@ -1401,7 +1867,11 @@ function bindEvents() {
       artifact_equip_limit: Number($("setting-artifact-limit").value || 3),
       high_quality_broadcast_level: Number($("setting-quality-broadcast").value || 4),
       slave_tribute_percent: Number($("setting-slave-tribute").value || 20),
+      furnace_harvest_cultivation_percent: Number($("setting-furnace-harvest").value || 10),
       slave_challenge_cooldown_hours: Number($("setting-slave-cooldown").value || 24),
+      rebirth_cooldown_enabled: $("setting-rebirth-cooldown-enabled").checked,
+      rebirth_cooldown_base_hours: Number($("setting-rebirth-cooldown-base").value || 0),
+      rebirth_cooldown_increment_hours: Number($("setting-rebirth-cooldown-increment").value || 0),
       sect_salary_min_stay_days: Number($("setting-sect-salary-stay").value || 30),
       sect_betrayal_cooldown_days: Number($("setting-sect-betrayal-cooldown").value || 7),
       sect_betrayal_stone_percent: Number($("setting-sect-betrayal-percent").value || 10),
@@ -1594,9 +2064,19 @@ function bindEvents() {
 
   $("grant-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    const tg = Number($("grant-tg").value || 0);
+    const itemRefId = Number($("grant-ref-id").value || 0);
+    if (!tg) {
+      await popup("发放失败", "请先搜索并选择目标用户，或直接填写 TG ID。", "error");
+      return;
+    }
+    if (!itemRefId) {
+      await popup("发放失败", "请先选择要发放的物品。", "error");
+      return;
+    }
     await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/grant", {
-      tg: Number($("grant-tg").value || 0), item_kind: $("grant-kind").value,
-      item_ref_id: Number($("grant-ref-id").value || 0), quantity: Number($("grant-quantity").value || 1),
+      tg, item_kind: $("grant-kind").value,
+      item_ref_id: itemRefId, quantity: Number($("grant-quantity").value || 1),
     }), "发放成功", "物品已发放到指定玩家。");
   });
 
@@ -1875,10 +2355,7 @@ function bindAttributeAwareSubmitters() {
 
 function qualityBadgeHtml(label, color, className = "badge badge--normal") {
   const safeLabel = escapeHtml(label || "凡品");
-  const safeColor = typeof color === "string" && color ? color : "#9ca3af";
-  const style = safeColor.includes("gradient")
-    ? `background:${safeColor};color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.28);`
-    : `background:${safeColor}22;color:${safeColor};box-shadow:inset 0 0 0 1px ${safeColor}33;`;
+  const style = buildDecorBadgeStyle(color, "#9ca3af");
   return `<span class="${className}" style="${style}">${safeLabel}</span>`;
 }
 
@@ -2229,7 +2706,7 @@ function renderPlayerTitles(detail = {}) {
     return `
       <article class="stack-item">
         <div class="stack-item-head">
-          <strong>${escapeHtml(item.name || "未命名称号")}</strong>
+          <strong>${titleColoredNameHtml(item.name || "未命名称号", item.color)}</strong>
           <span class="badge badge--normal">${item.equipped ? "已佩戴" : "未佩戴"}</span>
         </div>
         <p>${escapeHtml(item.description || "暂无称号描述")}</p>
@@ -2293,6 +2770,7 @@ function applyPlayerDetail(data, { reveal = true, smooth = true } = {}) {
   state.selectedPlayerTg = tg;
   state.selectedPlayerDetail = detail;
   syncSelectedPlayerUI(playerDisplayName(profile, tg));
+  applyGrantTargetPlayer(profile);
   $("player-edit-tg").value = String(tg);
   const titleNode = $("player-edit-title");
   if (titleNode) titleNode.textContent = `编辑: ${playerDisplayName(profile, tg)}`;
@@ -2548,35 +3026,6 @@ async function withAdminButtonBusy(button, pendingText, handler) {
   }
 }
 
-document.getElementById("system-realm-migrate")?.addEventListener("click", async (event) => {
-  const button = event.currentTarget;
-  try {
-    const result = await withAdminButtonBusy(button, "迁移中...", () =>
-      request("POST", "/plugins/xiuxian/admin-api/system/realm-migrate")
-    );
-    await bootstrapAdmin();
-    const preview = Array.isArray(result.preview) ? result.preview : [];
-    const previewText = preview.length
-      ? `示例：${preview.slice(0, 3).map((row) => `TG ${row.tg} ${row.before_stage}${row.before_layer}层 -> ${row.after_stage}${row.after_layer}层`).join("；")}`
-      : "本次没有需要迁移或修补的角色示例。";
-    const lines = [
-      `检查角色 ${result.checked || 0} 个`,
-      `旧境界迁移 ${result.migrated || 0} 个`,
-      `异常修补 ${result.repaired || 0} 个`,
-      `无需处理 ${result.unchanged || 0} 个`,
-      previewText,
-    ];
-    renderSystemOpSummary("旧境界迁移已完成", lines, "success");
-    adminStatus(`境界迁移完成：迁移 ${result.migrated || 0}，修补 ${result.repaired || 0}。`, "success");
-    await popup("迁移完成", lines.join("\n"), "success");
-  } catch (error) {
-    const message = String(error.message || error);
-    renderSystemOpSummary("旧境界迁移失败", [message], "error");
-    adminStatus(message, "error");
-    await popup("迁移失败", message, "error");
-  }
-});
-
 document.getElementById("system-reset-player-data")?.addEventListener("click", async (event) => {
   const button = event.currentTarget;
   try {
@@ -2633,6 +3082,162 @@ function adminRewardSummary(config = {}) {
   return rows.join(" · ") || "无额外奖励";
 }
 
+function renderTitleColorSwatches(targetId, presets, wide = false) {
+  const root = $(targetId);
+  if (!root) return;
+  root.innerHTML = presets.map((item) => {
+    const previewStyle = escapeHtml(`background:${normalizeDecorColor(item.value, TITLE_COLOR_DEFAULT)};`);
+    const value = escapeHtml(item.value);
+    if (wide) {
+      return `
+        <button type="button" class="title-color-swatch title-color-swatch--wide" data-title-color-value="${value}" title="${escapeHtml(item.label)}">
+          <span class="title-color-swatch-bar" style="${previewStyle}"></span>
+          <span class="title-color-swatch-title">${escapeHtml(item.label)}</span>
+        </button>
+      `;
+    }
+    return `
+      <button type="button" class="title-color-swatch" data-title-color-value="${value}" title="${escapeHtml(item.label)}">
+        <span class="title-color-swatch-chip" style="${previewStyle}"></span>
+      </button>
+    `;
+  }).join("");
+}
+
+function updateTitleColorPresetState(value) {
+  const safeColor = normalizeDecorColor(value, "");
+  document.querySelectorAll("[data-title-color-value]").forEach((button) => {
+    button.classList.toggle("is-active", safeColor && button.dataset.titleColorValue === safeColor);
+  });
+}
+
+function syncTitleColorControls(value) {
+  const safeColor = normalizeDecorColor(value, "");
+  const solidColor = !isGradientDecorColor(safeColor) ? safeColor : extractGradientMeta(safeColor).start;
+  if ($("title-solid-color")) {
+    $("title-solid-color").value = toColorPickerHex(solidColor, TITLE_COLOR_DEFAULT);
+  }
+  const gradient = extractGradientMeta(safeColor);
+  if ($("title-gradient-start")) $("title-gradient-start").value = gradient.start;
+  if ($("title-gradient-end")) $("title-gradient-end").value = gradient.end;
+  if ($("title-gradient-angle")) $("title-gradient-angle").value = String(gradient.angle);
+  if ($("title-gradient-angle-value")) $("title-gradient-angle-value").textContent = `${gradient.angle}°`;
+}
+
+function updateTitleColorPreview() {
+  const rawValue = $("title-color")?.value?.trim() || "";
+  const safeColor = normalizeDecorColor(rawValue, "");
+  const previewName = $("title-color-preview-name");
+  const previewBadge = $("title-color-preview-badge");
+  const previewCode = $("title-color-preview-code");
+  const titleName = $("title-name")?.value?.trim() || "斗战真君";
+  if (previewName) {
+    previewName.innerHTML = titleColoredNameHtml(titleName, safeColor);
+  }
+  if (previewBadge) {
+    previewBadge.setAttribute("style", buildDecorBadgeStyle(safeColor || "#9ca3af"));
+    previewBadge.textContent = safeColor ? (isGradientDecorColor(safeColor) ? "渐变预览" : "纯色预览") : "默认配色";
+  }
+  if (previewCode) {
+    previewCode.textContent = rawValue
+      ? (safeColor ? `当前值：${rawValue}` : `当前值：${rawValue}（当前写法无法预览，将按默认配色显示）`)
+      : "当前值：默认";
+  }
+}
+
+function setTitleColorMode(mode) {
+  titleColorEditorMode = ["solid", "gradient", "rainbow"].includes(mode) ? mode : "solid";
+  document.querySelectorAll("[data-title-color-mode]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.titleColorMode === titleColorEditorMode);
+  });
+  document.querySelectorAll("[data-title-color-panel]").forEach((panel) => {
+    panel.classList.toggle("is-hidden", panel.dataset.titleColorPanel !== titleColorEditorMode);
+  });
+}
+
+function refreshTitleColorEditor(mode = "") {
+  const input = $("title-color");
+  if (!input) return;
+  const rawValue = input.value.trim();
+  syncTitleColorControls(rawValue);
+  setTitleColorMode(mode || inferTitleColorMode(rawValue));
+  updateTitleColorPresetState(rawValue);
+  updateTitleColorPreview();
+}
+
+function applyTitleColorValue(value, mode = "") {
+  if ($("title-color")) {
+    $("title-color").value = String(value || "").trim();
+  }
+  refreshTitleColorEditor(mode);
+}
+
+function applyGradientBuilderValue() {
+  applyTitleColorValue(
+    buildLinearGradient(
+      $("title-gradient-start")?.value || TITLE_COLOR_DEFAULT,
+      $("title-gradient-end")?.value || TITLE_GRADIENT_DEFAULT_END,
+      $("title-gradient-angle")?.value || 135,
+    ),
+    "gradient",
+  );
+}
+
+function initTitleColorEditor() {
+  const root = $("title-color-editor");
+  const input = $("title-color");
+  if (!root || !input || input.dataset.paletteReady === "1") return;
+  input.dataset.paletteReady = "1";
+  renderTitleColorSwatches("title-solid-swatches", TITLE_SOLID_SWATCHES);
+  renderTitleColorSwatches("title-gradient-presets", TITLE_GRADIENT_PRESETS, true);
+  renderTitleColorSwatches("title-rainbow-presets", TITLE_RAINBOW_PRESETS, true);
+
+  root.addEventListener("click", (event) => {
+    const modeButton = event.target.closest("[data-title-color-mode]");
+    if (modeButton) {
+      const nextMode = modeButton.dataset.titleColorMode || "solid";
+      if (nextMode === inferTitleColorMode($("title-color")?.value || "")) {
+        setTitleColorMode(nextMode);
+        return;
+      }
+      if (nextMode === "solid") {
+        applyTitleColorValue($("title-solid-color")?.value || TITLE_COLOR_DEFAULT, "solid");
+      } else if (nextMode === "gradient") {
+        applyGradientBuilderValue();
+      } else {
+        applyTitleColorValue(TITLE_RAINBOW_PRESETS[0]?.value || "", "rainbow");
+      }
+      return;
+    }
+
+    const presetButton = event.target.closest("[data-title-color-value]");
+    if (presetButton) {
+      const value = presetButton.dataset.titleColorValue || "";
+      applyTitleColorValue(value, inferTitleColorMode(value));
+      return;
+    }
+
+    if (event.target.id === "title-color-clear") {
+      applyTitleColorValue("", "solid");
+    }
+  });
+
+  input.addEventListener("input", () => refreshTitleColorEditor());
+  $("title-name")?.addEventListener("input", () => updateTitleColorPreview());
+  $("title-solid-color")?.addEventListener("input", () => applyTitleColorValue($("title-solid-color").value, "solid"));
+  $("title-gradient-start")?.addEventListener("input", applyGradientBuilderValue);
+  $("title-gradient-end")?.addEventListener("input", applyGradientBuilderValue);
+  $("title-gradient-angle")?.addEventListener("input", () => {
+    if ($("title-gradient-angle-value")) {
+      $("title-gradient-angle-value").textContent = `${clampGradientAngle($("title-gradient-angle").value)}°`;
+    }
+    applyGradientBuilderValue();
+  });
+
+  refreshTitleColorEditor();
+  window.refreshTitleColorEditor = refreshTitleColorEditor;
+}
+
 function renderAchievementMetricOptions() {
   const root = $("achievement-metric-options");
   if (!root) return;
@@ -2656,12 +3261,12 @@ function renderTitleAdminList() {
   renderStack("title-list", (state.bundle?.titles || []).map((item) => `
     <article class="stack-item">
       <div class="stack-item-head">
-        <strong>${escapeHtml(item.name)}</strong>
+        <strong>${titleColoredNameHtml(item.name, item.color)}</strong>
         <span class="badge badge--normal">${item.enabled ? "启用中" : "已停用"}</span>
       </div>
       <p>${escapeHtml(item.description || "暂无称号描述")}</p>
       <p>${escapeHtml(adminTitleEffectSummary(item))}</p>
-      <p>颜色 ${escapeHtml(item.color || "默认")} · ID ${escapeHtml(item.id)}</p>
+      <p class="quality-line">${titleColorBadgeHtml(item.color ? "称号预览" : "默认配色", item.color || "")}<span class="field-note">颜色 ${escapeHtml(summarizeDecorColor(item.color))} · ID ${escapeHtml(item.id)}</span></p>
       <div class="inline-action-buttons">${deleteButton("title", item.id)}</div>
     </article>
   `).join("") || `<article class="stack-item"><strong>暂无称号</strong></article>`);
@@ -2774,6 +3379,7 @@ ROLE_PRESETS.forEach(([role_key, role_name]) => addSectRoleRow({ role_key, role_
 addRecipeIngredientRow();
 addSceneEventRow();
 addSceneDropRow();
+addGamblingPoolRow();
 ensureSettingRuleRows();
 bindEvents();
 bindAttributeAwareSubmitters();

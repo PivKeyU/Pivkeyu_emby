@@ -165,11 +165,11 @@ def upgrade() -> None:
         """
         INSERT INTO `xiuxian_settings` (`setting_key`, `setting_value`, `updated_at`)
         VALUES
-          ('coin_exchange_rate', CAST(100 AS JSON), CURRENT_TIMESTAMP),
-          ('exchange_fee_percent', CAST(1 AS JSON), CURRENT_TIMESTAMP),
-          ('min_coin_exchange', CAST(100 AS JSON), CURRENT_TIMESTAMP),
-          ('shop_broadcast_cost', CAST(20 AS JSON), CURRENT_TIMESTAMP),
-          ('official_shop_name', JSON_QUOTE('风月阁'), CURRENT_TIMESTAMP)
+          ('coin_exchange_rate', '100', CURRENT_TIMESTAMP),
+          ('exchange_fee_percent', '1', CURRENT_TIMESTAMP),
+          ('min_coin_exchange', '100', CURRENT_TIMESTAMP),
+          ('shop_broadcast_cost', '20', CURRENT_TIMESTAMP),
+          ('official_shop_name', '"风月阁"', CURRENT_TIMESTAMP)
         ON DUPLICATE KEY UPDATE
           `setting_value` = VALUES(`setting_value`),
           `updated_at` = VALUES(`updated_at`);
