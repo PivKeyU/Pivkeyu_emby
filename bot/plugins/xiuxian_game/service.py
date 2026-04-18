@@ -170,6 +170,8 @@ from bot.sql_helper.sql_xiuxian import (
     XiuxianTaskClaim,
     XiuxianUserRecipe,
     XiuxianUserTechnique,
+    _queue_profile_cache_invalidation,
+    _queue_user_view_cache_invalidation,
     use_user_artifact_listing_stock,
     use_user_material_listing_stock,
     use_user_pill_listing_stock,
@@ -5279,7 +5281,14 @@ def harvest_furnace_for_user(tg: int, furnace_tg: int) -> dict[str, Any]:
             int(owner.cultivation or 0),
             preview["master_gain_raw"],
         )
-        furnace.cultivation = max(int(furnace.cultivation or 0) - preview["furnace_loss"], 0)
+        furnace_layer, furnace_cultivation, actual_loss = _apply_stage_cultivation_loss(
+            normalize_realm_stage(furnace.realm_stage or FIRST_REALM_STAGE),
+            int(furnace.realm_layer or 1),
+            int(furnace.cultivation or 0),
+            preview["furnace_loss"],
+        )
+        furnace.realm_layer = furnace_layer
+        furnace.cultivation = furnace_cultivation
         furnace.furnace_harvested_at = now
         furnace.updated_at = now
         owner.realm_layer = owner_layer
@@ -5294,13 +5303,13 @@ def harvest_furnace_for_user(tg: int, furnace_tg: int) -> dict[str, Any]:
         actor_tg,
         "furnace",
         "采补炉鼎",
-        f"今日从 {furnace_name} 身上采补一次，抽取其 {preview['furnace_loss']} 点修为，折算为自身 {preview['master_gain_raw']} 点修为。",
+        f"今日从 {furnace_name} 身上采补一次，抽取其 {actual_loss} 点本境修为，折算为自身 {preview['master_gain_raw']} 点修为。",
     )
     create_journal(
         target_tg,
         "furnace",
         "被主人采补",
-        f"{owner_name} 今日对你采补一次，你流失了 {preview['furnace_loss']} 点当前修为。",
+        f"{owner_name} 今日对你采补一次，你流失了 {actual_loss} 点本境修为。",
     )
     return {
         "owner_tg": actor_tg,
@@ -5315,7 +5324,7 @@ def harvest_furnace_for_user(tg: int, furnace_tg: int) -> dict[str, Any]:
         "upgraded_layers": upgraded_layers,
         "remaining": remaining,
         "harvested_at": serialize_datetime(now),
-        "message": f"你与 {furnace_name} 完成一次采补，抽取其 {preview['furnace_loss']} 点当前修为，折算为自身 {preview['master_gain_raw']} 点修为。",
+        "message": f"你与 {furnace_name} 完成一次采补，抽取其 {actual_loss} 点本境修为，折算为自身 {preview['master_gain_raw']} 点修为。",
     }
 
 
@@ -9344,60 +9353,82 @@ def breakthrough_for_user(tg: int, use_pill: bool = False) -> dict[str, Any]:
 
 
 def consume_pill_for_user(tg: int, pill_id: int) -> dict[str, Any]:
-    profile = _require_alive_profile_obj(tg, "服用丹药")
-    if _is_retreating(profile):
-        raise ValueError("闭关期间无法服用丹药。")
     pill = get_pill(pill_id)
     if pill is None or not pill.enabled:
         raise ValueError("未找到可用的丹药。")
-    profile_data = serialize_profile(profile)
     pill_data = serialize_pill(pill)
-    usage_reason = _pill_usage_reason(profile_data, pill_data)
-    if usage_reason:
-        raise ValueError(usage_reason)
-    if not consume_user_pill(tg, pill_id, 1):
-        raise ValueError("你的背包里没有这枚丹药。")
-
-    effects = resolve_pill_effects(profile_data, pill_data)
-    bone_resistance = min((float(profile.bone or 0) / 200), 0.45)
-    dan_poison = min(int(profile.dan_poison or 0) + int(round(float(effects.get("poison_delta", 0) or 0) * (1 - bone_resistance))), 100)
-    cultivation = int(profile.cultivation or 0)
-    spiritual_stone = int(profile.spiritual_stone or 0)
-    bone = int(profile.bone or 0) + int(round(effects.get("bone_bonus", 0)))
-    comprehension = int(profile.comprehension or 0) + int(round(effects.get("comprehension_bonus", 0)))
-    divine_sense = int(profile.divine_sense or 0) + int(round(effects.get("divine_sense_bonus", 0)))
-    fortune = int(profile.fortune or 0) + int(round(effects.get("fortune_bonus", 0)))
-    willpower = int(profile.willpower or 0) + int(round(effects.get("willpower_bonus", 0)))
-    charisma = int(profile.charisma or 0) + int(round(effects.get("charisma_bonus", 0)))
-    karma = int(profile.karma or 0) + int(round(effects.get("karma_bonus", 0)))
-    qi_blood = int(profile.qi_blood or 0) + int(round(effects.get("qi_blood_bonus", 0)))
-    true_yuan = int(profile.true_yuan or 0) + int(round(effects.get("true_yuan_bonus", 0)))
-    body_movement = int(profile.body_movement or 0) + int(round(effects.get("body_movement_bonus", 0)))
-    attack_power = int(profile.attack_power or 0) + int(round(effects.get("attack_bonus", 0)))
-    defense_power = int(profile.defense_power or 0) + int(round(effects.get("defense_bonus", 0)))
-    root_patch: dict[str, Any] | None = None
-
-    if pill.pill_type == "clear_poison":
-        dan_poison = max(dan_poison - int(round(effects.get("clear_poison", effects.get("effect_value", 50)))), 0)
-    elif pill.pill_type == "cultivation":
-        cultivation += int(round(effects.get("cultivation_gain", effects.get("effect_value", 0))))
-    elif pill.pill_type == "stone":
-        spiritual_stone += int(round(effects.get("stone_gain", effects.get("effect_value", 0))))
-    elif pill.pill_type == "root_refine":
-        steps = max(int(round(float(effects.get("root_quality_gain", 0) or 0))), 0)
-        root_patch = _refined_root_payload(profile_data, steps)
-    elif pill.pill_type == "root_remold":
-        floor_level = max(int(round(float(effects.get("root_quality_floor", 0) or 0))), 0)
-        root_patch = _generate_root_payload_with_floor(floor_level)
-    elif pill.pill_type in ROOT_TRANSFORM_PILL_TYPES:
-        root_patch = _transformed_root_payload(profile_data, pill.pill_type, effects.get("effect_value", pill_data.get("effect_value", 0)))
-
-    layer, cultivation, _, _ = apply_cultivation_gain(normalize_realm_stage(profile.realm_stage or FIRST_REALM_STAGE), int(profile.realm_layer or 1), cultivation, 0)
-    stone_delta = spiritual_stone - int(profile.spiritual_stone or 0)
+    profile_data: dict[str, Any] = {}
+    effects: dict[str, Any] = {}
     with Session() as session:
-        updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
-        if updated is None or not updated.consented:
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+        if profile is None or not profile.consented:
             raise ValueError("你还没有踏入仙途。")
+        assert_profile_alive(profile, "服用丹药")
+        _assert_gender_ready(profile, "服用丹药")
+        if _is_retreating(profile):
+            raise ValueError("闭关期间无法服用丹药。")
+
+        profile_data = serialize_profile(profile) or {}
+        usage_reason = _pill_usage_reason(profile_data, pill_data)
+        if usage_reason:
+            raise ValueError(usage_reason)
+
+        rows = _ordered_owner_rows(session, XiuxianPillInventory, tg, "pill_id", pill_id)
+        total_quantity = sum(max(int(row.quantity or 0), 0) for row in rows)
+        if total_quantity < 1:
+            raise ValueError("你的背包里没有这枚丹药。")
+
+        now = utcnow()
+        remaining = 1
+        for row in rows:
+            if remaining <= 0:
+                break
+            available = max(int(row.quantity or 0), 0)
+            if available <= 0:
+                continue
+            delta = min(available, remaining)
+            row.quantity = available - delta
+            row.updated_at = now
+            remaining -= delta
+            if row.quantity <= 0:
+                session.delete(row)
+
+        effects = resolve_pill_effects(profile_data, pill_data)
+        bone_resistance = min((float(profile.bone or 0) / 200), 0.45)
+        dan_poison = min(int(profile.dan_poison or 0) + int(round(float(effects.get("poison_delta", 0) or 0) * (1 - bone_resistance))), 100)
+        cultivation = int(profile.cultivation or 0)
+        spiritual_stone = int(profile.spiritual_stone or 0)
+        bone = int(profile.bone or 0) + int(round(effects.get("bone_bonus", 0)))
+        comprehension = int(profile.comprehension or 0) + int(round(effects.get("comprehension_bonus", 0)))
+        divine_sense = int(profile.divine_sense or 0) + int(round(effects.get("divine_sense_bonus", 0)))
+        fortune = int(profile.fortune or 0) + int(round(effects.get("fortune_bonus", 0)))
+        willpower = int(profile.willpower or 0) + int(round(effects.get("willpower_bonus", 0)))
+        charisma = int(profile.charisma or 0) + int(round(effects.get("charisma_bonus", 0)))
+        karma = int(profile.karma or 0) + int(round(effects.get("karma_bonus", 0)))
+        qi_blood = int(profile.qi_blood or 0) + int(round(effects.get("qi_blood_bonus", 0)))
+        true_yuan = int(profile.true_yuan or 0) + int(round(effects.get("true_yuan_bonus", 0)))
+        body_movement = int(profile.body_movement or 0) + int(round(effects.get("body_movement_bonus", 0)))
+        attack_power = int(profile.attack_power or 0) + int(round(effects.get("attack_bonus", 0)))
+        defense_power = int(profile.defense_power or 0) + int(round(effects.get("defense_bonus", 0)))
+        root_patch: dict[str, Any] | None = None
+
+        if pill.pill_type == "clear_poison":
+            dan_poison = max(dan_poison - int(round(effects.get("clear_poison", effects.get("effect_value", 50)))), 0)
+        elif pill.pill_type == "cultivation":
+            cultivation += int(round(effects.get("cultivation_gain", effects.get("effect_value", 0))))
+        elif pill.pill_type == "stone":
+            spiritual_stone += int(round(effects.get("stone_gain", effects.get("effect_value", 0))))
+        elif pill.pill_type == "root_refine":
+            steps = max(int(round(float(effects.get("root_quality_gain", 0) or 0))), 0)
+            root_patch = _refined_root_payload(profile_data, steps)
+        elif pill.pill_type == "root_remold":
+            floor_level = max(int(round(float(effects.get("root_quality_floor", 0) or 0))), 0)
+            root_patch = _generate_root_payload_with_floor(floor_level)
+        elif pill.pill_type in ROOT_TRANSFORM_PILL_TYPES:
+            root_patch = _transformed_root_payload(profile_data, pill.pill_type, effects.get("effect_value", pill_data.get("effect_value", 0)))
+
+        layer, cultivation, _, _ = apply_cultivation_gain(normalize_realm_stage(profile.realm_stage or FIRST_REALM_STAGE), int(profile.realm_layer or 1), cultivation, 0)
+        stone_delta = spiritual_stone - int(profile.spiritual_stone or 0)
         if stone_delta:
             apply_spiritual_stone_delta(
                 session,
@@ -9408,24 +9439,26 @@ def consume_pill_for_user(tg: int, pill_id: int) -> dict[str, Any]:
                 allow_dead=False,
                 apply_tribute=stone_delta > 0,
             )
-        updated.dan_poison = dan_poison
-        updated.cultivation = cultivation
-        updated.bone = bone
-        updated.comprehension = comprehension
-        updated.divine_sense = divine_sense
-        updated.fortune = fortune
-        updated.willpower = willpower
-        updated.charisma = charisma
-        updated.karma = karma
-        updated.qi_blood = qi_blood
-        updated.true_yuan = true_yuan
-        updated.body_movement = body_movement
-        updated.attack_power = attack_power
-        updated.defense_power = defense_power
-        updated.realm_layer = layer
+        profile.dan_poison = dan_poison
+        profile.cultivation = cultivation
+        profile.bone = bone
+        profile.comprehension = comprehension
+        profile.divine_sense = divine_sense
+        profile.fortune = fortune
+        profile.willpower = willpower
+        profile.charisma = charisma
+        profile.karma = karma
+        profile.qi_blood = qi_blood
+        profile.true_yuan = true_yuan
+        profile.body_movement = body_movement
+        profile.attack_power = attack_power
+        profile.defense_power = defense_power
+        profile.realm_layer = layer
         for key, value in (root_patch or {}).items():
-            setattr(updated, key, value)
-        updated.updated_at = utcnow()
+            setattr(profile, key, value)
+        profile.updated_at = now
+        _queue_profile_cache_invalidation(session, tg)
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
     bundle = serialize_full_profile(tg)
     return {
@@ -10079,6 +10112,57 @@ def _profile_cultivation_threshold(profile: XiuxianProfile | dict[str, Any] | No
     return cultivation_threshold(stage, _profile_realm_layer_value(profile))
 
 
+def _profile_stage_cultivation_total(profile: XiuxianProfile | dict[str, Any] | None) -> int:
+    if isinstance(profile, dict):
+        stage = normalize_realm_stage(profile.get("realm_stage") or FIRST_REALM_STAGE)
+        layer = max(int(profile.get("realm_layer") or 1), 1)
+        cultivation = max(int(profile.get("cultivation") or 0), 0)
+    else:
+        stage = normalize_realm_stage(getattr(profile, "realm_stage", None) or FIRST_REALM_STAGE)
+        layer = max(int(getattr(profile, "realm_layer", 1) or 1), 1)
+        cultivation = max(int(getattr(profile, "cultivation", 0) or 0), 0)
+    total = cultivation
+    for current_layer in range(1, layer):
+        total += cultivation_threshold(stage, current_layer)
+    return total
+
+
+def _apply_stage_cultivation_loss(stage: str, layer: int, cultivation: int, loss: int) -> tuple[int, int, int]:
+    current_stage = normalize_realm_stage(stage or FIRST_REALM_STAGE)
+    current_layer = max(int(layer or 1), 1)
+    current_cultivation = min(max(int(cultivation or 0), 0), cultivation_threshold(current_stage, current_layer))
+    remaining_loss = max(int(loss or 0), 0)
+    before_total = _profile_stage_cultivation_total(
+        {
+            "realm_stage": current_stage,
+            "realm_layer": current_layer,
+            "cultivation": current_cultivation,
+        }
+    )
+
+    while remaining_loss > 0:
+        if current_cultivation >= remaining_loss:
+            current_cultivation -= remaining_loss
+            remaining_loss = 0
+            break
+        remaining_loss -= current_cultivation
+        if current_layer <= 1:
+            current_cultivation = 0
+            remaining_loss = 0
+            break
+        current_layer -= 1
+        current_cultivation = cultivation_threshold(current_stage, current_layer)
+
+    after_total = _profile_stage_cultivation_total(
+        {
+            "realm_stage": current_stage,
+            "realm_layer": current_layer,
+            "cultivation": current_cultivation,
+        }
+    )
+    return current_layer, current_cultivation, max(before_total - after_total, 0)
+
+
 def _furnace_harvest_preview(
     owner_profile: XiuxianProfile | dict[str, Any] | None,
     furnace_profile: XiuxianProfile | dict[str, Any] | None,
@@ -10087,14 +10171,25 @@ def _furnace_harvest_preview(
     percent = _furnace_harvest_percent(settings)
     owner_threshold = _profile_cultivation_threshold(owner_profile)
     furnace_threshold = _profile_cultivation_threshold(furnace_profile)
+    furnace_total_progress = _profile_stage_cultivation_total(furnace_profile)
     if isinstance(furnace_profile, dict):
+        furnace_stage = normalize_realm_stage(furnace_profile.get("realm_stage") or FIRST_REALM_STAGE)
         furnace_current = max(int(furnace_profile.get("cultivation") or 0), 0)
     else:
+        furnace_stage = normalize_realm_stage(getattr(furnace_profile, "realm_stage", None) or FIRST_REALM_STAGE)
         furnace_current = max(int(getattr(furnace_profile, "cultivation", 0) or 0), 0)
+    furnace_layer = _profile_realm_layer_value(furnace_profile)
     furnace_loss = 0
-    if percent > 0 and furnace_current > 0:
-        furnace_loss = max(int(round(furnace_current * percent / 100)), 1)
-        furnace_loss = min(furnace_loss, furnace_current)
+    furnace_layer_after = furnace_layer
+    furnace_cultivation_after = furnace_current
+    if percent > 0 and furnace_total_progress > 0:
+        planned_loss = max(int(round(furnace_total_progress * percent / 100)), 1)
+        furnace_layer_after, furnace_cultivation_after, furnace_loss = _apply_stage_cultivation_loss(
+            furnace_stage,
+            furnace_layer,
+            furnace_current,
+            planned_loss,
+        )
     master_gain_raw = 0
     if furnace_loss > 0:
         master_gain_raw = max(int(round(furnace_loss * owner_threshold / max(furnace_threshold, 1))), 1)
@@ -10102,8 +10197,12 @@ def _furnace_harvest_preview(
         "harvest_percent": percent,
         "owner_threshold": owner_threshold,
         "furnace_threshold": furnace_threshold,
-        "furnace_current": furnace_current,
+        "furnace_current": furnace_total_progress,
+        "furnace_current_layer_cultivation": furnace_current,
+        "furnace_progress_total": furnace_total_progress,
         "furnace_loss": furnace_loss,
+        "furnace_layer_after": furnace_layer_after,
+        "furnace_cultivation_after": furnace_cultivation_after,
         "master_gain_raw": master_gain_raw,
     }
 
@@ -10394,6 +10493,20 @@ def assert_duel_stake_affordable(
         raise ValueError(f"赌注 {stake} 灵石无法成立：" + "；".join(shortages) + "。")
 
 
+def _resolve_duel_stake_amount(stake: int, *, settings: dict[str, Any] | None = None, allow_zero: bool = False) -> int:
+    amount = max(int(stake or 0), 0)
+    source = settings or get_xiuxian_settings()
+    minimum = max(int(source.get("duel_bet_min_amount", DEFAULT_SETTINGS["duel_bet_min_amount"]) or 0), 1)
+    maximum = max(int(source.get("duel_bet_max_amount", DEFAULT_SETTINGS["duel_bet_max_amount"]) or 0), minimum)
+    if allow_zero and amount == 0:
+        return 0
+    if amount < minimum:
+        raise ValueError(f"斗法赌注至少需要 {minimum} 灵石。")
+    if amount > maximum:
+        raise ValueError(f"斗法赌注最多只能设置为 {maximum} 灵石。")
+    return amount
+
+
 def _clear_duel_active_talismans(*tgs: int) -> None:
     cleared: set[int] = set()
     for tg in tgs:
@@ -10630,13 +10743,23 @@ def _apply_death_duel_outcome(session: Session, winner_tg: int, loser_tg: int) -
     }
 
 
-def resolve_duel(challenger_tg: int, defender_tg: int, stake: int = 0, duel_mode: str = "standard") -> dict[str, Any]:
+def resolve_duel(
+    challenger_tg: int,
+    defender_tg: int,
+    stake: int = 0,
+    duel_mode: str = "standard",
+    *,
+    allow_zero_stake: bool = False,
+    allow_plunder: bool = True,
+    allow_artifact_plunder: bool = True,
+    use_rate_outcome: bool = False,
+) -> dict[str, Any]:
     duel = compute_duel_odds(challenger_tg, defender_tg, duel_mode=duel_mode)
     challenger_profile = duel["challenger"]["profile"]
     defender_profile = duel["defender"]["profile"]
-    stake_amount = max(int(stake), 0)
     duel_mode_value = _normalize_duel_mode(duel.get("duel_mode"))
     settings = get_xiuxian_settings()
+    stake_amount = _resolve_duel_stake_amount(stake, settings=settings, allow_zero=allow_zero_stake)
     plunder_percent = max(
         min(int(settings.get("duel_winner_steal_percent", DEFAULT_SETTINGS["duel_winner_steal_percent"]) or 0), 100),
         0,
@@ -10650,7 +10773,25 @@ def resolve_duel(challenger_tg: int, defender_tg: int, stake: int = 0, duel_mode
     challenger_state = _battle_bundle(duel["challenger"], defender_profile, apply_random=True)
     defender_state = _battle_bundle(duel["defender"], challenger_profile, apply_random=True)
     dynamic_rate = float(duel["challenger_rate"])
-    simulated_battle = _simulate_duel_battle(duel["challenger"], duel["defender"], challenger_state, defender_state)
+    if use_rate_outcome:
+        rate_roll = roll_probability_percent(
+            int(round(dynamic_rate * 100)),
+            actor_fortune=int(challenger_state["stats"]["fortune"] or 0),
+            opponent_fortune=int(defender_state["stats"]["fortune"] or 0),
+            actor_weight=0.12,
+            opponent_weight=0.12,
+            minimum=1,
+            maximum=99,
+        )
+        simulated_battle = {
+            "winner_tg": challenger_tg if rate_roll["success"] else defender_tg,
+            "loser_tg": defender_tg if rate_roll["success"] else challenger_tg,
+            "summary": f"本场按综合胜率判定：挑战者胜率 {rate_roll['chance']}%，掷点 {rate_roll['roll']}。",
+            "battle_log": [],
+            "round_count": 0,
+        }
+    else:
+        simulated_battle = _simulate_duel_battle(duel["challenger"], duel["defender"], challenger_state, defender_state)
     winner_tg = int(simulated_battle["winner_tg"])
     loser_tg = int(simulated_battle["loser_tg"])
     challenger_win = winner_tg == challenger_tg
@@ -10668,7 +10809,7 @@ def resolve_duel(challenger_tg: int, defender_tg: int, stake: int = 0, duel_mode
         if stake_amount > 0:
             apply_spiritual_stone_delta(session, challenger_tg, -stake_amount, action_text="支付斗法赌注", allow_dead=False, apply_tribute=False)
             apply_spiritual_stone_delta(session, defender_tg, -stake_amount, action_text="支付斗法赌注", allow_dead=False, apply_tribute=False)
-        if plunder_percent > 0:
+        if allow_plunder and plunder_percent > 0:
             loser_current = session.query(XiuxianProfile).filter(XiuxianProfile.tg == loser_tg).with_for_update().first()
             loser_balance = int(loser_current.spiritual_stone or 0) if loser_current is not None else 0
             plunder_amount = loser_balance * plunder_percent // 100
@@ -10691,17 +10832,23 @@ def resolve_duel(challenger_tg: int, defender_tg: int, stake: int = 0, duel_mode
                 winner_growth = _apply_activity_stat_growth_to_profile_row(winner_row, "duel", winner_state["stats"])
                 session.commit()
 
-    artifact_plunder_roll = roll_probability_percent(
-        artifact_plunder_base_chance,
-        actor_fortune=winner_state["stats"]["fortune"],
-        opponent_fortune=loser_state["stats"]["fortune"],
-        actor_weight=0.45,
-        opponent_weight=0.35,
-        minimum=0,
-        maximum=95,
-    )
+    artifact_plunder_roll = {
+        "chance": 0,
+        "roll": None,
+        "success": False,
+    }
+    if allow_artifact_plunder:
+        artifact_plunder_roll = roll_probability_percent(
+            artifact_plunder_base_chance,
+            actor_fortune=winner_state["stats"]["fortune"],
+            opponent_fortune=loser_state["stats"]["fortune"],
+            actor_weight=0.45,
+            opponent_weight=0.35,
+            minimum=0,
+            maximum=95,
+        )
     artifact_plunder = None
-    if duel_mode_value != "death" and artifact_plunder_roll["success"]:
+    if allow_artifact_plunder and duel_mode_value != "death" and artifact_plunder_roll["success"]:
         artifact_plunder = plunder_random_artifact_to_user(winner_tg, loser_tg)
         if artifact_plunder and artifact_plunder.get("artifact"):
             artifact_name = artifact_plunder["artifact"].get("name", "未知法宝")
@@ -10766,24 +10913,24 @@ def _arena_reward_values(profile: XiuxianProfile, arena: XiuxianArena) -> dict[s
     threshold = cultivation_threshold(stage, layer)
     stage_rank = realm_index(stage) + 1
     fortune = max(int(profile.fortune or 0), 0)
-    defense_count = max(int(arena.defense_success_count or 0), 0)
-    challenge_count = max(int(arena.challenge_count or 0), 0)
+    defense_count = min(max(int(arena.defense_success_count or 0), 0), 5)
+    challenge_count = min(max(int(arena.challenge_count or 0), 0), 8)
     stone_reward = max(
         40,
         min(
-            240000,
-            threshold // 24 + stage_rank * 18 + fortune * 6 + defense_count * 28 + challenge_count * 10,
+            4800,
+            threshold // 48 + stage_rank * 12 + fortune * 4 + defense_count * 18 + challenge_count * 8,
         ),
     )
     cultivation_reward = max(
-        60,
+        36,
         min(
-            1200000,
-            threshold // 5
-            + stage_rank * 36
-            + fortune * 10
-            + defense_count * max(threshold // 80, 12)
-            + challenge_count * max(threshold // 180, 8),
+            max(threshold // 4, 180),
+            threshold // 12
+            + stage_rank * 18
+            + fortune * 6
+            + defense_count * max(threshold // 240, 4)
+            + challenge_count * max(threshold // 360, 3),
         ),
     )
     return {
@@ -11012,7 +11159,16 @@ def challenge_group_arena_for_user(
 
     duel_result = None
     try:
-        duel_result = resolve_duel(actor_tg, champion_tg, 0, duel_mode="standard")
+        duel_result = resolve_duel(
+            actor_tg,
+            champion_tg,
+            0,
+            duel_mode="standard",
+            allow_zero_stake=True,
+            allow_plunder=False,
+            allow_artifact_plunder=False,
+            use_rate_outcome=True,
+        )
     except Exception:
         with Session() as session:
             arena = session.query(XiuxianArena).filter(XiuxianArena.id == arena_id_value).with_for_update().first()

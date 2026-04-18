@@ -9,7 +9,6 @@ from bot.sql_helper.sql_xiuxian import (
     apply_spiritual_stone_delta,
     assert_currency_operation_allowed,
     get_xiuxian_settings,
-    utcnow,
 )
 
 
@@ -80,46 +79,7 @@ def preview_stone_to_coin(stone_amount: int) -> dict:
 
 
 def convert_coin_to_stone(tg: int, coin_amount: int) -> dict:
-    amount = max(int(coin_amount), 0)
-    if amount <= 0:
-        raise ValueError("兑换数量必须大于 0")
-
-    preview = preview_coin_to_stone(amount)
-    if preview["net"] <= 0:
-        raise ValueError("当前比例下可兑换的灵石不足 1")
-    with Session() as session:
-        user = session.query(Emby).filter(Emby.tg == tg).with_for_update().first()
-        if user is None:
-            raise ValueError("Emby 账号不存在")
-        if int(user.iv or 0) < amount:
-            raise ValueError("片刻碎片不足")
-        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
-        if profile is None or not profile.consented:
-            raise ValueError("你还没有踏入仙途")
-        assert_currency_operation_allowed(tg, "兑换灵石", session=session, profile=profile)
-
-        user.iv = int(user.iv or 0) - amount
-        apply_spiritual_stone_delta(
-            session,
-            tg,
-            int(preview["net"]),
-            action_text="兑换灵石",
-            enforce_currency_lock=False,
-            allow_dead=False,
-            apply_tribute=True,
-        )
-        session.commit()
-        emby_balance = int(user.iv or 0)
-        stone_balance = int(profile.spiritual_stone or 0)
-    return {
-        "spent_coin": amount,
-        "received_stone": preview["net"],
-        "gross_stone": preview["gross"],
-        "emby_balance": emby_balance,
-        "stone_balance": stone_balance,
-        "fee": preview["fee"],
-        "rate": preview["settings"]["rate"],
-    }
+    raise ValueError("片刻碎片兑换灵石已临时关闭，等待经济系统重构后再开放。")
 
 
 def convert_stone_to_coin(tg: int, stone_amount: int) -> dict:

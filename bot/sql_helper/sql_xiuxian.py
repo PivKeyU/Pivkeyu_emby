@@ -55,6 +55,8 @@ REALM_ORDER = [
 ]
 LEGACY_REALM_ORDER = ["凡人", "炼气", "筑基", "结丹", "元婴", "化神", "须弥", "芥子", "混元一体", "炼虚", "合体", "渡劫", "真仙"]
 REALM_LAYER_LIMIT = 9
+DEFAULT_TECHNIQUE_CAPACITY = 2
+MAX_TECHNIQUE_CAPACITY = 2
 LEGACY_REALM_ALIASES = {
     "练气": "炼气",
     "浑元一体": "混元一体",
@@ -881,7 +883,7 @@ class XiuxianProfile(Base):
     active_talisman_id = Column(Integer, nullable=True)
     current_technique_id = Column(Integer, nullable=True)
     current_title_id = Column(Integer, nullable=True)
-    technique_capacity = Column(Integer, default=3, nullable=False)
+    technique_capacity = Column(Integer, default=DEFAULT_TECHNIQUE_CAPACITY, nullable=False)
     shop_name = Column(String(64), nullable=True)
     shop_broadcast = Column(Boolean, default=False, nullable=False)
     last_train_at = Column(DateTime, nullable=True)
@@ -1943,7 +1945,7 @@ def serialize_profile(profile: XiuxianProfile | None) -> dict[str, Any] | None:
         "active_talisman_id": profile.active_talisman_id,
         "current_technique_id": profile.current_technique_id,
         "current_title_id": profile.current_title_id,
-        "technique_capacity": profile.technique_capacity,
+        "technique_capacity": normalize_technique_capacity(profile.technique_capacity),
         "shop_name": profile.shop_name,
         "shop_broadcast": profile.shop_broadcast,
         "last_train_at": serialize_datetime(profile.last_train_at),
@@ -3684,7 +3686,7 @@ def grant_technique_to_user(
             .first()
         )
         if row is None:
-            capacity = max(int(profile.technique_capacity or 0), 1)
+            capacity = normalize_technique_capacity(profile.technique_capacity)
             if owned_count >= capacity:
                 raise ValueError(f"可参悟功法数量已满，当前上限为 {capacity}。")
             row = XiuxianUserTechnique(
@@ -3770,6 +3772,10 @@ def _coerce_bool(value: Any, default: bool = True) -> bool:
         if normalized in {"1", "true", "yes", "on"}:
             return True
     return bool(value)
+
+
+def normalize_technique_capacity(value: Any, default: int = DEFAULT_TECHNIQUE_CAPACITY) -> int:
+    return min(max(_coerce_int(value, default), 1), MAX_TECHNIQUE_CAPACITY)
 
 
 def _fallback_duel_bet_amount_options(minimum: int, maximum: int) -> list[int]:
@@ -6361,7 +6367,7 @@ def admin_patch_profile(tg: int, **fields) -> dict[str, Any] | None:
     if "realm_layer" in safe:
         safe["realm_layer"] = normalize_realm_layer(safe.get("realm_layer"), 1)
     if "technique_capacity" in safe:
-        safe["technique_capacity"] = max(_coerce_int(safe.get("technique_capacity"), 3), 1)
+        safe["technique_capacity"] = normalize_technique_capacity(safe.get("technique_capacity"))
     for key in ADMIN_NONNEGATIVE_PROFILE_FIELDS:
         if key in safe:
             safe[key] = max(_coerce_int(safe.get(key), 0), 0)

@@ -83,6 +83,7 @@ from bot.sql_helper.sql_xiuxian import (
     list_user_materials,
     list_user_recipes,
     list_user_techniques,
+    normalize_technique_capacity,
     plunder_random_artifact_to_user,
     realm_index,
     patch_sect,
@@ -519,6 +520,13 @@ def _scene_exploration_counts(tg: int) -> dict[int, int]:
 
 
 def _eligible_for_sect(profile_data: dict[str, Any], sect: dict[str, Any], combat_power: int = 0) -> tuple[bool, str]:
+    effective_stats = profile_data.get("effective_stats") if isinstance(profile_data.get("effective_stats"), dict) else {}
+
+    def _stat_value(key: str) -> int:
+        if key in effective_stats:
+            return int(effective_stats.get(key) or 0)
+        return int(profile_data.get(key) or 0)
+
     now = utcnow()
     betrayal_until = _normalize_comparable_datetime(_parse_optional_datetime(profile_data.get("sect_betrayal_until")))
     if betrayal_until and betrayal_until > now:
@@ -529,33 +537,61 @@ def _eligible_for_sect(profile_data: dict[str, Any], sect: dict[str, Any], comba
         return False, "层数不满足宗门要求"
     if int(profile_data.get("spiritual_stone") or 0) < int(sect.get("min_stone") or 0):
         return False, "灵石不满足宗门要求"
-    if int(profile_data.get("bone") or 0) < int(sect.get("min_bone") or 0):
+    if _stat_value("bone") < int(sect.get("min_bone") or 0):
         return False, "根骨不满足宗门要求"
-    if int(profile_data.get("comprehension") or 0) < int(sect.get("min_comprehension") or 0):
+    if _stat_value("comprehension") < int(sect.get("min_comprehension") or 0):
         return False, "悟性不满足宗门要求"
-    if int(profile_data.get("divine_sense") or 0) < int(sect.get("min_divine_sense") or 0):
+    if _stat_value("divine_sense") < int(sect.get("min_divine_sense") or 0):
         return False, "神识不满足宗门要求"
-    if int(profile_data.get("fortune") or 0) < int(sect.get("min_fortune") or 0):
+    if _stat_value("fortune") < int(sect.get("min_fortune") or 0):
         return False, "机缘不满足宗门要求"
-    if int(profile_data.get("willpower") or 0) < int(sect.get("min_willpower") or 0):
+    if _stat_value("willpower") < int(sect.get("min_willpower") or 0):
         return False, "心志不满足宗门要求"
-    if int(profile_data.get("charisma") or 0) < int(sect.get("min_charisma") or 0):
+    if _stat_value("charisma") < int(sect.get("min_charisma") or 0):
         return False, "魅力不满足宗门要求"
-    if int(profile_data.get("karma") or 0) < int(sect.get("min_karma") or 0):
+    if _stat_value("karma") < int(sect.get("min_karma") or 0):
         return False, "因果不满足宗门要求"
-    if int(profile_data.get("body_movement") or 0) < int(sect.get("min_body_movement") or 0):
+    if _stat_value("body_movement") < int(sect.get("min_body_movement") or 0):
         return False, "身法不满足宗门要求"
+    if combat_power < int(sect.get("min_combat_power") or 0):
+        return False, "战力不满足宗门要求"
     return True, ""
+
+
+def _repair_missing_sect_membership(tg: int, profile_data: dict[str, Any] | None = None) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    profile = profile_data or serialize_profile(get_profile(tg, create=False))
+    if not profile or not profile.get("sect_id"):
+        return profile, None
+    sect = serialize_sect(get_sect(int(profile["sect_id"])))
+    if sect is not None:
+        return profile, sect
+    upsert_profile(
+        tg,
+        sect_id=None,
+        sect_role_key=None,
+        sect_contribution=0,
+        sect_joined_at=None,
+        sect_betrayal_until=None,
+        last_salary_claim_at=None,
+    )
+    create_journal(tg, "sect", "宗门记录修复", f"原宗门记录（ID {int(profile.get('sect_id') or 0)}）已失效，系统已自动清理残留归属。")
+    return serialize_profile(get_profile(tg, create=False)), None
 
 
 def list_sects_for_user(tg: int) -> list[dict[str, Any]]:
     profile_obj = get_profile(tg, create=True)
     profile = serialize_profile(profile_obj)
+    profile, _ = _repair_missing_sect_membership(tg, profile)
     combat_power = 0
+    effective_stats: dict[str, Any] = {}
     if profile and profile.get("consented") and not profile.get("death_at"):
         from bot.plugins.xiuxian_game.service import serialize_full_profile
 
-        combat_power = int((serialize_full_profile(tg) or {}).get("combat_power") or 0)
+        bundle = serialize_full_profile(tg) or {}
+        combat_power = int(bundle.get("combat_power") or 0)
+        effective_stats = bundle.get("effective_stats") or {}
+        profile = bundle.get("profile") or profile
+        profile["effective_stats"] = effective_stats
     rows = []
     for sect in list_sects(enabled_only=True):
         sect["roles"] = list_sect_roles(sect["id"])
@@ -585,7 +621,11 @@ def get_current_sect_bundle(tg: int) -> dict[str, Any] | None:
     profile = serialize_profile(get_profile(tg, create=False))
     if not profile or not profile.get("sect_id"):
         return None
-    sect = serialize_sect(get_sect(int(profile["sect_id"])))
+    profile, sect = _repair_missing_sect_membership(tg, profile)
+    if not profile or not profile.get("sect_id"):
+        return None
+    if sect is None:
+        sect = serialize_sect(get_sect(int(profile["sect_id"])))
     if not sect:
         return None
     sect["roles"] = list_sect_roles(sect["id"])
@@ -604,6 +644,7 @@ def get_current_sect_bundle(tg: int) -> dict[str, Any] | None:
 
 def join_sect_for_user(tg: int, sect_id: int) -> dict[str, Any]:
     _, profile = _require_alive_profile_data(tg, "加入宗门")
+    profile, _ = _repair_missing_sect_membership(tg, profile)
     if profile.get("sect_id") and int(profile.get("sect_id")) == int(sect_id):
         raise ValueError("你已在该宗门门下，无需重复拜山。")
     if profile.get("sect_id") and int(profile.get("sect_id")) != int(sect_id):
@@ -613,7 +654,10 @@ def join_sect_for_user(tg: int, sect_id: int) -> dict[str, Any]:
         raise ValueError("宗门不存在")
     from bot.plugins.xiuxian_game.service import serialize_full_profile
 
-    allowed, reason = _eligible_for_sect(profile, sect, combat_power=int((serialize_full_profile(tg) or {}).get("combat_power") or 0))
+    bundle = serialize_full_profile(tg) or {}
+    full_profile = bundle.get("profile") or profile
+    full_profile["effective_stats"] = bundle.get("effective_stats") or {}
+    allowed, reason = _eligible_for_sect(full_profile, sect, combat_power=int(bundle.get("combat_power") or 0))
     if not allowed:
         raise ValueError(reason)
     upsert_profile(
@@ -641,6 +685,27 @@ def join_sect_for_user(tg: int, sect_id: int) -> dict[str, Any]:
 
 
 def leave_sect_for_user(tg: int) -> dict[str, Any]:
+    raw_profile = serialize_profile(get_profile(tg, create=False))
+    if raw_profile and raw_profile.get("sect_id"):
+        repaired_profile, sect = _repair_missing_sect_membership(tg, raw_profile)
+        if sect is None and repaired_profile and not repaired_profile.get("sect_id"):
+            previous_contribution = int(raw_profile.get("sect_contribution") or 0)
+            return {
+                "previous_sect": {
+                    "id": int(raw_profile.get("sect_id") or 0),
+                    "name": f"失效宗门#{int(raw_profile.get('sect_id') or 0)}",
+                },
+                "profile": repaired_profile,
+                "repaired": True,
+                "message": "原宗门记录已失效，系统已自动清理残留归属，你现在可以加入其他宗门。",
+                "betrayal": {
+                    "stone_penalty": 0,
+                    "claimed_salary": False,
+                    "contribution_cleared": previous_contribution,
+                    "cooldown_until": None,
+                    "cooldown_days": 0,
+                },
+            }
     current = get_current_sect_bundle(tg)
     if not current:
         raise ValueError("你当前并未加入宗门")
@@ -1975,7 +2040,7 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
             technique_rewards.append(int(bonus_payload.get("ref_id")))
         if technique_rewards:
             profile_obj = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).first()
-            capacity = max(int(getattr(profile_obj, "technique_capacity", 0) or 0), 1)
+            capacity = normalize_technique_capacity(getattr(profile_obj, "technique_capacity", None))
             owned_ids = {
                 int(row[0] or 0)
                 for row in session.query(XiuxianUserTechnique.technique_id)

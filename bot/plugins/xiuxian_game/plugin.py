@@ -3251,6 +3251,12 @@ def register_bot(bot_instance) -> None:
                         bet_seconds = max(min(int(numeric_args[1]), 3600), 10)
                 except ValueError:
                     return await _reply_text(msg, "赌注和下注秒数必须填写整数。", quote=True)
+            min_stake = int(bet_settings.get("min_amount") or 0)
+            max_stake = int(bet_settings.get("max_amount") or min_stake)
+            if stake < min_stake:
+                return await _reply_text(msg, f"斗法赌注至少需要 {min_stake} 灵石。", quote=True)
+            if stake > max_stake:
+                return await _reply_text(msg, f"斗法赌注最多只能设置为 {max_stake} 灵石。", quote=True)
             if msg.reply_to_message is None or msg.reply_to_message.from_user is None:
                 return await _reply_text(msg, "请先回复一位目标道友，再发起斗法邀请。", quote=True)
             if msg.reply_to_message.from_user.id == actor.id:

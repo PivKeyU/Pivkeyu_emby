@@ -41,6 +41,7 @@ from bot.sql_helper.sql_xiuxian import (
     list_recipe_ingredients,
     list_recipes,
     list_user_techniques,
+    normalize_technique_capacity,
     realm_index,
     serialize_artifact,
     serialize_exploration,
@@ -911,7 +912,7 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
                 technique_rewards.append(int(bonus_payload.get("ref_id")))
             if technique_rewards:
                 profile_obj = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).first()
-                capacity = max(int(getattr(profile_obj, "technique_capacity", 0) or 0), 1)
+                capacity = normalize_technique_capacity(getattr(profile_obj, "technique_capacity", None))
                 owned_ids = {
                     int(row[0] or 0)
                     for row in session.query(XiuxianUserTechnique.technique_id)
