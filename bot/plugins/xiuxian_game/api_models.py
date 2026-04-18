@@ -747,3 +747,12 @@ class PlayerSelectionPayload(BaseModel):
 class PlayerRevokePayload(BaseModel):
     item_kind: str
     item_ref_id: int
+
+
+class PlayerBatchResourcePayload(BaseModel):
+    item_kind: str
+    item_ref_id: int
+    quantity: int = Field(default=1, ge=1)
+    operation: str = Field(default="grant")
+    equip: bool = False
+    announce_in_group: bool = False

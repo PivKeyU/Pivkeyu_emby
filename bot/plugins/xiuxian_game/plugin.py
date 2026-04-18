@@ -76,6 +76,7 @@ from bot.plugins.xiuxian_game.api_models import (
     PlayerInventoryPayload,
     PlayerPatchPayload,
     PlayerResourceGrantPayload,
+    PlayerBatchResourcePayload,
     PlayerRevokePayload,
     PlayerSelectionPayload,
     PurchasePayload,
@@ -103,6 +104,7 @@ from bot.plugins.xiuxian_game.api_models import (
 )
 from bot.plugins.xiuxian_game.features.admin_ops import (
     admin_clear_all_xiuxian_data,
+    admin_batch_update_player_resource,
     admin_grant_player_resource,
     admin_patch_player,
     admin_revoke_player_resource,
@@ -5253,6 +5255,30 @@ def register_web(app) -> None:
         admin_revoke_player_resource(tg, payload.item_kind, payload.item_ref_id)
         create_journal(tg, "admin", "主人回收", f"主人移除了 {payload.item_kind}:{payload.item_ref_id}")
         return {"code": 200, "data": await _admin_player_bundle_payload(tg)}
+
+    @admin_router.post("/players/resource/batch")
+    async def xiuxian_admin_player_batch_resource_api(payload: PlayerBatchResourcePayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        result = admin_batch_update_player_resource(
+            payload.item_kind,
+            payload.item_ref_id,
+            payload.quantity,
+            operation=payload.operation,
+            equip=payload.equip,
+        )
+        if payload.announce_in_group:
+            chat_id = _main_group_chat_id()
+            if chat_id:
+                action_label = "发放" if payload.operation == "grant" else "扣除"
+                lines = [
+                    "📣 批量物资调整",
+                    f"主人已对全体修士批量{action_label}：{payload.item_kind}:{payload.item_ref_id} × {payload.quantity}",
+                    f"成功 {result.get('success_count', 0)} 人，跳过 {result.get('skipped_count', 0)} 人，失败 {result.get('failed_count', 0)} 人。",
+                ]
+                asyncio.create_task(_send_message(bot, chat_id, "\n".join(lines), persistent=True))
+        return {"code": 200, "data": result}
 
     app.include_router(user_router)
     app.include_router(admin_router)

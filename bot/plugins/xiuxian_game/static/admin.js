@@ -890,6 +890,51 @@ function syncGrantItemOptions() {
   syncGrantItemSearchTip(rows);
 }
 
+function syncPlayerBatchResourceForm() {
+  const kindNode = $("player-batch-kind");
+  const refNode = $("player-batch-ref-id");
+  const quantityNode = $("player-batch-quantity");
+  const equipNode = $("player-batch-equip");
+  if (!kindNode || !refNode) return;
+  const kind = kindNode.value || "artifact";
+  const rows = itemRows(kind);
+  setOptions(refNode, rows, refNode.value);
+  const supportsQuantity = ["artifact", "pill", "talisman", "material"].includes(kind);
+  const supportsEquip = ["title", "technique"].includes(kind);
+  if (quantityNode) {
+    quantityNode.disabled = !supportsQuantity;
+    if (!supportsQuantity) quantityNode.value = "1";
+  }
+  if (equipNode) {
+    equipNode.disabled = !supportsEquip;
+    if (!supportsEquip) equipNode.checked = false;
+  }
+}
+
+function renderPlayerBatchResourceSummary(result = null) {
+  const root = $("player-batch-resource-summary");
+  if (!root) return;
+  if (!result) {
+    root.innerHTML = `<article class="stack-item"><strong>尚未执行批量操作</strong><p>支持全体发放或扣除。扣除时，未持有该物品的玩家会自动跳过，不会报错中断。</p></article>`;
+    return;
+  }
+  const failedRows = Array.isArray(result.failed_rows) ? result.failed_rows : [];
+  const skippedTgs = Array.isArray(result.skipped_tgs) ? result.skipped_tgs : [];
+  const actionLabel = result.operation === "deduct" ? "扣除" : "发放";
+  root.innerHTML = `
+    <article class="stack-item">
+      <div class="stack-item-head">
+        <strong>最近一次批量${escapeHtml(actionLabel)}</strong>
+        <span class="badge">${escapeHtml(result.item_kind || "item")} : ${escapeHtml(result.item_ref_id || 0)}</span>
+      </div>
+      <p>数量 ${escapeHtml(result.quantity || 1)}，已处理 ${escapeHtml(result.processed_count || 0)} 名玩家。</p>
+      <p>成功 ${escapeHtml(result.success_count || 0)} 人，跳过 ${escapeHtml(result.skipped_count || 0)} 人，失败 ${escapeHtml(result.failed_count || 0)} 人。</p>
+      ${skippedTgs.length ? `<p>已跳过 TG：${escapeHtml(skippedTgs.join("、"))}</p>` : `<p class="muted">本次没有跳过玩家。</p>`}
+      ${failedRows.length ? `<p>失败样本：${escapeHtml(failedRows.map((row) => `TG ${row.tg}(${row.reason})`).join("；"))}</p>` : `<p class="muted">本次没有失败样本。</p>`}
+    </article>
+  `;
+}
+
 function syncGrantUserSearchTip() {
   const tip = $("grant-user-search-tip");
   if (!tip) return;
@@ -1816,6 +1861,8 @@ async function bootstrapAdmin(forceToken = false) {
   state.bundle = data;
   applySettings(data.settings || {});
   syncSelects();
+  syncPlayerBatchResourceForm();
+  renderPlayerBatchResourceSummary();
   renderWorld();
   await searchPlayers({
     query: $("player-search-q")?.value || "",
@@ -2953,6 +3000,34 @@ async function submitPlayerOwnedGrant(event) {
   }
 }
 
+async function submitPlayerBatchResource(event) {
+  event.preventDefault();
+  try {
+    const itemRefId = Number($("player-batch-ref-id")?.value || 0);
+    if (!itemRefId) {
+      throw new Error("请选择要批量操作的条目");
+    }
+    const payload = {
+      operation: $("player-batch-operation")?.value || "grant",
+      item_kind: $("player-batch-kind")?.value || "artifact",
+      item_ref_id: itemRefId,
+      quantity: Number($("player-batch-quantity")?.value || 1),
+      equip: Boolean($("player-batch-equip")?.checked),
+      announce_in_group: Boolean($("player-batch-announce")?.checked),
+    };
+    const result = await request("POST", "/plugins/xiuxian/admin-api/players/resource/batch", payload);
+    renderPlayerBatchResourceSummary(result);
+    const actionLabel = payload.operation === "deduct" ? "扣除" : "发放";
+    await popup(
+      `批量${actionLabel}完成`,
+      `成功 ${result.success_count || 0} 人，跳过 ${result.skipped_count || 0} 人，失败 ${result.failed_count || 0} 人。`,
+      "success",
+    );
+  } catch (error) {
+    await popup("批量操作失败", String(error.message || error), "error");
+  }
+}
+
 async function handlePlayerResourceAction(event) {
   const fillButton = event.target.closest("[data-player-fill-inventory-kind]");
   if (fillButton) {
@@ -3027,8 +3102,10 @@ document.getElementById("player-page-jump-form")?.addEventListener("submit", (e)
   });
 });
 document.getElementById("player-edit-form")?.addEventListener("submit", submitPlayerEdit);
+document.getElementById("player-batch-resource-form")?.addEventListener("submit", submitPlayerBatchResource);
 document.getElementById("player-inventory-form")?.addEventListener("submit", submitPlayerInventoryEdit);
 document.getElementById("player-owned-form")?.addEventListener("submit", submitPlayerOwnedGrant);
+document.getElementById("player-batch-kind")?.addEventListener("change", syncPlayerBatchResourceForm);
 document.getElementById("player-inventory-kind")?.addEventListener("change", syncPlayerResourceForms);
 document.getElementById("player-owned-kind")?.addEventListener("change", syncPlayerResourceForms);
 document.getElementById("player-edit-panel")?.addEventListener("click", (event) => {
@@ -3300,6 +3377,7 @@ syncSelects = function syncSelectsWithAchievementTitle() {
   baseSyncSelectsWithTitles();
   setOptions($("title-grant-id"), titleRows(), $("title-grant-id")?.value);
   syncPlayerResourceForms();
+  syncPlayerBatchResourceForm();
   renderAchievementMetricOptions();
 };
 

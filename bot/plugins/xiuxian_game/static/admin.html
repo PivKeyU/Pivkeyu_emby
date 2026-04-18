@@ -1791,6 +1791,56 @@
               <details class="stack-item player-resource-card" open>
                 <summary class="player-resource-summary">
                   <div>
+                    <strong>全玩家批量物资</strong>
+                    <p>对全体已入道玩家统一发放或扣除物品，背包里没有对应道具时自动跳过</p>
+                  </div>
+                </summary>
+                <form id="player-batch-resource-form" class="grid-form">
+                  <label>
+                    操作类型
+                    <select id="player-batch-operation">
+                      <option value="grant">全体发放</option>
+                      <option value="deduct">全体扣除</option>
+                    </select>
+                  </label>
+                  <label>
+                    资源类型
+                    <select id="player-batch-kind">
+                      <option value="artifact">法宝</option>
+                      <option value="pill">丹药</option>
+                      <option value="talisman">符箓</option>
+                      <option value="material">材料</option>
+                      <option value="title">称号</option>
+                      <option value="technique">功法</option>
+                      <option value="recipe">配方</option>
+                    </select>
+                  </label>
+                  <label>
+                    目标条目
+                    <select id="player-batch-ref-id"></select>
+                  </label>
+                  <label>
+                    数量
+                    <input id="player-batch-quantity" type="number" min="1" value="1">
+                  </label>
+                  <label class="inline-check">
+                    <input id="player-batch-equip" type="checkbox">
+                    发放后立即设为当前
+                  </label>
+                  <label class="inline-check">
+                    <input id="player-batch-announce" type="checkbox">
+                    在群组内播报本次批量操作
+                  </label>
+                  <div class="form-actions">
+                    <button type="submit">执行批量操作</button>
+                  </div>
+                </form>
+                <div id="player-batch-resource-summary" class="stack-list"></div>
+              </details>
+
+              <details class="stack-item player-resource-card" open>
+                <summary class="player-resource-summary">
+                  <div>
                     <strong>背包管理</strong>
                     <p>直接设置玩家背包中的法宝、丹药、符箓、材料数量</p>
                   </div>

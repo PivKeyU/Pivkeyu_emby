@@ -8798,6 +8798,178 @@ def admin_revoke_player_resource(tg: int, item_kind: str, item_ref_id: int) -> d
     return build_admin_player_detail(tg) or {}
 
 
+def _admin_remove_inventory_item_if_present(tg: int, item_kind: str, item_ref_id: int, quantity: int) -> bool:
+    normalized_kind = str(item_kind or "").strip()
+    amount = max(int(quantity or 0), 1)
+    if normalized_kind == "artifact":
+        with Session() as session:
+            row = (
+                session.query(XiuxianArtifactInventory)
+                .filter(
+                    XiuxianArtifactInventory.tg == int(tg),
+                    XiuxianArtifactInventory.artifact_id == int(item_ref_id),
+                )
+                .with_for_update()
+                .first()
+            )
+            if row is None or int(row.quantity or 0) <= 0:
+                return False
+            removable = min(int(row.quantity or 0), amount)
+            bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
+            row.quantity = max(int(row.quantity or 0) - removable, 0)
+            row.bound_quantity = min(bound_quantity, row.quantity)
+            row.updated_at = utcnow()
+            if row.quantity <= 0:
+                session.delete(row)
+            session.commit()
+        return True
+    if normalized_kind == "pill":
+        with Session() as session:
+            row = (
+                session.query(XiuxianPillInventory)
+                .filter(
+                    XiuxianPillInventory.tg == int(tg),
+                    XiuxianPillInventory.pill_id == int(item_ref_id),
+                )
+                .with_for_update()
+                .first()
+            )
+            if row is None or int(row.quantity or 0) <= 0:
+                return False
+            removable = min(int(row.quantity or 0), amount)
+            row.quantity = max(int(row.quantity or 0) - removable, 0)
+            row.updated_at = utcnow()
+            if row.quantity <= 0:
+                session.delete(row)
+            session.commit()
+        return True
+    if normalized_kind == "talisman":
+        with Session() as session:
+            row = (
+                session.query(XiuxianTalismanInventory)
+                .filter(
+                    XiuxianTalismanInventory.tg == int(tg),
+                    XiuxianTalismanInventory.talisman_id == int(item_ref_id),
+                )
+                .with_for_update()
+                .first()
+            )
+            if row is None or int(row.quantity or 0) <= 0:
+                return False
+            removable = min(int(row.quantity or 0), amount)
+            bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
+            row.quantity = max(int(row.quantity or 0) - removable, 0)
+            row.bound_quantity = min(bound_quantity, row.quantity)
+            row.updated_at = utcnow()
+            if row.quantity <= 0:
+                session.delete(row)
+            session.commit()
+        return True
+    if normalized_kind == "material":
+        with Session() as session:
+            row = (
+                session.query(XiuxianMaterialInventory)
+                .filter(
+                    XiuxianMaterialInventory.tg == int(tg),
+                    XiuxianMaterialInventory.material_id == int(item_ref_id),
+                )
+                .with_for_update()
+                .first()
+            )
+            if row is None or int(row.quantity or 0) <= 0:
+                return False
+            removable = min(int(row.quantity or 0), amount)
+            row.quantity = max(int(row.quantity or 0) - removable, 0)
+            row.updated_at = utcnow()
+            if row.quantity <= 0:
+                session.delete(row)
+            session.commit()
+        return True
+    return False
+
+
+def admin_batch_update_player_resource(
+    item_kind: str,
+    item_ref_id: int,
+    quantity: int = 1,
+    *,
+    operation: str = "grant",
+    equip: bool = False,
+) -> dict[str, Any]:
+    normalized_kind = str(item_kind or "").strip()
+    normalized_operation = str(operation or "").strip().lower()
+    amount = max(int(quantity or 0), 1)
+    if normalized_operation not in {"grant", "deduct"}:
+        raise ValueError("批量操作类型不支持")
+
+    processed = 0
+    succeeded = 0
+    skipped = 0
+    failed = 0
+    skipped_tgs: list[int] = []
+    failed_rows: list[dict[str, Any]] = []
+
+    for profile in list_profiles():
+        tg = int(getattr(profile, "tg", 0) or 0)
+        if tg <= 0:
+            continue
+        processed += 1
+        try:
+            if normalized_operation == "grant":
+                admin_grant_player_resource(tg, normalized_kind, int(item_ref_id), quantity=amount, equip=equip)
+                create_journal(
+                    tg,
+                    "admin",
+                    "主人批量发放",
+                    f"主人批量发放了 {normalized_kind}:{int(item_ref_id)} x{amount}",
+                )
+                succeeded += 1
+                continue
+
+            if normalized_kind in {"title", "technique", "recipe"}:
+                removed = False
+                if normalized_kind == "title":
+                    removed = revoke_title_from_user(tg, int(item_ref_id))
+                elif normalized_kind == "technique":
+                    removed = revoke_technique_from_user(tg, int(item_ref_id))
+                elif normalized_kind == "recipe":
+                    removed = revoke_recipe_from_user(tg, int(item_ref_id))
+                if not removed:
+                    skipped += 1
+                    skipped_tgs.append(tg)
+                    continue
+            else:
+                removed = _admin_remove_inventory_item_if_present(tg, normalized_kind, int(item_ref_id), amount)
+                if not removed:
+                    skipped += 1
+                    skipped_tgs.append(tg)
+                    continue
+
+            create_journal(
+                tg,
+                "admin",
+                "主人批量扣除",
+                f"主人批量扣除了 {normalized_kind}:{int(item_ref_id)} x{amount}",
+            )
+            succeeded += 1
+        except Exception as exc:
+            failed += 1
+            failed_rows.append({"tg": tg, "reason": str(exc) or "未知错误"})
+
+    return {
+        "operation": normalized_operation,
+        "item_kind": normalized_kind,
+        "item_ref_id": int(item_ref_id),
+        "quantity": amount,
+        "processed_count": processed,
+        "success_count": succeeded,
+        "skipped_count": skipped,
+        "failed_count": failed,
+        "skipped_tgs": skipped_tgs[:50],
+        "failed_rows": failed_rows[:20],
+    }
+
+
 def admin_set_player_selection(tg: int, selection_kind: str, item_ref_id: int | None = None) -> dict[str, Any]:
     profile = get_profile(tg, create=False)
     if profile is None or not profile.consented:
