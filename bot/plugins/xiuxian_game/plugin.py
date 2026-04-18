@@ -204,6 +204,11 @@ from bot.plugins.xiuxian_game.features.marriage import (
     respond_marriage_request_for_user,
     set_gender_for_user,
 )
+from bot.plugins.xiuxian_game.features.miniapp_bundle import (
+    build_bootstrap_core_bundle,
+    build_deferred_profile_sections,
+    build_full_profile_bundle,
+)
 from bot.plugins.xiuxian_game.features.pills import consume_pill_for_user
 from bot.plugins.xiuxian_game.features.retreat import finish_retreat_for_user, start_retreat_for_user
 from bot.plugins.xiuxian_game.features.sects import (
@@ -962,29 +967,30 @@ async def _notify_achievement_unlocks(unlocks: list[dict[str, Any]] | None) -> N
                 LOGGER.warning(f"xiuxian achievement group notify failed tg={tg} achievement={achievement_id}: {exc}")
 
 
-def _full_bundle(tg: int) -> dict[str, Any]:
-    bundle = serialize_full_profile(tg)
-    world_bundle = build_world_bundle(tg)
-    bundle.update({key: value for key, value in world_bundle.items() if key != "settings"})
-    profile = bundle.get("profile") or {}
-    combat_power = int(bundle.get("combat_power") or 0)
-    for scene in bundle.get("scenes") or []:
-        if not isinstance(scene, dict):
-            continue
-        scene["requirement_state"] = _scene_requirement_state(profile, scene, combat_power)
+def _bundle_runtime_flags(tg: int) -> dict[str, Any]:
     can_upload_images, upload_reason = _can_user_upload_images(tg)
-    bundle.setdefault("capabilities", {})
-    bundle["capabilities"]["can_upload_images"] = can_upload_images
-    bundle["capabilities"]["upload_image_reason"] = upload_reason
-    bundle.setdefault("settings", {})
-    bundle["settings"].update(world_bundle.get("settings", {}))
-    bundle["settings"]["allow_non_admin_image_upload"] = bool(
-        get_xiuxian_settings().get("allow_non_admin_image_upload", False)
-    )
-    bundle["gambling"] = build_gambling_bundle(tg, bundle=bundle)
-    bundle["capabilities"]["is_admin"] = bool(is_admin_user_id(tg))
-    bundle["capabilities"]["admin_panel_url"] = _admin_panel_url() if is_admin_user_id(tg) else None
-    return bundle
+    is_admin = bool(is_admin_user_id(tg))
+    return {
+        "can_upload_images": can_upload_images,
+        "upload_image_reason": upload_reason,
+        "allow_non_admin_image_upload": bool(
+            get_xiuxian_settings().get("allow_non_admin_image_upload", False)
+        ),
+        "is_admin": is_admin,
+        "admin_panel_url": _admin_panel_url() if is_admin else None,
+    }
+
+
+def _full_bundle(tg: int) -> dict[str, Any]:
+    return build_full_profile_bundle(tg, **_bundle_runtime_flags(tg))
+
+
+def _bootstrap_core_bundle(tg: int) -> dict[str, Any]:
+    return build_bootstrap_core_bundle(tg, **_bundle_runtime_flags(tg))
+
+
+def _deferred_bundle_sections(tg: int) -> dict[str, Any]:
+    return build_deferred_profile_sections(tg, **_bundle_runtime_flags(tg))
 
 
 def _message_auto_delete_seconds() -> int:
@@ -4005,7 +4011,7 @@ def register_web(app) -> None:
     async def xiuxian_bootstrap(payload: InitDataPayload):
         telegram_user = await run_in_threadpool(_verify_user_from_init_data, payload.init_data)
         profile, initial_leaderboard, bottom_nav = await asyncio.gather(
-            run_in_threadpool(_full_bundle, telegram_user["id"]),
+            run_in_threadpool(_bootstrap_core_bundle, telegram_user["id"]),
             run_in_threadpool(build_leaderboard, "stone", 1),
             run_in_threadpool(_build_bottom_nav),
         )
@@ -4020,6 +4026,14 @@ def register_web(app) -> None:
                 "home_url": build_plugin_url("/miniapp"),
                 "bottom_nav": bottom_nav,
             },
+        }
+
+    @user_router.post("/api/bootstrap/deferred")
+    async def xiuxian_bootstrap_deferred(payload: InitDataPayload):
+        telegram_user = await run_in_threadpool(_verify_user_from_init_data, payload.init_data)
+        return {
+            "code": 200,
+            "data": await run_in_threadpool(_deferred_bundle_sections, telegram_user["id"]),
         }
 
     @user_router.post("/api/wiki")

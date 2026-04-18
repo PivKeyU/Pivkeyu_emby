@@ -3675,20 +3675,12 @@ def grant_technique_to_user(
         if profile is None:
             profile = XiuxianProfile(tg=tg)
             session.add(profile)
-        owned_count = (
-            session.query(XiuxianUserTechnique)
-            .filter(XiuxianUserTechnique.tg == tg)
-            .count()
-        )
         row = (
             session.query(XiuxianUserTechnique)
             .filter(XiuxianUserTechnique.tg == tg, XiuxianUserTechnique.technique_id == technique_id)
             .first()
         )
         if row is None:
-            capacity = normalize_technique_capacity(profile.technique_capacity)
-            if owned_count >= capacity:
-                raise ValueError(f"可参悟功法数量已满，当前上限为 {capacity}。")
             row = XiuxianUserTechnique(
                 tg=tg,
                 technique_id=technique_id,

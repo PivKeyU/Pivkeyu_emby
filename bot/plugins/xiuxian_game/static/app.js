@@ -4,6 +4,8 @@ const state = {
   initData: tg?.initData || "",
   profileBundle: null,
   wikiBundle: null,
+  deferredBundleLoading: false,
+  deferredBundleLoaded: false,
   wikiFilter: "all",
   wikiSearchQuery: "",
   leaderboard: { kind: "stone", page: 1, totalPages: 1 },
@@ -2508,14 +2510,56 @@ function applyProfileBundle(bundle) {
   ensureSectionState("#gift-card", Boolean(bundle?.profile?.consented));
 }
 
+function mergeBundleData(baseBundle, patchBundle) {
+  const merged = { ...(baseBundle || {}) };
+  for (const [key, value] of Object.entries(patchBundle || {})) {
+    if (value && typeof value === "object" && !Array.isArray(value) && merged[key] && typeof merged[key] === "object" && !Array.isArray(merged[key])) {
+      merged[key] = { ...merged[key], ...value };
+      continue;
+    }
+    merged[key] = value;
+  }
+  return merged;
+}
+
+async function loadDeferredBundle({ silent = false } = {}) {
+  if (state.deferredBundleLoaded || state.deferredBundleLoading) return state.profileBundle;
+  state.deferredBundleLoading = true;
+  try {
+    const deferred = await postJson("/plugins/xiuxian/api/bootstrap/deferred");
+    state.profileBundle = mergeBundleData(state.profileBundle, deferred);
+    state.deferredBundleLoaded = true;
+    applyProfileBundle(state.profileBundle);
+    return state.profileBundle;
+  } catch (error) {
+    if (!silent) throw error;
+    return state.profileBundle;
+  } finally {
+    state.deferredBundleLoading = false;
+  }
+}
+
+function scheduleDeferredBootstrapWork() {
+  const runner = () => {
+    loadDeferredBundle({ silent: true }).catch(() => null);
+    if (!state.wikiBundle) {
+      refreshWikiBundle().catch(() => null);
+    }
+  };
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(runner, { timeout: 800 });
+    return;
+  }
+  window.setTimeout(runner, 120);
+}
+
 async function refreshBundle() {
+  state.deferredBundleLoaded = false;
   const payload = await postJson("/plugins/xiuxian/api/bootstrap");
   renderBottomNav(payload.bottom_nav || []);
   applyProfileBundle(payload.profile_bundle);
-  if (!state.wikiBundle) {
-    refreshWikiBundle().catch(() => null);
-  }
-  return payload.profile_bundle;
+  scheduleDeferredBootstrapWork();
+  return state.profileBundle;
 }
 
 async function refreshLeaderboard(kind = state.leaderboard.kind, page = state.leaderboard.page) {
@@ -2535,16 +2579,11 @@ async function bootstrap() {
   tg.setBackgroundColor("#eef4ff");
 
   renderWikiArea();
-  const [payload, wikiBundle] = await Promise.all([
-    postJson("/plugins/xiuxian/api/bootstrap"),
-    postJson("/plugins/xiuxian/api/wiki").catch(() => null),
-  ]);
+  state.deferredBundleLoaded = false;
+  const payload = await postJson("/plugins/xiuxian/api/bootstrap");
   renderBottomNav(payload.bottom_nav || []);
-  if (wikiBundle) {
-    state.wikiBundle = wikiBundle;
-  }
   applyProfileBundle(payload.profile_bundle);
-  renderWikiArea();
+  scheduleDeferredBootstrapWork();
   if (payload.initial_leaderboard) {
     renderLeaderboard(payload.initial_leaderboard);
     return;
@@ -5118,8 +5157,8 @@ renderTechniqueArea = function renderTechniqueAreaEnhanced(bundle) {
   if (!hint) return;
   const owned = Number(bundle.technique_owned_count ?? (bundle.techniques || []).length ?? 0);
   const total = Number(bundle.technique_total_count ?? 0);
-  const capacity = Number(bundle.profile?.technique_capacity ?? owned);
-  hint.textContent = `已掌握 ${owned}${total ? ` / ${total}` : ""} 门功法，当前可参悟上限 ${capacity} 门。功法需要先探索获得，开局不会自动发放。`;
+  const capacity = Number(bundle.profile?.technique_capacity ?? 0);
+  hint.textContent = `已掌握 ${owned}${total ? ` / ${total}` : ""} 门功法，当前最多可启用 ${capacity} 门功法位。功法需要先探索获得，是否切换由你自行决定。`;
 };
 
 const renderCraftAreaBase = renderCraftArea;
@@ -5185,7 +5224,7 @@ renderProfile = function renderProfileWithDiscoveries(bundle) {
     const techniqueCount = Number(bundle.technique_owned_count ?? (bundle.techniques || []).length ?? 0);
     profileGrid.insertAdjacentHTML(
       "beforeend",
-      `<article class="profile-item"><span>功法上限</span><strong>${escapeHtml(bundle.profile?.technique_capacity ?? 0)} / ${escapeHtml(techniqueCount)}</strong></article>`
+      `<article class="profile-item"><span>已掌握功法</span><strong>${escapeHtml(techniqueCount)}</strong></article>`
       + `<article class="profile-item"><span>法宝套装</span><strong>${escapeHtml(activeSetText)}</strong></article>`
     );
   }

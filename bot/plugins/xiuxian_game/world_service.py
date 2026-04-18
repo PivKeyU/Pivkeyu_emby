@@ -32,7 +32,6 @@ from bot.sql_helper.sql_xiuxian import (
     XiuxianSectRole,
     XiuxianTask,
     XiuxianTaskClaim,
-    XiuxianUserTechnique,
     XiuxianMaterialInventory,
     XiuxianTalismanInventory,
     XiuxianExploration,
@@ -83,7 +82,6 @@ from bot.sql_helper.sql_xiuxian import (
     list_user_materials,
     list_user_recipes,
     list_user_techniques,
-    normalize_technique_capacity,
     plunder_random_artifact_to_user,
     realm_index,
     patch_sect,
@@ -2038,19 +2036,6 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
             technique_rewards.append(int(exploration.reward_ref_id))
         if bonus_payload and str(bonus_payload.get("kind") or "") == "technique" and int(bonus_payload.get("ref_id") or 0) > 0:
             technique_rewards.append(int(bonus_payload.get("ref_id")))
-        if technique_rewards:
-            profile_obj = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).first()
-            capacity = normalize_technique_capacity(getattr(profile_obj, "technique_capacity", None))
-            owned_ids = {
-                int(row[0] or 0)
-                for row in session.query(XiuxianUserTechnique.technique_id)
-                .filter(XiuxianUserTechnique.tg == tg)
-                .all()
-                if int(row[0] or 0) > 0
-            }
-            incoming_new = {technique_id for technique_id in technique_rewards if technique_id not in owned_ids}
-            if len(owned_ids) + len(incoming_new) > capacity:
-                raise ValueError(f"当前可参悟功法数量已满，上限为 {capacity}，请先让管理员调整后再领取该机缘。")
         reward_kind = exploration.reward_kind
         reward_ref_id = int(exploration.reward_ref_id or 0)
         reward_quantity = int(exploration.reward_quantity or 0)

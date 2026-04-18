@@ -11566,7 +11566,6 @@ def generate_duel_preview_text(duel: dict[str, Any], stake: int = 0, duel_mode: 
 
 
 from bot.plugins.xiuxian_game.features.pills import (  # noqa: E402
-    consume_pill_for_user as consume_pill_for_user,
     pill_effect_summary as _pill_effect_summary,
     pill_usage_reason as _pill_usage_reason,
     resolve_pill_effects as resolve_pill_effects,
