@@ -3315,6 +3315,71 @@ def _major_breakthrough_reward_patch(profile: XiuxianProfile | dict[str, Any], n
     }
 
 
+BREAKTHROUGH_PROTECTED_STATS = (
+    "bone",
+    "comprehension",
+    "divine_sense",
+    "fortune",
+    "willpower",
+    "charisma",
+    "karma",
+    "qi_blood",
+    "true_yuan",
+    "body_movement",
+    "attack_power",
+    "defense_power",
+)
+
+BREAKTHROUGH_PROTECTED_ITEM_BONUS_FIELDS = {
+    "bone": "bone_bonus",
+    "comprehension": "comprehension_bonus",
+    "divine_sense": "divine_sense_bonus",
+    "fortune": "fortune_bonus",
+    "qi_blood": "qi_blood_bonus",
+    "true_yuan": "true_yuan_bonus",
+    "body_movement": "body_movement_bonus",
+    "attack_power": "attack_bonus",
+    "defense_power": "defense_bonus",
+}
+
+
+def _stabilize_breakthrough_patch(
+    profile: dict[str, Any],
+    next_stage: str,
+    breakthrough_patch: dict[str, int],
+    artifact_effects: dict[str, Any] | None = None,
+    talisman_effects: dict[str, Any] | None = None,
+    sect_effects: dict[str, Any] | None = None,
+    technique_effects: dict[str, Any] | None = None,
+    title_effects: dict[str, Any] | None = None,
+) -> dict[str, int]:
+    before_stats = _effective_stats(profile, artifact_effects, talisman_effects, sect_effects, technique_effects, title_effects)
+    after_profile = dict(profile)
+    after_profile.update(breakthrough_patch)
+    after_profile["realm_stage"] = next_stage
+    after_profile["realm_layer"] = 1
+    after_profile["cultivation"] = 0
+    after_stats = _effective_stats(after_profile, artifact_effects, talisman_effects, sect_effects, technique_effects, title_effects)
+    totals = _sum_item_stats(artifact_effects, talisman_effects, sect_effects, technique_effects, title_effects)
+
+    # 大境界突破会重置层内进度，这里把有效属性拉回到突破前下限以上，避免任何核心项回退。
+    stabilized_patch = dict(breakthrough_patch)
+    for key in BREAKTHROUGH_PROTECTED_STATS:
+        before_value = float(before_stats.get(key) or 0.0)
+        after_value = float(after_stats.get(key) or 0.0)
+        if after_value >= before_value:
+            continue
+        bonus_field = BREAKTHROUGH_PROTECTED_ITEM_BONUS_FIELDS.get(key)
+        static_bonus = float(totals.get(bonus_field, 0.0) or 0.0) if bonus_field else 0.0
+        minimum_base = int(ceil(before_value - static_bonus))
+        current_base = int(after_profile.get(key) or 0)
+        if minimum_base <= current_base:
+            continue
+        stabilized_patch[key] = minimum_base
+        after_profile[key] = minimum_base
+    return stabilized_patch
+
+
 def _apply_profile_growth_floor(tg: int, explicit_fields: set[str] | None = None) -> dict[str, Any]:
     profile = serialize_profile(get_profile(tg, create=False))
     if profile is None or not profile.get("consented"):
@@ -9192,7 +9257,8 @@ def practice_for_user(tg: int) -> dict[str, Any]:
     technique_effects = resolve_technique_effects(profile_data, current_technique) if current_technique else None
     current_title = get_current_title(tg)
     title_effects = resolve_title_effects(profile_data, current_title) if current_title else None
-    stats = _effective_stats(profile_data, artifact_effects, talisman_effects, get_sect_effects(profile_data), technique_effects, title_effects)
+    sect_effects = get_sect_effects(profile_data)
+    stats = _effective_stats(profile_data, artifact_effects, talisman_effects, sect_effects, technique_effects, title_effects)
     quality = _root_quality_payload(_normalized_root_quality(profile_data))
     stage = normalize_realm_stage(profile.realm_stage or FIRST_REALM_STAGE)
     stage_rule = _realm_stage_rule(stage)
@@ -9281,7 +9347,8 @@ def breakthrough_for_user(tg: int, use_pill: bool = False) -> dict[str, Any]:
     technique_effects = resolve_technique_effects(profile_data, current_technique) if current_technique else None
     current_title = get_current_title(tg)
     title_effects = resolve_title_effects(profile_data, current_title) if current_title else None
-    stats = _effective_stats(profile_data, artifact_effects, talisman_effects, get_sect_effects(profile_data), technique_effects, title_effects)
+    sect_effects = get_sect_effects(profile_data)
+    stats = _effective_stats(profile_data, artifact_effects, talisman_effects, sect_effects, technique_effects, title_effects)
     quality = _root_quality_payload(_normalized_root_quality(profile_data))
     success_rate = BREAKTHROUGH_BASE_RATE.get(stage, 12)
     success_rate += int(round((stats["bone"] - 12) * 0.45))
@@ -9326,6 +9393,16 @@ def breakthrough_for_user(tg: int, use_pill: bool = False) -> dict[str, Any]:
 
     if success:
         breakthrough_patch = _major_breakthrough_reward_patch(profile, next_stage)
+        breakthrough_patch = _stabilize_breakthrough_patch(
+            profile_data,
+            next_stage,
+            breakthrough_patch,
+            artifact_effects,
+            talisman_effects,
+            sect_effects,
+            technique_effects,
+            title_effects,
+        )
         updated = upsert_profile(
             tg,
             realm_stage=next_stage,
