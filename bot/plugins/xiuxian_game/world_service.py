@@ -11,6 +11,8 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
+
 from bot.sql_helper import Session
 from bot.sql_helper.sql_xiuxian import (
     DEFAULT_SETTINGS,
@@ -1602,7 +1604,17 @@ def sync_recipe_with_ingredients_by_name(
         if recipe is None:
             recipe = XiuxianRecipe(**payload)
             session.add(recipe)
-            session.commit()
+            try:
+                session.commit()
+            except IntegrityError:
+                session.rollback()
+                recipe = session.query(XiuxianRecipe).filter(XiuxianRecipe.name == payload["name"]).first()
+                if recipe is None:
+                    raise
+                for key, value in payload.items():
+                    setattr(recipe, key, value)
+                recipe.updated_at = utcnow()
+                session.commit()
             session.refresh(recipe)
         else:
             for key, value in payload.items():

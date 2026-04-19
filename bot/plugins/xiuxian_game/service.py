@@ -7,15 +7,18 @@
 from __future__ import annotations
 
 import random
+import threading
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from math import ceil, exp
 from typing import Any
 
 from pykeyboard import InlineButton, InlineKeyboard
 from pyromod.helpers import ikb
+from sqlalchemy import text
 
 from bot import api as api_config
-from bot.sql_helper import Session
+from bot.sql_helper import DB_BACKEND, Session, engine
 from bot.func_helper.emby_currency import (
     convert_coin_to_stone,
     convert_stone_to_coin,
@@ -169,6 +172,7 @@ from bot.sql_helper.sql_xiuxian import (
     XiuxianPillInventory,
     XiuxianTalismanInventory,
     XiuxianTaskClaim,
+    XiuxianSetting,
     XiuxianUserRecipe,
     XiuxianUserTechnique,
     _queue_profile_cache_invalidation,
@@ -3960,6 +3964,9 @@ def _current_technique_payload(profile_data: dict[str, Any]) -> dict[str, Any] |
 
 SEED_DATA_VERSION = "2026-04-17-default-content-v3"
 SEED_DATA_READY = False
+SEED_DATA_LOCK = threading.RLock()
+SEED_DATA_DB_LOCK_KEY = 2026041701
+SEED_DATA_DB_LOCK_NAME = "pivkeyu_xiuxian_seed_data"
 DEFAULT_OFFICIAL_SHOP_ITEMS = (
     {"item_kind": "artifact", "item_name": "凡铁剑", "quantity": 4},
     {"item_kind": "artifact", "item_name": "青罡剑", "quantity": 3},
@@ -3986,6 +3993,41 @@ DEFAULT_OFFICIAL_SHOP_ITEMS = (
     {"item_kind": "talisman", "item_name": "金钟符", "quantity": 8},
     {"item_kind": "talisman", "item_name": "破甲符", "quantity": 6},
 )
+
+
+def _get_seed_data_version() -> str:
+    with Session() as session:
+        row = session.query(XiuxianSetting).filter(XiuxianSetting.setting_key == "seed_data_version").first()
+        if row is None or row.setting_value is None:
+            return ""
+        return str(row.setting_value).strip()
+
+
+@contextmanager
+def _seed_data_db_lock(timeout_seconds: int = 60):
+    connection = engine.connect()
+    lock_acquired = False
+    try:
+        if DB_BACKEND == "postgresql":
+            connection.execute(text("SELECT pg_advisory_lock(:key)"), {"key": SEED_DATA_DB_LOCK_KEY})
+            lock_acquired = True
+        elif DB_BACKEND == "mysql":
+            result = connection.execute(
+                text("SELECT GET_LOCK(:name, :timeout)"),
+                {"name": SEED_DATA_DB_LOCK_NAME, "timeout": timeout_seconds},
+            ).scalar()
+            if int(result or 0) != 1:
+                raise RuntimeError("修仙种子数据初始化锁获取失败，请稍后重试")
+            lock_acquired = True
+        yield
+    finally:
+        try:
+            if lock_acquired and DB_BACKEND == "postgresql":
+                connection.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": SEED_DATA_DB_LOCK_KEY})
+            elif lock_acquired and DB_BACKEND == "mysql":
+                connection.execute(text("SELECT RELEASE_LOCK(:name)"), {"name": SEED_DATA_DB_LOCK_NAME})
+        finally:
+            connection.close()
 
 
 def _resolve_seed_result_ref_id(
@@ -4245,227 +4287,239 @@ def ensure_seed_data(force: bool = False) -> None:
     global SEED_DATA_READY
     if SEED_DATA_READY and not force:
         return
+    with SEED_DATA_LOCK:
+        persisted_version = _get_seed_data_version()
+        if persisted_version == SEED_DATA_VERSION and not force:
+            SEED_DATA_READY = True
+            return
 
-    title_map: dict[str, dict[str, Any]] = {}
-    for payload in DEFAULT_TITLES:
-        title = sync_title_by_name(**payload, enabled=True)
-        title_map[title["name"]] = title
+        with _seed_data_db_lock():
+            persisted_version = _get_seed_data_version()
+            if persisted_version == SEED_DATA_VERSION and not force:
+                SEED_DATA_READY = True
+                return
 
-    artifact_set_map: dict[str, dict[str, Any]] = {}
-    for payload in DEFAULT_ARTIFACT_SETS:
-        artifact_set = sync_artifact_set_by_name(**payload, enabled=True)
-        artifact_set_map[artifact_set["name"]] = artifact_set
+            title_map: dict[str, dict[str, Any]] = {}
+            for payload in DEFAULT_TITLES:
+                title = sync_title_by_name(**payload, enabled=True)
+                title_map[title["name"]] = title
 
-    for payload in DEFAULT_ARTIFACTS:
-        artifact_payload = dict(payload)
-        artifact_set_name = str(artifact_payload.pop("artifact_set_name", "") or "").strip()
-        if artifact_set_name:
-            artifact_payload["artifact_set_id"] = int(artifact_set_map[artifact_set_name]["id"])
-        sync_artifact_by_name(**artifact_payload)
-    artifact_map = {item["name"]: item for item in list_artifacts()}
+            artifact_set_map: dict[str, dict[str, Any]] = {}
+            for payload in DEFAULT_ARTIFACT_SETS:
+                artifact_set = sync_artifact_set_by_name(**payload, enabled=True)
+                artifact_set_map[artifact_set["name"]] = artifact_set
 
-    for payload in DEFAULT_PILLS:
-        sync_pill_by_name(**payload)
-    pill_map = {item["name"]: item for item in list_pills()}
+            for payload in DEFAULT_ARTIFACTS:
+                artifact_payload = dict(payload)
+                artifact_set_name = str(artifact_payload.pop("artifact_set_name", "") or "").strip()
+                if artifact_set_name:
+                    artifact_payload["artifact_set_id"] = int(artifact_set_map[artifact_set_name]["id"])
+                sync_artifact_by_name(**artifact_payload)
+            artifact_map = {item["name"]: item for item in list_artifacts()}
 
-    for payload in DEFAULT_TALISMANS:
-        sync_talisman_by_name(**payload)
-    talisman_map = {item["name"]: item for item in list_talismans()}
+            for payload in DEFAULT_PILLS:
+                sync_pill_by_name(**payload)
+            pill_map = {item["name"]: item for item in list_pills()}
 
-    for payload in DEFAULT_TECHNIQUES:
-        sync_technique_by_name(**payload)
-    technique_map = {item["name"]: item for item in list_techniques()}
+            for payload in DEFAULT_TALISMANS:
+                sync_talisman_by_name(**payload)
+            talisman_map = {item["name"]: item for item in list_talismans()}
 
-    for payload in DEFAULT_MATERIALS:
-        sync_material_by_name(**payload, enabled=True)
-    material_map = {item["name"]: item for item in list_materials()}
-    recipe_missing_refs: list[str] = []
-    for recipe in DEFAULT_RECIPES:
-        recipe_missing_refs.extend(
-            _collect_missing_seed_refs(
-                [
-                    (str(recipe["result_kind"]), str(recipe["result_name"])),
-                    *[
-                        ("material", str(item["material_name"]))
-                        for item in recipe.get("ingredients") or []
-                    ],
-                ],
-                artifact_map=artifact_map,
-                pill_map=pill_map,
-                talisman_map=talisman_map,
-                material_map=material_map,
-                technique_map=technique_map,
-            )
-        )
-    _raise_on_missing_seed_refs("默认种子配方", recipe_missing_refs)
-    settings = get_xiuxian_settings()
-    sync_official_shop_name(
-        str(settings.get("official_shop_name", DEFAULT_SETTINGS["official_shop_name"]) or DEFAULT_SETTINGS["official_shop_name"])
-    )
-    _ensure_default_official_shop_listings(
-        settings=settings,
-        artifact_map=artifact_map,
-        pill_map=pill_map,
-        talisman_map=talisman_map,
-    )
+            for payload in DEFAULT_TECHNIQUES:
+                sync_technique_by_name(**payload)
+            technique_map = {item["name"]: item for item in list_techniques()}
 
-    for recipe in DEFAULT_RECIPES:
-        result_ref_id = _resolve_seed_result_ref_id(
-            str(recipe["result_kind"]),
-            str(recipe["result_name"]),
-            artifact_map=artifact_map,
-            pill_map=pill_map,
-            talisman_map=talisman_map,
-            material_map=material_map,
-            technique_map=technique_map,
-        )
-        sync_recipe_with_ingredients_by_name(
-            name=str(recipe["name"]),
-            recipe_kind=str(recipe["recipe_kind"]),
-            result_kind=str(recipe["result_kind"]),
-            result_ref_id=result_ref_id,
-            result_quantity=int(recipe["result_quantity"]),
-            base_success_rate=int(recipe["base_success_rate"]),
-            broadcast_on_success=bool(recipe.get("broadcast_on_success")),
-            ingredients=[
-                {
-                    "material_id": _resolve_seed_result_ref_id(
-                        "material",
-                        str(item["material_name"]),
+            for payload in DEFAULT_MATERIALS:
+                sync_material_by_name(**payload, enabled=True)
+            material_map = {item["name"]: item for item in list_materials()}
+            recipe_missing_refs: list[str] = []
+            for recipe in DEFAULT_RECIPES:
+                recipe_missing_refs.extend(
+                    _collect_missing_seed_refs(
+                        [
+                            (str(recipe["result_kind"]), str(recipe["result_name"])),
+                            *[
+                                ("material", str(item["material_name"]))
+                                for item in recipe.get("ingredients") or []
+                            ],
+                        ],
                         artifact_map=artifact_map,
                         pill_map=pill_map,
                         talisman_map=talisman_map,
                         material_map=material_map,
                         technique_map=technique_map,
-                    ),
-                    "quantity": int(item["quantity"]),
-                }
-                for item in recipe.get("ingredients") or []
-            ],
-        )
-    recipe_map = {item["name"]: item for item in list_recipes()}
-    content_missing_refs: list[str] = []
-    for scene in DEFAULT_SCENES:
-        content_missing_refs.extend(
-            _collect_missing_seed_refs(
-                [
-                    (
-                        str(event.get("bonus_reward_kind") or "material"),
-                        str(event.get("bonus_reward_ref_id_name")),
                     )
-                    for event in scene.get("event_pool") or []
-                    if event.get("bonus_reward_ref_id_name")
+                )
+            _raise_on_missing_seed_refs("默认种子配方", recipe_missing_refs)
+            settings = get_xiuxian_settings()
+            sync_official_shop_name(
+                str(settings.get("official_shop_name", DEFAULT_SETTINGS["official_shop_name"]) or DEFAULT_SETTINGS["official_shop_name"])
+            )
+            _ensure_default_official_shop_listings(
+                settings=settings,
+                artifact_map=artifact_map,
+                pill_map=pill_map,
+                talisman_map=talisman_map,
+            )
+
+            for recipe in DEFAULT_RECIPES:
+                result_ref_id = _resolve_seed_result_ref_id(
+                    str(recipe["result_kind"]),
+                    str(recipe["result_name"]),
+                    artifact_map=artifact_map,
+                    pill_map=pill_map,
+                    talisman_map=talisman_map,
+                    material_map=material_map,
+                    technique_map=technique_map,
+                )
+                sync_recipe_with_ingredients_by_name(
+                    name=str(recipe["name"]),
+                    recipe_kind=str(recipe["recipe_kind"]),
+                    result_kind=str(recipe["result_kind"]),
+                    result_ref_id=result_ref_id,
+                    result_quantity=int(recipe["result_quantity"]),
+                    base_success_rate=int(recipe["base_success_rate"]),
+                    broadcast_on_success=bool(recipe.get("broadcast_on_success")),
+                    ingredients=[
+                        {
+                            "material_id": _resolve_seed_result_ref_id(
+                                "material",
+                                str(item["material_name"]),
+                                artifact_map=artifact_map,
+                                pill_map=pill_map,
+                                talisman_map=talisman_map,
+                                material_map=material_map,
+                                technique_map=technique_map,
+                            ),
+                            "quantity": int(item["quantity"]),
+                        }
+                        for item in recipe.get("ingredients") or []
+                    ],
+                )
+            recipe_map = {item["name"]: item for item in list_recipes()}
+            content_missing_refs: list[str] = []
+            for scene in DEFAULT_SCENES:
+                content_missing_refs.extend(
+                    _collect_missing_seed_refs(
+                        [
+                            (
+                                str(event.get("bonus_reward_kind") or "material"),
+                                str(event.get("bonus_reward_ref_id_name")),
+                            )
+                            for event in scene.get("event_pool") or []
+                            if event.get("bonus_reward_ref_id_name")
+                        ]
+                        + [
+                            (
+                                str(drop.get("reward_kind") or "material"),
+                                str(drop.get("reward_ref_id_name")),
+                            )
+                            for drop in scene.get("drops") or []
+                            if drop.get("reward_ref_id_name")
+                        ],
+                        artifact_map=artifact_map,
+                        pill_map=pill_map,
+                        talisman_map=talisman_map,
+                        material_map=material_map,
+                        technique_map=technique_map,
+                        recipe_map=recipe_map,
+                    )
+                )
+            for encounter in DEFAULT_ENCOUNTER_TEMPLATES:
+                reward_item_name = str(encounter.get("reward_item_ref_name") or "").strip()
+                if not reward_item_name:
+                    continue
+                content_missing_refs.extend(
+                    _collect_missing_seed_refs(
+                        [(str(encounter.get("reward_item_kind") or "material"), reward_item_name)],
+                        artifact_map=artifact_map,
+                        pill_map=pill_map,
+                        talisman_map=talisman_map,
+                        material_map=material_map,
+                        technique_map=technique_map,
+                        recipe_map=recipe_map,
+                    )
+                )
+            _raise_on_missing_seed_refs("默认种子内容", content_missing_refs)
+
+            for payload in DEFAULT_SECTS:
+                sync_sect_with_roles_by_name(**payload)
+
+            for scene in DEFAULT_SCENES:
+                resolved_events = []
+                for event in scene.get("event_pool") or []:
+                    payload = dict(event)
+                    if payload.get("bonus_reward_ref_id_name"):
+                        payload["bonus_reward_ref_id"] = _resolve_seed_result_ref_id(
+                            str(payload.get("bonus_reward_kind") or "material"),
+                            str(payload.get("bonus_reward_ref_id_name")),
+                            artifact_map=artifact_map,
+                            pill_map=pill_map,
+                            talisman_map=talisman_map,
+                            material_map=material_map,
+                            technique_map=technique_map,
+                            recipe_map=recipe_map,
+                        )
+                    payload.pop("bonus_reward_ref_id_name", None)
+                    resolved_events.append(payload)
+                resolved_drops = []
+                for drop in scene.get("drops") or []:
+                    payload = dict(drop)
+                    if payload.get("reward_ref_id_name"):
+                        payload["reward_ref_id"] = _resolve_seed_result_ref_id(
+                            str(payload.get("reward_kind") or "material"),
+                            str(payload.get("reward_ref_id_name")),
+                            artifact_map=artifact_map,
+                            pill_map=pill_map,
+                            talisman_map=talisman_map,
+                            material_map=material_map,
+                            technique_map=technique_map,
+                            recipe_map=recipe_map,
+                        )
+                    payload.pop("reward_ref_id_name", None)
+                    resolved_drops.append(payload)
+                sync_scene_with_drops_by_name(
+                    name=str(scene["name"]),
+                    description=str(scene.get("description") or ""),
+                    image_url=str(scene.get("image_url") or ""),
+                    max_minutes=int(scene.get("max_minutes") or 60),
+                    min_realm_stage=scene.get("min_realm_stage"),
+                    min_realm_layer=int(scene.get("min_realm_layer") or 1),
+                    min_combat_power=int(scene.get("min_combat_power") or 0),
+                    event_pool=resolved_events,
+                    drops=resolved_drops,
+                )
+
+            for encounter in DEFAULT_ENCOUNTER_TEMPLATES:
+                encounter_payload = dict(encounter)
+                reward_item_name = str(encounter_payload.pop("reward_item_ref_name", "") or "").strip()
+                if reward_item_name:
+                    encounter_payload["reward_item_ref_id"] = _resolve_seed_result_ref_id(
+                        str(encounter_payload.get("reward_item_kind") or "material"),
+                        reward_item_name,
+                        artifact_map=artifact_map,
+                        pill_map=pill_map,
+                        talisman_map=talisman_map,
+                        material_map=material_map,
+                        technique_map=technique_map,
+                        recipe_map=recipe_map,
+                    )
+                sync_encounter_template_by_name(**encounter_payload)
+
+            for payload in DEFAULT_ACHIEVEMENTS:
+                achievement_payload = dict(payload)
+                reward_config = dict(achievement_payload.get("reward_config") or {})
+                reward_title_names = [str(name) for name in reward_config.pop("reward_title_names", []) if str(name).strip()]
+                reward_config["titles"] = [
+                    int(title_map[name]["id"])
+                    for name in reward_title_names
+                    if name in title_map
                 ]
-                + [
-                    (
-                        str(drop.get("reward_kind") or "material"),
-                        str(drop.get("reward_ref_id_name")),
-                    )
-                    for drop in scene.get("drops") or []
-                    if drop.get("reward_ref_id_name")
-                ],
-                artifact_map=artifact_map,
-                pill_map=pill_map,
-                talisman_map=talisman_map,
-                material_map=material_map,
-                technique_map=technique_map,
-                recipe_map=recipe_map,
-            )
-        )
-    for encounter in DEFAULT_ENCOUNTER_TEMPLATES:
-        reward_item_name = str(encounter.get("reward_item_ref_name") or "").strip()
-        if not reward_item_name:
-            continue
-        content_missing_refs.extend(
-            _collect_missing_seed_refs(
-                [(str(encounter.get("reward_item_kind") or "material"), reward_item_name)],
-                artifact_map=artifact_map,
-                pill_map=pill_map,
-                talisman_map=talisman_map,
-                material_map=material_map,
-                technique_map=technique_map,
-                recipe_map=recipe_map,
-            )
-        )
-    _raise_on_missing_seed_refs("默认种子内容", content_missing_refs)
+                achievement_payload["reward_config"] = reward_config
+                sync_achievement_by_key(**achievement_payload)
 
-    for payload in DEFAULT_SECTS:
-        sync_sect_with_roles_by_name(**payload)
-
-    for scene in DEFAULT_SCENES:
-        resolved_events = []
-        for event in scene.get("event_pool") or []:
-            payload = dict(event)
-            if payload.get("bonus_reward_ref_id_name"):
-                payload["bonus_reward_ref_id"] = _resolve_seed_result_ref_id(
-                    str(payload.get("bonus_reward_kind") or "material"),
-                    str(payload.get("bonus_reward_ref_id_name")),
-                    artifact_map=artifact_map,
-                    pill_map=pill_map,
-                    talisman_map=talisman_map,
-                    material_map=material_map,
-                    technique_map=technique_map,
-                    recipe_map=recipe_map,
-                )
-            payload.pop("bonus_reward_ref_id_name", None)
-            resolved_events.append(payload)
-        resolved_drops = []
-        for drop in scene.get("drops") or []:
-            payload = dict(drop)
-            if payload.get("reward_ref_id_name"):
-                payload["reward_ref_id"] = _resolve_seed_result_ref_id(
-                    str(payload.get("reward_kind") or "material"),
-                    str(payload.get("reward_ref_id_name")),
-                    artifact_map=artifact_map,
-                    pill_map=pill_map,
-                    talisman_map=talisman_map,
-                    material_map=material_map,
-                    technique_map=technique_map,
-                    recipe_map=recipe_map,
-                )
-            payload.pop("reward_ref_id_name", None)
-            resolved_drops.append(payload)
-        sync_scene_with_drops_by_name(
-            name=str(scene["name"]),
-            description=str(scene.get("description") or ""),
-            image_url=str(scene.get("image_url") or ""),
-            max_minutes=int(scene.get("max_minutes") or 60),
-            min_realm_stage=scene.get("min_realm_stage"),
-            min_realm_layer=int(scene.get("min_realm_layer") or 1),
-            min_combat_power=int(scene.get("min_combat_power") or 0),
-            event_pool=resolved_events,
-            drops=resolved_drops,
-        )
-
-    for encounter in DEFAULT_ENCOUNTER_TEMPLATES:
-        encounter_payload = dict(encounter)
-        reward_item_name = str(encounter_payload.pop("reward_item_ref_name", "") or "").strip()
-        if reward_item_name:
-            encounter_payload["reward_item_ref_id"] = _resolve_seed_result_ref_id(
-                str(encounter_payload.get("reward_item_kind") or "material"),
-                reward_item_name,
-                artifact_map=artifact_map,
-                pill_map=pill_map,
-                talisman_map=talisman_map,
-                material_map=material_map,
-                technique_map=technique_map,
-                recipe_map=recipe_map,
-            )
-        sync_encounter_template_by_name(**encounter_payload)
-
-    for payload in DEFAULT_ACHIEVEMENTS:
-        achievement_payload = dict(payload)
-        reward_config = dict(achievement_payload.get("reward_config") or {})
-        reward_title_names = [str(name) for name in reward_config.pop("reward_title_names", []) if str(name).strip()]
-        reward_config["titles"] = [
-            int(title_map[name]["id"])
-            for name in reward_title_names
-            if name in title_map
-        ]
-        achievement_payload["reward_config"] = reward_config
-        sync_achievement_by_key(**achievement_payload)
-
-    SEED_DATA_READY = True
+            set_xiuxian_settings({"seed_data_version": SEED_DATA_VERSION})
+            SEED_DATA_READY = True
 
 
 def china_now():
