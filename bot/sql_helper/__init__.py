@@ -6,7 +6,7 @@ import importlib
 import time
 from pathlib import Path
 
-from bot import db_backend, db_host, db_user, db_pwd, db_name, db_port, db_url
+from bot import db_backend, db_host, db_user, db_pwd, db_name, db_port, db_url, db_docker_name
 from bot import LOGGER
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL, make_url
@@ -54,6 +54,45 @@ def _validate_db_config():
             + ", ".join(missing)
             + "。请在 config.json 中设置 db_host/db_user/db_pwd/db_name，例如 "
             + "db_host=127.0.0.1, db_user=pivkeyu, db_pwd=pivkeyu, db_name=pivkeyu"
+        )
+
+    normalized_backend = _normalize_db_backend(db_backend)
+    docker_name = str(db_docker_name or "").strip().lower()
+
+    try:
+        port = int(db_port)
+    except (TypeError, ValueError):
+        raise RuntimeError(
+            f"数据库端口配置无效: db_port={db_port!r}。"
+            "请在 config.json 中填写有效整数，PostgreSQL 默认 5432，MySQL 默认 3306。"
+        ) from None
+
+    if normalized_backend == "postgresql" and port == 3306:
+        raise RuntimeError(
+            "数据库配置冲突: 当前使用的是 PostgreSQL 驱动，但 db_port=3306。"
+            "3306 是 MySQL 默认端口，PostgreSQL 默认端口应为 5432。"
+            "请把 data/config.json 中的 db_port 改为 5432；"
+            "如果你实际上仍在使用 MySQL，请把 db_backend 改回 mysql。"
+        )
+
+    if normalized_backend == "mysql" and port == 5432:
+        raise RuntimeError(
+            "数据库配置冲突: 当前使用的是 MySQL 驱动，但 db_port=5432。"
+            "5432 是 PostgreSQL 默认端口，MySQL 默认端口应为 3306。"
+            "请把 data/config.json 中的 db_port 改为 3306；"
+            "如果你实际上已经切换到 PostgreSQL，请把 db_backend 改为 postgresql。"
+        )
+
+    if normalized_backend == "postgresql" and docker_name == "mysql":
+        LOGGER.warning(
+            "检测到 db_backend=postgresql，但 db_docker_name 仍为 mysql。"
+            "这会影响数据库备份/恢复容器名，请改为 postgres。"
+        )
+
+    if normalized_backend == "mysql" and docker_name == "postgres":
+        LOGGER.warning(
+            "检测到 db_backend=mysql，但 db_docker_name 仍为 postgres。"
+            "这会影响数据库备份/恢复容器名，请改为 mysql。"
         )
 
 

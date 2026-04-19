@@ -3,6 +3,7 @@ import os
 import shutil
 from pathlib import Path
 from pydantic import BaseModel, Field
+from sqlalchemy.engine import make_url
 from typing import Dict, List, Optional, Union
 
 # 嵌套式的数据设计，规范数据 config.json
@@ -22,6 +23,44 @@ DEFAULT_DB_PORTS = {
 DEFAULT_CONFIG_PATH = Path("data/config.json")
 LEGACY_CONFIG_PATH = Path("config.json")
 CONFIG_EXAMPLE_PATH = Path("config_example.json")
+
+
+def _normalize_backend_name(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"postgres", "postgresql", "pgsql"}:
+        return "postgresql"
+    if normalized in {"mysql", "mariadb"}:
+        return "mysql"
+    return DEFAULT_DB_BACKEND
+
+
+def _infer_backend_from_legacy_config(config: dict) -> str:
+    raw_url = str(config.get("db_url") or "").strip()
+    if raw_url:
+        try:
+            backend = make_url(raw_url).get_backend_name()
+            return _normalize_backend_name(backend)
+        except Exception:
+            pass
+
+    docker_name = str(config.get("db_docker_name") or "").strip().lower()
+    if docker_name in {"mysql", "mariadb"}:
+        return "mysql"
+    if docker_name in {"postgres", "postgresql", "pgsql"}:
+        return "postgresql"
+
+    raw_port = config.get("db_port")
+    try:
+        port = int(raw_port)
+    except (TypeError, ValueError):
+        port = None
+
+    if port == DEFAULT_DB_PORTS["mysql"]:
+        return "mysql"
+    if port == DEFAULT_DB_PORTS["postgresql"]:
+        return "postgresql"
+
+    return DEFAULT_DB_BACKEND
 
 class ExDate(BaseModel):
     mon: int = 30
@@ -269,13 +308,11 @@ class Config(BaseModel):
             if current is None or not str(current).strip():
                 config[key] = value
 
-        backend = str(config.get("db_backend") or DEFAULT_DB_BACKEND).strip().lower()
-        if backend in {"postgres", "postgresql", "pgsql"}:
-            backend = "postgresql"
-        elif backend in {"mysql", "mariadb"}:
-            backend = "mysql"
+        raw_backend = config.get("db_backend")
+        if raw_backend is None or not str(raw_backend).strip():
+            backend = _infer_backend_from_legacy_config(config)
         else:
-            backend = DEFAULT_DB_BACKEND
+            backend = _normalize_backend_name(raw_backend)
         config["db_backend"] = backend
 
         current_port = config.get("db_port")
