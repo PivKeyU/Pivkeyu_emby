@@ -1097,11 +1097,105 @@ function hydrateAdminForms() {
     { value: "battle", label: "战斗法宝" },
     { value: "support", label: "辅助法宝" },
   ], $("artifact-type")?.value || "battle", null);
+  setOptions(
+    $("artifact-set-id"),
+    [{ value: "", label: "无套装" }, ...((state.bundle?.artifact_sets || []).map((item) => ({ value: item.id, label: `${item.id} · ${item.name}` })))],
+    $("artifact-set-id")?.value || "",
+    null,
+  );
   setOptions($("pill-type"), PILL_TYPES.map((item) => ({ value: item.value, label: item.label })), $("pill-type")?.value || "foundation", null);
   ensureAffixFields("artifact", true, true);
   ensureAffixFields("pill");
   ensureAffixFields("talisman");
   ensureAffixFields("technique", false, true);
+}
+
+function artifactSubmitButton() {
+  return document.querySelector("#artifact-form button[type='submit']");
+}
+
+function collectArtifactPayload() {
+  return {
+    name: $("artifact-name")?.value.trim() || "",
+    rarity: $("artifact-rarity")?.value || "凡品",
+    artifact_type: $("artifact-type")?.value || "battle",
+    artifact_role: $("artifact-role")?.value || "battle",
+    equip_slot: $("artifact-slot")?.value || "weapon",
+    artifact_set_id: Number($("artifact-set-id")?.value || 0) || null,
+    unique_item: Boolean($("artifact-unique")?.checked),
+    image_url: $("artifact-image")?.value.trim() || "",
+    description: $("artifact-description")?.value.trim() || "",
+    ...affixPayload("artifact"),
+    duel_rate_bonus: Number($("artifact-duel")?.value || 0),
+    cultivation_bonus: Number($("artifact-cultivation")?.value || 0),
+    combat_config: parseJsonInput($("artifact-combat-config")?.value || "{}", {}),
+    min_realm_stage: $("artifact-stage")?.value || null,
+    min_realm_layer: Number($("artifact-layer")?.value || 1),
+    enabled: Boolean($("artifact-enabled")?.checked),
+  };
+}
+
+function resetArtifactForm() {
+  setAdminInputValue("artifact-id", "");
+  setAdminInputValue("artifact-name", "");
+  setAdminInputValue("artifact-image", "");
+  setAdminInputValue("artifact-description", "");
+  setAdminInputValue("artifact-attack", 0);
+  setAdminInputValue("artifact-defense", 0);
+  setAdminInputValue("artifact-bone", 0);
+  setAdminInputValue("artifact-comprehension", 0);
+  setAdminInputValue("artifact-divine-sense", 0);
+  setAdminInputValue("artifact-fortune", 0);
+  setAdminInputValue("artifact-qi-blood", 0);
+  setAdminInputValue("artifact-true-yuan", 0);
+  setAdminInputValue("artifact-body-movement", 0);
+  setAdminInputValue("artifact-duel", 0);
+  setAdminInputValue("artifact-cultivation", 0);
+  setAdminInputValue("artifact-combat-config", "");
+  setAdminInputValue("artifact-layer", 1);
+  if ($("artifact-rarity")) $("artifact-rarity").value = "凡品";
+  if ($("artifact-type")) $("artifact-type").value = "battle";
+  if ($("artifact-role")) $("artifact-role").value = "battle";
+  if ($("artifact-slot")) $("artifact-slot").value = "weapon";
+  if ($("artifact-stage")) $("artifact-stage").value = "";
+  if ($("artifact-set-id")) $("artifact-set-id").value = "";
+  if ($("artifact-unique")) $("artifact-unique").checked = false;
+  if ($("artifact-enabled")) $("artifact-enabled").checked = true;
+  const submit = artifactSubmitButton();
+  if (submit) submit.textContent = "新增法宝";
+}
+
+function loadArtifactForm(item = {}) {
+  setAdminInputValue("artifact-id", item.id || "");
+  setAdminInputValue("artifact-name", item.name || "");
+  setAdminInputValue("artifact-image", item.image_url || "");
+  setAdminInputValue("artifact-description", item.description || "");
+  setAdminInputValue("artifact-attack", item.attack_bonus || 0);
+  setAdminInputValue("artifact-defense", item.defense_bonus || 0);
+  setAdminInputValue("artifact-bone", item.bone_bonus || 0);
+  setAdminInputValue("artifact-comprehension", item.comprehension_bonus || 0);
+  setAdminInputValue("artifact-divine-sense", item.divine_sense_bonus || 0);
+  setAdminInputValue("artifact-fortune", item.fortune_bonus || 0);
+  setAdminInputValue("artifact-qi-blood", item.qi_blood_bonus || 0);
+  setAdminInputValue("artifact-true-yuan", item.true_yuan_bonus || 0);
+  setAdminInputValue("artifact-body-movement", item.body_movement_bonus || 0);
+  setAdminInputValue("artifact-duel", item.duel_rate_bonus || 0);
+  setAdminInputValue("artifact-cultivation", item.cultivation_bonus || 0);
+  setAdminInputValue(
+    "artifact-combat-config",
+    item.combat_config && Object.keys(item.combat_config || {}).length ? JSON.stringify(item.combat_config, null, 2) : "",
+  );
+  setAdminInputValue("artifact-layer", item.min_realm_layer || 1);
+  if ($("artifact-rarity")) $("artifact-rarity").value = item.rarity || "凡品";
+  if ($("artifact-type")) $("artifact-type").value = item.artifact_type || "battle";
+  if ($("artifact-role")) $("artifact-role").value = item.artifact_role || "battle";
+  if ($("artifact-slot")) $("artifact-slot").value = item.equip_slot || "weapon";
+  if ($("artifact-stage")) $("artifact-stage").value = item.min_realm_stage || "";
+  if ($("artifact-set-id")) $("artifact-set-id").value = item.artifact_set_id || "";
+  if ($("artifact-unique")) $("artifact-unique").checked = Boolean(item.unique_item);
+  if ($("artifact-enabled")) $("artifact-enabled").checked = item.enabled !== false;
+  const submit = artifactSubmitButton();
+  if (submit) submit.textContent = "保存法宝";
 }
 
 function bindUploadButtons() {
@@ -1642,6 +1736,10 @@ function deleteButton(entity, id) {
   return `<button type="button" class="ghost" data-delete="${entity}" data-id="${id}">删除</button>`;
 }
 
+function editButton(entity, id) {
+  return `<button type="button" class="ghost" data-edit="${entity}" data-id="${id}">编辑</button>`;
+}
+
 function encounterDispatchButton(id) {
   return `<button type="button" class="secondary" data-encounter-dispatch="${id}">投放到群</button>`;
 }
@@ -1767,6 +1865,7 @@ function syncSelects() {
 
 function applySettings(settings = {}) {
   ensureSettingRuleRows();
+  $("setting-exchange-enabled").checked = settings.coin_stone_exchange_enabled ?? true;
   $("setting-rate").value = settings.coin_exchange_rate ?? 100;
   $("setting-fee").value = settings.exchange_fee_percent ?? 1;
   $("setting-min").value = settings.min_coin_exchange ?? 1;
@@ -1913,6 +2012,7 @@ function bindEvents() {
   $("settings-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/settings", {
+      coin_stone_exchange_enabled: $("setting-exchange-enabled").checked,
       coin_exchange_rate: Number($("setting-rate").value || 100),
       exchange_fee_percent: Number($("setting-fee").value || 1),
       min_coin_exchange: Number($("setting-min").value || 1),
@@ -2174,6 +2274,10 @@ function bindEvents() {
     }), "上架成功", "官方商店已更新。");
   });
 
+  $("artifact-reset-btn")?.addEventListener("click", () => {
+    resetArtifactForm();
+  });
+
   document.body.addEventListener("click", async (event) => {
     const del = event.target.closest("[data-delete]");
     if (del) {
@@ -2183,6 +2287,21 @@ function bindEvents() {
         await submitAndRefresh(() => request("DELETE", `/plugins/xiuxian/admin-api/${entity}/${id}`), "删除成功", "目标条目已删除。");
       } catch (error) {
         await popup("删除失败", String(error.message || error), "error");
+      }
+      return;
+    }
+    const edit = event.target.closest("[data-edit]");
+    if (edit) {
+      const entity = edit.dataset.edit;
+      const id = Number(edit.dataset.id || 0);
+      if (entity === "artifact") {
+        const item = (state.bundle?.artifacts || []).find((row) => Number(row.id || 0) === id);
+        if (!item) {
+          await popup("编辑失败", "未找到目标法宝。", "error");
+          return;
+        }
+        loadArtifactForm(item);
+        $("artifact-form")?.scrollIntoView?.({ behavior: "smooth", block: "start" });
       }
       return;
     }
@@ -2291,22 +2410,19 @@ function bindAttributeAwareSubmitters() {
   $("artifact-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     event.stopImmediatePropagation();
-    const form = event.currentTarget;
+    const artifactId = Number($("artifact-id")?.value || 0);
+    const payload = collectArtifactPayload();
     try {
-      await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/artifact", {
-        name: $("artifact-name").value.trim(),
-        rarity: $("artifact-rarity")?.value || "凡品",
-        artifact_type: $("artifact-type")?.value || "battle",
-        image_url: $("artifact-image")?.value.trim() || "",
-        description: $("artifact-description")?.value.trim() || "",
-        ...affixPayload("artifact"),
-        duel_rate_bonus: Number($("artifact-duel")?.value || 0),
-        cultivation_bonus: Number($("artifact-cultivation")?.value || 0),
-        combat_config: parseJsonInput($("artifact-combat-config")?.value || "{}", {}),
-        min_realm_stage: $("artifact-stage")?.value || null,
-        min_realm_layer: Number($("artifact-layer")?.value || 1),
-      }), "创建成功", "法宝已经录入修仙体系。");
-      form?.reset?.();
+      await submitAndRefresh(
+        () => request(
+          artifactId > 0 ? "PATCH" : "POST",
+          artifactId > 0 ? `/plugins/xiuxian/admin-api/artifact/${artifactId}` : "/plugins/xiuxian/admin-api/artifact",
+          payload,
+        ),
+        artifactId > 0 ? "保存成功" : "创建成功",
+        artifactId > 0 ? "法宝配置已更新。" : "法宝已经录入修仙体系。",
+      );
+      resetArtifactForm();
       syncSelects();
     } catch (error) {
       await popup("提交失败", String(error.message || error), "error");
@@ -2462,10 +2578,10 @@ renderWorld = function renderWorldEnhanced() {
         <strong>${escapeHtml(item.name)}</strong>
         <span class="badge badge--normal">${escapeHtml(item.artifact_type_label || item.artifact_type)}</span>
       </div>
-      <p>${qualityBadgeHtml(item.rarity || "凡品", item.quality_color)} · ${escapeHtml(affixSummary(item))}</p>
+      <p>${qualityBadgeHtml(item.rarity || "凡品", item.quality_color)} · ${escapeHtml(affixSummary(item))}${item.unique_item ? " · 唯一法宝" : ""}</p>
       <p>${escapeHtml(combatConfigSummary(item.combat_config || {}))}</p>
       <p>境界限制：${escapeHtml(item.min_realm_stage || "无限制")} ${escapeHtml(item.min_realm_layer || 1)} 层</p>
-      <div class="inline-action-buttons">${deleteButton("artifact", item.id)}</div>
+      <div class="inline-action-buttons">${editButton("artifact", item.id)}${deleteButton("artifact", item.id)}</div>
     </article>`).join("") || `<article class="stack-item"><strong>暂无法宝</strong></article>`);
 
   renderStack("talisman-list", (bundle.talismans || []).map((item) => `

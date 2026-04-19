@@ -1417,8 +1417,11 @@ function renderProfile(bundle) {
   }
   document.querySelector("#action-hint").textContent = hints.join(" · ") || "当前状态良好，可以继续修炼、突破或闭关。";
 
+  const exchangeEnabled = bundle.settings?.coin_stone_exchange_enabled ?? true;
   document.querySelector("#exchange-hint").textContent =
-    `当前比例：1 片刻碎片 = ${bundle.settings.rate} 灵石，手续费 ${bundle.settings.fee_percent}%，灵石兑换碎片最低 ${bundle.settings.min_coin_exchange} 灵石。`;
+    exchangeEnabled
+      ? `当前比例：1 片刻碎片 = ${bundle.settings.rate} 灵石，手续费 ${bundle.settings.fee_percent}%，灵石兑换碎片最低 ${bundle.settings.min_coin_exchange} 灵石。`
+      : "灵石互兑功能当前已关闭，可联系管理员在后台重新开启。";
 
   setDisabled(document.querySelector("#train-btn"), !bundle.capabilities?.can_train, "当前无法吐纳修炼");
   applyBreakthroughActionState(bundle, "当前无法尝试突破");
@@ -1520,9 +1523,12 @@ function renderProfile(bundle) {
   const rate = settings.rate ?? settings.coin_exchange_rate ?? 100;
   const fee = settings.fee_percent ?? settings.exchange_fee_percent ?? 1;
   const minExchange = settings.min_coin_exchange ?? 1;
+  const exchangeEnabled = settings.coin_stone_exchange_enabled ?? true;
   const exchangeHint = document.querySelector("#exchange-hint");
   if (exchangeHint) {
-    exchangeHint.textContent = `当前比例：1 片刻碎片 = ${rate} 灵石，手续费 ${fee}%，灵石兑换碎片最低消耗 ${minExchange} 灵石，不足 ${rate} 灵石一份的零头会保留。`;
+    exchangeHint.textContent = exchangeEnabled
+      ? `当前比例：1 片刻碎片 = ${rate} 灵石，手续费 ${fee}%，灵石兑换碎片最低消耗 ${minExchange} 灵石，不足 ${rate} 灵石一份的零头会保留。`
+      : "灵石互兑功能当前已关闭，可联系管理员在后台重新开启。";
   }
   const officialShopTitle = document.querySelector("#official-shop-title");
   if (officialShopTitle) {
@@ -1533,11 +1539,13 @@ function renderProfile(bundle) {
   applyBreakthroughActionState(bundle, "当前无法尝试突破");
   setDisabled(document.querySelector("#retreat-start-btn"), !bundle.capabilities?.can_retreat, "当前无法开始闭关");
   setDisabled(document.querySelector("#retreat-finish-btn"), !retreating, "当前没有进行中的闭关");
-  const exchangeDisabledReason = retreating ? "闭关期间无法兑换灵石和片刻碎片。" : "";
+  const exchangeDisabledReason = !exchangeEnabled
+    ? "灵石互兑功能当前已关闭。"
+    : (retreating ? "闭关期间无法兑换灵石和片刻碎片。" : "");
   ["#coin-to-stone-amount", "#stone-to-coin-amount"]
-    .forEach((selector) => setDisabled(document.querySelector(selector), retreating, exchangeDisabledReason));
-  setDisabled(document.querySelector("#coin-to-stone-form button[type='submit']"), retreating, exchangeDisabledReason);
-  setDisabled(document.querySelector("#stone-to-coin-form button[type='submit']"), retreating, exchangeDisabledReason);
+    .forEach((selector) => setDisabled(document.querySelector(selector), retreating || !exchangeEnabled, exchangeDisabledReason));
+  setDisabled(document.querySelector("#coin-to-stone-form button[type='submit']"), retreating || !exchangeEnabled, exchangeDisabledReason);
+  setDisabled(document.querySelector("#stone-to-coin-form button[type='submit']"), retreating || !exchangeEnabled, exchangeDisabledReason);
 
   const shopDisabledReason = retreating ? "闭关期间无法经营店铺。" : "";
   ["#shop-item-kind", "#shop-item-ref", "#shop-quantity", "#shop-price", "#shop-name", "#shop-broadcast"]
@@ -1585,6 +1593,7 @@ function renderArtifactList(items, retreating, equipLimit, equippedCount) {
       <p>${escapeHtml(item.description || "暂无描述")}</p>
       <div class="item-tags">
         <span class="tag ${item.artifact_type === "support" ? "support" : ""}">${escapeHtml(item.artifact_type_label || artifactTypeLabel(item.artifact_type))}</span>
+        ${item.unique_item ? `<span class="tag">唯一</span>` : ""}
         <span class="tag">攻击 ${escapeHtml(effects.attack_bonus ?? item.attack_bonus)}</span>
         <span class="tag">防御 ${escapeHtml(effects.defense_bonus ?? item.defense_bonus)}</span>
         <span class="tag">斗法 +${escapeHtml(effects.duel_rate_bonus ?? item.duel_rate_bonus)}%</span>
@@ -2499,9 +2508,12 @@ function applyProfileBundle(bundle) {
   const rate = settings.rate ?? settings.coin_exchange_rate ?? 100;
   const fee = settings.fee_percent ?? settings.exchange_fee_percent ?? 1;
   const minExchange = settings.min_coin_exchange ?? 1;
+  const exchangeEnabled = settings.coin_stone_exchange_enabled ?? true;
   const exchangeHint = document.querySelector("#exchange-hint");
   if (exchangeHint) {
-    exchangeHint.textContent = `当前比例：1 片刻碎片 = ${rate} 灵石，手续费 ${fee}%，灵石兑换碎片最低消耗 ${minExchange} 灵石，不足 ${rate} 灵石一份的零头会保留。`;
+    exchangeHint.textContent = exchangeEnabled
+      ? `当前比例：1 片刻碎片 = ${rate} 灵石，手续费 ${fee}%，灵石兑换碎片最低消耗 ${minExchange} 灵石，不足 ${rate} 灵石一份的零头会保留。`
+      : "灵石互兑功能当前已关闭，可联系管理员在后台重新开启。";
   }
 
   ensureSectionState("#journal-card", Boolean(bundle?.profile?.consented));
@@ -4624,17 +4636,24 @@ renderProfile = function renderProfileRedesigned(bundle) {
   const rate = settings.rate ?? settings.coin_exchange_rate ?? 100;
   const fee = settings.fee_percent ?? settings.exchange_fee_percent ?? 1;
   const minExchange = settings.min_coin_exchange ?? 1;
+  const exchangeEnabled = settings.coin_stone_exchange_enabled ?? true;
   const exchangeHint = document.querySelector("#exchange-hint");
   if (exchangeHint) {
-    exchangeHint.textContent = `当前比例：1 片刻碎片 = ${rate} 灵石，手续费 ${fee}%，灵石兑换碎片最低消耗 ${minExchange} 灵石，不足 ${rate} 灵石一份的零头会保留。${duelLockReason ? ` 当前状态：${duelLockReason}` : ""}`;
+    exchangeHint.textContent = exchangeEnabled
+      ? `当前比例：1 片刻碎片 = ${rate} 灵石，手续费 ${fee}%，灵石兑换碎片最低消耗 ${minExchange} 灵石，不足 ${rate} 灵石一份的零头会保留。${duelLockReason ? ` 当前状态：${duelLockReason}` : ""}`
+      : `灵石互兑功能当前已关闭。${duelLockReason ? ` 当前状态：${duelLockReason}` : ""}`;
   }
 
   setDisabled(document.querySelector("#train-btn"), !bundle.capabilities?.can_train, "当前无法吐纳修炼");
   applyBreakthroughActionState(bundle, "当前无法尝试突破");
   setDisabled(document.querySelector("#retreat-start-btn"), !bundle.capabilities?.can_retreat, "当前无法开始闭关");
   setDisabled(document.querySelector("#retreat-finish-btn"), !retreating, "当前没有进行中的闭关");
-  setDisabled(document.querySelector("#coin-to-stone-form button[type='submit']"), Boolean(duelLockReason), duelLockReason);
-  setDisabled(document.querySelector("#stone-to-coin-form button[type='submit']"), Boolean(duelLockReason), duelLockReason);
+  const exchangeActionDisabled = Boolean(duelLockReason) || !exchangeEnabled;
+  const exchangeActionReason = !exchangeEnabled ? "灵石互兑功能当前已关闭。" : duelLockReason;
+  ["#coin-to-stone-amount", "#stone-to-coin-amount"]
+    .forEach((selector) => setDisabled(document.querySelector(selector), retreating || exchangeActionDisabled, exchangeActionReason));
+  setDisabled(document.querySelector("#coin-to-stone-form button[type='submit']"), retreating || exchangeActionDisabled, exchangeActionReason);
+  setDisabled(document.querySelector("#stone-to-coin-form button[type='submit']"), retreating || exchangeActionDisabled, exchangeActionReason);
 
   const shopDisabledReason = retreating ? "闭关期间无法经营店铺。" : duelLockReason;
   ["#shop-item-kind", "#shop-item-ref", "#shop-quantity", "#shop-price", "#shop-name", "#shop-broadcast"]

@@ -14,6 +14,11 @@ DEFAULT_DB_HOST = "127.0.0.1"
 DEFAULT_DB_USER = "pivkeyu"
 DEFAULT_DB_PASSWORD = "pivkeyu"
 DEFAULT_DB_NAME = "pivkeyu"
+DEFAULT_DB_BACKEND = "postgresql"
+DEFAULT_DB_PORTS = {
+    "postgresql": 5432,
+    "mysql": 3306,
+}
 DEFAULT_CONFIG_PATH = Path("data/config.json")
 LEGACY_CONFIG_PATH = Path("config.json")
 CONFIG_EXAMPLE_PATH = Path("config_example.json")
@@ -180,11 +185,13 @@ class Config(BaseModel):
     emby_block: Optional[List[str]] = []
     emby_line: str
     extra_emby_libs: Optional[List[str]] = []
+    db_backend: str = DEFAULT_DB_BACKEND
+    db_url: Optional[str] = None
     db_host: str = DEFAULT_DB_HOST
     db_user: str = DEFAULT_DB_USER
     db_pwd: str = DEFAULT_DB_PASSWORD
     db_name: str = DEFAULT_DB_NAME
-    db_port: int = 3306
+    db_port: int = DEFAULT_DB_PORTS[DEFAULT_DB_BACKEND]
     tz_ad: Optional[str] = None
     tz_api: Optional[str] = None
     tz_id: Optional[List[Union[int, str]]] = []  # int for Nezha, str (UUID) for Komari
@@ -194,7 +201,7 @@ class Config(BaseModel):
     ranks: Ranks
     schedall: Schedall
     db_is_docker: bool = False
-    db_docker_name: str = "mysql"
+    db_docker_name: str = "postgres"
     db_backup_dir: str = "./db_backup"
     db_backup_maxcount: int = 7
     # another_line: Optional[List[str]] = []
@@ -250,6 +257,7 @@ class Config(BaseModel):
     @classmethod
     def apply_runtime_defaults(cls, config: dict) -> dict:
         defaults = {
+            "db_backend": DEFAULT_DB_BACKEND,
             "db_host": DEFAULT_DB_HOST,
             "db_user": DEFAULT_DB_USER,
             "db_pwd": DEFAULT_DB_PASSWORD,
@@ -260,6 +268,23 @@ class Config(BaseModel):
             current = config.get(key)
             if current is None or not str(current).strip():
                 config[key] = value
+
+        backend = str(config.get("db_backend") or DEFAULT_DB_BACKEND).strip().lower()
+        if backend in {"postgres", "postgresql", "pgsql"}:
+            backend = "postgresql"
+        elif backend in {"mysql", "mariadb"}:
+            backend = "mysql"
+        else:
+            backend = DEFAULT_DB_BACKEND
+        config["db_backend"] = backend
+
+        current_port = config.get("db_port")
+        if current_port in (None, ""):
+            config["db_port"] = DEFAULT_DB_PORTS.get(backend, DEFAULT_DB_PORTS[DEFAULT_DB_BACKEND])
+
+        current_docker_name = config.get("db_docker_name")
+        if current_docker_name is None or not str(current_docker_name).strip():
+            config["db_docker_name"] = "postgres" if backend == "postgresql" else "mysql"
 
         return config
 

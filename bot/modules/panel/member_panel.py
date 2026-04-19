@@ -16,7 +16,8 @@ from bot import bot, LOGGER, _open, emby_line, sakura_b, ranks, group, config, s
 from pyrogram import filters
 from bot.func_helper.emby import emby
 from bot.func_helper.filters import user_in_group_on_filter
-from bot.func_helper.utils import members_info, tem_adduser, cr_link_one, judge_admins, tem_deluser, pwd_create
+from bot.func_helper.utils import members_info, tem_adduser, cr_link_one, judge_admins, tem_deluser, pwd_create, refresh_registration_slots
+from bot.func_helper.register_queue import register_create_queue
 from bot.func_helper.fix_bottons import members_ikb, back_members_ikb, re_create_ikb, del_me_ikb, re_delme_ikb, \
     re_reset_ikb, re_changetg_ikb, emby_block_ikb, user_emby_block_ikb, user_emby_unblock_ikb, re_exchange_b_ikb, \
     store_ikb, re_bindtg_ikb, close_it_ikb, store_query_page, re_born_ikb, send_changetg_ikb, favorites_page_ikb, \
@@ -29,8 +30,6 @@ from bot.sql_helper.sql_code import sql_count_c_code
 from bot.sql_helper.sql_emby import sql_get_emby, sql_update_emby, Emby
 from bot.sql_helper.sql_emby2 import sql_get_emby2, sql_delete_emby2
 
-# 添加全局锁
-_create_user_lock = asyncio.Lock()
 _SECURITY_CODE_PATTERN = re.compile(r"^\d{4,6}$")
 
 
@@ -54,57 +53,158 @@ async def create_user(_, call, us, stats):
     except (IndexError, ValueError):
         await msg.reply(f'⚠️ 输入格式错误\n\n`{msg.text}`\n **会话已结束！**')
     else:
-        # 使用锁保护检查和创建过程
-        async with _create_user_lock:
-            # 再次检查限制（双重检查）
-            if _open.tem >= _open.all_user:
-                return await msg.reply(f'**🚫 很抱歉，注册总数({_open.tem})已达限制({_open.all_user})。**')
+        send = await msg.reply(
+            f'🆗 会话结束，收到设置\n\n用户名：**{emby_name}**  安全码：**{emby_pwd2}** \n\n__正在接入注册队列__......'
+        )
 
-            send = await msg.reply(
-                f'🆗 会话结束，收到设置\n\n用户名：**{emby_name}**  安全码：**{emby_pwd2}** \n\n__正在为您初始化账户，更新用户策略__......')
+        async def _run_create_job():
+            await _perform_create_user(
+                status_message=send,
+                user_id=call.from_user.id,
+                username=emby_name,
+                security_code=emby_pwd2,
+                days=us,
+                open_register=stats,
+            )
 
-            # emby api操作
-            data = await emby.emby_create(name=emby_name, days=us)
-            if not data:
-                await editMessage(send,
-                                  '**- ❎ 已有此账户名，请重新输入注册\n- ❎ 或检查有无特殊字符\n- ❎ 或emby服务器连接不通，会话已结束！**',
-                                  re_create_ikb)
-                LOGGER.error("【创建账户】：重复账户 or 未知错误！")
-            else:
-                # 创建成功后立即更新计数器
-                tg = call.from_user.id
-                pwd = data[1]
-                eid = data[0]
-                ex = data[2]
+        enqueue_result = await register_create_queue.submit(call.from_user.id, _run_create_job)
+        if enqueue_result.duplicate:
+            await editMessage(
+                send,
+                f'⏳ 你已经在注册队列中啦。\n\n'
+                f'· 用户名 | `{emby_name}`\n'
+                f'· 安全码 | `{emby_pwd2}`\n'
+                f'· 前方任务 | `{enqueue_result.ahead}` 个\n\n'
+                f'轮到你后会自动继续。',
+                re_create_ikb,
+            )
+            return
 
-                # 数据库操作
-                if stats:
-                    sql_update_emby(Emby.tg == tg, embyid=eid, name=emby_name, pwd=pwd, pwd2=emby_pwd2, lv='b', cr=datetime.now(), ex=ex)
-                else:
-                    sql_update_emby(Emby.tg == tg, embyid=eid, name=emby_name, pwd=pwd, pwd2=emby_pwd2, lv='b', cr=datetime.now(), ex=ex, us=0)
+        if not enqueue_result.accepted:
+            await editMessage(
+                send,
+                f'⏳ 当前注册请求过多，队列已满。\n\n'
+                f'· 队列容量 | `{enqueue_result.capacity}`\n'
+                f'· 当前积压 | `{enqueue_result.ahead}` 个以上\n\n'
+                f'请稍后再试。',
+                re_create_ikb,
+            )
+            return
 
-                # 在锁内更新计数器
-                tem_adduser()
+        if enqueue_result.ahead > 0:
+            await editMessage(
+                send,
+                f'⏳ 当前注册请求较多，你已进入排队队列。\n\n'
+                f'· 用户名 | `{emby_name}`\n'
+                f'· 安全码 | `{emby_pwd2}`\n'
+                f'· 前方任务 | `{enqueue_result.ahead}` 个\n\n'
+                f'轮到你后会自动继续创建账号，请不要重复点击。',
+            )
+            return
 
-                if schedall.check_ex:
-                    ex = ex.strftime("%Y-%m-%d %H:%M:%S")
-                elif schedall.low_activity:
-                    ex = f'__若{config.activity_check_days}天无观看将封禁__'
-                else:
-                    ex = '__无需保号，放心食用__'
+        await editMessage(
+            send,
+            f'🪄 已接收注册请求。\n\n'
+            f'· 用户名 | `{emby_name}`\n'
+            f'· 安全码 | `{emby_pwd2}`\n\n'
+            f'__正在为您初始化账户，更新用户策略__......'
+        )
 
-                await editMessage(send,
-                                  f'**▎创建用户成功🎉**\n\n'
-                                  f'· 用户名称 | `{emby_name}`\n'
-                                  f'· 用户密码 | `{pwd}`\n'
-                                  f'· 安全密码 | `{emby_pwd2}`（仅发送一次）\n'
-                                  f'· 到期时间 | `{ex}`\n'
-                                  f'· 当前线路：\n'
-                                  f'{emby_line}\n\n'
-                                  f'**·【服务器】 - 查看线路和密码**')
 
-                LOGGER.info(f"【创建账户】[开注状态]：{call.from_user.id} - 建立了 {emby_name} ") if stats else LOGGER.info(
-                    f"【创建账户】：{call.from_user.id} - 建立了 {emby_name} ")
+async def _perform_create_user(status_message, user_id: int, username: str, security_code: str, days: int, open_register: bool):
+    current_user = sql_get_emby(tg=user_id)
+    if not current_user:
+        await editMessage(status_message, '⚠️ 数据库没有你，请重新 /start 录入后再试。', re_create_ikb)
+        return
+
+    if current_user.embyid:
+        await editMessage(status_message, '💦 你已经有账户啦！请勿重复注册。', back_members_ikb)
+        return
+
+    current_registered = int(refresh_registration_slots() or 0)
+    if current_registered >= _open.all_user:
+        await editMessage(
+            status_message,
+            f'**🚫 很抱歉，注册总数({current_registered})已达限制({_open.all_user})。**',
+            back_members_ikb,
+        )
+        return
+
+    if not open_register and int(current_user.us or 0) <= 0:
+        await editMessage(status_message, '⚠️ 你的注册资格已失效，请重新获取后再试。', back_members_ikb)
+        return
+
+    await editMessage(
+        status_message,
+        f'🪄 已轮到你，开始创建账号。\n\n'
+        f'· 用户名 | `{username}`\n'
+        f'· 安全码 | `{security_code}`\n\n'
+        f'__正在为您初始化账户，更新用户策略__......'
+    )
+
+    data = await emby.emby_create(name=username, days=days)
+    if not data:
+        await editMessage(
+            status_message,
+            '**- ❎ 已有此账户名，请重新输入注册\n- ❎ 或检查有无特殊字符\n- ❎ 或emby服务器连接不通，会话已结束！**',
+            re_create_ikb,
+        )
+        LOGGER.error(f"【创建账户】：user={user_id} 用户名={username} 创建失败")
+        return
+
+    password = data[1]
+    emby_id = data[0]
+    expires_at = data[2]
+
+    if open_register:
+        sql_update_emby(
+            Emby.tg == user_id,
+            embyid=emby_id,
+            name=username,
+            pwd=password,
+            pwd2=security_code,
+            lv='b',
+            cr=datetime.now(),
+            ex=expires_at,
+        )
+    else:
+        sql_update_emby(
+            Emby.tg == user_id,
+            embyid=emby_id,
+            name=username,
+            pwd=password,
+            pwd2=security_code,
+            lv='b',
+            cr=datetime.now(),
+            ex=expires_at,
+            us=0,
+        )
+
+    tem_adduser()
+
+    if schedall.check_ex:
+        expires_text = expires_at.strftime("%Y-%m-%d %H:%M:%S")
+    elif schedall.low_activity:
+        expires_text = f'__若{config.activity_check_days}天无观看将封禁__'
+    else:
+        expires_text = '__无需保号，放心食用__'
+
+    await editMessage(
+        status_message,
+        f'**▎创建用户成功🎉**\n\n'
+        f'· 用户名称 | `{username}`\n'
+        f'· 用户密码 | `{password}`\n'
+        f'· 安全密码 | `{security_code}`（仅发送一次）\n'
+        f'· 到期时间 | `{expires_text}`\n'
+        f'· 当前线路：\n'
+        f'{emby_line}\n\n'
+        f'**·【服务器】 - 查看线路和密码**'
+    )
+
+    if open_register:
+        LOGGER.info(f"【创建账户】[开注状态]：{user_id} - 建立了 {username} ")
+    else:
+        LOGGER.info(f"【创建账户】：{user_id} - 建立了 {username} ")
 
 
 # 键盘中转

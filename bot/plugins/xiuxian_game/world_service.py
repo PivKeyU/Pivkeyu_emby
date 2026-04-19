@@ -20,6 +20,7 @@ from bot.sql_helper.sql_xiuxian import (
     SECT_ROLE_PRESETS,
     _marriage_partner_tg,
     apply_spiritual_stone_delta,
+    assert_artifact_receivable_by_user,
     assert_currency_operation_allowed,
     assert_profile_alive,
     XiuxianArtifactInventory,
@@ -1211,7 +1212,22 @@ def _grant_item_by_kind(tg: int, kind: str, ref_id: int, quantity: int) -> dict[
     raise ValueError("不支持的物品类型")
 
 
+def _assert_reward_item_receivable(tg: int, kind: str | None, ref_id: int, quantity: int) -> None:
+    if str(kind or "") != "artifact" or int(ref_id or 0) <= 0 or int(quantity or 0) <= 0:
+        return
+    artifact = _get_item_payload("artifact", int(ref_id)) or {}
+    if bool(artifact.get("unique_item")) and int(quantity or 0) > 1:
+        raise ValueError(f"唯一法宝【{artifact.get('name') or ref_id}】每次只能获得 1 件。")
+    assert_artifact_receivable_by_user(int(tg), int(ref_id), allow_existing_owner=False)
+
+
 def _award_task_rewards(tg: int, task: XiuxianTask) -> dict[str, Any]:
+    _assert_reward_item_receivable(
+        tg,
+        getattr(task, "reward_item_kind", None),
+        int(getattr(task, "reward_item_ref_id", 0) or 0),
+        int(getattr(task, "reward_item_quantity", 0) or 0),
+    )
     with Session() as session:
         updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if updated is None:

@@ -17,6 +17,7 @@ from bot.sql_helper.sql_xiuxian import (
     XiuxianScene,
     XiuxianSceneDrop,
     apply_spiritual_stone_delta,
+    assert_artifact_receivable_by_user,
     create_journal,
     create_scene,
     create_scene_drop,
@@ -128,6 +129,17 @@ def _grant_item_by_kind(tg: int, kind: str, ref_id: int, quantity: int) -> dict[
             auto_equip_if_empty=True,
         )
     raise ValueError("不支持的物品类型")
+
+
+def _assert_reward_item_receivable(tg: int, kind: str | None, ref_id: int, quantity: int) -> None:
+    if str(kind or "") != "artifact" or int(ref_id or 0) <= 0 or int(quantity or 0) <= 0:
+        return
+    artifact = serialize_artifact(get_artifact(int(ref_id)))
+    if not artifact:
+        raise ValueError("未找到目标法宝。")
+    if bool(artifact.get("unique_item")) and int(quantity or 0) > 1:
+        raise ValueError(f"唯一法宝【{artifact.get('name') or ref_id}】每次只能获得 1 件。")
+    assert_artifact_receivable_by_user(int(tg), int(ref_id), allow_existing_owner=False)
 
 
 def _get_item_payload(kind: str, ref_id: int) -> dict[str, Any] | None:
@@ -912,6 +924,14 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
         reward_ref_id = int(exploration.reward_ref_id or 0)
         reward_quantity = int(exploration.reward_quantity or 0)
         stone_reward = int(exploration.stone_reward or 0)
+        _assert_reward_item_receivable(tg, reward_kind, reward_ref_id, reward_quantity)
+        if bonus_payload:
+            _assert_reward_item_receivable(
+                tg,
+                str(bonus_payload.get("kind") or ""),
+                int(bonus_payload.get("ref_id") or 0),
+                int(bonus_payload.get("quantity") or 0),
+            )
         exploration.claimed = True
         exploration.updated_at = utcnow()
         session.commit()

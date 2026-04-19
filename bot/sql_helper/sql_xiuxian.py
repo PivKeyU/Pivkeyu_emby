@@ -350,6 +350,7 @@ DEPRECATED_XIUXIAN_SETTING_KEYS = {
     "red_packet_merit_modes",
 }
 DEFAULT_SETTINGS = {
+    "coin_stone_exchange_enabled": True,
     "coin_exchange_rate": 100,
     "exchange_fee_percent": 1,
     "min_coin_exchange": 1,
@@ -1520,6 +1521,7 @@ class XiuxianArtifact(Base):
     artifact_role = Column(String(16), default="battle", nullable=False)
     equip_slot = Column(String(16), default="weapon", nullable=False)
     artifact_set_id = Column(Integer, ForeignKey("xiuxian_artifact_sets.id", ondelete="SET NULL"), nullable=True)
+    unique_item = Column(Boolean, default=False, nullable=False)
     duel_rate_bonus = Column(Integer, default=0, nullable=False)
     cultivation_bonus = Column(Integer, default=0, nullable=False)
     combat_config = Column(JSON, nullable=True)
@@ -2491,6 +2493,7 @@ def serialize_artifact(artifact: XiuxianArtifact | None) -> dict[str, Any] | Non
         "equip_slot": artifact.equip_slot,
         "equip_slot_label": ARTIFACT_SLOT_LABELS.get(artifact.equip_slot, artifact.equip_slot),
         "artifact_set_id": artifact.artifact_set_id,
+        "unique_item": bool(artifact.unique_item),
         "image_url": artifact.image_url,
         "description": artifact.description,
         "attack_bonus": artifact.attack_bonus,
@@ -4055,6 +4058,7 @@ def _normalize_artifact_fields(fields: dict[str, Any]) -> dict[str, Any]:
     payload["artifact_role"] = str(fields.get("artifact_role") or payload["artifact_type"] or "battle").strip() or "battle"
     payload["equip_slot"] = str(fields.get("equip_slot") or "weapon").strip() or "weapon"
     payload["artifact_set_id"] = _coerce_int(fields.get("artifact_set_id"), 0) or None
+    payload["unique_item"] = _coerce_bool(fields.get("unique_item"), False)
     payload["duel_rate_bonus"] = _coerce_int(fields.get("duel_rate_bonus"), 0)
     payload["cultivation_bonus"] = _coerce_int(fields.get("cultivation_bonus"), 0)
     payload["combat_config"] = _normalize_combat_config(fields.get("combat_config"))
@@ -4231,6 +4235,50 @@ def create_artifact_set(**fields) -> dict[str, Any]:
         return serialize_artifact_set(artifact_set)
 
 
+def _assert_unique_artifact_circulation_safe(session: OrmSession, artifact_id: int, artifact_name: str) -> None:
+    inventory_rows = (
+        session.query(XiuxianArtifactInventory)
+        .filter(
+            XiuxianArtifactInventory.artifact_id == int(artifact_id),
+            XiuxianArtifactInventory.quantity > 0,
+        )
+        .with_for_update()
+        .all()
+    )
+    owned_quantity = sum(max(int(row.quantity or 0), 0) for row in inventory_rows)
+    shop_quantity = sum(
+        max(int(row.quantity or 0), 0)
+        for row in (
+            session.query(XiuxianShopItem)
+            .filter(
+                XiuxianShopItem.item_kind == "artifact",
+                XiuxianShopItem.item_ref_id == int(artifact_id),
+                XiuxianShopItem.enabled.is_(True),
+            )
+            .with_for_update()
+            .all()
+        )
+    )
+    auction_quantity = sum(
+        max(int(row.quantity or 0), 0)
+        for row in (
+            session.query(XiuxianAuctionItem)
+            .filter(
+                XiuxianAuctionItem.item_kind == "artifact",
+                XiuxianAuctionItem.item_ref_id == int(artifact_id),
+                XiuxianAuctionItem.status == "active",
+            )
+            .with_for_update()
+            .all()
+        )
+    )
+    total_circulating = owned_quantity + shop_quantity + auction_quantity
+    if total_circulating > 1:
+        raise ValueError(
+            f"法宝【{artifact_name or artifact_id}】当前已有多份在流通中，无法直接改为唯一法宝，请先清理库存/商店/拍卖中的重复份数。"
+        )
+
+
 def patch_artifact(artifact_id: int, **fields) -> dict[str, Any] | None:
     patch = dict(fields)
     with Session() as session:
@@ -4240,6 +4288,8 @@ def patch_artifact(artifact_id: int, **fields) -> dict[str, Any] | None:
         current = serialize_artifact(row) or {}
         current.update(patch)
         payload = _normalize_artifact_fields(current)
+        if bool(payload.get("unique_item")):
+            _assert_unique_artifact_circulation_safe(session, int(artifact_id), str(payload.get("name") or row.name or ""))
         for key, value in payload.items():
             setattr(row, key, value)
         row.updated_at = utcnow()
@@ -4429,28 +4479,142 @@ def delete_artifact_set(artifact_set_id: int) -> bool:
         return True
 
 
-def grant_artifact_to_user(tg: int, artifact_id: int, quantity: int = 1) -> dict[str, Any]:
+def _artifact_unique_item_enabled(artifact: XiuxianArtifact | dict[str, Any] | None) -> bool:
+    if artifact is None:
+        return False
+    if isinstance(artifact, dict):
+        return bool(artifact.get("unique_item"))
+    return bool(getattr(artifact, "unique_item", False))
+
+
+def _unique_artifact_holder_tg_in_session(
+    session: OrmSession,
+    artifact_id: int,
+    *,
+    exclude_tgs: set[int] | None = None,
+) -> int | None:
+    query = (
+        session.query(XiuxianArtifactInventory)
+        .filter(
+            XiuxianArtifactInventory.artifact_id == int(artifact_id),
+            XiuxianArtifactInventory.quantity > 0,
+        )
+        .with_for_update()
+    )
+    excluded = {int(tg_value) for tg_value in (exclude_tgs or set()) if int(tg_value or 0) > 0}
+    if excluded:
+        query = query.filter(~XiuxianArtifactInventory.tg.in_(excluded))
+    row = query.order_by(XiuxianArtifactInventory.id.asc()).first()
+    return int(row.tg or 0) if row is not None else None
+
+
+def assert_artifact_receivable_by_user(
+    tg: int,
+    artifact_id: int,
+    *,
+    allow_existing_owner: bool = False,
+    exclude_owner_tgs: set[int] | None = None,
+) -> dict[str, Any]:
     with Session() as session:
-        row = (
-            session.query(XiuxianArtifactInventory)
-            .filter(
-                XiuxianArtifactInventory.tg == tg,
-                XiuxianArtifactInventory.artifact_id == artifact_id,
-            )
+        artifact = (
+            session.query(XiuxianArtifact)
+            .filter(XiuxianArtifact.id == int(artifact_id))
+            .with_for_update()
             .first()
         )
-        if row is None:
-            row = XiuxianArtifactInventory(tg=tg, artifact_id=artifact_id, quantity=0)
-            session.add(row)
-        row.quantity += max(int(quantity), 1)
-        row.bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
-        row.updated_at = utcnow()
+        if artifact is None:
+            raise ValueError("未找到目标法宝。")
+        if not _artifact_unique_item_enabled(artifact):
+            return serialize_artifact(artifact) or {}
+
+        holder_tg = _unique_artifact_holder_tg_in_session(
+            session,
+            int(artifact_id),
+            exclude_tgs={int(tg), *(exclude_owner_tgs or set())},
+        )
+        if holder_tg is not None:
+            raise ValueError(f"唯一法宝【{artifact.name}】已被其他人获得，无法再次获取。")
+
+        owned_row = (
+            session.query(XiuxianArtifactInventory)
+            .filter(
+                XiuxianArtifactInventory.tg == int(tg),
+                XiuxianArtifactInventory.artifact_id == int(artifact_id),
+                XiuxianArtifactInventory.quantity > 0,
+            )
+            .with_for_update()
+            .first()
+        )
+        if owned_row is not None and not allow_existing_owner:
+            raise ValueError(f"你已经拥有唯一法宝【{artifact.name}】了。")
+        return serialize_artifact(artifact) or {}
+
+
+def _grant_artifact_inventory_in_session(
+    session: OrmSession,
+    tg: int,
+    artifact_id: int,
+    quantity: int = 1,
+    *,
+    reject_if_owned: bool = False,
+    strict_quantity: bool = False,
+    exclude_owner_tgs: set[int] | None = None,
+) -> tuple[XiuxianArtifact, XiuxianArtifactInventory, int]:
+    artifact = (
+        session.query(XiuxianArtifact)
+        .filter(XiuxianArtifact.id == int(artifact_id))
+        .with_for_update()
+        .first()
+    )
+    if artifact is None:
+        raise ValueError("未找到目标法宝。")
+
+    requested = max(int(quantity or 0), 1)
+    row = (
+        session.query(XiuxianArtifactInventory)
+        .filter(
+            XiuxianArtifactInventory.tg == int(tg),
+            XiuxianArtifactInventory.artifact_id == int(artifact_id),
+        )
+        .with_for_update()
+        .first()
+    )
+    if row is None:
+        row = XiuxianArtifactInventory(tg=int(tg), artifact_id=int(artifact_id), quantity=0, bound_quantity=0)
+        session.add(row)
+
+    if _artifact_unique_item_enabled(artifact):
+        if strict_quantity and requested > 1:
+            raise ValueError(f"唯一法宝【{artifact.name}】每次只能获取 1 件。")
+        holder_tg = _unique_artifact_holder_tg_in_session(
+            session,
+            int(artifact_id),
+            exclude_tgs={int(tg), *(exclude_owner_tgs or set())},
+        )
+        if holder_tg is not None:
+            raise ValueError(f"唯一法宝【{artifact.name}】已被其他人获得，无法再次获取。")
+        already_owned = max(int(row.quantity or 0), 0)
+        if reject_if_owned and already_owned > 0:
+            raise ValueError(f"你已经拥有唯一法宝【{artifact.name}】了。")
+        actual_granted = 0 if already_owned > 0 else 1
+        row.quantity = max(already_owned, 1)
+    else:
+        row.quantity = max(int(row.quantity or 0), 0) + requested
+        actual_granted = requested
+
+    row.bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
+    row.updated_at = utcnow()
+    return artifact, row, actual_granted
+
+
+def grant_artifact_to_user(tg: int, artifact_id: int, quantity: int = 1) -> dict[str, Any]:
+    with Session() as session:
+        artifact, row, _ = _grant_artifact_inventory_in_session(session, int(tg), int(artifact_id), int(quantity))
         _queue_user_view_cache_invalidation(session, tg)
         session.commit()
-        artifact = session.query(XiuxianArtifact).filter(XiuxianArtifact.id == artifact_id).first()
         return {
             "artifact": serialize_artifact(artifact),
-            "quantity": row.quantity,
+            "quantity": max(int(row.quantity or 0), 0),
             "bound_quantity": int(row.bound_quantity or 0),
         }
 
@@ -4625,6 +4789,22 @@ def plunder_random_artifact_to_user(receiver_tg: int, owner_tg: int) -> dict[str
             .with_for_update()
             .all()
         )
+        receiver_rows = (
+            session.query(XiuxianArtifactInventory)
+            .filter(XiuxianArtifactInventory.tg == receiver_tg, XiuxianArtifactInventory.quantity > 0)
+            .with_for_update()
+            .all()
+        )
+        receiver_owned_ids = {int(row.artifact_id or 0) for row in receiver_rows if int(row.quantity or 0) > 0}
+        artifact_map = {
+            int(item.id or 0): item
+            for item in (
+                session.query(XiuxianArtifact)
+                .filter(XiuxianArtifact.id.in_({int(row.artifact_id or 0) for row in owner_rows if int(row.artifact_id or 0) > 0}))
+                .with_for_update()
+                .all()
+            )
+        }
         equipped_count_map: dict[int, int] = {}
         for row in equipped_rows:
             artifact_id = int(row.artifact_id or 0)
@@ -4637,6 +4817,9 @@ def plunder_random_artifact_to_user(receiver_tg: int, owner_tg: int) -> dict[str
             protected_quantity = min(total_quantity, bound_quantity + equipped_count_map.get(int(row.artifact_id), 0))
             if starter_protection_active and int(row.artifact_id or 0) == int(starter_artifact_id or 0):
                 protected_quantity = max(protected_quantity, min(total_quantity, 1))
+            artifact_payload = artifact_map.get(int(row.artifact_id or 0))
+            if _artifact_unique_item_enabled(artifact_payload) and int(row.artifact_id or 0) in receiver_owned_ids:
+                continue
             weighted_ids.extend([int(row.artifact_id)] * max(total_quantity - protected_quantity, 0))
         if not weighted_ids:
             return None
@@ -4653,20 +4836,13 @@ def plunder_random_artifact_to_user(receiver_tg: int, owner_tg: int) -> dict[str
         if int(owner_row.quantity or 0) <= 0:
             session.delete(owner_row)
 
-        receiver_row = (
-            session.query(XiuxianArtifactInventory)
-            .filter(
-                XiuxianArtifactInventory.tg == receiver_tg,
-                XiuxianArtifactInventory.artifact_id == artifact_id,
-            )
-            .first()
+        _, receiver_row, _ = _grant_artifact_inventory_in_session(
+            session,
+            int(receiver_tg),
+            int(artifact_id),
+            1,
+            reject_if_owned=False,
         )
-        if receiver_row is None:
-            receiver_row = XiuxianArtifactInventory(tg=receiver_tg, artifact_id=artifact_id, quantity=0)
-            session.add(receiver_row)
-        receiver_row.quantity += 1
-        receiver_row.bound_quantity = max(min(int(receiver_row.bound_quantity or 0), int(receiver_row.quantity or 0)), 0)
-        receiver_row.updated_at = utcnow()
 
         refreshed_equipped = (
             session.query(XiuxianEquippedArtifact)
@@ -4683,7 +4859,7 @@ def plunder_random_artifact_to_user(receiver_tg: int, owner_tg: int) -> dict[str
         _queue_profile_cache_invalidation(session, owner_tg, receiver_tg)
         _queue_user_view_cache_invalidation(session, owner_tg, receiver_tg)
 
-        artifact = session.query(XiuxianArtifact).filter(XiuxianArtifact.id == artifact_id).first()
+        artifact = artifact_map.get(int(artifact_id)) or session.query(XiuxianArtifact).filter(XiuxianArtifact.id == artifact_id).first()
         owner_remaining = max(int(owner_row.quantity or 0), 0)
         receiver_quantity = int(receiver_row.quantity or 0)
         session.commit()
@@ -4831,11 +5007,17 @@ def admin_set_user_artifact_inventory(
         artifact = session.query(XiuxianArtifact).filter(XiuxianArtifact.id == artifact_id).first()
         if artifact is None:
             raise ValueError("artifact not found")
+        if _artifact_unique_item_enabled(artifact) and target_quantity > 1:
+            raise ValueError(f"唯一法宝【{artifact.name}】的库存不能超过 1。")
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if profile is None:
             profile = XiuxianProfile(tg=tg)
             session.add(profile)
             session.flush()
+        if _artifact_unique_item_enabled(artifact) and target_quantity > 0:
+            holder_tg = _unique_artifact_holder_tg_in_session(session, int(artifact_id), exclude_tgs={int(tg)})
+            if holder_tg is not None:
+                raise ValueError(f"唯一法宝【{artifact.name}】已被其他人获得，无法直接发放。")
         row = (
             session.query(XiuxianArtifactInventory)
             .filter(XiuxianArtifactInventory.tg == tg, XiuxianArtifactInventory.artifact_id == artifact_id)
@@ -5539,21 +5721,14 @@ def _grant_auction_item_to_inventory(
         return
 
     if item_kind == "artifact":
-        row = (
-            session.query(XiuxianArtifactInventory)
-            .filter(
-                XiuxianArtifactInventory.tg == int(tg),
-                XiuxianArtifactInventory.artifact_id == int(item_ref_id),
-            )
-            .with_for_update()
-            .first()
+        _grant_artifact_inventory_in_session(
+            session,
+            int(tg),
+            int(item_ref_id),
+            amount,
+            reject_if_owned=False,
+            strict_quantity=False,
         )
-        if row is None:
-            row = XiuxianArtifactInventory(tg=int(tg), artifact_id=int(item_ref_id), quantity=0, bound_quantity=0)
-            session.add(row)
-        row.quantity = int(row.quantity or 0) + amount
-        row.bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
-        row.updated_at = utcnow()
         return
 
     if item_kind == "pill":
@@ -6074,19 +6249,14 @@ def purchase_shop_item(buyer_tg: int, item_id: int, quantity: int = 1) -> dict[s
             item.enabled = False
 
         if item.item_kind == "artifact":
-            row = (
-                session.query(XiuxianArtifactInventory)
-                .filter(
-                    XiuxianArtifactInventory.tg == buyer_tg,
-                    XiuxianArtifactInventory.artifact_id == item.item_ref_id,
-                )
-                .first()
+            _grant_artifact_inventory_in_session(
+                session,
+                int(buyer_tg),
+                int(item.item_ref_id),
+                amount,
+                reject_if_owned=True,
+                strict_quantity=True,
             )
-            if row is None:
-                row = XiuxianArtifactInventory(tg=buyer_tg, artifact_id=item.item_ref_id, quantity=0)
-                session.add(row)
-            row.quantity += amount
-            row.updated_at = utcnow()
         elif item.item_kind == "pill":
             row = (
                 session.query(XiuxianPillInventory)
@@ -7261,21 +7431,7 @@ def grant_starter_artifact_once(tg: int, artifact_id: int) -> dict[str, Any]:
                 "bound_quantity": max(int((row.bound_quantity if row is not None else 0) or 0), 0),
                 "granted": False,
             }
-        row = (
-            session.query(XiuxianArtifactInventory)
-            .filter(
-                XiuxianArtifactInventory.tg == int(tg),
-                XiuxianArtifactInventory.artifact_id == int(artifact_id),
-            )
-            .with_for_update()
-            .first()
-        )
-        if row is None:
-            row = XiuxianArtifactInventory(tg=int(tg), artifact_id=int(artifact_id), quantity=0, bound_quantity=0)
-            session.add(row)
-        row.quantity = max(int(row.quantity or 0), 0) + 1
-        row.bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
-        row.updated_at = utcnow()
+        _, row, granted_quantity = _grant_artifact_inventory_in_session(session, int(tg), int(artifact_id), 1)
         session.add(
             XiuxianJournal(
                 tg=int(tg),
@@ -7290,7 +7446,7 @@ def grant_starter_artifact_once(tg: int, artifact_id: int) -> dict[str, Any]:
             "artifact": serialize_artifact(artifact),
             "quantity": max(int(row.quantity or 0), 0),
             "bound_quantity": max(int(row.bound_quantity or 0), 0),
-            "granted": True,
+            "granted": granted_quantity > 0,
         }
 
 
@@ -7938,19 +8094,14 @@ def cancel_personal_shop_item(owner_tg: int, item_id: int) -> dict[str, Any]:
         restore_quantity = max(int(item.quantity or 0), 0)
         if restore_quantity > 0:
             if item.item_kind == "artifact":
-                row = (
-                    session.query(XiuxianArtifactInventory)
-                    .filter(
-                        XiuxianArtifactInventory.tg == owner_tg,
-                        XiuxianArtifactInventory.artifact_id == item.item_ref_id,
-                    )
-                    .first()
+                _grant_artifact_inventory_in_session(
+                    session,
+                    int(owner_tg),
+                    int(item.item_ref_id),
+                    restore_quantity,
+                    reject_if_owned=False,
+                    strict_quantity=False,
                 )
-                if row is None:
-                    row = XiuxianArtifactInventory(tg=owner_tg, artifact_id=item.item_ref_id, quantity=0)
-                    session.add(row)
-                row.quantity += restore_quantity
-                row.updated_at = utcnow()
             elif item.item_kind == "pill":
                 row = (
                     session.query(XiuxianPillInventory)

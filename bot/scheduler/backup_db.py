@@ -2,7 +2,7 @@ import os
 
 import asyncio
 
-from bot import bot, owner, LOGGER, db_is_docker, db_docker_name, db_host, db_name, db_user, db_pwd, \
+from bot import bot, owner, LOGGER, db_backend, db_is_docker, db_docker_name, db_host, db_name, db_user, db_pwd, \
     db_backup_dir, db_backup_maxcount, db_port
 from bot.func_helper.backup_db_utils import BackupDBUtils
 
@@ -22,26 +22,49 @@ class DbBackupUtils:
     @classmethod
     async def backup_db(cls):
         backup_file = None
-        # 如果是在docker模式下运行的此程序，使用BackupDBUtils.backup_mysql_db的方式备份数据库（此镜像中已经安装了mysqldump工具）
-        if os.environ.get('DOCKER_MODE') == "1" or not db_is_docker:
-            backup_file = await BackupDBUtils.backup_mysql_db(
-                host=db_host,
-                port=db_port,
-                user=db_user,
-                password=db_pwd,
-                database_name=db_name,
-                backup_dir=db_backup_dir,
-                max_backup_count=db_backup_maxcount
-            )
-        elif db_is_docker:
-            backup_file = await BackupDBUtils.backup_mysql_db_docker(
-                container_name=db_docker_name,
-                user=db_user,
-                password=db_pwd,
-                database_name=db_name,
-                backup_dir=db_backup_dir,
-                max_backup_count=db_backup_maxcount
-            )
+        backend = str(db_backend or "postgresql").strip().lower()
+        use_local_client = os.environ.get('DOCKER_MODE') == "1" or not db_is_docker
+
+        if backend in {"postgres", "postgresql", "pgsql"}:
+            if use_local_client:
+                backup_file = await BackupDBUtils.backup_postgres_db(
+                    host=db_host,
+                    port=db_port,
+                    user=db_user,
+                    password=db_pwd,
+                    database_name=db_name,
+                    backup_dir=db_backup_dir,
+                    max_backup_count=db_backup_maxcount
+                )
+            else:
+                backup_file = await BackupDBUtils.backup_postgres_db_docker(
+                    container_name=db_docker_name,
+                    user=db_user,
+                    password=db_pwd,
+                    database_name=db_name,
+                    backup_dir=db_backup_dir,
+                    max_backup_count=db_backup_maxcount
+                )
+        else:
+            if use_local_client:
+                backup_file = await BackupDBUtils.backup_mysql_db(
+                    host=db_host,
+                    port=db_port,
+                    user=db_user,
+                    password=db_pwd,
+                    database_name=db_name,
+                    backup_dir=db_backup_dir,
+                    max_backup_count=db_backup_maxcount
+                )
+            else:
+                backup_file = await BackupDBUtils.backup_mysql_db_docker(
+                    container_name=db_docker_name,
+                    user=db_user,
+                    password=db_pwd,
+                    database_name=db_name,
+                    backup_dir=db_backup_dir,
+                    max_backup_count=db_backup_maxcount
+                )
         return backup_file
 
     @staticmethod

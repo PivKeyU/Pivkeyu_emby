@@ -283,6 +283,7 @@ class GamblingRewardPoolEntryPayload(BaseModel):
 
 
 class AdminSettingPayload(BaseModel):
+    coin_stone_exchange_enabled: bool | None = None
     coin_exchange_rate: int | None = None
     exchange_fee_percent: int | None = None
     min_coin_exchange: int | None = None
@@ -347,6 +348,7 @@ class ArtifactPayload(BaseModel):
     artifact_role: str = "battle"
     equip_slot: str = "weapon"
     artifact_set_id: int | None = None
+    unique_item: bool = False
     image_url: str = ""
     description: str = ""
     attack_bonus: int = 0

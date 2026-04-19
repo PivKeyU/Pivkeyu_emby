@@ -193,6 +193,9 @@ def _build_core_profile_bundle(tg: int) -> dict[str, Any]:
     breakthrough_requirement = _breakthrough_requirement(profile.get("realm_stage"))
     settings = {
         **get_exchange_settings(),
+        "coin_stone_exchange_enabled": bool(
+            xiuxian_settings.get("coin_stone_exchange_enabled", DEFAULT_SETTINGS.get("coin_stone_exchange_enabled", True))
+        ),
         "artifact_equip_limit": equip_limit,
         "equipment_unbind_cost": int(xiuxian_settings.get("equipment_unbind_cost", DEFAULT_SETTINGS["equipment_unbind_cost"]) or 0),
         "official_shop_name": str(

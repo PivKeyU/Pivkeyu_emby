@@ -7,6 +7,7 @@ from bot.sql_helper.sql_xiuxian import (
     XiuxianProfile,
     _marriage_partner_tg,
     apply_spiritual_stone_delta,
+    assert_artifact_receivable_by_user,
     assert_currency_operation_allowed,
     assert_profile_alive,
     create_journal,
@@ -188,6 +189,15 @@ def gift_inventory_item(
         session.commit()
 
     if item_kind == "artifact":
+        artifact = serialize_artifact(get_artifact(item_ref_id))
+        if artifact and bool(artifact.get("unique_item")) and quantity > 1:
+            raise ValueError(f"唯一法宝【{artifact.get('name') or item_ref_id}】每次只能赠送 1 件。")
+        assert_artifact_receivable_by_user(
+            target_tg,
+            item_ref_id,
+            allow_existing_owner=False,
+            exclude_owner_tgs={int(sender_tg)},
+        )
         if not use_user_artifact_listing_stock(sender_tg, item_ref_id, quantity):
             raise ValueError("可赠送的法宝数量不足，已绑定或已装备的法宝不能赠送")
     elif item_kind == "talisman":

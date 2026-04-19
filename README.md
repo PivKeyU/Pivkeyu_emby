@@ -1,6 +1,6 @@
 # pivkeyu_emby
 
-pivkeyu_emby 是一个面向 Emby 服主的 Telegram 管理系统，核心栈为 Telegram Bot + FastAPI + MySQL + Redis + Docker Compose。
+pivkeyu_emby 是一个面向 Emby 服主的 Telegram 管理系统，核心栈为 Telegram Bot + FastAPI + PostgreSQL + Redis + Docker Compose。
 
 它不是只停留在 TG 指令层的 Emby 机器人，而是把以下几件事一起做完整了：
 
@@ -20,7 +20,7 @@ pivkeyu_emby 是一个面向 Emby 服主的 Telegram 管理系统，核心栈为
 - 插件不只是命令扩展，还可以挂 Web 路由、静态资源、Mini App 页面、后台页面
 - 运行时插件支持 ZIP 导入、数据库迁移记录、依赖检查、启停开关
 - `data/` 会持久化配置、运行时插件、插件状态，重建容器后不会丢
-- Compose 内置 MySQL、Redis、Caddy、健康检查和一组默认性能参数，开箱即可跑
+- Compose 内置 PostgreSQL、Redis、Caddy、健康检查和一组默认性能参数，开箱即可跑
 
 ## 相较于 Sakura_embyboss 的区别
 
@@ -67,7 +67,7 @@ cp config_example.json data/config.json
 
 - 程序优先读取 `data/config.json`
 - `docker-compose.yml` 默认使用 `pivkeyu/pivkeyu_emby:latest`
-- MySQL 数据会写到 `./db`
+- PostgreSQL 数据会写到 `./db`
 - 运行时插件会写到 `./data/runtime_plugins`
 
 ### 4. 修改 `data/config.json`
@@ -135,7 +135,7 @@ docker compose up -d --build
 
 默认会启动：
 
-- `mysql`
+- `postgres`
 - `redis`
 - `pivkeyu_emby`
 - `pivkeyu-caddy`
@@ -244,9 +244,9 @@ docker buildx build \
 │   ├── config.json
 │   ├── runtime_plugins/
 │   └── plugin_state/
-├── db/                          # MySQL 数据目录
+├── db/                          # PostgreSQL 数据目录
 ├── log/                         # 日志目录
-├── mysql/                       # MySQL 调优配置
+├── mysql/                       # 兼容旧 MySQL 部署保留的配置目录
 ├── scripts/                     # 冒烟检查和辅助脚本
 ├── config_example.json          # 配置模板
 ├── docker-compose.yml           # 默认镜像部署编排

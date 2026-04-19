@@ -6,9 +6,10 @@ import importlib
 import time
 from pathlib import Path
 
-from bot import db_host, db_user, db_pwd, db_name, db_port
+from bot import db_backend, db_host, db_user, db_pwd, db_name, db_port, db_url
 from bot import LOGGER
 from sqlalchemy import create_engine
+from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -34,6 +35,10 @@ def _env_bool(name: str, default: bool) -> bool:
 
 # 创建engine对象
 def _validate_db_config():
+    configured_url = str(db_url or "").strip()
+    if configured_url:
+        return
+
     missing = []
     for key, value in {
         "db_host": db_host,
@@ -54,7 +59,53 @@ def _validate_db_config():
 
 _validate_db_config()
 
-DATABASE_URL = f"mysql+pymysql://{db_user}:{db_pwd}@{db_host}:{db_port}/{db_name}?charset=utf8mb4"
+
+def _normalize_db_backend(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"postgres", "postgresql", "pgsql"}:
+        return "postgresql"
+    if normalized in {"mysql", "mariadb"}:
+        return "mysql"
+    return "postgresql"
+
+
+def _build_database_url() -> str:
+    raw_url = str(db_url or "").strip()
+    if raw_url:
+        return raw_url
+
+    normalized_backend = _normalize_db_backend(db_backend)
+
+    if normalized_backend == "mysql":
+        return str(
+            URL.create(
+                "mysql+pymysql",
+                username=db_user,
+                password=db_pwd,
+                host=db_host,
+                port=int(db_port),
+                database=db_name,
+                query={"charset": "utf8mb4"},
+            )
+        )
+
+    if normalized_backend == "postgresql":
+        return str(
+            URL.create(
+                "postgresql+psycopg",
+                username=db_user,
+                password=db_pwd,
+                host=db_host,
+                port=int(db_port),
+                database=db_name,
+            )
+        )
+
+    raise RuntimeError(f"暂不支持的数据库后端: {db_backend}")
+
+
+DATABASE_URL = _build_database_url()
+DB_BACKEND = make_url(DATABASE_URL).get_backend_name()
 DB_STARTUP_MAX_RETRIES = max(1, int(os.getenv("PIVKEYU_DB_STARTUP_MAX_RETRIES", "20")))
 DB_STARTUP_RETRY_DELAY = max(0.5, float(os.getenv("PIVKEYU_DB_STARTUP_RETRY_DELAY", "3")))
 DB_CONNECT_TIMEOUT = _env_int("PIVKEYU_DB_CONNECT_TIMEOUT", 5, 1)
@@ -65,6 +116,21 @@ DB_POOL_RECYCLE = _env_int("PIVKEYU_DB_POOL_RECYCLE", 60 * 30, 30)
 DB_POOL_PRE_PING = _env_bool("PIVKEYU_DB_POOL_PRE_PING", True)
 DB_POOL_USE_LIFO = _env_bool("PIVKEYU_DB_POOL_USE_LIFO", True)
 DB_POOL_RESET_ON_RETURN = (os.getenv("PIVKEYU_DB_POOL_RESET_ON_RETURN", "rollback") or "rollback").strip()
+
+
+def _build_connect_args() -> dict:
+    if DB_BACKEND == "mysql":
+        return {
+            "init_command": "SET NAMES utf8mb4",
+            "connect_timeout": DB_CONNECT_TIMEOUT,
+        }
+
+    if DB_BACKEND == "postgresql":
+        return {
+            "connect_timeout": DB_CONNECT_TIMEOUT,
+        }
+
+    return {}
 
 engine = create_engine(
     DATABASE_URL,
@@ -77,10 +143,7 @@ engine = create_engine(
     pool_pre_ping=DB_POOL_PRE_PING,
     pool_use_lifo=DB_POOL_USE_LIFO,
     pool_reset_on_return=DB_POOL_RESET_ON_RETURN,
-    connect_args={
-        "init_command": "SET NAMES utf8mb4",
-        "connect_timeout": DB_CONNECT_TIMEOUT,
-    },
+    connect_args=_build_connect_args(),
 )
 
 # 创建Base对象

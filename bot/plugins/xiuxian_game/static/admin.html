@@ -88,6 +88,10 @@
                 灵石兑换碎片最低灵石
                 <input id="setting-min" type="number" min="1" value="1">
               </label>
+              <label class="inline-check">
+                <input id="setting-exchange-enabled" type="checkbox" checked>
+                开启灵石互兑
+              </label>
               <label>
                 消息自动删除秒数（0 关闭）
                 <input id="setting-message-auto-delete" type="number" min="0" max="86400" value="180">
@@ -449,6 +453,10 @@
             所属套装
             <select id="artifact-set-id"></select>
           </label>
+          <label class="inline-check">
+            <input id="artifact-unique" type="checkbox">
+            唯一法宝
+          </label>
           <label>
             图片地址
             <input id="artifact-image" type="url" placeholder="https://...">
@@ -523,6 +531,7 @@
           </label>
           <div class="form-actions">
             <button type="submit">新增法宝</button>
+            <button id="artifact-reset-btn" type="button" class="ghost">重置表单</button>
           </div>
         </form>
         <div id="artifact-list" class="stack-list"></div>

@@ -39,6 +39,7 @@ from bot.sql_helper.sql_xiuxian import (
     ROOT_VARIANT_ELEMENTS,
     SOCIAL_MODE_LABELS,
     STARTER_ARTIFACT_NAME,
+    _grant_artifact_inventory_in_session,
     apply_spiritual_stone_delta,
     admin_patch_profile,
     assert_currency_operation_allowed,
@@ -4981,6 +4982,9 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
     community_auctions = [item for item in all_active_auctions if int(item.get("owner_tg") or 0) != int(tg)]
     settings = {
         **get_exchange_settings(),
+        "coin_stone_exchange_enabled": bool(
+            xiuxian_settings.get("coin_stone_exchange_enabled", DEFAULT_SETTINGS.get("coin_stone_exchange_enabled", True))
+        ),
         "artifact_equip_limit": equip_limit,
         "equipment_unbind_cost": int(xiuxian_settings.get("equipment_unbind_cost", DEFAULT_SETTINGS["equipment_unbind_cost"]) or 0),
         "artifact_plunder_chance": int(
@@ -7335,6 +7339,8 @@ def create_official_shop_listing(
         artifact = get_artifact(item_ref_id)
         if artifact is None:
             raise ValueError("未找到目标法宝。")
+        if bool(getattr(artifact, "unique_item", False)) and int(quantity or 0) > 1:
+            raise ValueError(f"唯一法宝【{getattr(artifact, 'name', item_ref_id)}】在官方商店最多只能上架 1 件。")
         item_name = artifact.name
     elif item_kind == "pill":
         pill = get_pill(item_ref_id)
@@ -7367,6 +7373,15 @@ def create_official_shop_listing(
 
 
 def patch_shop_listing(item_id: int, **fields) -> dict[str, Any] | None:
+    if "quantity" in fields:
+        current = next(
+            (item for item in list_shop_items(official_only=None, include_disabled=True) if int(item.get("id") or 0) == int(item_id)),
+            None,
+        )
+        if current is not None and str(current.get("item_kind") or "") == "artifact":
+            artifact = get_artifact(int(current.get("item_ref_id") or 0))
+            if artifact is not None and bool(getattr(artifact, "unique_item", False)) and int(fields.get("quantity") or 0) > 1:
+                raise ValueError(f"唯一法宝【{getattr(artifact, 'name', current.get('item_ref_id'))}】最多只能上架 1 件。")
     return update_shop_item(item_id, **fields)
 
 
@@ -7377,6 +7392,8 @@ def patch_auction_listing(auction_id: int, **fields) -> dict[str, Any] | None:
 def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
     current_settings = get_xiuxian_settings()
     patch = dict(payload)
+    if "coin_stone_exchange_enabled" in patch:
+        patch["coin_stone_exchange_enabled"] = bool(patch["coin_stone_exchange_enabled"])
     if "duel_bet_minutes" in patch and patch.get("duel_bet_seconds") is None:
         patch["duel_bet_seconds"] = max(
             _coerce_int(patch.get("duel_bet_minutes"), DEFAULT_SETTINGS.get("duel_bet_minutes", 2), 1),
@@ -7921,12 +7938,6 @@ def open_immortal_stones(tg: int, count: int) -> dict[str, Any]:
     weighted_pool = [entry for entry in weighted_pool if float(entry.get("effective_weight") or 0.0) > 0]
     if not weighted_pool:
         raise ValueError("当前赌坊奖池为空，请联系主人先配置奖励。")
-
-    drawn_entries = random.choices(
-        weighted_pool,
-        weights=[float(entry["effective_weight"]) for entry in weighted_pool],
-        k=amount,
-    )
     immortal_stone = _immortal_stone_material()
     immortal_stone_id = int(immortal_stone.get("id") or 0)
     broadcast_level = max(
@@ -7937,11 +7948,77 @@ def open_immortal_stones(tg: int, count: int) -> dict[str, Any]:
     ensure_not_in_retreat(int(tg))
     results: list[dict[str, Any]] = []
     with Session() as session:
+        artifact_meta_map: dict[int, XiuxianArtifact] = {}
+        selected_unique_artifact_ids: set[int] = set()
+
+        def _artifact_meta(artifact_id: int) -> XiuxianArtifact | None:
+            artifact_value = int(artifact_id or 0)
+            if artifact_value <= 0:
+                return None
+            if artifact_value not in artifact_meta_map:
+                artifact_meta_map[artifact_value] = (
+                    session.query(XiuxianArtifact)
+                    .filter(XiuxianArtifact.id == artifact_value)
+                    .with_for_update()
+                    .first()
+                )
+            return artifact_meta_map.get(artifact_value)
+
+        def _reward_entry_available(entry: dict[str, Any]) -> bool:
+            if str(entry.get("item_kind") or "") != "artifact":
+                return True
+            artifact_id = int(entry.get("item_ref_id") or 0)
+            artifact = _artifact_meta(artifact_id)
+            if artifact is None:
+                return False
+            if not bool(artifact.unique_item):
+                return True
+            if artifact_id in selected_unique_artifact_ids:
+                return False
+            holder = (
+                session.query(XiuxianArtifactInventory)
+                .filter(
+                    XiuxianArtifactInventory.artifact_id == artifact_id,
+                    XiuxianArtifactInventory.quantity > 0,
+                    XiuxianArtifactInventory.tg != int(tg),
+                )
+                .with_for_update()
+                .first()
+            )
+            if holder is not None:
+                return False
+            owned = (
+                session.query(XiuxianArtifactInventory)
+                .filter(
+                    XiuxianArtifactInventory.artifact_id == artifact_id,
+                    XiuxianArtifactInventory.tg == int(tg),
+                    XiuxianArtifactInventory.quantity > 0,
+                )
+                .with_for_update()
+                .first()
+            )
+            return owned is None
+
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(tg)).with_for_update().first()
         if profile is None or not profile.consented:
             raise ValueError("请先踏入仙途后再进入赌坊。")
         assert_profile_alive(profile, "开启仙界奇石")
         assert_currency_operation_allowed(int(tg), "开启仙界奇石", session=session, profile=profile)
+        drawn_entries: list[dict[str, Any]] = []
+        for _ in range(amount):
+            available_entries = [entry for entry in weighted_pool if _reward_entry_available(entry)]
+            if not available_entries:
+                raise ValueError("当前奖池中可领取的奖励不足，请联系主人调整配置。")
+            chosen_entry = random.choices(
+                available_entries,
+                weights=[float(entry["effective_weight"]) for entry in available_entries],
+                k=1,
+            )[0]
+            drawn_entries.append(chosen_entry)
+            if str(chosen_entry.get("item_kind") or "") == "artifact":
+                artifact = _artifact_meta(int(chosen_entry.get("item_ref_id") or 0))
+                if artifact is not None and bool(artifact.unique_item):
+                    selected_unique_artifact_ids.add(int(artifact.id or 0))
         remaining = amount
         rows = _ordered_owner_rows(session, XiuxianMaterialInventory, int(tg), "material_id", immortal_stone_id)
         total_owned = sum(max(int(row.quantity or 0), 0) for row in rows)
@@ -7971,6 +8048,7 @@ def open_immortal_stones(tg: int, count: int) -> dict[str, Any]:
                 int(entry.get("item_ref_id") or 0),
                 quantity,
             )
+            actual_quantity = max(int((reward_payload or {}).get("quantity") or quantity), 0)
             results.append(
                 {
                     "item_kind": entry.get("item_kind"),
@@ -7980,7 +8058,7 @@ def open_immortal_stones(tg: int, count: int) -> dict[str, Any]:
                     "quality_level": entry.get("quality_level"),
                     "quality_label": entry.get("quality_label"),
                     "quality_color": entry.get("quality_color"),
-                    "quantity": quantity,
+                    "quantity": actual_quantity,
                     "broadcasted": int(entry.get("quality_level") or 0) >= broadcast_level,
                     "reward": reward_payload,
                 }
@@ -8564,15 +8642,15 @@ def _grant_gambling_reward_in_session(
 
     amount = max(int(quantity or 0), 1)
     if item_kind == "artifact":
-        row = _get_or_create_inventory_row(
-            XiuxianArtifactInventory,
-            "artifact_id",
-            quantity=0,
-            bound_quantity=0,
+        artifact, _, granted_quantity = _grant_artifact_inventory_in_session(
+            session,
+            int(tg),
+            int(item_ref_id),
+            amount,
+            reject_if_owned=True,
+            strict_quantity=False,
         )
-        row.quantity = int(row.quantity or 0) + amount
-        row.updated_at = utcnow()
-        return {"artifact": serialize_artifact(get_artifact(int(item_ref_id))), "quantity": amount}
+        return {"artifact": serialize_artifact(artifact), "quantity": granted_quantity}
     if item_kind == "pill":
         row = _get_or_create_inventory_row(
             XiuxianPillInventory,
@@ -8649,6 +8727,9 @@ def list_public_shop_items() -> dict[str, Any]:
     settings = get_xiuxian_settings()
     return {
         "official_shop_name": settings.get("official_shop_name", DEFAULT_SETTINGS["official_shop_name"]),
+        "coin_stone_exchange_enabled": bool(
+            settings.get("coin_stone_exchange_enabled", DEFAULT_SETTINGS.get("coin_stone_exchange_enabled", True))
+        ),
         "official_items": list_shop_items(official_only=True),
     }
 
@@ -10799,6 +10880,14 @@ def _transfer_inventory_rows(session: Session, model_cls, ref_field: str, loser_
         protect_starter_artifact = bool(protected_starter_artifact_id and starter_artifact_protection_active(loser_tg))
     for row in rows:
         ref_id = int(getattr(row, ref_field))
+        unique_artifact = None
+        if model_cls is XiuxianArtifactInventory and ref_field == "artifact_id":
+            unique_artifact = (
+                session.query(XiuxianArtifact)
+                .filter(XiuxianArtifact.id == int(ref_id))
+                .with_for_update()
+                .first()
+            )
         total_quantity = max(int(getattr(row, "quantity", 0) or 0), 0)
         total_bound_quantity = 0
         if hasattr(row, "bound_quantity"):
@@ -10810,6 +10899,9 @@ def _transfer_inventory_rows(session: Session, model_cls, ref_field: str, loser_
             retained_bound_quantity = min(total_bound_quantity, retained_quantity)
         transfer_quantity = max(total_quantity - retained_quantity, 0)
         transfer_bound_quantity = max(total_bound_quantity - retained_bound_quantity, 0)
+        if unique_artifact is not None and bool(unique_artifact.unique_item):
+            transfer_quantity = min(transfer_quantity, 1)
+            transfer_bound_quantity = min(transfer_bound_quantity, transfer_quantity)
         if transfer_quantity <= 0:
             if retained_quantity > 0:
                 row.quantity = retained_quantity
@@ -10823,6 +10915,15 @@ def _transfer_inventory_rows(session: Session, model_cls, ref_field: str, loser_
             .with_for_update()
             .first()
         )
+        if unique_artifact is not None and bool(unique_artifact.unique_item) and existing is not None and int(existing.quantity or 0) > 0:
+            if retained_quantity > 0:
+                row.quantity = retained_quantity
+                if hasattr(row, "bound_quantity"):
+                    row.bound_quantity = retained_bound_quantity
+                row.updated_at = utcnow()
+            else:
+                session.delete(row)
+            continue
         if existing is None:
             if retained_quantity > 0:
                 transfer_payload = {

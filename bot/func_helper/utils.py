@@ -2,7 +2,7 @@ import pytz
 
 from bot import bot, _open, save_config, owner, admins, bot_name, ranks, schedall, group, config
 from bot.sql_helper.sql_code import sql_add_code
-from bot.sql_helper.sql_emby import sql_get_emby
+from bot.sql_helper.sql_emby import sql_count_emby, sql_get_emby
 from cacheout import Cache
 
 cache = Cache()
@@ -58,21 +58,30 @@ async def open_check():
     """
     open_stats = _open.stat
     all_user = _open.all_user
-    tem = _open.tem
+    tem = refresh_registration_slots()
     timing = _open.timing
     return open_stats, all_user, tem, timing
 
 
 def tem_adduser():
-    _open.tem = _open.tem + 1
-    if _open.tem >= _open.all_user:
-        _open.stat = False
-    save_config()
+    return refresh_registration_slots()
 
 
 def tem_deluser():
-    _open.tem = _open.tem - 1
-    save_config()
+    return refresh_registration_slots()
+
+
+def refresh_registration_slots() -> int:
+    _, registered_count, _ = sql_count_emby()
+    current_count = int(registered_count or 0)
+    changed = int(_open.tem or 0) != current_count
+    _open.tem = current_count
+    if current_count >= int(_open.all_user or 0) and _open.stat:
+        _open.stat = False
+        changed = True
+    if changed:
+        save_config()
+    return current_count
 
 
 from random import choice

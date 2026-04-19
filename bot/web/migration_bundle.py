@@ -410,13 +410,15 @@ def _restore_database_snapshot(database_root: Path) -> dict[str, Any]:
     restored_tables: list[dict[str, Any]] = []
     skipped_archive_tables = [name for name in archive_tables if name not in table_map]
     cleared_tables: list[str] = []
+    dialect_name = str(getattr(engine.dialect, "name", "") or "").lower()
 
     Session.remove()
     engine.dispose()
 
     with engine.begin() as connection:
-        connection.execute(text("SET FOREIGN_KEY_CHECKS=0"))
         try:
+            if dialect_name in {"mysql", "mariadb"}:
+                connection.execute(text("SET FOREIGN_KEY_CHECKS=0"))
             # 先清空再恢复，保证迁移结果与压缩包内容完全一致，不残留旧表数据。
             for table in reversed(metadata.sorted_tables):
                 connection.execute(table.delete())
@@ -453,7 +455,8 @@ def _restore_database_snapshot(database_root: Path) -> dict[str, Any]:
                         connection.execute(table.insert(), converted_rows[index:index + 500])
                 restored_tables.append({"name": table.name, "rows": len(converted_rows)})
         finally:
-            connection.execute(text("SET FOREIGN_KEY_CHECKS=1"))
+            if dialect_name in {"mysql", "mariadb"}:
+                connection.execute(text("SET FOREIGN_KEY_CHECKS=1"))
 
     engine.dispose()
     return {

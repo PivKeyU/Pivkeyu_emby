@@ -11,6 +11,7 @@ from bot.sql_helper.sql_xiuxian import (
     XiuxianEncounterTemplate,
     XiuxianProfile,
     apply_spiritual_stone_delta,
+    assert_artifact_receivable_by_user,
     create_encounter_instance,
     create_encounter_template as sql_create_encounter_template,
     delete_encounter_template as sql_delete_encounter_template,
@@ -23,6 +24,7 @@ from bot.sql_helper.sql_xiuxian import (
     patch_encounter_template as sql_patch_encounter_template,
     serialize_encounter_instance,
     serialize_encounter_template,
+    serialize_artifact,
     serialize_profile,
     utcnow,
 )
@@ -216,6 +218,20 @@ def _claim_requirement_message(template: dict[str, Any]) -> str:
     return "当前修为"
 
 
+def _assert_encounter_reward_receivable(tg: int, reward_payload: dict[str, Any]) -> None:
+    reward_kind = str(reward_payload.get("reward_item_kind") or "")
+    reward_ref_id = int(reward_payload.get("reward_item_ref_id") or 0)
+    reward_quantity = int(reward_payload.get("reward_item_quantity") or 0)
+    if reward_kind != "artifact" or reward_ref_id <= 0 or reward_quantity <= 0:
+        return
+    artifact = serialize_artifact(_legacy_service().get_artifact(reward_ref_id))
+    if not artifact:
+        raise ValueError("未找到目标法宝。")
+    if bool(artifact.get("unique_item")) and reward_quantity > 1:
+        raise ValueError(f"唯一法宝【{artifact.get('name') or reward_ref_id}】每次只能获得 1 件。")
+    assert_artifact_receivable_by_user(int(tg), reward_ref_id, allow_existing_owner=False)
+
+
 def claim_group_encounter(instance_id: int, tg: int) -> dict[str, Any]:
     legacy_service = _legacy_service()
     bundle = legacy_service.serialize_full_profile(tg)
@@ -264,6 +280,7 @@ def claim_group_encounter(instance_id: int, tg: int) -> dict[str, Any]:
             raise ValueError(f"战力不足，需要至少 {int(template_payload.get('min_combat_power') or 0)} 战力。")
 
         reward_payload = dict(instance.reward_payload or {})
+        _assert_encounter_reward_receivable(tg, reward_payload)
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if profile is None or not profile.consented:
             raise ValueError("你还没有踏入仙途。")

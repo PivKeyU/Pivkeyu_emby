@@ -53,6 +53,8 @@ emby_block = config.emby_block
 extra_emby_libs = config.extra_emby_libs
 partition_libs = config.partition_libs
 # # 数据库
+db_backend = config.db_backend
+db_url = config.db_url
 db_host = config.db_host
 db_user = config.db_user
 db_pwd = config.db_pwd
