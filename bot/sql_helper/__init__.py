@@ -115,29 +115,25 @@ def _build_database_url() -> str:
     normalized_backend = _normalize_db_backend(db_backend)
 
     if normalized_backend == "mysql":
-        return str(
-            URL.create(
-                "mysql+pymysql",
-                username=db_user,
-                password=db_pwd,
-                host=db_host,
-                port=int(db_port),
-                database=db_name,
-                query={"charset": "utf8mb4"},
-            )
-        )
+        return URL.create(
+            "mysql+pymysql",
+            username=db_user,
+            password=db_pwd,
+            host=db_host,
+            port=int(db_port),
+            database=db_name,
+            query={"charset": "utf8mb4"},
+        ).render_as_string(hide_password=False)
 
     if normalized_backend == "postgresql":
-        return str(
-            URL.create(
-                "postgresql+psycopg",
-                username=db_user,
-                password=db_pwd,
-                host=db_host,
-                port=int(db_port),
-                database=db_name,
-            )
-        )
+        return URL.create(
+            "postgresql+psycopg",
+            username=db_user,
+            password=db_pwd,
+            host=db_host,
+            port=int(db_port),
+            database=db_name,
+        ).render_as_string(hide_password=False)
 
     raise RuntimeError(f"暂不支持的数据库后端: {db_backend}")
 

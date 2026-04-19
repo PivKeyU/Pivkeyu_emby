@@ -88,6 +88,29 @@ def _deserialize_emby_row(payload: dict) -> Emby:
     return Emby(**normalized)
 
 
+def _normalize_lookup_candidates(query) -> tuple[int | None, str | None]:
+    numeric_tg = None
+    text_value = None
+
+    if isinstance(query, int) and not isinstance(query, bool):
+        numeric_tg = int(query)
+        text_value = str(query)
+        return numeric_tg, text_value
+
+    raw = str(query or "").strip()
+    if not raw:
+        return None, None
+
+    text_value = raw
+    if raw.lstrip("-").isdigit():
+        try:
+            numeric_tg = int(raw)
+        except ValueError:
+            numeric_tg = None
+
+    return numeric_tg, text_value
+
+
 def _lookup_aliases_from_payload(payload: dict | None) -> set[str]:
     aliases: set[str] = set()
     if not payload:
@@ -337,16 +360,27 @@ def sql_get_emby(tg):
     if cached_emby is not _CACHE_ABSENT:
         return cached_emby
 
+    numeric_tg, text_value = _normalize_lookup_candidates(tg)
+    if numeric_tg is None and not text_value:
+        return None
+
     with Session() as session:
         try:
-            # 使用or_方法来表示或者的逻辑，如果有tg就用tg，如果有embyid就用embyid，如果有name就用name，如果都没有就返回None
-            emby = session.query(Emby).filter(or_(Emby.tg == tg, Emby.name == tg, Emby.embyid == tg)).first()
+            filters = []
+            if numeric_tg is not None:
+                filters.append(Emby.tg == numeric_tg)
+            if text_value:
+                filters.append(Emby.name == text_value)
+                filters.append(Emby.embyid == text_value)
+
+            emby = session.query(Emby).filter(or_(*filters)).first()
             if emby is not None:
                 _cache_emby_payload(_serialize_emby_row(emby), query=tg)
             else:
                 _cache_emby_miss(tg)
             return emby
-        except:
+        except Exception as exc:
+            LOGGER.error(f"查询Emby记录失败: query={tg!r}, error={exc}")
             return None
 
 

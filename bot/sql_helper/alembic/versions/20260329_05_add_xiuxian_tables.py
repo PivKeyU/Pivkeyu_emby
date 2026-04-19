@@ -13,6 +13,7 @@ import sqlalchemy as sa
 from bot.sql_helper.sql_xiuxian import (
     XiuxianArtifact,
     XiuxianArtifactInventory,
+    XiuxianArtifactSet,
     XiuxianDuelRecord,
     XiuxianPill,
     XiuxianPillInventory,
@@ -43,6 +44,7 @@ def upgrade() -> None:
     for table in (
         XiuxianSetting.__table__,
         XiuxianProfile.__table__,
+        XiuxianArtifactSet.__table__,
         XiuxianArtifact.__table__,
         XiuxianPill.__table__,
         XiuxianArtifactInventory.__table__,
@@ -81,6 +83,7 @@ def downgrade() -> None:
         "xiuxian_artifact_inventory",
         "xiuxian_pills",
         "xiuxian_artifacts",
+        "xiuxian_artifact_sets",
         "xiuxian_profiles",
         "xiuxian_settings",
     ):

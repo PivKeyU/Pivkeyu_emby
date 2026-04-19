@@ -28,7 +28,7 @@ def upgrade() -> None:
     if _has_table(inspector, "xiuxian_artifacts") and not _has_column(inspector, "xiuxian_artifacts", "unique_item"):
         op.add_column(
             "xiuxian_artifacts",
-            sa.Column("unique_item", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+            sa.Column("unique_item", sa.Boolean(), nullable=False, server_default=sa.false()),
         )
 
 
