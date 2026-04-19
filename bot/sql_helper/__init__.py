@@ -95,10 +95,6 @@ def _validate_db_config():
             "这会影响数据库备份/恢复容器名，请改为 mysql。"
         )
 
-
-_validate_db_config()
-
-
 def _normalize_db_backend(value: str | None) -> str:
     normalized = str(value or "").strip().lower()
     if normalized in {"postgres", "postgresql", "pgsql"}:
@@ -106,6 +102,9 @@ def _normalize_db_backend(value: str | None) -> str:
     if normalized in {"mysql", "mariadb"}:
         return "mysql"
     return "postgresql"
+
+
+_validate_db_config()
 
 
 def _build_database_url() -> str:
