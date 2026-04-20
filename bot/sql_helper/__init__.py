@@ -8,7 +8,7 @@ from pathlib import Path
 
 from bot import db_backend, db_host, db_user, db_pwd, db_name, db_port, db_url, db_docker_name
 from bot import LOGGER
-from sqlalchemy import create_engine
+from sqlalchemy import MetaData, Integer, create_engine, func, select, text
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import declarative_base
@@ -187,6 +187,64 @@ Base.metadata.bind = engine
 _MIGRATION_GUARD_ENV = "PIVKEYU_RUNNING_MIGRATIONS"
 
 
+def sync_postgresql_sequences(*, table_names: set[str] | None = None, log_result: bool = False) -> dict[str, object]:
+    if DB_BACKEND != "postgresql":
+        return {"applied": False, "tables": []}
+
+    metadata = MetaData()
+    metadata.reflect(bind=engine)
+    repaired_tables: list[dict[str, object]] = []
+
+    with engine.begin() as connection:
+        for table in metadata.sorted_tables:
+            if table_names and table.name not in table_names:
+                continue
+
+            primary_key_columns = list(table.primary_key.columns)
+            if len(primary_key_columns) != 1:
+                continue
+
+            column = primary_key_columns[0]
+            if not isinstance(column.type, Integer):
+                continue
+
+            qualified_table_name = f"{table.schema}.{table.name}" if table.schema else table.name
+            sequence_name = connection.execute(
+                text("SELECT pg_get_serial_sequence(:table_name, :column_name)"),
+                {"table_name": qualified_table_name, "column_name": column.name},
+            ).scalar()
+            if not sequence_name:
+                continue
+
+            max_id = connection.execute(select(func.max(column)).select_from(table)).scalar()
+            if max_id is None:
+                connection.execute(
+                    text("SELECT setval(CAST(:sequence_name AS regclass), 1, false)"),
+                    {"sequence_name": sequence_name},
+                )
+                next_value = 1
+            else:
+                current_value = int(max_id)
+                connection.execute(
+                    text("SELECT setval(CAST(:sequence_name AS regclass), :value, true)"),
+                    {"sequence_name": sequence_name, "value": current_value},
+                )
+                next_value = current_value + 1
+
+            repaired_tables.append(
+                {
+                    "table": table.name,
+                    "column": column.name,
+                    "sequence": sequence_name,
+                    "next_value": next_value,
+                }
+            )
+
+    if log_result and repaired_tables:
+        LOGGER.info(f"PostgreSQL 自增序列校正完成，共处理 {len(repaired_tables)} 张表")
+    return {"applied": bool(repaired_tables), "tables": repaired_tables}
+
+
 def _run_with_db_retry(action, description: str):
     last_error = None
 
@@ -283,3 +341,4 @@ Session = sql_start()
 
 
 run_migrations()
+sync_postgresql_sequences(log_result=True)

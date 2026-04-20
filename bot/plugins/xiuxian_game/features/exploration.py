@@ -248,14 +248,14 @@ def _scene_quality_level(
 
 def _base_drop_success_rate(quality_level: int) -> int:
     return {
-        1: 58,
-        2: 46,
-        3: 34,
-        4: 24,
-        5: 16,
-        6: 10,
-        7: 6,
-    }.get(max(int(quality_level or 1), 1), 6)
+        1: 44,
+        2: 36,
+        3: 28,
+        4: 20,
+        5: 14,
+        6: 9,
+        7: 5,
+    }.get(max(int(quality_level or 1), 1), 5)
 
 
 def _drop_success_rate(
@@ -272,20 +272,19 @@ def _drop_success_rate(
 ) -> int:
     duration_ratio = max(min(float(duration) / float(max(max_minutes, 1)), 1.0), 0.05)
     rate = _base_drop_success_rate(quality_level)
-    rate += int(round(duration_ratio * 28))
-    rate += max(fortune - 10, 0) // 4
-    rate += max(divine_sense - 10, 0) // 5
+    rate += int(round(duration_ratio * 16))
+    rate += max(fortune - 10, 0) // 6
+    rate += max(divine_sense - 10, 0) // 7
     rate -= max(scene_quality - quality_level, 0) * 3
     power_gap = max(int(min_combat_power or 0) - max(int(combat_power or 0), 0), 0)
     if power_gap > 0:
         gap_ratio = power_gap / max(int(min_combat_power or 0), 1)
-        rate -= 12 + min(int(round(gap_ratio * 28)), 20)
+        rate -= 16 + min(int(round(gap_ratio * 34)), 26)
     elif requirements_met:
         power_surplus = max(int(combat_power or 0) - max(int(min_combat_power or 0), 0), 0)
         surplus_ratio = power_surplus / max(int(min_combat_power or 0), 1) if int(min_combat_power or 0) > 0 else 1.0
-        rate += 14 + min(int(round(surplus_ratio * 22)), 22)
-        rate = max(rate, 72 + min(int(round(surplus_ratio * 10)), 12))
-    return max(min(rate, 95), 3)
+        rate += 6 + min(int(round(surplus_ratio * 10)), 10)
+    return max(min(rate, 88), 3)
 
 
 def sync_scene_with_drops_by_name(
@@ -893,6 +892,8 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
     reward_quantity = 0
     stone_reward = 0
     outcome: dict[str, Any] = {}
+    reward_item = None
+    bonus_reward = None
     with Session() as session:
         exploration = (
             session.query(XiuxianExploration)
@@ -932,6 +933,21 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
                 int(bonus_payload.get("ref_id") or 0),
                 int(bonus_payload.get("quantity") or 0),
             )
+        if not fatal_outcome:
+            if reward_kind and reward_ref_id and reward_quantity > 0:
+                reward_item = _grant_item_by_kind(tg, reward_kind, reward_ref_id, reward_quantity)
+            if (
+                bonus_payload
+                and bonus_payload.get("kind")
+                and int(bonus_payload.get("ref_id") or 0) > 0
+                and int(bonus_payload.get("quantity") or 0) > 0
+            ):
+                bonus_reward = _grant_item_by_kind(
+                    tg,
+                    str(bonus_payload.get("kind")),
+                    int(bonus_payload.get("ref_id")),
+                    int(bonus_payload.get("quantity")),
+                )
         exploration.claimed = True
         exploration.updated_at = utcnow()
         session.commit()
@@ -1019,25 +1035,6 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
             },
             "achievement_unlocks": [],
         }
-
-    reward_item = None
-    if reward_kind and reward_ref_id and reward_quantity > 0:
-        reward_item = _grant_item_by_kind(tg, reward_kind, reward_ref_id, reward_quantity)
-
-    bonus_payload = outcome.get("bonus_reward") if isinstance(outcome.get("bonus_reward"), dict) else None
-    bonus_reward = None
-    if (
-        bonus_payload
-        and bonus_payload.get("kind")
-        and int(bonus_payload.get("ref_id") or 0) > 0
-        and int(bonus_payload.get("quantity") or 0) > 0
-    ):
-        bonus_reward = _grant_item_by_kind(
-            tg,
-            str(bonus_payload.get("kind")),
-            int(bonus_payload.get("ref_id")),
-            int(bonus_payload.get("quantity")),
-        )
 
     event_stone_bonus = max(int(outcome.get("stone_bonus") or 0), 0)
     event_stone_loss = max(int(outcome.get("stone_loss") or 0), 0)

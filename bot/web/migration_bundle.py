@@ -16,7 +16,7 @@ from sqlalchemy.sql.sqltypes import Boolean, Date, DateTime, Float, Integer, JSO
 
 from bot import LOGGER, config
 from bot.plugins import list_plugins
-from bot.sql_helper import Session, engine
+from bot.sql_helper import Session, engine, sync_postgresql_sequences
 
 
 BUNDLE_SCHEMA_VERSION = 1
@@ -459,10 +459,12 @@ def _restore_database_snapshot(database_root: Path) -> dict[str, Any]:
                 connection.execute(text("SET FOREIGN_KEY_CHECKS=1"))
 
     engine.dispose()
+    sequence_sync = sync_postgresql_sequences()
     return {
         "cleared_tables": cleared_tables,
         "restored_tables": restored_tables,
         "skipped_archive_tables": skipped_archive_tables,
+        "sequence_sync": sequence_sync,
     }
 
 

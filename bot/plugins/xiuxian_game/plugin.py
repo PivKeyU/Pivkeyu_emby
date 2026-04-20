@@ -372,7 +372,7 @@ XIUXIAN_BOT_COMMANDS = (
     BotCommand("xiuxian_me", "展示修仙名帖 [群聊]"),
     BotCommand("xiuxian_rank", "查看修仙排行榜 [群聊]"),
     BotCommand("train", "群内吐纳修炼 [群聊]"),
-    BotCommand("work", "群内承接灵石委托 [群聊]"),
+    BotCommand("work", "群内结算灵石委托，可一键完成 [群聊]"),
     BotCommand("salary", "群内领取宗门俸禄 [群聊]"),
     BotCommand("duel", "回复目标发起斗法 [群聊]"),
     BotCommand("deathduel", "回复目标发起生死斗 [群聊]"),
@@ -1168,6 +1168,26 @@ def _select_group_commission(bundle: dict[str, Any], requested_key: str | None =
         reverse=True,
     )
     return (available[0] if available else None), commissions
+
+
+def _select_group_commissions(bundle: dict[str, Any], requested_key: str | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    commissions = list(bundle.get("commissions") or [])
+    if requested_key:
+        selected, rows = _select_group_commission(bundle, requested_key=requested_key)
+        if selected and selected.get("available"):
+            return [selected], rows
+        return [], rows
+
+    available = [item for item in commissions if item.get("available")]
+    available.sort(
+        key=lambda item: (
+            int(item.get("reward_stone_max") or 0),
+            int(item.get("reward_cultivation_max") or 0),
+            int(item.get("min_realm_layer") or 0),
+        ),
+        reverse=True,
+    )
+    return available, commissions
 
 
 def _commission_selection_error(bundle: dict[str, Any], requested_key: str | None = None) -> str:
@@ -2989,7 +3009,7 @@ def register_bot(bot_instance) -> None:
                 "/xiuxian_me - 在群里展示自己的修仙信息\n"
                 "/xiuxian_rank [stone|realm|artifact] [页码] - 查看修仙排行榜\n"
                 "/train - 群里直接完成一次吐纳修炼\n"
-                "/work [委托名] - 群里直接承接一项灵石委托\n"
+                "/work [委托名] - 群里直接结算灵石委托；不填委托名时一键完成当前全部可接委托\n"
                 "/salary - 群里领取一次宗门俸禄\n"
                 "/duel [赌注] [下注秒数] - 回复某位道友发起斗法\n"
                 "/deathduel [赌注] [下注秒数] - 回复某位道友发起生死斗\n"
@@ -3110,22 +3130,48 @@ def register_bot(bot_instance) -> None:
                 return
             requested_key = _normalize_commission_command_key(msg.command[1] if len(msg.command or []) > 1 else None)
             bundle = _full_bundle(actor.id)
-            selected, _ = _select_group_commission(bundle, requested_key=requested_key)
-            if selected is None or not selected.get("available"):
+            selected_rows, _ = _select_group_commissions(bundle, requested_key=requested_key)
+            if not selected_rows:
                 return await _reply_text(msg, _commission_selection_error(bundle, requested_key=requested_key), quote=True)
-            result = claim_spirit_stone_commission(actor.id, str(selected.get("key") or ""))
-            commission = result.get("commission") or {}
-            lines = [
-                f"{commission.get('name') or selected.get('name') or '灵石委托'}完成，灵石 +{commission.get('stone_gain', 0)}，修为 +{commission.get('cultivation_gain', 0)}。"
-            ]
-            detail = str(commission.get("detail") or "").strip()
-            if detail:
-                lines.append(detail)
-            growth_text = _format_attribute_growth_text(commission.get("attribute_growth"))
-            if growth_text:
-                lines.append(growth_text)
-            if result.get("upgraded_layers"):
-                lines.append("层数提升：" + "、".join(f"{layer}层" for layer in result["upgraded_layers"]))
+
+            total_stone = 0
+            total_cultivation = 0
+            detail_rows: list[str] = []
+            growth_rows: list[str] = []
+            upgraded_layers: list[int] = []
+            for selected in selected_rows:
+                result = claim_spirit_stone_commission(actor.id, str(selected.get("key") or ""))
+                commission = result.get("commission") or {}
+                stone_gain = int(commission.get("stone_gain") or 0)
+                cultivation_gain = int(commission.get("cultivation_gain") or 0)
+                total_stone += stone_gain
+                total_cultivation += cultivation_gain
+                detail_rows.append(
+                    f"{commission.get('name') or selected.get('name') or '灵石委托'}：灵石 +{stone_gain}，修为 +{cultivation_gain}。"
+                )
+                detail = str(commission.get("detail") or "").strip()
+                if detail:
+                    detail_rows.append(detail)
+                growth_text = _format_attribute_growth_text(
+                    commission.get("attribute_growth"),
+                    prefix=f"{commission.get('name') or selected.get('name') or '灵石委托'}成长",
+                )
+                if growth_text:
+                    growth_rows.append(growth_text)
+                for layer in result.get("upgraded_layers") or []:
+                    if int(layer) not in upgraded_layers:
+                        upgraded_layers.append(int(layer))
+
+            if len(selected_rows) == 1:
+                lines = detail_rows
+            else:
+                lines = [
+                    f"本次一键完成 {len(selected_rows)} 项灵石委托，共获得灵石 +{total_stone}，修为 +{total_cultivation}。"
+                ]
+                lines.extend(detail_rows)
+            lines.extend(growth_rows)
+            if upgraded_layers:
+                lines.append("层数提升：" + "、".join(f"{layer}层" for layer in upgraded_layers))
             await _reply_text(msg, "\n".join(lines), quote=True)
         except Exception as exc:
             await _reply_text(msg, str(exc) or "灵石委托结算失败，请稍后重试。", quote=True)

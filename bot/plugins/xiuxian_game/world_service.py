@@ -1555,12 +1555,33 @@ def synthesize_recipe_fragment_for_user(tg: int, recipe_id: int) -> dict[str, An
         if row.quantity <= 0:
             session.delete(row)
         session.commit()
-    granted = grant_recipe_to_user(
-        tg,
-        int(recipe_id),
-        source="fragment_synthesis",
-        obtained_note="残页参悟",
-    )
+    try:
+        granted = grant_recipe_to_user(
+            tg,
+            int(recipe_id),
+            source="fragment_synthesis",
+            obtained_note="残页参悟",
+        )
+    except Exception:
+        with Session() as session:
+            refund_row = (
+                session.query(XiuxianMaterialInventory)
+                .filter(XiuxianMaterialInventory.tg == tg, XiuxianMaterialInventory.material_id == material_id)
+                .with_for_update()
+                .first()
+            )
+            if refund_row is None:
+                refund_row = XiuxianMaterialInventory(
+                    tg=tg,
+                    material_id=material_id,
+                    quantity=required_quantity,
+                )
+                session.add(refund_row)
+            else:
+                refund_row.quantity = max(int(refund_row.quantity or 0), 0) + required_quantity
+                refund_row.updated_at = utcnow()
+            session.commit()
+        raise
     recipe_payload = dict(granted.get("recipe") or recipe)
     recipe_payload["result_item"] = _get_item_payload(str(recipe_payload.get("result_kind") or ""), int(recipe_payload.get("result_ref_id") or 0))
     create_journal(

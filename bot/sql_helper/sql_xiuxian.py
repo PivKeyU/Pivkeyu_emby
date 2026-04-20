@@ -3662,6 +3662,41 @@ def user_has_technique(tg: int, technique_id: int) -> bool:
         return row is not None
 
 
+def _is_duplicate_integrity_error(exc: IntegrityError, constraint_name: str) -> bool:
+    message = str(getattr(exc, "orig", exc) or exc).lower()
+    return constraint_name.lower() in message and (
+        "duplicate key value" in message
+        or "duplicate entry" in message
+        or "unique constraint" in message
+    )
+
+
+def _sync_sequence_for_primary_key_conflict(exc: IntegrityError, table_name: str) -> bool:
+    if not _is_duplicate_integrity_error(exc, f"{table_name}_pkey"):
+        return False
+    from bot.sql_helper import sync_postgresql_sequences
+
+    sync_postgresql_sequences(table_names={table_name})
+    return True
+
+
+def _recover_user_technique_insert_conflict(session: OrmSession, exc: IntegrityError, tg: int, technique_id: int) -> bool:
+    session.rollback()
+    existing = (
+        session.query(XiuxianUserTechnique)
+        .filter(XiuxianUserTechnique.tg == tg, XiuxianUserTechnique.technique_id == technique_id)
+        .first()
+    )
+    if existing is not None:
+        return True
+    return _sync_sequence_for_primary_key_conflict(exc, "xiuxian_user_techniques")
+
+
+def _recover_shop_item_insert_conflict(session: OrmSession, exc: IntegrityError) -> bool:
+    session.rollback()
+    return _sync_sequence_for_primary_key_conflict(exc, "xiuxian_shop_items")
+
+
 def grant_technique_to_user(
     tg: int,
     technique_id: int,
@@ -3670,40 +3705,53 @@ def grant_technique_to_user(
     obtained_note: str | None = None,
     auto_equip_if_empty: bool = False,
 ) -> dict[str, Any]:
-    with Session() as session:
-        technique = session.query(XiuxianTechnique).filter(XiuxianTechnique.id == technique_id).first()
-        if technique is None:
-            raise ValueError("technique not found")
-        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).first()
-        if profile is None:
-            profile = XiuxianProfile(tg=tg)
-            session.add(profile)
-        row = (
-            session.query(XiuxianUserTechnique)
-            .filter(XiuxianUserTechnique.tg == tg, XiuxianUserTechnique.technique_id == technique_id)
-            .first()
-        )
-        if row is None:
-            row = XiuxianUserTechnique(
-                tg=tg,
-                technique_id=technique_id,
-                source=(source or "").strip() or None,
-                obtained_note=(obtained_note or "").strip() or None,
+    normalized_source = (source or "").strip() or None
+    normalized_note = (obtained_note or "").strip() or None if obtained_note is not None else None
+    last_error: IntegrityError | None = None
+    for _ in range(2):
+        with Session() as session:
+            technique = session.query(XiuxianTechnique).filter(XiuxianTechnique.id == technique_id).first()
+            if technique is None:
+                raise ValueError("technique not found")
+            profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).first()
+            if profile is None:
+                profile = XiuxianProfile(tg=tg)
+                session.add(profile)
+            row = (
+                session.query(XiuxianUserTechnique)
+                .filter(XiuxianUserTechnique.tg == tg, XiuxianUserTechnique.technique_id == technique_id)
+                .first()
             )
-            session.add(row)
-        else:
-            row.source = (source or row.source or "").strip() or None
-            if obtained_note is not None:
-                row.obtained_note = (obtained_note or "").strip() or None
-            row.updated_at = utcnow()
-        if auto_equip_if_empty and not profile.current_technique_id:
-            profile.current_technique_id = technique_id
-            profile.updated_at = utcnow()
-        _queue_profile_cache_invalidation(session, tg)
-        _queue_user_view_cache_invalidation(session, tg)
-        session.commit()
-        session.refresh(row)
-        return serialize_user_technique(row, serialize_technique(technique))
+            if row is None:
+                row = XiuxianUserTechnique(
+                    tg=tg,
+                    technique_id=technique_id,
+                    source=normalized_source,
+                    obtained_note=normalized_note,
+                )
+                session.add(row)
+            else:
+                row.source = normalized_source or row.source
+                if obtained_note is not None:
+                    row.obtained_note = normalized_note
+                row.updated_at = utcnow()
+            if auto_equip_if_empty and not profile.current_technique_id:
+                profile.current_technique_id = technique_id
+                profile.updated_at = utcnow()
+            _queue_profile_cache_invalidation(session, tg)
+            _queue_user_view_cache_invalidation(session, tg)
+            try:
+                session.commit()
+            except IntegrityError as exc:
+                last_error = exc
+                if _recover_user_technique_insert_conflict(session, exc, tg, technique_id):
+                    continue
+                raise
+            session.refresh(row)
+            return serialize_user_technique(row, serialize_technique(technique))
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("grant technique failed unexpectedly")
 
 
 def revoke_technique_from_user(tg: int, technique_id: int) -> bool:
@@ -5647,23 +5695,34 @@ def create_shop_item(
     price_stone: int,
     is_official: bool,
 ) -> dict[str, Any]:
-    with Session() as session:
-        item = XiuxianShopItem(
-            owner_tg=owner_tg,
-            shop_name=shop_name,
-            item_kind=item_kind,
-            item_ref_id=item_ref_id,
-            item_name=item_name,
-            quantity=max(int(quantity), 1),
-            price_stone=max(int(price_stone), 0),
-            is_official=is_official,
-            enabled=True,
-        )
-        session.add(item)
-        _queue_catalog_cache_invalidation(session, "shop-items")
-        session.commit()
-        session.refresh(item)
-        return serialize_shop_item(item)
+    last_error: IntegrityError | None = None
+    for _ in range(2):
+        with Session() as session:
+            item = XiuxianShopItem(
+                owner_tg=owner_tg,
+                shop_name=shop_name,
+                item_kind=item_kind,
+                item_ref_id=item_ref_id,
+                item_name=item_name,
+                quantity=max(int(quantity), 1),
+                price_stone=max(int(price_stone), 0),
+                is_official=is_official,
+                enabled=True,
+            )
+            session.add(item)
+            _queue_catalog_cache_invalidation(session, "shop-items")
+            try:
+                session.commit()
+            except IntegrityError as exc:
+                last_error = exc
+                if _recover_shop_item_insert_conflict(session, exc):
+                    continue
+                raise
+            session.refresh(item)
+            return serialize_shop_item(item)
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("create shop item failed unexpectedly")
 
 
 def sync_official_shop_name(shop_name: str) -> int:
@@ -6928,6 +6987,18 @@ def user_has_recipe(tg: int, recipe_id: int) -> bool:
         return row is not None
 
 
+def _recover_user_recipe_insert_conflict(session: OrmSession, exc: IntegrityError, tg: int, recipe_id: int) -> bool:
+    session.rollback()
+    existing = (
+        session.query(XiuxianUserRecipe)
+        .filter(XiuxianUserRecipe.tg == tg, XiuxianUserRecipe.recipe_id == recipe_id)
+        .first()
+    )
+    if existing is not None:
+        return True
+    return _sync_sequence_for_primary_key_conflict(exc, "xiuxian_user_recipes")
+
+
 def grant_recipe_to_user(
     tg: int,
     recipe_id: int,
@@ -6935,32 +7006,45 @@ def grant_recipe_to_user(
     source: str | None = None,
     obtained_note: str | None = None,
 ) -> dict[str, Any]:
-    with Session() as session:
-        recipe = session.query(XiuxianRecipe).filter(XiuxianRecipe.id == recipe_id).first()
-        if recipe is None:
-            raise ValueError("recipe not found")
-        row = (
-            session.query(XiuxianUserRecipe)
-            .filter(XiuxianUserRecipe.tg == tg, XiuxianUserRecipe.recipe_id == recipe_id)
-            .first()
-        )
-        if row is None:
-            row = XiuxianUserRecipe(
-                tg=tg,
-                recipe_id=recipe_id,
-                source=(source or "").strip() or None,
-                obtained_note=(obtained_note or "").strip() or None,
+    normalized_source = (source or "").strip() or None
+    normalized_note = (obtained_note or "").strip() or None if obtained_note is not None else None
+    last_error: IntegrityError | None = None
+    for _ in range(2):
+        with Session() as session:
+            recipe = session.query(XiuxianRecipe).filter(XiuxianRecipe.id == recipe_id).first()
+            if recipe is None:
+                raise ValueError("recipe not found")
+            row = (
+                session.query(XiuxianUserRecipe)
+                .filter(XiuxianUserRecipe.tg == tg, XiuxianUserRecipe.recipe_id == recipe_id)
+                .first()
             )
-            session.add(row)
-        else:
-            row.source = (source or row.source or "").strip() or None
-            if obtained_note is not None:
-                row.obtained_note = (obtained_note or "").strip() or None
-            row.updated_at = utcnow()
-        _queue_user_view_cache_invalidation(session, tg)
-        session.commit()
-        session.refresh(row)
-        return serialize_user_recipe(row, serialize_recipe(recipe))
+            if row is None:
+                row = XiuxianUserRecipe(
+                    tg=tg,
+                    recipe_id=recipe_id,
+                    source=normalized_source,
+                    obtained_note=normalized_note,
+                )
+                session.add(row)
+            else:
+                row.source = normalized_source or row.source
+                if obtained_note is not None:
+                    row.obtained_note = normalized_note
+                row.updated_at = utcnow()
+            _queue_user_view_cache_invalidation(session, tg)
+            try:
+                session.commit()
+            except IntegrityError as exc:
+                last_error = exc
+                if _recover_user_recipe_insert_conflict(session, exc, tg, recipe_id):
+                    continue
+                raise
+            session.refresh(row)
+            return serialize_user_recipe(row, serialize_recipe(recipe))
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("grant recipe failed unexpectedly")
 
 
 def revoke_recipe_from_user(tg: int, recipe_id: int) -> bool:

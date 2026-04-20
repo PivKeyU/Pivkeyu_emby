@@ -2732,11 +2732,18 @@ def _format_countdown(delta: timedelta) -> str:
     return f"{seconds} 秒"
 
 
-def _commission_reward_bonus(stats: dict[str, Any], divisors: dict[str, int]) -> int:
+def _commission_reward_bonus(
+    stats: dict[str, Any],
+    divisors: dict[str, int],
+    *,
+    cap: int | None = None,
+) -> int:
     total = 0
     for key, divisor in (divisors or {}).items():
         safe_divisor = max(int(divisor or 1), 1)
         total += max(int(stats.get(key, 0) or 0), 0) // safe_divisor
+    if cap is not None:
+        total = min(total, max(int(cap or 0), 0))
     return total
 
 
@@ -2823,8 +2830,18 @@ def claim_spirit_stone_commission(tg: int, commission_key: str) -> dict[str, Any
     title_effects = resolve_title_effects(profile_data, current_title) if current_title else None
     stats = _effective_stats(profile_data, artifact_effects, talisman_effects, get_sect_effects(profile_data), technique_effects, title_effects)
 
-    stone_gain = random.randint(*config["stone_range"]) + _commission_reward_bonus(stats, config.get("stone_bonus_divisors", {}))
-    cultivation_gain = random.randint(*config["cultivation_range"]) + _commission_reward_bonus(stats, config.get("cultivation_bonus_divisors", {}))
+    stone_bonus_cap = max(int(config.get("stone_bonus_cap") or config["stone_range"][1] or 0), 0)
+    cultivation_bonus_cap = max(int(config.get("cultivation_bonus_cap") or config["cultivation_range"][1] or 0), 0)
+    stone_gain = random.randint(*config["stone_range"]) + _commission_reward_bonus(
+        stats,
+        config.get("stone_bonus_divisors", {}),
+        cap=stone_bonus_cap,
+    )
+    cultivation_gain = random.randint(*config["cultivation_range"]) + _commission_reward_bonus(
+        stats,
+        config.get("cultivation_bonus_divisors", {}),
+        cap=cultivation_bonus_cap,
+    )
     stone_gain = max(int(stone_gain), int(config["stone_range"][0]))
     cultivation_gain = max(int(cultivation_gain), int(config["cultivation_range"][0]))
     raw_cultivation_gain = cultivation_gain
