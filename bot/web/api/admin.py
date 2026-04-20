@@ -496,6 +496,7 @@ async def summary():
             "banned_users": banned_users,
             "total_currency": int(total_currency),
             "auto_update": serialize_auto_update_state(),
+            "emby_service_suspended": bool(config.emby_service_suspended),
         },
     }
 
@@ -656,6 +657,57 @@ async def revoke_all_whitelist_users(request: Request):
         "data": {
             "updated_count": affected,
             "target_level": "b",
+        },
+    }
+
+
+@router.post("/emby-service/toggle")
+async def toggle_emby_service(request: Request):
+    """一键暂停/恢复所有用户的 Emby 服务（通过 Emby API 设置 IsDisabled）"""
+    from bot.func_helper.emby import Embyservice
+    from bot import emby_url, emby_api as emby_api_key
+
+    actor_tg = _resolve_admin_actor_id(request)
+    new_state = not config.emby_service_suspended
+
+    # 获取所有有 embyid 的用户
+    with Session() as session:
+        users_with_emby = session.query(Emby).filter(Emby.embyid.isnot(None)).all()
+        emby_ids = [str(row.embyid) for row in users_with_emby if row.embyid]
+
+    # 调用 Emby API 批量禁用/启用
+    emby = Embyservice(emby_url, emby_api_key)
+    success_count = 0
+    fail_count = 0
+    for emby_id in emby_ids:
+        try:
+            result = await emby.emby_change_policy(emby_id, admin=False, disable=new_state)
+            if result:
+                success_count += 1
+            else:
+                fail_count += 1
+        except Exception as exc:
+            LOGGER.warning(f"emby service toggle failed for {emby_id}: {exc}")
+            fail_count += 1
+
+    # 持久化状态
+    config.emby_service_suspended = new_state
+    save_config()
+
+    action = "暂停" if new_state else "恢复"
+    LOGGER.info(
+        f"admin emby-service toggle actor={actor_tg} action={action} "
+        f"success={success_count} fail={fail_count} total={len(emby_ids)}"
+    )
+
+    return {
+        "code": 200,
+        "data": {
+            "emby_service_suspended": new_state,
+            "action": action,
+            "success_count": success_count,
+            "fail_count": fail_count,
+            "total_accounts": len(emby_ids),
         },
     }
 

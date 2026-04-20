@@ -171,6 +171,9 @@ const refs = {
   moderationWarningList: document.querySelector("#moderation-warning-list"),
   whitelistRevokeAll: document.querySelector("#whitelist-revoke-all"),
   whitelistRevokeStatus: document.querySelector("#whitelist-revoke-status"),
+  embyServiceBadge: document.querySelector("#emby-service-badge"),
+  embyServiceToggle: document.querySelector("#emby-service-toggle"),
+  embyServiceStatus: document.querySelector("#emby-service-status"),
   levelLegend: document.querySelector("#level-legend"),
   prevPage: document.querySelector("#prev-page"),
   nextPage: document.querySelector("#next-page"),
@@ -853,6 +856,22 @@ function setSummary(data) {
       ? `当前共有 ${formatCount(data.whitelist_users)} 个白名单账号，可一键恢复为 b 级正常用户。`
       : "当前没有白名单账号，无需批量处理。";
   }
+  syncEmbyServiceUI(Boolean(data.emby_service_suspended));
+}
+
+function syncEmbyServiceUI(suspended) {
+  if (refs.embyServiceBadge) {
+    refs.embyServiceBadge.className = `badge badge--${suspended ? "danger" : "normal"}`;
+    refs.embyServiceBadge.textContent = suspended ? "服务已暂停" : "服务正常";
+  }
+  if (refs.embyServiceToggle) {
+    refs.embyServiceToggle.textContent = suspended ? "恢复 Emby 服务" : "暂停 Emby 服务";
+  }
+  if (refs.embyServiceStatus) {
+    refs.embyServiceStatus.textContent = suspended
+      ? "当前 Emby 服务已全局暂停，所有用户的 Emby 账号在服务器端已被禁用。点击下方按钮恢复服务。"
+      : "开启后，所有用户的 Emby 账号将在服务器端被禁用，即使手机已保存线路也无法播放。关闭后，有账号的用户自动恢复。";
+  }
 }
 
 function setAutoUpdate(data = {}) {
@@ -1169,6 +1188,39 @@ async function revokeAllWhitelistUsers() {
     setAdminStatus(`批量取消白名单失败：${message}`, "error");
     showToast(`批量取消白名单失败：${message}`, "error");
     await popup("处理失败", message, "error");
+  }
+}
+
+async function toggleEmbyService() {
+  const isSuspended = Boolean(state.summary?.emby_service_suspended);
+  const action = isSuspended ? "恢复" : "暂停";
+  const activeCount = Number(state.summary?.active_accounts || 0);
+  const confirmMsg = isSuspended
+    ? `确认恢复 Emby 服务吗？\n\n恢复后，所有 ${activeCount} 个有效账号将重新可用。`
+    : `⚠️ 确认暂停 Emby 服务吗？\n\n这将在 Emby 服务器端禁用全部 ${activeCount} 个账号，所有用户都将无法播放，即使手机已保存线路也不行。`;
+
+  if (!window.confirm(confirmMsg)) {
+    return;
+  }
+
+  try {
+    const result = await runButtonAction(refs.embyServiceToggle, "处理中...", () => api("/admin-api/emby-service/toggle", {
+      method: "POST"
+    }));
+    const d = result.data || {};
+    syncEmbyServiceUI(d.emby_service_suspended);
+    if (state.summary) {
+      state.summary.emby_service_suspended = d.emby_service_suspended;
+    }
+    const message = `已${d.action} Emby 服务，成功 ${d.success_count}/${d.total_accounts}${d.fail_count > 0 ? `，失败 ${d.fail_count}` : ""}。`;
+    setAdminStatus(message, d.fail_count > 0 ? "warning" : "success");
+    showToast(message, d.fail_count > 0 ? "warning" : "success");
+    await popup(d.action + "完成", message, d.fail_count > 0 ? "warning" : "success");
+  } catch (error) {
+    const message = normalizeError(error, `${action} Emby 服务失败。`);
+    setAdminStatus(`${action}失败：${message}`, "error");
+    showToast(`${action}失败：${message}`, "error");
+    await popup("操作失败", message, "error");
   }
 }
 
@@ -2352,6 +2404,7 @@ refs.nextPage.addEventListener("click", async () => {
 });
 
 refs.whitelistRevokeAll?.addEventListener("click", revokeAllWhitelistUsers);
+refs.embyServiceToggle?.addEventListener("click", toggleEmbyService);
 
 document.querySelector("#editor-form").addEventListener("submit", saveUser);
 

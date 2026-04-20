@@ -1,26 +1,26 @@
 const LEVEL_META = {
   a: {
-    text: "真传弟子",
-    shortText: "真传",
-    description: "掌门亲传，享天地至纯灵气与无上功法秘境。",
+    text: "白名单用户",
+    shortText: "白名单",
+    description: "享有最高权限，可访问全部媒体库。",
     tone: "vip"
   },
   b: {
-    text: "内门弟子",
-    shortText: "内门",
-    description: "已入道途之修者，可历练寻常秘境。",
+    text: "普通用户",
+    shortText: "普通",
+    description: "已绑定 Emby 账号，可正常使用观影服务。",
     tone: "normal"
   },
   c: {
-    text: "走火入魔",
-    shortText: "魔道",
-    description: "此子已堕魔道或修为尽失，被天地大道所弃。",
+    text: "已封禁",
+    shortText: "封禁",
+    description: "账号已被管理员封禁，无法使用任何服务。",
     tone: "danger"
   },
   d: {
-    text: "凡夫俗子",
-    shortText: "凡人",
-    description: "毫无灵力波动，尚欠缺道缘引其入法门。",
+    text: "未注册",
+    shortText: "未注册",
+    description: "尚未绑定 Emby 账号，请联系管理员或使用注册码开通。",
     tone: "pending"
   }
 };
@@ -36,9 +36,9 @@ function escapeHtml(value) {
 
 function getLevelMeta(code) {
   return LEVEL_META[(code || "").toLowerCase()] || {
-    text: "天机蒙蔽",
-    shortText: "迷雾",
-    description: "天机难测，系统暂无法洞悉尊驾的命格。",
+    text: "未知状态",
+    shortText: "未知",
+    description: "系统暂时无法判断当前账号状态。",
     tone: "unknown"
   };
 }
@@ -46,10 +46,10 @@ function getLevelMeta(code) {
 function normalizeError(error) {
   const message = String(error?.message || "").trim();
   if (!message || message === "Failed to fetch" || message.startsWith("Unexpected token")) {
-    return "天机反噬，灵力传音失败，请稍后重试。";
+    return "网络连接失败，请稍后重试。";
   }
   if (message === "Internal Server Error") {
-    return "大阵波荡，暂时无法接引，请稍后再行叩关。";
+    return "服务器内部错误，请稍后再试。";
   }
   return message;
 }
@@ -104,7 +104,7 @@ function syncFoldToolbar() {
 
   const count = document.querySelector("#fold-count");
   if (count) {
-    count.textContent = `当前可缩地成寸 ${cards.length} 处道场`;
+    count.textContent = `共 ${cards.length} 个模块`;
   }
 
   const openAllButton = document.querySelector("[data-fold-open-all]");
@@ -140,16 +140,16 @@ function renderPlugins(items) {
   if (!items.length) {
     pluginGrid.innerHTML = `
       <article class="plugin-item">
-        <div class="plugin-mark">幻</div>
+        <div class="plugin-mark">空</div>
         <div class="plugin-main">
           <div class="plugin-head">
-            <strong>灵气匮乏</strong>
-            <span class="plugin-state is-off">死寂</span>
+            <strong>暂无可用模块</strong>
+            <span class="plugin-state is-off">未启用</span>
           </div>
-          <p class="plugin-copy">此处尚无可用之洞天秘境，请静待灵气复苏，或飞剑传书联系尊者。</p>
+          <p class="plugin-copy">当前没有已启用的功能模块，请联系管理员开启。</p>
           <div class="plugin-foot">
             <div class="plugin-meta-row">
-              <span class="plugin-meta">阵法核心缺失</span>
+              <span class="plugin-meta">无可用模块</span>
             </div>
             <span class="plugin-ghost">暂未开启</span>
           </div>
@@ -163,12 +163,12 @@ function renderPlugins(items) {
     const item = document.createElement("a");
     const hasError = Boolean(plugin.error);
     const stateClass = hasError ? "is-error" : plugin.loaded ? "is-on" : "is-off";
-    const stateText = hasError ? "法阵崩落" : plugin.loaded ? "灵光大盛" : "沉星潜渊";
-    const mark = escapeHtml(String(plugin.miniapp_icon || plugin.icon || plugin.name?.slice?.(0, 1) || "卷").trim().slice(0, 2));
-    const description = escapeHtml(plugin.description || "古籍遗漏，不记其详。");
-    const name = escapeHtml(plugin.miniapp_label || plugin.name || "无名宝殿");
-    const version = escapeHtml(plugin.version || "鸿蒙 0.0");
-    const errorText = hasError ? `<p class="plugin-warning">阵脉逆行：${escapeHtml(plugin.error)}</p>` : "";
+    const stateText = hasError ? "加载失败" : plugin.loaded ? "运行中" : "未加载";
+    const mark = escapeHtml(String(plugin.miniapp_icon || plugin.icon || plugin.name?.slice?.(0, 1) || "模").trim().slice(0, 2));
+    const description = escapeHtml(plugin.description || "暂无描述信息。");
+    const name = escapeHtml(plugin.miniapp_label || plugin.name || "未命名模块");
+    const version = escapeHtml(plugin.version || "v0.0");
+    const errorText = hasError ? `<p class="plugin-warning">错误：${escapeHtml(plugin.error)}</p>` : "";
 
     item.className = "plugin-item";
     item.href = "javascript:void(0);";
@@ -184,9 +184,9 @@ function renderPlugins(items) {
         ${errorText}
         <div class="plugin-foot">
           <div class="plugin-meta-row">
-            <span class="plugin-meta">天地历纪 ${version}</span>
+            <span class="plugin-meta">${version}</span>
           </div>
-          <button class="plugin-open" onclick="window.location.href='${escapeHtml(plugin.miniapp_path)}';">挪移阵眼</button>
+          <button class="plugin-open" onclick="window.location.href='${escapeHtml(plugin.miniapp_path)}';">进入</button>
         </div>
       </div>
     `;
@@ -212,7 +212,7 @@ function renderBottomNav(items) {
 }
 
 function resolveDisplayName(user) {
-  return user?.first_name || user?.last_name || user?.username || "散修无名";
+  return user?.first_name || user?.last_name || user?.username || "未知用户";
 }
 
 async function bootstrapMiniApp() {
@@ -228,8 +228,8 @@ async function bootstrapMiniApp() {
   const rolePill = document.querySelector("#role-pill");
 
   if (!tg) {
-    welcomeText.textContent = "道友请回，凡俗灵器无法窥探洞府全貌。";
-    heroNote.textContent = "当今天地法则限制，请使用灵力飞梭 (小程式) 入内。";
+    welcomeText.textContent = "请在 Telegram 小程序中打开此页面。";
+    heroNote.textContent = "当前环境不支持直接访问，请使用 Telegram 客户端打开。";
     return;
   }
 
@@ -246,7 +246,7 @@ async function bootstrapMiniApp() {
     const result = await response.json();
 
     if (!response.ok || result.code !== 200) {
-      throw new Error(result.detail || result.message || "洞府灵脉断绝。");
+      throw new Error(result.detail || result.message || "服务器连接失败。");
     }
 
     const { telegram_user, account, meta, permissions } = result.data;
@@ -256,27 +256,27 @@ async function bootstrapMiniApp() {
     const displayName = resolveDisplayName(telegram_user);
     const accountTone = account?.lv_tone || levelMeta.tone;
 
-    document.title = `${meta.brand || "修仙纪元"} · 洞府`;
+    document.title = `${meta.brand || "片刻面板"}`;
 
     badge.className = `badge badge--${accountTone}`;
     badge.textContent = account?.lv_short_text || account?.lv_text || levelMeta.shortText || levelMeta.text;
     levelDesc.textContent = account?.lv_description || levelMeta.description;
 
-    document.querySelector("#tg-id").textContent = telegram_user.id || "未结印";
+    document.querySelector("#tg-id").textContent = telegram_user.id || "-";
     document.querySelector("#tg-name").textContent = displayName;
     document.querySelector("#account-iv").textContent = account?.iv ?? 0;
-    document.querySelector("#account-name").textContent = account?.name || "未结缘";
-    document.querySelector("#account-ex").textContent = formatDate(account?.ex, "日月恒长");
+    document.querySelector("#account-name").textContent = account?.name || "未绑定";
+    document.querySelector("#account-ex").textContent = formatDate(account?.ex, "永久");
     document.querySelector("#account-us").textContent = account?.us ?? 0;
 
-    document.querySelector("#brand-name").textContent = meta.brand || "飘渺宗";
-    document.querySelector("#currency-name").textContent = meta.currency || "灵石";
+    document.querySelector("#brand-name").textContent = meta.brand || "Emby";
+    document.querySelector("#currency-name").textContent = meta.currency || "积分";
     document.querySelector("#hero-name").textContent = displayName;
-    document.querySelector("#hero-id").textContent = telegram_user.id || "凡骨无名";
+    document.querySelector("#hero-id").textContent = telegram_user.id || "-";
 
-    pluginCount.textContent = `天书显字 ${loadedCount} / ${visiblePlugins.length}`;
-    pluginCountPill.textContent = `${visiblePlugins.length} 处阵法`;
-    rolePill.textContent = permissions?.is_admin ? "掌门尊者" : "寻道散修";
+    pluginCount.textContent = `已加载 ${loadedCount} / ${visiblePlugins.length}`;
+    pluginCountPill.textContent = `${visiblePlugins.length} 个模块`;
+    rolePill.textContent = permissions?.is_admin ? "管理员" : "普通用户";
 
     if (permissions?.is_admin && permissions?.admin_url) {
       adminEntryCard.classList.remove("hidden");
@@ -288,66 +288,49 @@ async function bootstrapMiniApp() {
       adminEntryButton.onclick = null;
     }
 
-    welcomeText.textContent = `紫气东来，${displayName} 道友，您的修真坦途已在眼前展现。`;
+    welcomeText.textContent = `欢迎回来，${displayName}。`;
     heroNote.textContent = account?.name
-      ? `灵机交感，目前已绑定灵犀印 ${account.name}，大限为 ${formatDate(account.ex, "天地难量")}。`
-      : "道友尚未结下灵犀之印，若欲踏长生坦途，请尽快缔结前缘。";
+      ? `当前已绑定 Emby 账号 ${account.name}，到期时间 ${formatDate(account.ex, "永久")}。`
+      : "你尚未绑定 Emby 账号，请使用注册码开通或联系管理员。";
 
     // Sort visible plugins and render
-    const savedOrderStr = localStorage.getItem(`xiuxian_order_${userId}`);
+    const savedOrderStr = localStorage.getItem(`miniapp_order_${userId}`);
     if (savedOrderStr) {
       try {
         const savedOrder = JSON.parse(savedOrderStr);
         visiblePlugins.sort((a, b) => {
-          const nameA = a.miniapp_label || a.name || "无名宝殿";
-          const nameB = b.miniapp_label || b.name || "无名宝殿";
+          const nameA = a.miniapp_label || a.name || "";
+          const nameB = b.miniapp_label || b.name || "";
           let iA = savedOrder.indexOf(nameA);
           let iB = savedOrder.indexOf(nameB);
           if(iA === -1) iA = 999;
           if(iB === -1) iB = 999;
           return iA - iB;
         });
-      } catch (e) { console.error("排序玉简解读失败", e); }
+      } catch (e) { console.error("排序数据读取失败", e); }
     }
     
     renderPlugins(visiblePlugins);
-    
-    // Init SortableJS for Drag-and-Drop
+
+    // Save order on plugin grid reorder (touch-friendly: tap to open, no drag on mobile)
     const pluginGrid = document.querySelector("#plugin-grid");
-    if (pluginGrid && typeof Sortable !== "undefined") {
-      new Sortable(pluginGrid, {
-        animation: 150,
-        ghostClass: 'sortable-ghost',
-        dragClass: 'sortable-drag',
-        onEnd: function () {
-          const items = pluginGrid.querySelectorAll('.plugin-title');
-          const newOrder = Array.from(items).map(el => el.textContent.trim());
-          localStorage.setItem(`xiuxian_order_${userId}`, JSON.stringify(newOrder));
-        }
-      });
-    }
+    pluginGrid.addEventListener("click", (event) => {
+      if (event.target.closest("button")) return;
+      const card = event.target.closest("[data-open-path]");
+      if (!card) return;
+      window.location.href = card.dataset.openPath;
+    });
 
     renderBottomNav(meta.bottom_nav || []);
   } catch (error) {
     const message = normalizeError(error);
-    welcomeText.textContent = `天机反噬：${message}`;
-    heroNote.textContent = "灵符焚毁，请稍后再试，或放纸鹤请掌门修补法阵。";
-    levelDesc.textContent = "灵根未卜，造化莫测。";
+    welcomeText.textContent = `连接失败：${message}`;
+    heroNote.textContent = "请检查网络后重试，或联系管理员。";
+    levelDesc.textContent = "账号状态未知。";
     renderPlugins([]);
     renderBottomNav([]);
   }
 }
-
-document.querySelector("#plugin-grid").addEventListener("click", (event) => {
-  // Check if click was on or within the button, if so handle normally, else redirect
-  if (event.target.closest('button')) return; 
-  
-  const card = event.target.closest("[data-open-path]");
-  if (!card) {
-    return;
-  }
-  window.location.href = card.dataset.openPath;
-});
 
 setupFoldToolbar();
 bootstrapMiniApp();

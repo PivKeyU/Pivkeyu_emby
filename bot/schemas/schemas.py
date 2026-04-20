@@ -272,6 +272,8 @@ class Config(BaseModel):
     api: API = Field(default_factory=API)
     plugin_nav: Dict[str, bool] = Field(default_factory=dict)
     plugin_enabled: Dict[str, bool] = Field(default_factory=dict)
+    # 全局 Emby 服务暂停开关：开启后所有用户的 Emby 账号将被禁用
+    emby_service_suspended: bool = False
 
     def __init__(self, **data):
         super().__init__(**data)

@@ -1,7 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700;900&display=swap');
 
 :root {
-  /* XiuXian (Cultivation) Theme Variables */
+  /* Theme Variables */
   --bg-top: #fefce8; /* Ancient scroll beige */
   --bg-bottom: #e0f2fe; /* Light azure / qi mist */
   --surface: rgba(254, 252, 232, 0.55);
@@ -71,7 +71,7 @@ html {
   color-scheme: light dark;
 }
 
-/* Spiritual flowing background */
+/* Animated gradient background */
 @keyframes qiFlow {
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
@@ -84,7 +84,7 @@ body {
   padding-bottom: calc(92px + env(safe-area-inset-bottom));
   color: var(--ink);
   
-  /* Ink and Jade Qi Flow */
+  /* Smooth gradient flow */
   background: linear-gradient(-45deg, #fefce8, #d1fae5, #ecfeff, #fef08a);
   background-size: 400% 400%;
   animation: qiFlow 25s ease-in-out infinite;
@@ -108,7 +108,7 @@ body {
   gap: 20px;
 }
 
-/* Jade Slip & Scroll Aesthetics */
+/* Card Styles */
 .card {
   border: var(--glass-border);
   border-radius: var(--radius-xl);
@@ -161,9 +161,9 @@ p {
 }
 
 h1 {
-  font-size: clamp(38px, 8vw, 64px);
+  font-size: clamp(28px, 7vw, 52px);
   line-height: 1;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.03em;
   font-weight: 900;
   background: linear-gradient(135deg, var(--ink), var(--accent-strong));
   -webkit-background-clip: text;
@@ -180,10 +180,10 @@ h1 {
 }
 
 h2 {
-  font-size: 24px;
+  font-size: 20px;
   line-height: 1.2;
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.03em;
 }
 
 .hero-copy,
@@ -224,8 +224,8 @@ h2 {
   justify-content: center;
   min-height: 38px;
   padding: 8px 14px;
-  border-radius: 6px; /* Talisman like corners */
-  font-size: 14px;
+  border-radius: 6px;
+  font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
   transition: all 0.2s ease;
@@ -266,7 +266,7 @@ h2 {
 
 .profile-item,
 .plugin-item {
-  padding: 16px;
+  padding: 14px;
   border-radius: var(--radius-md);
   background: var(--surface-strong);
   border: var(--glass-border);
@@ -276,7 +276,7 @@ h2 {
   position: relative;
 }
 
-/* Drag indicator for plugins */
+/* Drag indicator for plugins (desktop only) */
 .plugin-item::before {
   content: '≡';
   position: absolute;
@@ -287,22 +287,12 @@ h2 {
   opacity: 0;
   font-size: 24px;
   transition: opacity 0.2s ease;
-  cursor: grab;
 }
 
-.plugin-item:hover::before {
-  opacity: 0.4;
-}
-
-/* SortableJS drag classes */
-.sortable-ghost {
-  opacity: 0.3;
-  background: var(--surface-soft);
-}
-.sortable-drag {
-  cursor: grabbing !important;
-  box-shadow: 0 15px 30px rgba(0,0,0,0.2) !important;
-  transform: scale(1.02);
+@media (hover: hover) {
+  .plugin-item:hover::before {
+    opacity: 0.4;
+  }
 }
 
 .profile-item:hover {
@@ -321,14 +311,14 @@ h2 {
 
 .profile-item strong {
   display: block;
-  margin-top: 12px;
-  font-size: 20px;
+  margin-top: 8px;
+  font-size: 17px;
   line-height: 1.15;
   font-weight: 700;
   word-break: break-word;
 }
 
-/* Admin Sect Entry */
+/* Admin Entry */
 .hero-admin {
   padding: 20px;
   border-radius: var(--radius-lg);
@@ -411,11 +401,11 @@ h2 {
 }
 
 .fold-summary::after {
-  content: "起 ▾";
+  content: "展 ▾";
   flex: 0 0 auto;
   min-width: 50px;
   text-align: right;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--muted);
   transition: transform 0.2s ease;
@@ -428,7 +418,7 @@ h2 {
 }
 
 .fold-card[open] > .fold-summary::after {
-  content: "归 ▴";
+  content: "收 ▴";
 }
 
 .summary-tip {
@@ -461,12 +451,13 @@ h2 {
 /* Jade token arrays (plugins) */
 .plugin-item {
   display: grid;
-  grid-template-columns: 50px minmax(0, 1fr);
-  gap: 16px;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 12px;
   text-decoration: none;
   position: relative;
   overflow: hidden;
-  cursor: grab;
+  cursor: pointer;
+  min-height: 44px;
 }
 
 .plugin-item:hover {
@@ -479,19 +470,19 @@ h2 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 50px;
-  height: 50px;
-  border-radius: 50%; /* Spirit core shape */
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
   background: linear-gradient(135deg, var(--accent-strong), var(--accent));
   color: #fff;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 700;
   box-shadow: 0 4px 10px rgba(5, 150, 105, 0.4);
 }
 
 .plugin-main {
   min-width: 0;
-  padding-right: 28px; /* For the drag icon */
+  padding-right: 4px;
 }
 
 .plugin-head {
@@ -499,7 +490,7 @@ h2 {
 }
 
 .plugin-head strong {
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1.2;
 }
 
@@ -574,15 +565,15 @@ h2 {
 /* Talisman Buttons */
 button {
   width: 100%;
-  border-radius: 4px; /* Scroll / Talisman edge */
+  border-radius: 4px;
   border: 1px solid rgba(5, 150, 105, 0.4);
-  padding: 12px 18px;
+  padding: 12px 16px;
   font: inherit;
   cursor: pointer;
   color: #fff;
   font-weight: 700;
-  font-size: 15px;
-  letter-spacing: 0.1em;
+  font-size: 14px;
+  letter-spacing: 0.05em;
   background: linear-gradient(135deg, var(--accent-strong), var(--accent));
   box-shadow: var(--btn-shadow);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);

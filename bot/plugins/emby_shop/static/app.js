@@ -170,6 +170,7 @@ function renderBottomNav() {
   if (!nav) return;
   const items = [
     { label: "主页", path: "/miniapp", icon: "🏠" },
+    { label: "修仙", path: "/plugins/xiuxian/app", icon: "🏔️" },
     { label: "商店", path: "/plugins/shop/app", icon: "🛒" }
   ];
   const currentPath = window.location.pathname;
