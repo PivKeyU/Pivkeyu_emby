@@ -1142,13 +1142,29 @@ function syncFoldToolbar() {
     shortcuts.innerHTML = "";
     for (const card of cards) {
       if (!card.id) continue;
+      const wrapper = document.createElement("div");
+      wrapper.className = "shortcut-wrapper";
+      
       const button = document.createElement("button");
       button.type = "button";
       button.className = `ghost fold-shortcut${card.open ? " is-active" : ""}`;
       button.textContent = foldCardLabel(card);
       button.dataset.foldTarget = card.id;
-      button.setAttribute("draggable", "true");
-      shortcuts.appendChild(button);
+      
+      const upBtn = document.createElement("button");
+      upBtn.className = "sort-btn up";
+      upBtn.innerHTML = "↑";
+      upBtn.onclick = (e) => { e.stopPropagation(); moveShortcut(wrapper, -1); };
+      
+      const downBtn = document.createElement("button");
+      downBtn.className = "sort-btn down";
+      downBtn.innerHTML = "↓";
+      downBtn.onclick = (e) => { e.stopPropagation(); moveShortcut(wrapper, 1); };
+
+      wrapper.appendChild(upBtn);
+      wrapper.appendChild(button);
+      wrapper.appendChild(downBtn);
+      shortcuts.appendChild(wrapper);
     }
   }
 }
@@ -1171,68 +1187,41 @@ function setupFoldToolbar() {
       jumpToFoldCard(button.dataset.foldTarget);
     });
 
-    let draggingShortcut = null;
-    shortcuts.addEventListener("dragstart", (e) => {
-      const btn = e.target.closest(".fold-shortcut");
-      if (!btn) return;
-      draggingShortcut = btn;
-      btn.classList.add("dragging");
-      e.dataTransfer.effectAllowed = "move";
-    });
-
-    shortcuts.addEventListener("dragover", (e) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
-      if (!draggingShortcut) return;
-      const afterElement = getDragAfterShortcut(shortcuts, e.clientX);
-      if (afterElement == null) {
-        shortcuts.appendChild(draggingShortcut);
-      } else {
-        shortcuts.insertBefore(draggingShortcut, afterElement);
+    // Touch/click sorting replaced dragging
+    window.moveShortcut = (wrapper, direction) => {
+      const parent = wrapper.parentNode;
+      const index = Array.from(parent.children).indexOf(wrapper);
+      if (direction === -1 && index > 0) {
+        parent.insertBefore(wrapper, parent.children[index - 1]);
+      } else if (direction === 1 && index < parent.children.length - 1) {
+        parent.insertBefore(wrapper, parent.children[index + 2]);
       }
-    });
+      syncBoardGridFromShortcuts();
+    };
 
-    shortcuts.addEventListener("dragend", (e) => {
-      if (draggingShortcut) {
-        draggingShortcut.classList.remove("dragging");
+    function syncBoardGridFromShortcuts() {
+      const boardGrid = document.querySelector(".board-grid");
+      if (boardGrid) {
+        const newOrderIds = Array.from(shortcuts.querySelectorAll(".fold-shortcut"))
+          .map(btn => btn.dataset.foldTarget)
+          .filter(Boolean);
+          
+        const cardMap = new Map();
+        Array.from(boardGrid.querySelectorAll(".fold-card")).forEach(c => cardMap.set(c.id, c));
         
-        const boardGrid = document.querySelector(".board-grid");
-        if (boardGrid) {
-          const newOrderIds = Array.from(shortcuts.querySelectorAll(".fold-shortcut"))
-            .map(btn => btn.dataset.foldTarget)
-            .filter(Boolean);
-            
-          const cardMap = new Map();
-          Array.from(boardGrid.querySelectorAll(".fold-card")).forEach(c => cardMap.set(c.id, c));
-          
-          newOrderIds.forEach(id => {
-            if (cardMap.has(id)) {
-              boardGrid.appendChild(cardMap.get(id));
-              cardMap.delete(id);
-            }
-          });
-          cardMap.forEach(c => boardGrid.appendChild(c));
-          
-          localStorage.setItem("xiuxian_layout_order", JSON.stringify(
-            Array.from(boardGrid.querySelectorAll(".fold-card")).map(c => c.id).filter(Boolean)
-          ));
-        }
-        draggingShortcut = null;
+        newOrderIds.forEach(id => {
+          if (cardMap.has(id)) {
+            boardGrid.appendChild(cardMap.get(id));
+            cardMap.delete(id);
+          }
+        });
+        cardMap.forEach(c => boardGrid.appendChild(c));
+        
+        localStorage.setItem("xiuxian_layout_order", JSON.stringify(
+          Array.from(boardGrid.querySelectorAll(".fold-card")).map(c => c.id).filter(Boolean)
+        ));
       }
-    });
-  }
-
-  function getDragAfterShortcut(container, x) {
-    const draggableElements = [...container.querySelectorAll(".fold-shortcut:not(.dragging)")];
-    return draggableElements.reduce((closest, child) => {
-      const box = child.getBoundingClientRect();
-      const offset = x - box.left - box.width / 2;
-      if (offset < 0 && offset > closest.offset) {
-        return { offset: offset, element: child };
-      } else {
-        return closest;
-      }
-    }, { offset: Number.NEGATIVE_INFINITY }).element;
+    }
   }
 
   document.querySelectorAll(".fold-card").forEach((card) => {
@@ -6538,20 +6527,34 @@ bootstrap().catch(async (error) => {
   await popup("初始化失败", message, "error");
 });
 
-// --- Redesign Additions: Drag & Drop ---
+// --- Redesign Additions: Card Sorting Buttons ---
 const boardGrid = document.querySelector(".board-grid");
 if (boardGrid) {
   const cards = Array.from(boardGrid.querySelectorAll(".fold-card"));
   cards.forEach(card => {
-    card.setAttribute("draggable", "true");
     const summary = card.querySelector(".fold-summary");
     if (summary) {
-      const handle = document.createElement("span");
-      handle.className = "drag-handle";
-      handle.innerHTML = '<svg viewBox="0 0 24 24"><path d="M3 15h18v-2H3v2zm0 4h18v-2H3v2zm0-8h18V9H3v2zm0-6v2h18V5H3z"/></svg>';
+      const controls = document.createElement("div");
+      controls.className = "card-sort-controls";
+      
+      const upBtn = document.createElement("button");
+      upBtn.type = "button";
+      upBtn.className = "ghost card-up";
+      upBtn.innerHTML = "↑上移";
+      upBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); moveCard(card, -1); };
+
+      const downBtn = document.createElement("button");
+      downBtn.type = "button";
+      downBtn.className = "ghost card-down";
+      downBtn.innerHTML = "↓下移";
+      downBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); moveCard(card, 1); };
+
+      controls.appendChild(upBtn);
+      controls.appendChild(downBtn);
+      
       const titleDiv = summary.querySelector("div");
       if (titleDiv) {
-        titleDiv.appendChild(handle);
+        titleDiv.appendChild(controls);
       }
     }
   });
@@ -6575,60 +6578,23 @@ if (boardGrid) {
     }
   }
 
-  let draggingCard = null;
-
-  boardGrid.addEventListener("dragstart", e => {
-    const card = e.target.closest(".fold-card");
-    if (!card) return;
-    draggingCard = card;
-    card.classList.add("dragging");
-    e.dataTransfer.effectAllowed = "move";
-  });
-
-  boardGrid.addEventListener("dragover", e => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    const afterElement = getDragAfterElement(boardGrid, e.clientY);
-    if (draggingCard) {
-      if (afterElement == null) {
-        boardGrid.appendChild(draggingCard);
-      } else {
-        boardGrid.insertBefore(draggingCard, afterElement);
-      }
+  window.moveCard = (card, direction) => {
+    const index = Array.from(boardGrid.children).indexOf(card);
+    if (direction === -1 && index > 0) {
+      boardGrid.insertBefore(card, boardGrid.children[index - 1]);
+    } else if (direction === 1 && index < boardGrid.children.length - 1) {
+      boardGrid.insertBefore(card, boardGrid.children[index + 2]);
     }
-  });
-
-  boardGrid.addEventListener("dragend", e => {
-    if (draggingCard) {
-      draggingCard.classList.remove("dragging");
-      draggingCard = null;
-      const newOrder = Array.from(boardGrid.querySelectorAll(".fold-card"))
-        .map(c => c.id).filter(Boolean);
-      localStorage.setItem("xiuxian_layout_order", JSON.stringify(newOrder));
-      setupFoldToolbar();
-    }
-  });
-
-  function getDragAfterElement(container, y) {
-    const draggableElements = [...container.querySelectorAll(".fold-card:not(.dragging)")];
-    return draggableElements.reduce((closest, child) => {
-      const box = child.getBoundingClientRect();
-      const offset = y - box.top - box.height / 2;
-      if (offset < 0 && offset > closest.offset) {
-        return { offset: offset, element: child };
-      } else {
-        return closest;
-      }
-    }, { offset: Number.NEGATIVE_INFINITY }).element;
-  }
+    
+    const newOrder = Array.from(boardGrid.querySelectorAll(".fold-card"))
+      .map(c => c.id).filter(Boolean);
+    localStorage.setItem("xiuxian_layout_order", JSON.stringify(newOrder));
+    setupFoldToolbar();
+  };
 }
 
-// --- Redesign Additions: FABs (Admin & Quick Inventory) ---
+// --- Redesign Additions: FABs (Admin) ---
 const fabAdmin = document.getElementById("fab-admin");
-const fabInventory = document.getElementById("fab-inventory");
-const quickInventoryModal = document.getElementById("quick-inventory-modal");
-const quickInventoryList = document.getElementById("quick-inventory-list");
-const quickInventorySearch = document.getElementById("quick-inventory-search");
 
 if (fabAdmin) {
   const observer = new MutationObserver(() => {
@@ -6651,75 +6617,6 @@ if (fabAdmin) {
     const adminBtn = document.getElementById("open-admin-panel");
     if (adminBtn) adminBtn.click();
   });
-}
-
-if (fabInventory && quickInventoryModal) {
-  fabInventory.addEventListener("click", () => {
-    quickInventoryModal.classList.remove("hidden");
-    quickInventoryModal.setAttribute("aria-hidden", "false");
-    document.body.classList.add("is-modal-open");
-    renderQuickInventory();
-  });
-
-  document.querySelectorAll("[data-quick-inventory-close]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      quickInventoryModal.classList.add("hidden");
-      quickInventoryModal.setAttribute("aria-hidden", "true");
-      document.body.classList.remove("is-modal-open");
-    });
-  });
-
-  quickInventorySearch?.addEventListener("input", () => {
-    renderQuickInventory();
-  });
-}
-
-function renderQuickInventory() {
-  if (!quickInventoryList) return;
-  const bundle = state.profileBundle;
-  if (!bundle) {
-    quickInventoryList.innerHTML = "<p class='muted'>数据加载中...</p>";
-    return;
-  }
-
-  const query = (quickInventorySearch?.value || "").trim().toLowerCase();
-  
-  const items = [];
-  
-  (bundle.artifacts || []).forEach(item => {
-    items.push({ type: "法宝", name: item.artifact?.name || "", desc: item.artifact?.description || "", element: "请在【仓储整理】装备" });
-  });
-  (bundle.pills || []).forEach(item => {
-    items.push({ type: "丹药", name: item.pill?.name || "", desc: item.pill?.description || "", count: item.quantity, element: "破境丹在【日常修行】使用" });
-  });
-  (bundle.talismans || []).forEach(item => {
-    items.push({ type: "符箓", name: item.talisman?.name || "", desc: item.talisman?.description || "", count: item.quantity, element: "请在【仓储整理】装备" });
-  });
-
-  const filtered = items.filter(item => 
-    !query || item.name.toLowerCase().includes(query) || item.desc.toLowerCase().includes(query)
-  );
-
-  if (!filtered.length) {
-    quickInventoryList.innerHTML = "<p class='muted'>没有找到匹配的物品。</p>";
-    return;
-  }
-
-  quickInventoryList.innerHTML = "";
-  const cardsArray = filtered.map(item => {
-    const card = document.createElement("article");
-    card.className = "stack-item";
-    card.innerHTML = `
-      <div class="stack-item-head">
-        <strong>【${item.type}】${escapeHtml(item.name)} ${item.count ? `x${item.count}` : ""}</strong>
-      </div>
-      <p>${escapeHtml(item.desc)}</p>
-      <p class="muted" style="margin-top: 4px; font-size: 11px;">提示: ${item.element}</p>
-    `;
-    return { card, item };
-  });
-
-  renderGroupedCards(quickInventoryList, cardsArray, item => item.type);
 }
 
 function renderGroupedCards(root, cardsHtmlArray, groupingFn) {

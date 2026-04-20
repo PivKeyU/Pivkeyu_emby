@@ -86,6 +86,7 @@
         <button type="button" class="nav-pill" data-section-target="migration-section">数据迁移</button>
         <button type="button" class="nav-pill" data-section-target="codes-section">注册码</button>
         <button type="button" class="nav-pill" data-section-target="users-section">用户检索</button>
+        <button type="button" class="nav-pill" data-section-target="moderation-section">群组管理</button>
         <button type="button" class="nav-pill" data-section-target="bot-block-section">Bot 黑名单</button>
         <button type="button" class="nav-pill" data-section-target="editor-section">用户编辑</button>
         <button type="button" class="nav-pill" data-section-target="plugins-section">插件状态</button>
@@ -460,6 +461,126 @@
               <button id="save-user" type="submit">保存修改</button>
             </div>
           </form>
+        </div>
+      </details>
+
+      <details id="moderation-section" class="card fold-card">
+        <summary class="fold-summary">
+          <div>
+            <p class="eyebrow">群组管理</p>
+            <h2>群管动作与警告</h2>
+          </div>
+          <span class="summary-tip">支持按 TG 昵称、@username 或 TGID 搜成员，并执行禁言、踢出、头衔、置顶和警告</span>
+        </summary>
+        <div class="fold-body">
+          <section class="plugin-import-card">
+            <div>
+              <p class="eyebrow">当前群组</p>
+              <h3>选择需要管理的群</h3>
+            </div>
+            <p id="moderation-status" class="plugin-meta">正在加载可管理群组与警告配置。</p>
+            <form id="moderation-chat-form" class="grid-form">
+              <label>
+                管理群组
+                <select id="moderation-chat-select"></select>
+              </label>
+              <div class="form-actions">
+                <button id="moderation-refresh" type="button" class="secondary">刷新群管理数据</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="plugin-import-card">
+            <div>
+              <p class="eyebrow">成员搜索</p>
+              <h3>按 TG 昵称 / @username / TGID 搜索</h3>
+            </div>
+            <p class="plugin-meta">仅搜索当前群成员。搜索结果会展示当前警告次数，并可直接带入下方操作区。</p>
+            <form id="moderation-search-form" class="search-form">
+              <label class="search-field">
+                <span>搜索关键词</span>
+                <input id="moderation-search-input" type="search" placeholder="例如：昵称、@username、123456789">
+              </label>
+              <button id="moderation-search-submit" type="submit">搜索成员</button>
+            </form>
+            <div id="moderation-member-list" class="stack-list user-list"></div>
+          </section>
+
+          <section class="plugin-import-card">
+            <div>
+              <p class="eyebrow">即时操作</p>
+              <h3>禁言、踢出、头衔、置顶与警告</h3>
+            </div>
+            <p id="moderation-target-status" class="plugin-meta">先在上方搜索并选择一个群成员。</p>
+            <form id="moderation-action-form" class="grid-form">
+              <label>
+                选中成员
+                <input id="moderation-target-display" type="text" readonly placeholder="未选择群成员">
+              </label>
+              <label>
+                禁言分钟
+                <input id="moderation-mute-minutes" type="number" min="0" max="10080" value="60" placeholder="0 表示解除禁言">
+              </label>
+              <label>
+                管理员头衔
+                <input id="moderation-title" type="text" maxlength="16" placeholder="仅管理员可设置">
+              </label>
+              <label>
+                消息 ID
+                <input id="moderation-message-id" type="number" min="1" placeholder="用于置顶 / 取消置顶">
+              </label>
+              <label class="wide-field">
+                原因 / 备注
+                <input id="moderation-reason" type="text" maxlength="255" placeholder="会用于警告记录，也可作为处罚备注">
+              </label>
+              <div class="form-actions moderation-actions">
+                <button id="moderation-mute-button" type="button">禁言</button>
+                <button id="moderation-unmute-button" type="button" class="secondary">解除禁言</button>
+                <button id="moderation-kick-button" type="button">踢出</button>
+                <button id="moderation-warn-button" type="button">警告</button>
+                <button id="moderation-clear-warn-button" type="button" class="secondary">清空警告</button>
+                <button id="moderation-title-button" type="button" class="secondary">设置头衔</button>
+                <button id="moderation-pin-button" type="button" class="secondary">置顶消息</button>
+                <button id="moderation-unpin-button" type="button" class="secondary">取消置顶</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="plugin-import-card">
+            <div>
+              <p class="eyebrow">警告阈值</p>
+              <h3>当前群自动处罚配置</h3>
+            </div>
+            <p id="moderation-settings-status" class="plugin-meta">达到阈值后会自动触发禁言或踢出。</p>
+            <form id="moderation-settings-form" class="grid-form">
+              <label>
+                警告次数阈值
+                <input id="moderation-warn-threshold" type="number" min="1" max="100" value="3">
+              </label>
+              <label>
+                达标处罚
+                <select id="moderation-warn-action">
+                  <option value="mute">mute · 自动禁言</option>
+                  <option value="kick">kick · 自动踢出</option>
+                </select>
+              </label>
+              <label>
+                自动禁言分钟
+                <input id="moderation-warn-mute-minutes" type="number" min="1" max="10080" value="60">
+              </label>
+              <div class="form-actions">
+                <button id="moderation-settings-save" type="submit">保存警告配置</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="card-lite">
+            <div class="plugin-card-top">
+              <div class="plugin-name">当前群警告列表</div>
+              <button id="moderation-warning-refresh" type="button" class="secondary">刷新列表</button>
+            </div>
+            <div id="moderation-warning-list" class="stack-list"></div>
+          </section>
         </div>
       </details>
 

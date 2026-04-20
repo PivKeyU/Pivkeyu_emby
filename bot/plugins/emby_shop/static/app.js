@@ -162,6 +162,27 @@ function applyBundle(bundle) {
   refs.listingSection.classList.toggle("hidden", !permissions.can_publish);
   renderProducts(bundle.items || []);
   renderMyItems(bundle.my_items || []);
+  renderBottomNav();
+}
+
+function renderBottomNav() {
+  const nav = document.querySelector("#bottom-nav");
+  if (!nav) return;
+  const items = [
+    { id: "home", label: "主页", path: "/miniapp", icon: "🏠" },
+    { id: "shop", label: "商店", path: "/plugins/shop/app", icon: "🛒" }
+  ];
+  const currentPath = window.location.pathname;
+  nav.innerHTML = "";
+  for (const item of items) {
+    const link = document.createElement("a");
+    link.href = item.path;
+    link.textContent = `${item.icon || ""} ${item.label}`.trim();
+    if (item.path === currentPath) {
+      link.classList.add("is-active");
+    }
+    nav.appendChild(link);
+  }
 }
 
 async function bootstrap() {

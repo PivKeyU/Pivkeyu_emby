@@ -1,27 +1,27 @@
 :root {
-  --bg-top: #0a0e17;
-  --bg-bottom: #05080c;
-  --surface: #131b26;
-  --surface-strong: #1a2533;
-  --surface-soft: #0e1520;
+  --bg-top: #111318;
+  --bg-bottom: #0b0d12;
+  --surface: #1a1d24;
+  --surface-strong: #252932;
+  --surface-soft: #14171d;
   --ink: #e2e8f0;
-  --muted: #94a3b8;
-  --line: #1e293b;
-  --line-strong: #334155;
-  --accent: #10b981;
-  --accent-strong: #059669;
-  --accent-soft: #022c22;
-  --accent-soft-strong: #064e3b;
-  --warm: #fbbf24;
-  --warm-soft: #422006;
-  --success: #34d399;
-  --warning: #f59e0b;
-  --danger: #ef4444;
+  --muted: #8b949e;
+  --line: #2d333b;
+  --line-strong: #444c56;
+  --accent: #cca772;
+  --accent-strong: #b38e55;
+  --accent-soft: rgba(204, 167, 114, 0.15);
+  --accent-soft-strong: rgba(204, 167, 114, 0.25);
+  --warm: #e56e52;
+  --warm-soft: rgba(229, 110, 82, 0.15);
+  --success: #5cb85c;
+  --warning: #cca772;
+  --danger: #e56e52;
   --radius-xl: 16px;
   --radius-lg: 12px;
   --radius-md: 8px;
-  --shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-  --shadow-strong: 0 8px 32px rgba(16, 185, 129, 0.15);
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-strong: 0 8px 32px rgba(204, 167, 114, 0.15);
   font-family: "Noto Serif SC", "Source Han Serif SC", "STZhongsong", serif;
 }
 
@@ -48,11 +48,11 @@ body.is-modal-open {
 .app-shell {
   position: relative;
   z-index: 1;
-  width: min(1200px, calc(100vw - 24px));
+  width: min(1200px, calc(100vw - 16px));
   margin: 0 auto;
-  padding: 18px 0 28px;
+  padding: 12px 0 24px;
   display: grid;
-  gap: 14px;
+  gap: 10px;
 }
 
 .card {
@@ -68,8 +68,8 @@ body.is-modal-open {
   position: relative;
   overflow: hidden;
   display: grid;
-  gap: 16px;
-  padding: 18px;
+  gap: 14px;
+  padding: 14px;
   background: var(--surface);
 }
 
@@ -950,30 +950,40 @@ button.is-blocked:not(:disabled) {
 
 /* --- Redesign Additions --- */
 
-/* Drag & Drop */
-.fold-card.dragging {
-  opacity: 0.5;
-  box-shadow: var(--shadow-strong);
-  border-color: var(--accent);
-  transform: scale(0.98);
-  transition: transform 0.1s ease;
-}
+/* --- Redesign Additions: Sorting & FABs --- */
 
-.fold-summary .drag-handle {
-  cursor: grab;
-  padding: 8px;
-  color: var(--muted);
+.shortcut-wrapper {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 2px;
+  background: rgba(204, 167, 114, 0.05);
+  border-radius: 999px;
+  padding: 2px;
 }
-.fold-summary .drag-handle:active {
-  cursor: grabbing;
+
+.sort-btn {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: 999px;
 }
-.fold-summary .drag-handle svg {
-  width: 16px;
-  height: 16px;
-  fill: currentColor;
+
+.sort-btn:hover {
+  background: rgba(204, 167, 114, 0.2);
+  color: var(--accent);
+}
+
+.card-sort-controls {
+  display: flex;
+  gap: 4px;
+}
+
+.card-sort-controls .ghost {
+  padding: 4px 8px;
+  font-size: 11px;
 }
 
 /* Floating Action Buttons (FABs) */
@@ -1003,7 +1013,7 @@ button.is-blocked:not(:disabled) {
 }
 .fab:hover {
   transform: scale(1.05);
-  box-shadow: 0 10px 32px rgba(16, 185, 129, 0.3);
+  box-shadow: 0 10px 32px rgba(204, 167, 114, 0.3);
 }
 .fab svg {
   width: 24px;
@@ -1012,28 +1022,5 @@ button.is-blocked:not(:disabled) {
 }
 
 .fab.admin-fab {
-  background: linear-gradient(135deg, #b45309, #d97706);
-}
-
-/* Quick Inventory Modal */
-#quick-inventory-modal .modal-card {
-  max-width: 400px;
-  height: 80vh;
-  display: flex;
-  flex-direction: column;
-}
-#quick-inventory-modal .modal-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0 18px 18px;
-}
-#quick-inventory-modal .stack-list {
-  margin-top: 12px;
-}
-
-.fold-shortcut.dragging {
-  opacity: 0.5;
-  transform: scale(0.95);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-  transition: none;
+  background: linear-gradient(135deg, #a43e26, #c2410c);
 }

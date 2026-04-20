@@ -61,6 +61,12 @@ const state = {
   visibleCodes: [],
   selectedCodes: new Set(),
   visibleUsers: [],
+  moderationChats: [],
+  selectedModerationChatId: null,
+  moderationMembers: [],
+  selectedModerationTarget: null,
+  moderationWarnings: [],
+  moderationSearchQuery: "",
   botAccessBlocks: [],
   token: localStorage.getItem(storageKey) || "",
   authMode: null,
@@ -133,6 +139,36 @@ const refs = {
   botBlockSubmit: document.querySelector("#bot-block-submit"),
   botBlockStatus: document.querySelector("#bot-block-status"),
   botBlockList: document.querySelector("#bot-block-list"),
+  moderationStatus: document.querySelector("#moderation-status"),
+  moderationChatForm: document.querySelector("#moderation-chat-form"),
+  moderationChatSelect: document.querySelector("#moderation-chat-select"),
+  moderationRefresh: document.querySelector("#moderation-refresh"),
+  moderationSearchForm: document.querySelector("#moderation-search-form"),
+  moderationSearchInput: document.querySelector("#moderation-search-input"),
+  moderationSearchSubmit: document.querySelector("#moderation-search-submit"),
+  moderationMemberList: document.querySelector("#moderation-member-list"),
+  moderationTargetStatus: document.querySelector("#moderation-target-status"),
+  moderationTargetDisplay: document.querySelector("#moderation-target-display"),
+  moderationMuteMinutes: document.querySelector("#moderation-mute-minutes"),
+  moderationTitle: document.querySelector("#moderation-title"),
+  moderationMessageId: document.querySelector("#moderation-message-id"),
+  moderationReason: document.querySelector("#moderation-reason"),
+  moderationMuteButton: document.querySelector("#moderation-mute-button"),
+  moderationUnmuteButton: document.querySelector("#moderation-unmute-button"),
+  moderationKickButton: document.querySelector("#moderation-kick-button"),
+  moderationWarnButton: document.querySelector("#moderation-warn-button"),
+  moderationClearWarnButton: document.querySelector("#moderation-clear-warn-button"),
+  moderationTitleButton: document.querySelector("#moderation-title-button"),
+  moderationPinButton: document.querySelector("#moderation-pin-button"),
+  moderationUnpinButton: document.querySelector("#moderation-unpin-button"),
+  moderationSettingsForm: document.querySelector("#moderation-settings-form"),
+  moderationSettingsStatus: document.querySelector("#moderation-settings-status"),
+  moderationWarnThreshold: document.querySelector("#moderation-warn-threshold"),
+  moderationWarnAction: document.querySelector("#moderation-warn-action"),
+  moderationWarnMuteMinutes: document.querySelector("#moderation-warn-mute-minutes"),
+  moderationSettingsSave: document.querySelector("#moderation-settings-save"),
+  moderationWarningRefresh: document.querySelector("#moderation-warning-refresh"),
+  moderationWarningList: document.querySelector("#moderation-warning-list"),
   whitelistRevokeAll: document.querySelector("#whitelist-revoke-all"),
   whitelistRevokeStatus: document.querySelector("#whitelist-revoke-status"),
   levelLegend: document.querySelector("#level-legend"),
@@ -593,6 +629,147 @@ function fmtBotBlockTarget(item) {
   return parts.join(" / ") || "未指定目标";
 }
 
+function fmtModerationMember(item) {
+  if (!item) return "未选择成员";
+  const parts = [
+    item.display_label || item.tg_display_label || item.display_name || `TG ${item.tg}`,
+    item.tg ? `TG ${item.tg}` : "",
+    item.username ? `@${item.username}` : "",
+    item.status_text || "",
+    item.warn_count ? `警告 ${item.warn_count}` : ""
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
+
+function setModerationStatus(text, tone = "info") {
+  if (!refs.moderationStatus) return;
+  refs.moderationStatus.textContent = text;
+  refs.moderationStatus.dataset.tone = tone;
+}
+
+function setModerationSettings(data = {}) {
+  if (refs.moderationWarnThreshold) {
+    refs.moderationWarnThreshold.value = Number(data.warn_threshold || 3);
+  }
+  if (refs.moderationWarnAction) {
+    refs.moderationWarnAction.value = data.warn_action || "mute";
+  }
+  if (refs.moderationWarnMuteMinutes) {
+    refs.moderationWarnMuteMinutes.value = Number(data.mute_minutes || 60);
+    refs.moderationWarnMuteMinutes.disabled = (data.warn_action || "mute") !== "mute";
+  }
+  if (refs.moderationSettingsStatus) {
+    const actionText = (data.warn_action || "mute") === "kick"
+      ? "达到阈值后自动踢出"
+      : `达到阈值后自动禁言 ${formatCount(data.mute_minutes || 60)} 分钟`;
+    refs.moderationSettingsStatus.textContent = `当前阈值 ${formatCount(data.warn_threshold || 3)} 次，${actionText}。`;
+    refs.moderationSettingsStatus.dataset.tone = "info";
+  }
+}
+
+function fillModerationTarget(item) {
+  state.selectedModerationTarget = item ? { ...item, chat_id: item.chat_id || state.selectedModerationChatId } : null;
+  if (!refs.moderationTargetDisplay || !refs.moderationTargetStatus) return;
+  if (!item) {
+    refs.moderationTargetDisplay.value = "";
+    refs.moderationTargetStatus.textContent = "先在上方搜索并选择一个群成员。";
+    refs.moderationTargetStatus.dataset.tone = "info";
+    return;
+  }
+  refs.moderationTargetDisplay.value = fmtModerationMember(item);
+  refs.moderationTargetStatus.textContent = item.warn_count
+    ? `当前选中 ${item.display_label || `TG ${item.tg}`}，已有 ${item.warn_count} 次警告。`
+    : `当前选中 ${item.display_label || `TG ${item.tg}`}，暂时没有警告记录。`;
+  refs.moderationTargetStatus.dataset.tone = item.warn_count ? "warning" : "info";
+}
+
+function renderModerationMembers(items) {
+  if (!refs.moderationMemberList) return;
+  refs.moderationMemberList.innerHTML = "";
+
+  if (!items.length) {
+    refs.moderationMemberList.innerHTML = `
+      <article class="user-card">
+        <div class="user-name">当前没有匹配成员</div>
+        <p class="user-meta stack-empty">可以更换关键词，或先切换到正确的群组后再搜索。</p>
+      </article>
+    `;
+    return;
+  }
+
+  for (const item of items) {
+    const badges = [
+      `<span class="badge badge--${item.is_admin ? "vip" : "normal"}">${escapeHtml(item.status_text || "成员")}</span>`
+    ];
+    if (item.warn_count) {
+      badges.push(`<span class="badge badge--danger">警告 ${escapeHtml(item.warn_count)}</span>`);
+    }
+    if (item.lv_text) {
+      badges.push(`<span class="badge badge--${escapeHtml(item.lv_tone || "pending")}">${escapeHtml(item.lv_text)}</span>`);
+    }
+
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = `user-card${state.selectedModerationTarget?.tg === item.tg ? " is-selected" : ""}`;
+    card.innerHTML = `
+      <div class="user-card-top">
+        <div>
+          <div class="user-name">${escapeHtml(item.display_label || item.display_name || `TG ${item.tg}`)}</div>
+          <div class="user-subline">TG ${escapeHtml(item.tg)}${item.username ? ` · @${escapeHtml(item.username)}` : ""}</div>
+        </div>
+        <div class="code-card-badges">${badges.join("")}</div>
+      </div>
+      <div class="user-meta">
+        <div>${escapeHtml(item.emby_name || "未绑定 Emby 账号")}${item.embyid ? ` · ID ${escapeHtml(item.embyid)}` : ""}</div>
+        <div>当前群身份：${escapeHtml(item.status_text || "未知状态")}</div>
+      </div>
+    `;
+    card.addEventListener("click", () => {
+      fillModerationTarget(item);
+      renderModerationMembers(state.moderationMembers);
+      focusSection("moderation-section", false);
+    });
+    refs.moderationMemberList.appendChild(card);
+  }
+}
+
+function renderModerationWarnings(items) {
+  if (!refs.moderationWarningList) return;
+  refs.moderationWarningList.innerHTML = "";
+
+  if (!items.length) {
+    refs.moderationWarningList.innerHTML = `
+      <article class="plugin-card">
+        <div class="plugin-name">当前群没有有效警告</div>
+        <p class="plugin-meta stack-empty">当你在这里执行“警告”后，列表会自动展示累计中的成员。</p>
+      </article>
+    `;
+    return;
+  }
+
+  for (const item of items) {
+    const actionText = item.last_action
+      ? `最近自动处罚：${item.last_action}${item.last_action_at ? ` · ${fmtDateTime(item.last_action_at)}` : ""}`
+      : "最近还没有触发自动处罚。";
+    const card = document.createElement("article");
+    card.className = "plugin-card";
+    card.innerHTML = `
+      <div class="plugin-card-top">
+        <div class="plugin-name">${escapeHtml(item.tg_display_label || item.emby_name || `TG ${item.tg}`)}</div>
+        <span class="badge badge--danger">警告 ${escapeHtml(item.warn_count)}</span>
+      </div>
+      <div class="plugin-meta">TG ${escapeHtml(item.tg)}${item.tg_username ? ` · @${escapeHtml(item.tg_username)}` : ""}${item.emby_name ? ` · Emby ${escapeHtml(item.emby_name)}` : ""}</div>
+      <div class="plugin-meta">最近原因：${escapeHtml(item.last_reason || "未填写")}</div>
+      <div class="plugin-meta">最近警告时间：${escapeHtml(fmtDateTime(item.last_warned_at))}</div>
+      <div class="plugin-meta">${escapeHtml(actionText)}</div>
+      <div class="plugin-actions">
+        <button type="button" class="secondary" data-warning-pick="${escapeHtml(item.tg)}">选中成员</button>
+      </div>
+    `;
+    refs.moderationWarningList.appendChild(card);
+  }
+}
+
 function setCodeSummary(summary = {}) {
   document.querySelector("#codes-total").textContent = formatCount(summary.all);
   document.querySelector("#codes-unused").textContent = formatCount(summary.unused);
@@ -1011,6 +1188,151 @@ async function loadBotAccessBlocks() {
   renderBotAccessBlocks(state.botAccessBlocks);
 }
 
+function currentModerationChat() {
+  return state.moderationChats.find((item) => Number(item.chat_id) === Number(state.selectedModerationChatId)) || null;
+}
+
+function requireModerationChat() {
+  const chat = currentModerationChat();
+  if (chat) {
+    return chat;
+  }
+  const message = "请先选择一个可管理的群组。";
+  setModerationStatus(message, "warning");
+  setAdminStatus(message, "warning");
+  showToast(message, "warning");
+  return null;
+}
+
+function requireModerationTarget() {
+  if (state.selectedModerationTarget) {
+    return state.selectedModerationTarget;
+  }
+  const message = "请先搜索并选择一个群成员。";
+  if (refs.moderationTargetStatus) {
+    refs.moderationTargetStatus.textContent = message;
+    refs.moderationTargetStatus.dataset.tone = "warning";
+  }
+  setAdminStatus(message, "warning");
+  showToast(message, "warning");
+  return null;
+}
+
+async function loadModerationWarnings() {
+  const chat = requireModerationChat();
+  if (!chat) {
+    state.moderationWarnings = [];
+    renderModerationWarnings([]);
+    return;
+  }
+
+  const params = new URLSearchParams({
+    chat_id: String(chat.chat_id),
+    limit: "100"
+  });
+  const result = await api(`/admin-api/moderation/warnings?${params.toString()}`);
+  state.moderationWarnings = result.data?.items || [];
+  setModerationSettings(result.data?.settings || chat.settings || {});
+  renderModerationWarnings(state.moderationWarnings);
+}
+
+async function loadModerationChats() {
+  const result = await api("/admin-api/moderation/chats");
+  state.moderationChats = result.data || [];
+
+  if (refs.moderationChatSelect) {
+    refs.moderationChatSelect.innerHTML = "";
+  }
+
+  if (!state.moderationChats.length) {
+    state.selectedModerationChatId = null;
+    state.moderationMembers = [];
+    state.moderationWarnings = [];
+    fillModerationTarget(null);
+    renderModerationMembers([]);
+    renderModerationWarnings([]);
+    setModerationStatus("当前没有可管理群组，请先在配置中填写 `group` 群列表。", "warning");
+    return;
+  }
+
+  const selectedExists = state.moderationChats.some((item) => Number(item.chat_id) === Number(state.selectedModerationChatId));
+  if (!selectedExists) {
+    state.selectedModerationChatId = Number(state.moderationChats[0].chat_id);
+    fillModerationTarget(null);
+  }
+
+  state.moderationChats.forEach((item) => {
+    const option = document.createElement("option");
+    option.value = String(item.chat_id);
+    option.textContent = item.username
+      ? `${item.title} (${item.username.startsWith("@") ? item.username : `@${item.username}`})`
+      : `${item.title} (${item.chat_id})`;
+    refs.moderationChatSelect?.appendChild(option);
+  });
+  if (refs.moderationChatSelect) {
+    refs.moderationChatSelect.value = String(state.selectedModerationChatId);
+  }
+
+  const chat = currentModerationChat();
+  setModerationSettings(chat?.settings || {});
+  setModerationStatus(
+    chat
+      ? `当前正在管理 ${chat.title}，活跃警告 ${formatCount(chat.active_warning_count || 0)} 条。`
+      : "请选择一个群组开始管理。",
+    "info"
+  );
+  await loadModerationWarnings();
+}
+
+async function searchModerationMembers() {
+  const chat = requireModerationChat();
+  if (!chat) {
+    return;
+  }
+
+  const keyword = refs.moderationSearchInput?.value.trim() || "";
+  state.moderationSearchQuery = keyword;
+  if (!keyword) {
+    state.moderationMembers = [];
+    renderModerationMembers([]);
+    setModerationStatus("请输入 TG 昵称、@username 或 TGID 后再搜索。", "warning");
+    return;
+  }
+
+  const params = new URLSearchParams({
+    chat_id: String(chat.chat_id),
+    q: keyword,
+    limit: "20"
+  });
+  const result = await api(`/admin-api/moderation/members/search?${params.toString()}`);
+  state.moderationMembers = result.data?.items || [];
+  setModerationSettings(result.data?.settings || chat.settings || {});
+  renderModerationMembers(state.moderationMembers);
+  setModerationStatus(
+    state.moderationMembers.length
+      ? `已在 ${chat.title} 中找到 ${formatCount(state.moderationMembers.length)} 个匹配成员。`
+      : `在 ${chat.title} 中没有找到“${keyword}”的匹配成员。`,
+    state.moderationMembers.length ? "success" : "warning"
+  );
+}
+
+async function refreshModerationAfterAction(options = {}) {
+  const { reloadMembers = true } = options;
+  await loadModerationChats();
+  if (reloadMembers && state.moderationSearchQuery) {
+    await searchModerationMembers();
+  }
+  if (state.selectedModerationTarget) {
+    const targetTg = Number(state.selectedModerationTarget.tg);
+    const refreshed = state.moderationMembers.find((item) => Number(item.tg) === targetTg)
+      || state.moderationWarnings.find((item) => Number(item.tg) === targetTg);
+    if (refreshed) {
+      fillModerationTarget(refreshed);
+      renderModerationMembers(state.moderationMembers);
+    }
+  }
+}
+
 async function loadUsers() {
   const params = new URLSearchParams({
     page: String(state.page),
@@ -1077,7 +1399,7 @@ async function refreshSelectedUser() {
 }
 
 async function refreshDashboard() {
-  await Promise.all([loadSummary(), loadAutoUpdate(), loadPlugins(), loadBotAccessBlocks(), loadUsers(), loadCodes()]);
+  await Promise.all([loadSummary(), loadAutoUpdate(), loadPlugins(), loadBotAccessBlocks(), loadModerationChats(), loadUsers(), loadCodes()]);
 }
 
 async function tryTelegramAuth() {
@@ -1339,6 +1661,285 @@ async function saveAutoUpdate(event) {
   }
 }
 
+async function saveModerationSettings(event) {
+  event.preventDefault();
+  const chat = requireModerationChat();
+  if (!chat) {
+    return;
+  }
+
+  const payload = {
+    warn_threshold: Number(refs.moderationWarnThreshold?.value || 3),
+    warn_action: refs.moderationWarnAction?.value || "mute",
+    mute_minutes: Number(refs.moderationWarnMuteMinutes?.value || 60)
+  };
+
+  try {
+    const result = await runButtonAction(refs.moderationSettingsSave, "保存中...", () => api(`/admin-api/moderation/settings/${encodeURIComponent(chat.chat_id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    }));
+    setModerationSettings(result.data || {});
+    await loadModerationChats();
+    setAdminStatus(`群组 ${chat.title} 的警告配置已更新。`, "success");
+    setModerationStatus(`群组 ${chat.title} 的警告配置已更新。`, "success");
+    showToast("警告配置已保存。", "success");
+    await popup("保存成功", `群组 ${chat.title} 的警告配置已更新。`, "success");
+  } catch (error) {
+    const message = normalizeError(error, "保存群组警告配置失败。");
+    setAdminStatus(`保存群组警告配置失败：${message}`, "error");
+    setModerationStatus(`保存失败：${message}`, "error");
+    showToast(`保存失败：${message}`, "error");
+    await popup("保存失败", message, "error");
+  }
+}
+
+async function moderationMuteAction(minutes) {
+  const chat = requireModerationChat();
+  const target = requireModerationTarget();
+  if (!chat || !target) {
+    return;
+  }
+
+  try {
+    const result = await runButtonAction(minutes > 0 ? refs.moderationMuteButton : refs.moderationUnmuteButton, minutes > 0 ? "处理中..." : "解除中...", () => api("/admin-api/moderation/actions/mute", {
+      method: "POST",
+      body: JSON.stringify({
+        chat_id: chat.chat_id,
+        tg: target.tg,
+        minutes
+      })
+    }));
+    fillModerationTarget({ ...target, ...(result.data?.target || {}) });
+    await refreshModerationAfterAction();
+    const message = `${result.data?.target?.display_label || target.display_label || `TG ${target.tg}`} ${result.data?.result?.message || "操作已完成。"}`
+    setAdminStatus(message, "success");
+    setModerationStatus(message, "success");
+    showToast(message, "success");
+    await popup(minutes > 0 ? "禁言成功" : "解除禁言成功", message, "success");
+  } catch (error) {
+    const message = normalizeError(error, minutes > 0 ? "禁言失败。" : "解除禁言失败。");
+    setAdminStatus(message, "error");
+    setModerationStatus(message, "error");
+    showToast(message, "error");
+    await popup(minutes > 0 ? "禁言失败" : "解除禁言失败", message, "error");
+  }
+}
+
+async function moderationKickAction() {
+  const chat = requireModerationChat();
+  const target = requireModerationTarget();
+  if (!chat || !target) {
+    return;
+  }
+
+  const confirmed = window.confirm(`确认将 ${target.display_label || `TG ${target.tg}`} 踢出当前群吗？`);
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const result = await runButtonAction(refs.moderationKickButton, "踢出中...", () => api("/admin-api/moderation/actions/kick", {
+      method: "POST",
+      body: JSON.stringify({
+        chat_id: chat.chat_id,
+        tg: target.tg
+      })
+    }));
+    await refreshModerationAfterAction();
+    const message = `${result.data?.target?.display_label || target.display_label || `TG ${target.tg}`} ${result.data?.result?.message || "已踢出群组。"}`
+    setAdminStatus(message, "success");
+    setModerationStatus(message, "success");
+    showToast(message, "success");
+    await popup("踢出成功", message, "success");
+  } catch (error) {
+    const message = normalizeError(error, "踢出失败。");
+    setAdminStatus(message, "error");
+    setModerationStatus(message, "error");
+    showToast(message, "error");
+    await popup("踢出失败", message, "error");
+  }
+}
+
+async function moderationWarnAction() {
+  const chat = requireModerationChat();
+  const target = requireModerationTarget();
+  if (!chat || !target) {
+    return;
+  }
+
+  try {
+    const result = await runButtonAction(refs.moderationWarnButton, "警告中...", () => api("/admin-api/moderation/actions/warn", {
+      method: "POST",
+      body: JSON.stringify({
+        chat_id: chat.chat_id,
+        tg: target.tg,
+        reason: refs.moderationReason?.value.trim() || null
+      })
+    }));
+    fillModerationTarget({ ...target, ...(result.data?.target || {}), warn_count: result.data?.warning?.warn_count || target.warn_count || 0 });
+    await refreshModerationAfterAction();
+    const warning = result.data?.warning || {};
+    let message = `${result.data?.target?.display_label || target.display_label || `TG ${target.tg}`} 当前警告 ${warning.warn_count || 0} / ${result.data?.settings?.warn_threshold || 0}。`;
+    if (result.data?.action_triggered && result.data?.action_result?.message) {
+      message += ` 已自动执行：${result.data.action_result.message}`;
+    } else if (result.data?.action_error) {
+      message += ` 自动处罚失败：${result.data.action_error}`;
+    }
+    setAdminStatus(message, result.data?.action_error ? "warning" : "success");
+    setModerationStatus(message, result.data?.action_error ? "warning" : "success");
+    showToast(message, result.data?.action_error ? "warning" : "success");
+    await popup("警告已记录", message, result.data?.action_error ? "warning" : "success");
+  } catch (error) {
+    const message = normalizeError(error, "警告失败。");
+    setAdminStatus(message, "error");
+    setModerationStatus(message, "error");
+    showToast(message, "error");
+    await popup("警告失败", message, "error");
+  }
+}
+
+async function moderationClearWarnAction() {
+  const chat = requireModerationChat();
+  const target = requireModerationTarget();
+  if (!chat || !target) {
+    return;
+  }
+
+  try {
+    const result = await runButtonAction(refs.moderationClearWarnButton, "清空中...", () => api("/admin-api/moderation/actions/clear-warn", {
+      method: "POST",
+      body: JSON.stringify({
+        chat_id: chat.chat_id,
+        tg: target.tg
+      })
+    }));
+    fillModerationTarget({ ...target, ...(result.data?.target || {}), warn_count: 0 });
+    await refreshModerationAfterAction();
+    const removed = Boolean(result.data?.result?.removed);
+    const message = removed
+      ? `${result.data?.target?.display_label || target.display_label || `TG ${target.tg}`} 的警告已清空。`
+      : `${result.data?.target?.display_label || target.display_label || `TG ${target.tg}`} 当前没有警告记录。`;
+    setAdminStatus(message, removed ? "success" : "warning");
+    setModerationStatus(message, removed ? "success" : "warning");
+    showToast(message, removed ? "success" : "warning");
+    await popup(removed ? "已清空警告" : "无需处理", message, removed ? "success" : "warning");
+  } catch (error) {
+    const message = normalizeError(error, "清空警告失败。");
+    setAdminStatus(message, "error");
+    setModerationStatus(message, "error");
+    showToast(message, "error");
+    await popup("清空失败", message, "error");
+  }
+}
+
+async function moderationTitleAction() {
+  const chat = requireModerationChat();
+  const target = requireModerationTarget();
+  if (!chat || !target) {
+    return;
+  }
+
+  const title = refs.moderationTitle?.value.trim() || "";
+  if (!title) {
+    const message = "请先填写管理员头衔。";
+    setModerationStatus(message, "warning");
+    showToast(message, "warning");
+    await popup("缺少头衔", message, "warning");
+    return;
+  }
+
+  try {
+    const result = await runButtonAction(refs.moderationTitleButton, "设置中...", () => api("/admin-api/moderation/actions/title", {
+      method: "POST",
+      body: JSON.stringify({
+        chat_id: chat.chat_id,
+        tg: target.tg,
+        title
+      })
+    }));
+    fillModerationTarget({ ...target, ...(result.data?.target || {}) });
+    const message = `${result.data?.target?.display_label || target.display_label || `TG ${target.tg}`} ${result.data?.result?.message || "头衔已更新。"}`
+    setAdminStatus(message, "success");
+    setModerationStatus(message, "success");
+    showToast(message, "success");
+    await popup("设置成功", message, "success");
+  } catch (error) {
+    const message = normalizeError(error, "设置头衔失败。");
+    setAdminStatus(message, "error");
+    setModerationStatus(message, "error");
+    showToast(message, "error");
+    await popup("设置失败", message, "error");
+  }
+}
+
+async function moderationPinAction() {
+  const chat = requireModerationChat();
+  if (!chat) {
+    return;
+  }
+
+  const messageId = Number(refs.moderationMessageId?.value || 0);
+  if (!messageId) {
+    const message = "请先填写需要置顶的消息 ID。";
+    setModerationStatus(message, "warning");
+    showToast(message, "warning");
+    await popup("缺少消息 ID", message, "warning");
+    return;
+  }
+
+  try {
+    const result = await runButtonAction(refs.moderationPinButton, "置顶中...", () => api("/admin-api/moderation/actions/pin", {
+      method: "POST",
+      body: JSON.stringify({
+        chat_id: chat.chat_id,
+        message_id: messageId,
+        disable_notification: true
+      })
+    }));
+    const message = result.data?.message || `消息 ${messageId} 已置顶。`;
+    setAdminStatus(message, "success");
+    setModerationStatus(message, "success");
+    showToast(message, "success");
+    await popup("置顶成功", message, "success");
+  } catch (error) {
+    const message = normalizeError(error, "置顶消息失败。");
+    setAdminStatus(message, "error");
+    setModerationStatus(message, "error");
+    showToast(message, "error");
+    await popup("置顶失败", message, "error");
+  }
+}
+
+async function moderationUnpinAction() {
+  const chat = requireModerationChat();
+  if (!chat) {
+    return;
+  }
+
+  const messageId = Number(refs.moderationMessageId?.value || 0) || null;
+  try {
+    const result = await runButtonAction(refs.moderationUnpinButton, "取消中...", () => api("/admin-api/moderation/actions/unpin", {
+      method: "POST",
+      body: JSON.stringify({
+        chat_id: chat.chat_id,
+        message_id: messageId
+      })
+    }));
+    const message = result.data?.message || "已取消置顶。";
+    setAdminStatus(message, "success");
+    setModerationStatus(message, "success");
+    showToast(message, "success");
+    await popup("已取消置顶", message, "success");
+  } catch (error) {
+    const message = normalizeError(error, "取消置顶失败。");
+    setAdminStatus(message, "error");
+    setModerationStatus(message, "error");
+    showToast(message, "error");
+    await popup("取消失败", message, "error");
+  }
+}
+
 async function deleteSelectedCodes() {
   const codes = [...state.selectedCodes];
   if (!codes.length) {
@@ -1396,9 +1997,118 @@ function syncSuffixField() {
 
 refs.codeCreateForm?.addEventListener("submit", createCodes);
 refs.autoUpdateForm?.addEventListener("submit", saveAutoUpdate);
+refs.moderationSettingsForm?.addEventListener("submit", saveModerationSettings);
 refs.botBlockForm?.addEventListener("submit", createBotAccessBlock);
 refs.botBlockUseSelected?.addEventListener("click", useSelectedUserForBotBlock);
 refs.codeCreateSuffixMode?.addEventListener("change", syncSuffixField);
+refs.moderationSearchForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    await runButtonAction(refs.moderationSearchSubmit, "搜索中...", searchModerationMembers);
+    focusSection("moderation-section", false);
+  } catch (error) {
+    const message = normalizeError(error, "搜索群成员失败。");
+    setAdminStatus(message, "error");
+    setModerationStatus(message, "error");
+    showToast(message, "error");
+    await popup("搜索失败", message, "error");
+  }
+});
+refs.moderationRefresh?.addEventListener("click", async () => {
+  try {
+    await runButtonAction(refs.moderationRefresh, "刷新中...", async () => {
+      await loadModerationChats();
+      if (state.moderationSearchQuery) {
+        await searchModerationMembers();
+      }
+    });
+    const chat = currentModerationChat();
+    const message = chat ? `群组 ${chat.title} 的管理数据已刷新。` : "群管理数据已刷新。";
+    setAdminStatus(message, "success");
+    setModerationStatus(message, "success");
+    showToast(message, "success");
+  } catch (error) {
+    const message = normalizeError(error, "刷新群管理数据失败。");
+    setAdminStatus(message, "error");
+    setModerationStatus(message, "error");
+    showToast(message, "error");
+  }
+});
+refs.moderationChatSelect?.addEventListener("change", async (event) => {
+  state.selectedModerationChatId = Number(event.target.value || 0) || null;
+  state.moderationMembers = [];
+  fillModerationTarget(null);
+  renderModerationMembers([]);
+  try {
+    await loadModerationWarnings();
+    const chat = currentModerationChat();
+    if (chat) {
+      setModerationSettings(chat.settings || {});
+      setModerationStatus(`已切换到 ${chat.title}。`, "success");
+      setAdminStatus(`已切换到群组 ${chat.title} 的管理视图。`, "success");
+    }
+  } catch (error) {
+    const message = normalizeError(error, "切换群组失败。");
+    setAdminStatus(message, "error");
+    setModerationStatus(message, "error");
+    showToast(message, "error");
+  }
+});
+refs.moderationWarnAction?.addEventListener("change", () => {
+  const isMute = (refs.moderationWarnAction?.value || "mute") === "mute";
+  if (refs.moderationWarnMuteMinutes) {
+    refs.moderationWarnMuteMinutes.disabled = !isMute;
+  }
+  if (refs.moderationSettingsStatus) {
+    refs.moderationSettingsStatus.textContent = isMute
+      ? `达到阈值后会自动禁言 ${formatCount(refs.moderationWarnMuteMinutes?.value || 60)} 分钟。`
+      : "达到阈值后会自动踢出。";
+  }
+});
+refs.moderationMuteButton?.addEventListener("click", () => moderationMuteAction(Number(refs.moderationMuteMinutes?.value || 0) || 0));
+refs.moderationUnmuteButton?.addEventListener("click", () => moderationMuteAction(0));
+refs.moderationKickButton?.addEventListener("click", moderationKickAction);
+refs.moderationWarnButton?.addEventListener("click", moderationWarnAction);
+refs.moderationClearWarnButton?.addEventListener("click", moderationClearWarnAction);
+refs.moderationTitleButton?.addEventListener("click", moderationTitleAction);
+refs.moderationPinButton?.addEventListener("click", moderationPinAction);
+refs.moderationUnpinButton?.addEventListener("click", moderationUnpinAction);
+refs.moderationWarningRefresh?.addEventListener("click", async () => {
+  try {
+    await runButtonAction(refs.moderationWarningRefresh, "刷新中...", loadModerationWarnings);
+    const chat = currentModerationChat();
+    const message = chat ? `${chat.title} 的警告列表已刷新。` : "警告列表已刷新。";
+    setAdminStatus(message, "success");
+    setModerationStatus(message, "success");
+  } catch (error) {
+    const message = normalizeError(error, "刷新警告列表失败。");
+    setAdminStatus(message, "error");
+    setModerationStatus(message, "error");
+    showToast(message, "error");
+  }
+});
+refs.moderationWarningList?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-warning-pick]");
+  if (!button) {
+    return;
+  }
+  const tg = Number(button.dataset.warningPick || 0);
+  const item = state.moderationWarnings.find((row) => Number(row.tg) === tg);
+  if (!item) {
+    return;
+  }
+  fillModerationTarget({
+    chat_id: state.selectedModerationChatId,
+    tg: item.tg,
+    display_label: item.tg_display_label || item.emby_name || `TG ${item.tg}`,
+    display_name: item.tg_display_name,
+    username: item.tg_username,
+    status_text: "警告成员",
+    warn_count: item.warn_count
+  });
+  renderModerationMembers(state.moderationMembers);
+  focusSection("moderation-section", false);
+});
 refs.jumpEditorButton?.addEventListener("click", () => {
   if (!state.selectedTg) return;
   focusSection("editor-section");

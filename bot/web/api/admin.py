@@ -16,6 +16,21 @@ from sqlalchemy import func
 from starlette.background import BackgroundTask
 
 from bot import LOGGER, bot, config, save_config
+from bot.func_helper.moderation import (
+    ModerationServiceError,
+    clear_chat_member_warning,
+    get_chat_member_brief,
+    kick_chat_member,
+    list_managed_chats,
+    mute_chat_member,
+    pin_chat_message,
+    search_chat_members,
+    set_chat_member_title,
+    unpin_chat_message,
+    update_warning_config,
+    warn_chat_member,
+    warning_map_for_targets,
+)
 from bot.func_helper.utils import cr_link_one, rn_link_one
 from bot.plugins import PluginImportError, import_plugin_archive, list_plugins, sync_plugin_runtime_state
 from bot.scheduler.auto_update import serialize_auto_update_state, update_auto_update_settings
@@ -30,6 +45,7 @@ from bot.sql_helper.sql_bot_access import (
 )
 from bot.sql_helper.sql_code import Code, CodeRedeem
 from bot.sql_helper.sql_emby import Emby, sql_invalidate_emby_namespace
+from bot.sql_helper.sql_moderation import get_group_moderation_setting, list_group_moderation_warnings
 from bot.web.migration_bundle import MigrationBundleError, create_migration_bundle, restore_migration_bundle
 from bot.web.presenters import get_level_meta, serialize_emby_user
 
@@ -86,6 +102,46 @@ class AdminBotAccessBlockCreatePayload(BaseModel):
     note: str | None = Field(default=None, max_length=255)
 
 
+class AdminModerationSettingsPatch(BaseModel):
+    warn_threshold: int = Field(..., ge=1, le=100)
+    warn_action: str = Field(default="mute")
+    mute_minutes: int = Field(default=60, ge=1, le=10080)
+
+
+class AdminModerationMutePayload(BaseModel):
+    chat_id: int
+    tg: int
+    minutes: int = Field(..., ge=0, le=10080)
+
+
+class AdminModerationKickPayload(BaseModel):
+    chat_id: int
+    tg: int
+
+
+class AdminModerationTitlePayload(BaseModel):
+    chat_id: int
+    tg: int
+    title: str = Field(..., min_length=1, max_length=16)
+
+
+class AdminModerationWarnPayload(BaseModel):
+    chat_id: int
+    tg: int
+    reason: str | None = Field(default=None, max_length=255)
+
+
+class AdminModerationPinPayload(BaseModel):
+    chat_id: int
+    message_id: int = Field(..., gt=0)
+    disable_notification: bool = True
+
+
+class AdminModerationUnpinPayload(BaseModel):
+    chat_id: int
+    message_id: int | None = Field(default=None, gt=0)
+
+
 def _telegram_identity_payload(user: Any) -> dict[str, str]:
     first_name = str(getattr(user, "first_name", "") or "").strip()
     last_name = str(getattr(user, "last_name", "") or "").strip()
@@ -117,6 +173,46 @@ def _serialize_admin_user(user: Emby, identity: dict[str, str] | None = None) ->
     payload["tg_display_label"] = _telegram_display_label(int(user.tg), identity)
     payload["bot_access_blocked"] = matched_block is not None
     payload["bot_access_block"] = matched_block
+    return payload
+
+
+def _serialize_moderation_member(
+    member: dict[str, Any],
+    warning_map: dict[int, dict[str, Any]] | None = None,
+    emby_map: dict[int, Emby] | None = None,
+) -> dict[str, Any]:
+    payload = dict(member or {})
+    tg = int(payload.get("tg") or 0)
+    warning = (warning_map or {}).get(tg)
+    emby_user = (emby_map or {}).get(tg)
+    level_meta = get_level_meta(getattr(emby_user, "lv", None)) if emby_user is not None else None
+    payload["warning"] = warning
+    payload["warn_count"] = int((warning or {}).get("warn_count") or 0)
+    payload["emby_name"] = getattr(emby_user, "name", None)
+    payload["embyid"] = getattr(emby_user, "embyid", None)
+    payload["lv"] = getattr(emby_user, "lv", None)
+    payload["lv_text"] = level_meta["text"] if level_meta else None
+    payload["lv_tone"] = level_meta["tone"] if level_meta else None
+    return payload
+
+
+def _serialize_moderation_warning_item(
+    warning: dict[str, Any],
+    identity: dict[str, str] | None = None,
+    emby_user: Emby | None = None,
+) -> dict[str, Any]:
+    payload = dict(warning or {})
+    tg = int(payload.get("tg") or 0)
+    identity = identity or {}
+    level_meta = get_level_meta(getattr(emby_user, "lv", None)) if emby_user is not None else None
+    payload["tg_display_name"] = identity.get("display_name")
+    payload["tg_username"] = identity.get("username")
+    payload["tg_display_label"] = _telegram_display_label(tg, identity)
+    payload["emby_name"] = getattr(emby_user, "name", None)
+    payload["embyid"] = getattr(emby_user, "embyid", None)
+    payload["lv"] = getattr(emby_user, "lv", None)
+    payload["lv_text"] = level_meta["text"] if level_meta else None
+    payload["lv_tone"] = level_meta["tone"] if level_meta else None
     return payload
 
 
@@ -201,6 +297,25 @@ def _resolve_admin_actor_id(request: Request) -> int | None:
         return int(admin_id) if admin_id is not None else None
     except (TypeError, ValueError):
         return None
+
+
+async def _safe_get_moderation_target(chat_id: int, tg: int) -> dict[str, Any]:
+    try:
+        return await get_chat_member_brief(chat_id, tg)
+    except Exception as exc:
+        LOGGER.warning(f"admin moderation get target failed chat={chat_id} tg={tg}: {exc}")
+        return {
+            "chat_id": int(chat_id),
+            "tg": int(tg),
+            "display_label": f"TG {tg}",
+            "display_name": None,
+            "username": None,
+            "status": None,
+            "status_text": "未知状态",
+            "is_admin": False,
+            "is_bot": False,
+            "is_member": False,
+        }
 
 
 def _restart_current_process() -> None:
@@ -541,6 +656,187 @@ async def revoke_all_whitelist_users(request: Request):
         "data": {
             "updated_count": affected,
             "target_level": "b",
+        },
+    }
+
+
+@router.get("/moderation/chats")
+async def list_moderation_chats():
+    return {"code": 200, "data": await list_managed_chats()}
+
+
+@router.get("/moderation/settings/{chat_id}")
+async def get_moderation_settings(chat_id: int):
+    return {"code": 200, "data": get_group_moderation_setting(chat_id)}
+
+
+@router.patch("/moderation/settings/{chat_id}")
+async def patch_moderation_settings(chat_id: int, payload: AdminModerationSettingsPatch, request: Request):
+    actor_tg = _resolve_admin_actor_id(request)
+    try:
+        data = await update_warning_config(
+            chat_id,
+            warn_threshold=payload.warn_threshold,
+            warn_action=payload.warn_action,
+            mute_minutes=payload.mute_minutes,
+            updated_by=actor_tg,
+        )
+    except ModerationServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    LOGGER.info(f"admin moderation settings actor={actor_tg} chat={chat_id} data={data}")
+    return {"code": 200, "data": data}
+
+
+@router.get("/moderation/members/search")
+async def moderation_search_members(
+    chat_id: int = Query(...),
+    q: str = Query(...),
+    limit: int = Query(default=20, ge=1, le=50),
+):
+    keyword = str(q or "").strip()
+    if not keyword:
+        raise HTTPException(status_code=400, detail="搜索关键词不能为空")
+
+    items = await search_chat_members(chat_id, keyword, limit=limit)
+    tg_ids = [int(item["tg"]) for item in items if item.get("tg") is not None]
+    warning_map = warning_map_for_targets(chat_id, tg_ids)
+
+    with Session() as session:
+        emby_rows = session.query(Emby).filter(Emby.tg.in_(tg_ids)).all() if tg_ids else []
+
+    emby_map = {int(row.tg): row for row in emby_rows}
+    return {
+        "code": 200,
+        "data": {
+            "items": [_serialize_moderation_member(item, warning_map, emby_map) for item in items],
+            "settings": get_group_moderation_setting(chat_id),
+        },
+    }
+
+
+@router.get("/moderation/warnings")
+async def moderation_list_warnings(
+    chat_id: int = Query(...),
+    limit: int = Query(default=100, ge=1, le=500),
+):
+    items = list_group_moderation_warnings(chat_id, limit=limit)
+    tg_ids = [int(item["tg"]) for item in items if item.get("tg") is not None]
+    identity_map = await _fetch_telegram_identity_map(tg_ids)
+
+    with Session() as session:
+        emby_rows = session.query(Emby).filter(Emby.tg.in_(tg_ids)).all() if tg_ids else []
+
+    emby_map = {int(row.tg): row for row in emby_rows}
+    return {
+        "code": 200,
+        "data": {
+            "settings": get_group_moderation_setting(chat_id),
+            "items": [
+                _serialize_moderation_warning_item(item, identity_map.get(int(item["tg"])), emby_map.get(int(item["tg"])))
+                for item in items
+            ],
+        },
+    }
+
+
+@router.post("/moderation/actions/mute")
+async def moderation_mute(payload: AdminModerationMutePayload, request: Request):
+    actor_tg = _resolve_admin_actor_id(request)
+    try:
+        result = await mute_chat_member(payload.chat_id, payload.tg, payload.minutes)
+    except ModerationServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    target = await _safe_get_moderation_target(payload.chat_id, payload.tg)
+    LOGGER.info(f"admin moderation mute actor={actor_tg} chat={payload.chat_id} target={payload.tg} minutes={payload.minutes}")
+    return {"code": 200, "data": {"target": target, "result": result}}
+
+
+@router.post("/moderation/actions/kick")
+async def moderation_kick(payload: AdminModerationKickPayload, request: Request):
+    actor_tg = _resolve_admin_actor_id(request)
+    try:
+        result = await kick_chat_member(payload.chat_id, payload.tg)
+    except ModerationServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    target = await _safe_get_moderation_target(payload.chat_id, payload.tg)
+    LOGGER.info(f"admin moderation kick actor={actor_tg} chat={payload.chat_id} target={payload.tg}")
+    return {"code": 200, "data": {"target": target, "result": result}}
+
+
+@router.post("/moderation/actions/title")
+async def moderation_title(payload: AdminModerationTitlePayload, request: Request):
+    actor_tg = _resolve_admin_actor_id(request)
+    try:
+        result = await set_chat_member_title(payload.chat_id, payload.tg, payload.title)
+    except ModerationServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    target = await _safe_get_moderation_target(payload.chat_id, payload.tg)
+    LOGGER.info(f"admin moderation title actor={actor_tg} chat={payload.chat_id} target={payload.tg} title={payload.title}")
+    return {"code": 200, "data": {"target": target, "result": result}}
+
+
+@router.post("/moderation/actions/pin")
+async def moderation_pin(payload: AdminModerationPinPayload, request: Request):
+    actor_tg = _resolve_admin_actor_id(request)
+    try:
+        result = await pin_chat_message(
+            payload.chat_id,
+            payload.message_id,
+            disable_notification=bool(payload.disable_notification),
+        )
+    except ModerationServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    LOGGER.info(f"admin moderation pin actor={actor_tg} chat={payload.chat_id} message_id={payload.message_id}")
+    return {"code": 200, "data": result}
+
+
+@router.post("/moderation/actions/unpin")
+async def moderation_unpin(payload: AdminModerationUnpinPayload, request: Request):
+    actor_tg = _resolve_admin_actor_id(request)
+    try:
+        result = await unpin_chat_message(payload.chat_id, payload.message_id)
+    except ModerationServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    LOGGER.info(f"admin moderation unpin actor={actor_tg} chat={payload.chat_id} message_id={payload.message_id}")
+    return {"code": 200, "data": result}
+
+
+@router.post("/moderation/actions/warn")
+async def moderation_warn(payload: AdminModerationWarnPayload, request: Request):
+    actor_tg = _resolve_admin_actor_id(request)
+    try:
+        result = await warn_chat_member(
+            payload.chat_id,
+            payload.tg,
+            actor_tg=actor_tg,
+            reason=payload.reason,
+        )
+    except ModerationServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    target = await _safe_get_moderation_target(payload.chat_id, payload.tg)
+    LOGGER.info(f"admin moderation warn actor={actor_tg} chat={payload.chat_id} target={payload.tg} reason={payload.reason!r}")
+    return {"code": 200, "data": {"target": target, **result}}
+
+
+@router.post("/moderation/actions/clear-warn")
+async def moderation_clear_warn(payload: AdminModerationKickPayload, request: Request):
+    actor_tg = _resolve_admin_actor_id(request)
+    result = clear_chat_member_warning(payload.chat_id, payload.tg)
+    target = await _safe_get_moderation_target(payload.chat_id, payload.tg)
+    LOGGER.info(f"admin moderation clear-warn actor={actor_tg} chat={payload.chat_id} target={payload.tg} removed={result.get('removed')}")
+    return {
+        "code": 200,
+        "data": {
+            "target": target,
+            "result": result,
+            "settings": get_group_moderation_setting(payload.chat_id),
         },
     }
 

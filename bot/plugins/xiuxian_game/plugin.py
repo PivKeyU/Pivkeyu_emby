@@ -828,7 +828,7 @@ def _build_bottom_nav() -> list[dict[str, str]]:
             "id": "home",
             "label": "主页",
             "path": "/miniapp",
-            "icon": "⌂",
+            "icon": "🏠",
         }
     ]
 
