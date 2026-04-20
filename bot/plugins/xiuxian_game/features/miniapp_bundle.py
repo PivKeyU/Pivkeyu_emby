@@ -5,6 +5,7 @@ from typing import Any
 from bot.func_helper.emby_currency import get_emby_balance, get_exchange_settings
 from bot.plugins.xiuxian_game.features.exploration import _scene_requirement_state
 from bot.plugins.xiuxian_game.features.gambling import build_gambling_bundle
+from bot.plugins.xiuxian_game.features.shop import attach_official_recycle_quotes
 from bot.plugins.xiuxian_game.service import (
     DEFAULT_SETTINGS,
     _apply_profile_growth_floor,
@@ -58,6 +59,7 @@ def build_full_profile_bundle(
 
     world_bundle = build_world_bundle(tg)
     bundle.update({key: value for key, value in world_bundle.items() if key != "settings"})
+    attach_official_recycle_quotes(bundle)
     _apply_scene_requirement_state(bundle)
     _apply_capabilities(
         bundle,
@@ -82,6 +84,7 @@ def build_bootstrap_core_bundle(
 ) -> dict[str, Any]:
     bundle = _build_core_profile_bundle(tg)
     bundle.update(_build_core_world_bundle(tg))
+    attach_official_recycle_quotes(bundle)
     _apply_capabilities(
         bundle,
         can_upload_images=can_upload_images,

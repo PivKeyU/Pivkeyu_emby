@@ -68,6 +68,7 @@ from bot.plugins.xiuxian_game.api_models import (
     MentorshipTargetPayload,
     MentorshipTeachPayload,
     OfficialShopPatchPayload,
+    OfficialRecyclePayload,
     OfficialShopPayload,
     PersonalAuctionPayload,
     PersonalShopPayload,
@@ -236,6 +237,7 @@ from bot.plugins.xiuxian_game.features.shop import (
     patch_shop_listing,
     place_auction_bid,
     purchase_shop_item,
+    recycle_item_to_official_shop,
     search_xiuxian_players,
 )
 from bot.plugins.xiuxian_game.features.social import (
@@ -4131,7 +4133,7 @@ def register_web(app) -> None:
     @user_router.post("/api/pill/use")
     async def xiuxian_use_pill_api(payload: ConsumePillPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
-        result = consume_pill_for_user(telegram_user["id"], payload.pill_id)
+        result = consume_pill_for_user(telegram_user["id"], payload.pill_id, quantity=payload.quantity)
         return {"code": 200, "data": result}
 
     @user_router.post("/api/artifact/equip")
@@ -4595,6 +4597,23 @@ def register_web(app) -> None:
             except Exception as exc:
                 LOGGER.warning(f"xiuxian seller notify failed: {exc}")
         return {"code": 200, "data": result}
+
+    @user_router.post("/api/recycle/official")
+    async def xiuxian_official_recycle_api(payload: OfficialRecyclePayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = recycle_item_to_official_shop(
+            tg=telegram_user["id"],
+            item_kind=payload.item_kind,
+            item_ref_id=payload.item_ref_id,
+            quantity=payload.quantity,
+        )
+        _remember_journal(
+            telegram_user["id"],
+            "shop",
+            "官方回收",
+            f"回收了【{result.get('item_name') or '未知物品'}】x{result.get('quantity') or 0}，到账 {result.get('total_price_stone') or 0} 灵石",
+        )
+        return {"code": 200, "data": {"result": result, "bundle": _full_bundle(telegram_user["id"])}}
 
     @user_router.post("/api/player/search")
     async def xiuxian_player_search_api(payload: PlayerLookupPayload):

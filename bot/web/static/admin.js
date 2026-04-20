@@ -52,6 +52,7 @@ const state = {
   page: 1,
   pageSize: 20,
   query: "",
+  summary: null,
   selectedTg: null,
   selectedUser: null,
   codesPage: 1,
@@ -132,6 +133,8 @@ const refs = {
   botBlockSubmit: document.querySelector("#bot-block-submit"),
   botBlockStatus: document.querySelector("#bot-block-status"),
   botBlockList: document.querySelector("#bot-block-list"),
+  whitelistRevokeAll: document.querySelector("#whitelist-revoke-all"),
+  whitelistRevokeStatus: document.querySelector("#whitelist-revoke-status"),
   levelLegend: document.querySelector("#level-legend"),
   prevPage: document.querySelector("#prev-page"),
   nextPage: document.querySelector("#next-page"),
@@ -659,10 +662,20 @@ function renderLevelLegend() {
 }
 
 function setSummary(data) {
+  state.summary = data || null;
   document.querySelector("#summary-total").textContent = formatCount(data.total_users);
   document.querySelector("#summary-active").textContent = formatCount(data.active_accounts);
+  document.querySelector("#summary-whitelist").textContent = formatCount(data.whitelist_users);
   document.querySelector("#summary-banned").textContent = formatCount(data.banned_users);
   document.querySelector("#summary-currency").textContent = formatCount(data.total_currency);
+  if (refs.whitelistRevokeAll) {
+    refs.whitelistRevokeAll.disabled = Number(data.whitelist_users || 0) <= 0;
+  }
+  if (refs.whitelistRevokeStatus) {
+    refs.whitelistRevokeStatus.textContent = Number(data.whitelist_users || 0) > 0
+      ? `当前共有 ${formatCount(data.whitelist_users)} 个白名单账号，可一键恢复为 b 级正常用户。`
+      : "当前没有白名单账号，无需批量处理。";
+  }
 }
 
 function setAutoUpdate(data = {}) {
@@ -939,6 +952,47 @@ async function loadSummary() {
   const result = await api("/admin-api/summary");
   setSummary(result.data);
   setAutoUpdate(result.data.auto_update || {});
+}
+
+async function revokeAllWhitelistUsers() {
+  const whitelistCount = Number(state.summary?.whitelist_users || 0);
+  if (whitelistCount <= 0) {
+    const message = "当前没有白名单账号，无需批量取消。";
+    setAdminStatus(message, "warning");
+    showToast(message, "warning");
+    await popup("无需处理", message, "warning");
+    return;
+  }
+
+  const confirmed = window.confirm(`确认取消全部 ${whitelistCount} 个白名单账号的权限吗？\n\n这些账号会从 a 级降为 b 级正常用户。`);
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const result = await runButtonAction(refs.whitelistRevokeAll, "处理中...", () => api("/admin-api/users/whitelist/revoke-all", {
+      method: "POST"
+    }));
+    const updatedCount = Number(result.data?.updated_count || 0);
+    await Promise.all([loadSummary(), loadUsers(), refreshSelectedUser().catch(() => null)]);
+    const message = updatedCount > 0
+      ? `已批量取消 ${updatedCount} 个白名单账号，全部恢复为 b 级正常用户。`
+      : "当前没有白名单账号，无需批量取消。";
+    if (refs.whitelistRevokeStatus) {
+      refs.whitelistRevokeStatus.textContent = message;
+    }
+    setAdminStatus(message, updatedCount > 0 ? "success" : "warning");
+    showToast(message, updatedCount > 0 ? "success" : "warning");
+    await popup(updatedCount > 0 ? "处理完成" : "无需处理", message, updatedCount > 0 ? "success" : "warning");
+  } catch (error) {
+    const message = normalizeError(error, "批量取消白名单失败。");
+    if (refs.whitelistRevokeStatus) {
+      refs.whitelistRevokeStatus.textContent = `处理失败：${message}`;
+    }
+    setAdminStatus(`批量取消白名单失败：${message}`, "error");
+    showToast(`批量取消白名单失败：${message}`, "error");
+    await popup("处理失败", message, "error");
+  }
 }
 
 async function loadAutoUpdate() {
@@ -1586,6 +1640,8 @@ refs.nextPage.addEventListener("click", async () => {
     showToast(`翻页失败：${message}`, "error");
   }
 });
+
+refs.whitelistRevokeAll?.addEventListener("click", revokeAllWhitelistUsers);
 
 document.querySelector("#editor-form").addEventListener("submit", saveUser);
 

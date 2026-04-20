@@ -3,42 +3,46 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>首页面板</title>
+  <title>修仙纪元 · 洞府</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/miniapp.css">
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
 </head>
 <body>
   <main class="app-shell">
     <section class="hero-panel card">
       <div class="hero-main">
-        <p class="eyebrow">主控台</p>
-        <h1>首页面板</h1>
-        <p id="welcome-text" class="hero-copy">正在同步账号资料...</p>
+        <p class="eyebrow">仙域中枢</p>
+        <h1>洞府</h1>
+        <p id="welcome-text" class="hero-copy">正在感应天机引...</p>
         <div class="hero-pills">
-          <span id="account-level-badge" class="badge badge--pending">加载中</span>
-          <span id="plugin-count-pill" class="hero-pill">0 个入口</span>
-          <span id="role-pill" class="hero-pill">普通用户</span>
+          <span id="account-level-badge" class="badge badge--pending">天地未开</span>
+          <span id="plugin-count-pill" class="hero-pill">0 处阵法</span>
+          <span id="role-pill" class="hero-pill">凡夫俗子</span>
         </div>
-        <p id="hero-note" class="hero-note">绑定账号后，可从这里快速进入所有可用页面。</p>
+        <p id="hero-note" class="hero-note">结成道缘后，可自此处撕裂虚空，穿梭于千般秘境。</p>
       </div>
 
       <div class="hero-side">
         <section class="overview-card">
-          <p class="eyebrow">概览</p>
+          <p class="eyebrow">灵根概览</p>
           <div class="overview-grid">
             <article class="profile-item">
-              <span>站点品牌</span>
+              <span>修真道统</span>
               <strong id="brand-name">-</strong>
             </article>
             <article class="profile-item">
-              <span>积分名称</span>
+              <span>灵石称呼</span>
               <strong id="currency-name">-</strong>
             </article>
             <article class="profile-item">
-              <span>当前昵称</span>
+              <span>道号</span>
               <strong id="hero-name">-</strong>
             </article>
             <article class="profile-item">
-              <span>账号 ID</span>
+              <span>仙籍 ID</span>
               <strong id="hero-id">-</strong>
             </article>
           </div>
@@ -46,22 +50,22 @@
 
         <section id="admin-entry-card" class="hero-admin hidden">
           <div class="hero-admin-copy">
-            <span class="hero-admin-label">主人入口</span>
-            <p>默认保留当前首页视图，需要时再进入后台面板。</p>
+            <span class="hero-admin-label">宗门大殿</span>
+            <p>大能尊者破空之门，掌控天地法则造化。</p>
           </div>
-          <button id="admin-entry-button" type="button" class="ghost">打开后台</button>
+          <button id="admin-entry-button" type="button" class="ghost">踏入大殿</button>
         </section>
       </div>
     </section>
 
     <section id="fold-toolbar" class="card fold-toolbar">
       <div class="fold-toolbar-copy">
-        <p class="eyebrow">区块折叠</p>
-        <p id="fold-count" class="section-copy">当前可折叠 0 个板块</p>
+        <p class="eyebrow">天地轮转</p>
+        <p id="fold-count" class="section-copy">当前可缩地成寸 0 处道场</p>
       </div>
       <div class="fold-toolbar-actions">
-        <button type="button" class="ghost" data-fold-open-all>全部展开</button>
-        <button type="button" class="ghost" data-fold-close-all>全部收起</button>
+        <button type="button" class="ghost" data-fold-open-all>诸般万象展</button>
+        <button type="button" class="ghost" data-fold-close-all>乾坤一气收</button>
       </div>
     </section>
 
@@ -69,36 +73,36 @@
       <details class="card fold-card">
         <summary class="fold-summary">
           <div>
-            <p class="eyebrow">账号信息</p>
-            <h2>身份与订阅</h2>
+            <p class="eyebrow">仙窍录</p>
+            <h2>道统与寿元</h2>
           </div>
-          <span class="summary-tip">等级、余额、到期时间与配额</span>
+          <span class="summary-tip">天灵根、灵石、阳寿与造化配额</span>
         </summary>
         <div class="fold-body">
-          <p id="account-level-desc" class="section-copy">正在加载账号状态...</p>
+          <p id="account-level-desc" class="section-copy">冥冥中有天意正在拨动...</p>
           <div class="profile-grid">
             <article class="profile-item">
-              <span>账号 ID</span>
+              <span>仙籍 ID</span>
               <strong id="tg-id">-</strong>
             </article>
             <article class="profile-item">
-              <span>显示名称</span>
+              <span>真名</span>
               <strong id="tg-name">-</strong>
             </article>
             <article class="profile-item">
-              <span>当前余额</span>
+              <span>储物袋中</span>
               <strong id="account-iv">-</strong>
             </article>
             <article class="profile-item">
-              <span>Emby 账号</span>
+              <span>灵犀刻印</span>
               <strong id="account-name">-</strong>
             </article>
             <article class="profile-item">
-              <span>到期时间</span>
+              <span>寿元终期</span>
               <strong id="account-ex">-</strong>
             </article>
             <article class="profile-item">
-              <span>注册/续期天数</span>
+              <span>闭关时日</span>
               <strong id="account-us">-</strong>
             </article>
           </div>
@@ -108,15 +112,15 @@
       <details class="card fold-card span-2">
         <summary class="fold-summary">
           <div>
-            <p class="eyebrow">功能入口</p>
-            <h2>可用页面</h2>
+            <p class="eyebrow">各殿阵枢</p>
+            <h2>开启之阵</h2>
           </div>
-          <span class="summary-tip">仅展示当前可直接进入的页面入口</span>
+          <span class="summary-tip">仅展示天机已明之各殿</span>
         </summary>
         <div class="fold-body">
           <div class="section-top">
-            <p class="section-copy">主页只保留当前可用的功能页面，方便你快速切换到对应模块。</p>
-            <span id="plugin-count" class="section-pill">已加载 0 / 0</span>
+            <p class="section-copy">此处为各殿传送阵眼，长按即可挪移乾坤，重排诸阵顺序。</p>
+            <span id="plugin-count" class="section-pill">天书显字 0 / 0</span>
           </div>
           <div id="plugin-grid" class="plugin-grid"></div>
         </div>

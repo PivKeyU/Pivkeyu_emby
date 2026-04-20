@@ -15,6 +15,7 @@ class BreakthroughPayload(InitDataPayload):
 
 class ConsumePillPayload(InitDataPayload):
     pill_id: int
+    quantity: int = 1
 
 
 class EquipArtifactPayload(InitDataPayload):
@@ -87,6 +88,12 @@ class PersonalAuctionPayload(InitDataPayload):
 
 class PurchasePayload(InitDataPayload):
     item_id: int
+    quantity: int = 1
+
+
+class OfficialRecyclePayload(InitDataPayload):
+    item_kind: str
+    item_ref_id: int
     quantity: int = 1
 
 

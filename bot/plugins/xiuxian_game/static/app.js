@@ -604,6 +604,11 @@ function officialShopName(bundle = state.profileBundle) {
   return String(raw || "").trim() || "官方商店";
 }
 
+function officialRecycleName(bundle = state.profileBundle) {
+  const raw = bundle?.official_recycle?.shop_name;
+  return String(raw || "").trim() || "官方回收";
+}
+
 function currentDuelLockReason(bundle = state.profileBundle) {
   const reason = bundle?.capabilities?.duel_lock_reason;
   return String(reason || "").trim();
@@ -1228,6 +1233,69 @@ function renderAuctionInventorySelect() {
   populateTradeableInventorySelect(select, kind, "暂无可拍卖物品");
 }
 
+function officialRecycleItems(bundle = state.profileBundle) {
+  return Array.isArray(bundle?.official_recycle?.items) ? bundle.official_recycle.items : [];
+}
+
+function findOfficialRecycleQuote(kind, itemRefId, bundle = state.profileBundle) {
+  return officialRecycleItems(bundle).find(
+    (row) => String(row.item_kind || "") === String(kind || "") && String(row.item_ref_id || "") === String(itemRefId || "")
+  ) || null;
+}
+
+function populateOfficialRecycleInventorySelect() {
+  const select = document.querySelector("#official-recycle-item-ref");
+  if (!select) return;
+  const previousValue = select.value;
+  const kind = document.querySelector("#official-recycle-kind")?.value || "artifact";
+  const rows = officialRecycleItems().filter((row) => String(row.item_kind || "") === String(kind) && Number(row.available_quantity || 0) > 0);
+  select.innerHTML = "";
+  if (!rows.length) {
+    select.innerHTML = `<option value="">暂无可回收物品</option>`;
+    return;
+  }
+  rows.forEach((row) => {
+    const option = document.createElement("option");
+    option.value = row.item_ref_id;
+    option.textContent = `${row.item_name} · 可回收 ${row.available_quantity} · ${row.unit_price_stone} 灵石/件`;
+    select.appendChild(option);
+  });
+  if ([...select.options].some((option) => String(option.value) === String(previousValue))) {
+    select.value = previousValue;
+  }
+}
+
+function updateOfficialRecycleQuotePreview(bundle = state.profileBundle) {
+  const preview = document.querySelector("#official-recycle-preview");
+  const quantityInput = document.querySelector("#official-recycle-quantity");
+  const hint = document.querySelector("#official-recycle-hint");
+  const kind = document.querySelector("#official-recycle-kind")?.value || "artifact";
+  const itemRefId = Number(document.querySelector("#official-recycle-item-ref")?.value || 0);
+  const quote = findOfficialRecycleQuote(kind, itemRefId, bundle);
+  if (!preview || !quantityInput) return;
+  if (!quote) {
+    quantityInput.max = "1";
+    if (Number(quantityInput.value || 0) < 1) quantityInput.value = "1";
+    preview.value = officialRecycleItems(bundle).length ? "请选择可回收物品" : "暂无可回收物品";
+    if (hint) {
+      hint.textContent = String(bundle?.official_recycle?.description || "官方会按物品品阶与属性保守估价回收。");
+    }
+    return;
+  }
+  const availableQuantity = Math.max(Number(quote.available_quantity || 0), 0);
+  let quantity = Math.max(Number(quantityInput.value || 1), 1);
+  if (availableQuantity > 0) {
+    quantity = Math.min(quantity, availableQuantity);
+  }
+  quantityInput.max = String(Math.max(availableQuantity, 1));
+  quantityInput.value = String(quantity);
+  const totalPrice = Math.max(Number(quote.unit_price_stone || 0), 0) * quantity;
+  preview.value = `单价 ${quote.unit_price_stone || 0} 灵石，当前可回收 ${availableQuantity} 件，本次到账 ${totalPrice} 灵石`;
+  if (hint) {
+    hint.textContent = String(quote.quote_note || bundle?.official_recycle?.description || "官方会按物品品阶与属性保守估价回收。");
+  }
+}
+
 function taskRequirementRows(kind) {
   const bundle = state.profileBundle || {};
   if (kind === "artifact") {
@@ -1455,6 +1523,7 @@ function renderProfile(bundle) {
     "#inventory-card",
     "#technique-card",
     "#official-shop-card",
+    "#official-recycle-card",
     "#market-card",
     "#auction-card",
     "#leaderboard-card",
@@ -1703,6 +1772,50 @@ function renderOfficialShop(items, retreating) {
     `;
     root.appendChild(card);
   }
+}
+
+function renderOfficialRecyclePanel(bundle, retreating) {
+  const root = document.querySelector("#official-recycle-list");
+  const preview = document.querySelector("#official-recycle-preview");
+  const hint = document.querySelector("#official-recycle-hint");
+  if (!root) return;
+  const quotes = officialRecycleItems(bundle);
+  root.innerHTML = "";
+  const duelLockReason = currentDuelLockReason(bundle);
+  const blockedReason = retreating ? "闭关期间无法回收。" : duelLockReason;
+  if (!quotes.length) {
+    root.innerHTML = `<article class="stack-item"><strong>${escapeHtml(officialRecycleName(bundle))}暂无可回收物品</strong><p>未绑定且可交易的法宝、符箓，以及背包内丹药材料会显示在这里。</p></article>`;
+    if (preview) preview.value = "暂无可回收物品";
+    if (hint) {
+      hint.textContent = String(bundle?.official_recycle?.description || "官方会按物品品阶与属性保守估价回收。");
+    }
+    populateOfficialRecycleInventorySelect();
+    updateOfficialRecycleQuotePreview(bundle);
+    return;
+  }
+
+  for (const quote of quotes) {
+    const card = document.createElement("article");
+    card.className = "stack-item";
+    card.innerHTML = `
+      <div class="stack-item-head">
+        <strong>${escapeHtml(quote.item_name)}</strong>
+        <span class="badge badge--normal">${escapeHtml(quote.unit_price_stone)} 灵石/件</span>
+      </div>
+      <div class="item-tags">
+        ${qualityBadgeHtml(quote.quality_label || "凡品", quote.quality_color, "tag")}
+        <span class="tag">${escapeHtml(quote.item_kind_label || quote.item_kind)}</span>
+        <span class="tag">可回收 ${escapeHtml(quote.available_quantity || 0)}</span>
+      </div>
+      <p>当前整包回收最多到账 ${escapeHtml(quote.max_total_price_stone || 0)} 灵石。</p>
+      <p class="muted">${escapeHtml(quote.quote_note || "")}</p>
+      ${blockedReason ? `<p class="reason-text">${escapeHtml(blockedReason)}</p>` : ""}
+    `;
+    root.appendChild(card);
+  }
+
+  populateOfficialRecycleInventorySelect();
+  updateOfficialRecycleQuotePreview(bundle);
 }
 
 function renderPersonalShop(items) {
@@ -2819,6 +2932,12 @@ document.querySelector("#gambling-open-form")?.addEventListener("submit", async 
 
 document.querySelector("#shop-item-kind").addEventListener("change", renderInventorySelect);
 document.querySelector("#auction-item-kind")?.addEventListener("change", renderAuctionInventorySelect);
+document.querySelector("#official-recycle-kind")?.addEventListener("change", () => {
+  populateOfficialRecycleInventorySelect();
+  updateOfficialRecycleQuotePreview();
+});
+document.querySelector("#official-recycle-item-ref")?.addEventListener("change", () => updateOfficialRecycleQuotePreview());
+document.querySelector("#official-recycle-quantity")?.addEventListener("input", () => updateOfficialRecycleQuotePreview());
 
 document.querySelector("#shop-name-toggle")?.addEventListener("click", () => {
   state.shopNameEditing = !state.shopNameEditing;
@@ -2848,6 +2967,31 @@ document.querySelector("#personal-shop-form").addEventListener("submit", async (
     await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "上架个人店铺失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
+});
+
+document.querySelector("#official-recycle-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector("button[type='submit']");
+  try {
+    const payload = await runButtonAction(button, "回收中…", () => postJson("/plugins/xiuxian/api/recycle/official", {
+      item_kind: document.querySelector("#official-recycle-kind")?.value || "artifact",
+      item_ref_id: Number(document.querySelector("#official-recycle-item-ref")?.value || 0),
+      quantity: Number(document.querySelector("#official-recycle-quantity")?.value || 1),
+    }));
+    const result = payload?.result || {};
+    const message = `已回收 ${result.item_name || "物品"} x${Number(result.quantity || 0)}，到账 ${Number(result.total_price_stone || 0)} 灵石。`;
+    if (payload?.bundle) {
+      applyProfileBundle(payload.bundle);
+    } else {
+      await refreshBundle();
+    }
+    setStatus(message, "success");
+    await popup("回收成功", message);
+  } catch (error) {
+    const message = normalizeError(error, "提交官网回收失败。");
     setStatus(message, "error");
     await popup("操作失败", message, "error");
   }
@@ -2939,16 +3083,28 @@ document.querySelector("#artifact-list").addEventListener("click", async (event)
 });
 
 document.querySelector("#pill-list").addEventListener("click", async (event) => {
-  const button = event.target.closest("[data-pill-id]");
+  const singleButton = event.target.closest("[data-pill-id]");
+  const batchButton = event.target.closest("[data-pill-batch-id]");
+  const button = batchButton || singleButton;
   if (!button || button.disabled) return;
   try {
-    const payload = await runButtonAction(button, "服用中…", () => postJson("/plugins/xiuxian/api/pill/use", {
-      pill_id: Number(button.dataset.pillId)
+    const pillId = Number(batchButton ? button.dataset.pillBatchId : button.dataset.pillId);
+    let quantity = 1;
+    if (batchButton) {
+      const quantityInput = button.closest(".stack-item")?.querySelector(`[data-pill-quantity-for="${pillId}"]`);
+      quantity = Math.max(Number(quantityInput?.value || 1), 1);
+    }
+    const payload = await runButtonAction(button, batchButton ? "批量服用中…" : "服用中…", () => postJson("/plugins/xiuxian/api/pill/use", {
+      pill_id: pillId,
+      quantity
     }));
-    const statusMessage = `已服用 ${payload.pill.name}。`;
+    const usedQuantity = Math.max(Number(payload.used_quantity || quantity || 1), 1);
+    const statusMessage = usedQuantity > 1
+      ? `已批量服用 ${payload.pill.name} x${usedQuantity}。`
+      : `已服用 ${payload.pill.name}。`;
     const message = payload.summary ? `${statusMessage}\n${payload.summary}` : statusMessage;
     setStatus(statusMessage, "success");
-    await popup("服用成功", message);
+    await popup(usedQuantity > 1 ? "批量服用成功" : "服用成功", message);
     await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "服用丹药失败。");
@@ -4171,6 +4327,9 @@ renderPillList = function renderPillList(items, retreating) {
     const item = row.pill;
     const effects = item.resolved_effects || {};
     const disabled = !item.usable || retreating;
+    const batchUsable = Boolean(item.batch_usable) && Number(row.quantity || 0) > 1;
+    const batchMax = Math.max(Number(item.batch_use_max || row.quantity || 1), 1);
+    const batchNote = Number(row.quantity || 0) > 1 ? String(item.batch_use_note || "").trim() : "";
     const reason = fallbackReason(item.unusable_reason, retreating ? "闭关期间无法服用丹药" : "当前无法使用该丹药");
     const card = document.createElement("article");
     card.className = "stack-item";
@@ -4188,8 +4347,13 @@ renderPillList = function renderPillList(items, retreating) {
         ${itemAffixTags(item, effects)}
       </div>
       <p>境界要求：${escapeHtml(item.min_realm_stage ? `${item.min_realm_stage}${item.min_realm_layer}层` : "无限制")}</p>
+      ${batchNote ? `<p class="muted">${escapeHtml(batchNote)}</p>` : ""}
       ${reason ? `<p class="reason-text">${escapeHtml(reason)}</p>` : ""}
-      <button type="button" data-pill-id="${item.id}" ${disabled ? "disabled" : ""}>服用丹药</button>
+      <div class="inline-actions">
+        <button type="button" data-pill-id="${item.id}" ${disabled ? "disabled" : ""}>服用丹药</button>
+        ${batchUsable ? `<input type="number" min="1" max="${escapeHtml(batchMax)}" value="${escapeHtml(Math.min(batchMax, 10))}" data-pill-quantity-for="${item.id}" ${disabled ? "disabled" : ""}>` : ""}
+        ${batchUsable ? `<button type="button" class="ghost" data-pill-batch-id="${item.id}" ${disabled ? "disabled" : ""}>批量服用</button>` : ""}
+      </div>
     `;
     root.appendChild(card);
   }
@@ -4660,6 +4824,10 @@ renderProfile = function renderProfileRedesigned(bundle) {
     .forEach((selector) => setDisabled(document.querySelector(selector), retreating || Boolean(duelLockReason), shopDisabledReason));
   setDisabled(document.querySelector("#shop-name-toggle"), retreating || Boolean(duelLockReason), shopDisabledReason);
   setDisabled(document.querySelector("#personal-shop-form button[type='submit']"), retreating || Boolean(duelLockReason), shopDisabledReason);
+  const officialRecycleDisabledReason = retreating ? "闭关期间无法进行官方回收。" : duelLockReason;
+  ["#official-recycle-kind", "#official-recycle-item-ref", "#official-recycle-quantity"]
+    .forEach((selector) => setDisabled(document.querySelector(selector), retreating || Boolean(duelLockReason), officialRecycleDisabledReason));
+  setDisabled(document.querySelector("#official-recycle-form button[type='submit']"), retreating || Boolean(duelLockReason), officialRecycleDisabledReason);
   const auctionDisabledReason = retreating ? "闭关期间无法发起拍卖。" : duelLockReason;
   ["#auction-item-kind", "#auction-item-ref", "#auction-quantity", "#auction-opening-price", "#auction-bid-increment", "#auction-buyout-price"]
     .forEach((selector) => setDisabled(document.querySelector(selector), retreating || Boolean(duelLockReason), auctionDisabledReason));
@@ -4680,6 +4848,7 @@ renderProfile = function renderProfileRedesigned(bundle) {
   renderTalismanList(bundle.talismans || [], retreating);
   renderPillList(bundle.pills || [], retreating);
   renderOfficialShop(bundle.official_shop || [], retreating);
+  renderOfficialRecyclePanel(bundle, retreating);
   renderPersonalShop(bundle.personal_shop || []);
   renderCommunityShop(bundle.community_shop || [], retreating);
   renderInventorySelect();

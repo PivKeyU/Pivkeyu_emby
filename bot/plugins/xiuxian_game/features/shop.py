@@ -69,6 +69,25 @@ def create_official_shop_listing(
     )
 
 
+def recycle_item_to_official_shop(
+    *,
+    tg: int,
+    item_kind: str,
+    item_ref_id: int,
+    quantity: int = 1,
+) -> dict[str, Any]:
+    return _legacy_service().recycle_item_to_official_shop(
+        tg=tg,
+        item_kind=item_kind,
+        item_ref_id=item_ref_id,
+        quantity=quantity,
+    )
+
+
+def attach_official_recycle_quotes(bundle: dict[str, Any]) -> dict[str, Any]:
+    return _legacy_service().attach_official_recycle_quotes(bundle)
+
+
 def patch_shop_listing(item_id: int, **fields) -> dict[str, Any] | None:
     return _legacy_service().patch_shop_listing(item_id, **fields)
 

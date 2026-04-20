@@ -223,6 +223,23 @@ ROOT_SPECIAL_BONUS = {
 ROOT_COMMON_QUALITY_ORDER = ["废灵根", "下品灵根", "中品灵根", "上品灵根", "极品灵根"]
 ROOT_SPECIAL_QUALITIES = {"天灵根", "变异灵根"}
 ROOT_TRANSFORM_PILL_TYPES = {"root_single", "root_double", "root_earth", "root_heaven", "root_variant"}
+PILL_BATCH_USE_TYPES = {
+    "attack",
+    "body_movement",
+    "bone",
+    "charisma",
+    "clear_poison",
+    "comprehension",
+    "cultivation",
+    "defense",
+    "divine_sense",
+    "fortune",
+    "karma",
+    "qi_blood",
+    "stone",
+    "true_yuan",
+    "willpower",
+}
 ROOT_COMBAT_BASELINE_QUALITY = "中品灵根"
 ROOT_COMBAT_FACTOR_MIN = 0.97
 ROOT_COMBAT_FACTOR_MAX = 1.06
@@ -230,6 +247,7 @@ ROOT_ELEMENT_FACTOR_WEIGHT = 0.35
 ROOT_VARIANT_FACTOR_BONUS = 0.01
 
 PERSONAL_SHOP_NAME = "游仙小铺"
+OFFICIAL_RECYCLE_NAME = "官方回收"
 IMMORTAL_STONE_NAME = "仙界奇石"
 GAMBLING_SUPPORTED_ITEM_KINDS = {"artifact", "pill", "talisman", "material"}
 STARTER_TECHNIQUE_NAME = "长青诀"
@@ -3717,6 +3735,22 @@ def _pill_usage_reason(profile_data: dict[str, Any], pill: dict[str, Any]) -> st
     return ""
 
 
+def _pill_supports_batch_use(pill: dict[str, Any] | None) -> bool:
+    pill_type = str((pill or {}).get("pill_type") or "").strip()
+    return pill_type in PILL_BATCH_USE_TYPES
+
+
+def _pill_batch_use_note(pill: dict[str, Any] | None) -> str:
+    pill_type = str((pill or {}).get("pill_type") or "").strip()
+    if pill_type in PILL_BATCH_USE_TYPES:
+        return "这类丹药支持按数量连续服用。"
+    if pill_type == "foundation":
+        return "破境丹需要配合突破，当前仅支持单次服用。"
+    if pill_type == "root_refine" or pill_type == "root_remold" or pill_type in ROOT_TRANSFORM_PILL_TYPES:
+        return "灵根改造类丹药会改变当前状态，当前仅支持单次服用。"
+    return "当前仅支持单次服用。"
+
+
 def _pill_effect_summary(before_profile: dict[str, Any], after_profile: dict[str, Any]) -> str:
     parts: list[str] = []
     before_root = format_root(before_profile)
@@ -4255,6 +4289,238 @@ def _seed_official_shop_price(item_kind: str, payload: dict[str, Any]) -> int:
     if normalized_kind == "talisman":
         return _talisman_seed_shop_price(payload)
     raise ValueError("默认官方商店暂不支持该物品类型")
+
+
+def _material_official_recycle_anchor_price(payload: dict[str, Any]) -> int:
+    quality_level = max(int(payload.get("quality_level") or 1), 1)
+    seed_price = max(int(payload.get("seed_price_stone") or 0), 0)
+    growth_minutes = max(int(payload.get("growth_minutes") or 0), 0)
+    yield_min = max(int(payload.get("yield_min") or 0), 0)
+    yield_max = max(int(payload.get("yield_max") or 0), yield_min)
+    yield_average = (yield_min + yield_max) / 2 if (yield_min or yield_max) else 0.0
+    plant_bonus = 14 if payload.get("can_plant") else 0
+    base = 18 + quality_level * 22 + _seed_listing_realm_markup(payload) + plant_bonus
+    growth_markup = min(growth_minutes / 12.0, 120.0)
+    yield_markup = yield_average * (6.0 + quality_level * 0.8)
+    seed_anchor = float(seed_price) * 1.45 if seed_price > 0 else 0.0
+    return _round_seed_shop_price(max(base + growth_markup + yield_markup, seed_anchor, 12.0))
+
+
+def _official_recycle_anchor_price(item_kind: str, payload: dict[str, Any]) -> int:
+    normalized_kind = str(item_kind or "").strip()
+    if normalized_kind in {"artifact", "pill", "talisman"}:
+        return _seed_official_shop_price(normalized_kind, payload)
+    if normalized_kind == "material":
+        return _material_official_recycle_anchor_price(payload)
+    raise ValueError("当前物品类型暂不支持官方回收")
+
+
+def _official_recycle_ratio(item_kind: str, quality_level: int, payload: dict[str, Any]) -> float:
+    normalized_kind = str(item_kind or "").strip()
+    level = max(int(quality_level or 1), 1)
+    if normalized_kind == "artifact":
+        ratio = max(0.10, 0.22 - (level - 1) * 0.018)
+        if payload.get("unique_item"):
+            ratio = min(ratio, 0.14)
+        return ratio
+    if normalized_kind == "pill":
+        return max(0.12, 0.24 - (level - 1) * 0.016)
+    if normalized_kind == "talisman":
+        return max(0.11, 0.21 - (level - 1) * 0.015)
+    if normalized_kind == "material":
+        return max(0.15, 0.28 - (level - 1) * 0.018)
+    raise ValueError("当前物品类型暂不支持官方回收")
+
+
+def _official_recycle_price_cap(item_kind: str, quality_level: int, payload: dict[str, Any]) -> int:
+    normalized_kind = str(item_kind or "").strip()
+    level = max(int(quality_level or 1), 1)
+    if normalized_kind == "artifact":
+        stat_score = _weighted_seed_stat_value(
+            payload,
+            {
+                "attack_bonus": 6.0,
+                "defense_bonus": 5.5,
+                "bone_bonus": 8.0,
+                "comprehension_bonus": 8.0,
+                "divine_sense_bonus": 7.5,
+                "fortune_bonus": 9.0,
+                "qi_blood_bonus": 0.4,
+                "true_yuan_bonus": 0.36,
+                "body_movement_bonus": 6.0,
+                "duel_rate_bonus": 12.0,
+                "cultivation_bonus": 9.0,
+            },
+        )
+        return max(
+            _round_seed_shop_price(
+                90
+                + level * 180
+                + _seed_listing_skill_count(payload) * 55
+                + stat_score / 3.2
+                + (120 if payload.get("unique_item") else 0)
+            ),
+            5,
+        )
+    if normalized_kind == "pill":
+        stat_score = _weighted_seed_stat_value(
+            payload,
+            {
+                "attack_bonus": 8.0,
+                "defense_bonus": 8.0,
+                "bone_bonus": 10.0,
+                "comprehension_bonus": 10.0,
+                "divine_sense_bonus": 10.0,
+                "fortune_bonus": 11.0,
+                "qi_blood_bonus": 0.5,
+                "true_yuan_bonus": 0.46,
+                "body_movement_bonus": 8.0,
+            },
+        )
+        return max(
+            _round_seed_shop_price(
+                80
+                + level * 125
+                + min(max(int(payload.get("effect_value") or 0), 0) * 4, 260)
+                + stat_score / 4.0
+            ),
+            5,
+        )
+    if normalized_kind == "talisman":
+        stat_score = _weighted_seed_stat_value(
+            payload,
+            {
+                "attack_bonus": 7.0,
+                "defense_bonus": 6.0,
+                "bone_bonus": 8.0,
+                "comprehension_bonus": 8.0,
+                "divine_sense_bonus": 8.0,
+                "fortune_bonus": 8.0,
+                "qi_blood_bonus": 0.38,
+                "true_yuan_bonus": 0.34,
+                "body_movement_bonus": 6.5,
+                "duel_rate_bonus": 12.0,
+            },
+        )
+        return max(
+            _round_seed_shop_price(
+                90
+                + level * 140
+                + max(int(payload.get("effect_uses") or 1), 1) * 55
+                + _seed_listing_skill_count(payload) * 40
+                + stat_score / 3.8
+            ),
+            5,
+        )
+    if normalized_kind == "material":
+        seed_price = max(int(payload.get("seed_price_stone") or 0), 0)
+        yield_bonus = max(int(payload.get("yield_max") or 0), 0) * 18
+        return max(
+            _round_seed_shop_price(
+                60
+                + level * 110
+                + min(seed_price / 2.0, 260.0)
+                + min(float(yield_bonus), 180.0)
+                + (30 if payload.get("can_plant") else 0)
+            ),
+            5,
+        )
+    raise ValueError("当前物品类型暂不支持官方回收")
+
+
+def build_official_recycle_quote(
+    item_kind: str,
+    item_payload: dict[str, Any],
+    *,
+    available_quantity: int,
+    quantity: int = 1,
+) -> dict[str, Any]:
+    normalized_kind = str(item_kind or "").strip()
+    if normalized_kind not in {"artifact", "pill", "talisman", "material"}:
+        raise ValueError("当前物品类型暂不支持官方回收")
+    payload = dict(item_payload or {})
+    item_ref_id = int(payload.get("id") or 0)
+    if item_ref_id <= 0:
+        raise ValueError("未找到可回收物品。")
+    available = max(int(available_quantity or 0), 0)
+    if available <= 0:
+        raise ValueError("当前没有可回收库存。")
+    requested = max(int(quantity or 0), 1)
+    quality_level = max(int(payload.get("rarity_level") or payload.get("quality_level") or 1), 1)
+    quality_label = str(payload.get("rarity") or payload.get("quality_label") or f"{quality_level}阶").strip() or f"{quality_level}阶"
+    quality_color = payload.get("quality_color")
+    anchor_price = _official_recycle_anchor_price(normalized_kind, payload)
+    ratio = _official_recycle_ratio(normalized_kind, quality_level, payload)
+    hard_limit = max((anchor_price // 15) * 5, 5)
+    cap_price = _official_recycle_price_cap(normalized_kind, quality_level, payload)
+    unit_price = _round_seed_shop_price(anchor_price * ratio)
+    unit_price = max(min(unit_price, hard_limit, cap_price), 5)
+    return {
+        "shop_name": OFFICIAL_RECYCLE_NAME,
+        "item_kind": normalized_kind,
+        "item_kind_label": ITEM_KIND_LABELS.get(normalized_kind, normalized_kind),
+        "item_ref_id": item_ref_id,
+        "item_name": str(payload.get("name") or f"{normalized_kind}#{item_ref_id}"),
+        "quality_level": quality_level,
+        "quality_label": quality_label,
+        "quality_color": quality_color,
+        "available_quantity": available,
+        "requested_quantity": requested,
+        "unit_price_stone": unit_price,
+        "total_price_stone": unit_price * requested,
+        "max_total_price_stone": unit_price * available,
+        "anchor_price_stone": anchor_price,
+        "quote_note": f"按{quality_label}品阶与属性保守折价回收，价格低于官方商店。",
+    }
+
+
+def attach_official_recycle_quotes(bundle: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(bundle, dict):
+        return bundle
+    entries: list[dict[str, Any]] = []
+    source_specs = (
+        ("artifact", "artifacts", "artifact"),
+        ("pill", "pills", "pill"),
+        ("talisman", "talismans", "talisman"),
+        ("material", "materials", "material"),
+    )
+    for item_kind, source_key, item_key in source_specs:
+        for row in bundle.get(source_key) or []:
+            if not isinstance(row, dict):
+                continue
+            item_payload = row.get(item_key) or {}
+            if not isinstance(item_payload, dict):
+                continue
+            if "tradeable_quantity" in row and row.get("tradeable_quantity") is not None:
+                available_quantity = max(int(row.get("tradeable_quantity") or 0), 0)
+            else:
+                available_quantity = max(int(row.get("quantity") or 0), 0)
+            if available_quantity <= 0:
+                continue
+            try:
+                entries.append(
+                    build_official_recycle_quote(
+                        item_kind,
+                        item_payload,
+                        available_quantity=available_quantity,
+                        quantity=available_quantity,
+                    )
+                )
+            except ValueError:
+                continue
+    entries.sort(
+        key=lambda row: (
+            -int(row.get("quality_level") or 0),
+            -int(row.get("unit_price_stone") or 0),
+            str(row.get("item_name") or ""),
+        )
+    )
+    bundle["official_recycle"] = {
+        "shop_name": OFFICIAL_RECYCLE_NAME,
+        "description": "按物品品阶和属性保守估价，官方压价回收，避免高价套利。",
+        "items": entries,
+    }
+    return bundle
 
 
 def _ensure_default_official_shop_listings(
@@ -5007,8 +5273,12 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         item["resolved_effects"] = resolve_pill_effects(profile_data, item)
         reason = _pill_usage_reason(profile_data, item)
         usable = not reason
+        batch_usable = _pill_supports_batch_use(item)
         row["pill"]["usable"] = usable and not retreating
         row["pill"]["unusable_reason"] = "闭关期间无法使用丹药" if usable and retreating else reason
+        row["pill"]["batch_usable"] = batch_usable
+        row["pill"]["batch_use_max"] = max(int(row.get("quantity") or 0), 0) if batch_usable else 1
+        row["pill"]["batch_use_note"] = _pill_batch_use_note(item)
         pills.append(row)
 
     talismans = []
@@ -7443,6 +7713,96 @@ def create_official_shop_listing(
     )
 
 
+def recycle_item_to_official_shop(
+    *,
+    tg: int,
+    item_kind: str,
+    item_ref_id: int,
+    quantity: int = 1,
+) -> dict[str, Any]:
+    profile = _require_alive_profile_obj(tg, "官方回收")
+    if _is_retreating(profile):
+        raise ValueError("闭关期间无法进行官方回收。")
+    assert_currency_operation_allowed(tg, "官方回收", profile=profile)
+
+    normalized_kind = str(item_kind or "").strip()
+    requested_quantity = max(int(quantity or 0), 1)
+    current_bundle = serialize_full_profile(tg)
+    current_bundle["materials"] = list_user_materials(tg)
+    quote_bundle = attach_official_recycle_quotes(current_bundle)
+    quote = next(
+        (
+            row
+            for row in quote_bundle.get("official_recycle", {}).get("items") or []
+            if str(row.get("item_kind") or "").strip() == normalized_kind
+            and int(row.get("item_ref_id") or 0) == int(item_ref_id)
+        ),
+        None,
+    )
+    insufficient_messages = {
+        "artifact": "可回收的法宝数量不足，已绑定或已装备的法宝无法回收。",
+        "pill": "背包里的丹药数量不足，无法完成回收。",
+        "talisman": "可回收的符箓数量不足，已绑定的符箓无法回收。",
+        "material": "背包里的材料数量不足，无法完成回收。",
+    }
+    if quote is None:
+        raise ValueError(insufficient_messages.get(normalized_kind, "当前没有可回收的该类物品。"))
+    available_quantity = max(int(quote.get("available_quantity") or 0), 0)
+    if available_quantity < requested_quantity:
+        raise ValueError(insufficient_messages.get(normalized_kind, "当前没有足够的可回收物品。"))
+
+    if normalized_kind == "artifact":
+        if not use_user_artifact_listing_stock(tg, item_ref_id, requested_quantity):
+            raise ValueError(insufficient_messages["artifact"])
+    elif normalized_kind == "pill":
+        if not use_user_pill_listing_stock(tg, item_ref_id, requested_quantity):
+            raise ValueError(insufficient_messages["pill"])
+    elif normalized_kind == "talisman":
+        if not use_user_talisman_listing_stock(tg, item_ref_id, requested_quantity):
+            raise ValueError(insufficient_messages["talisman"])
+    elif normalized_kind == "material":
+        if not use_user_material_listing_stock(tg, item_ref_id, requested_quantity):
+            raise ValueError(insufficient_messages["material"])
+    else:
+        raise ValueError("当前物品类型暂不支持官方回收。")
+
+    unit_price = max(int(quote.get("unit_price_stone") or 0), 0)
+    total_price = unit_price * requested_quantity
+    if total_price <= 0:
+        raise ValueError("该物品当前无法回收。")
+
+    with Session() as session:
+        stone_result = apply_spiritual_stone_delta(
+            session,
+            tg,
+            total_price,
+            action_text="官方回收",
+            enforce_currency_lock=True,
+            allow_dead=False,
+            apply_tribute=True,
+        )
+        session.commit()
+
+    return {
+        "shop_name": OFFICIAL_RECYCLE_NAME,
+        "item_kind": normalized_kind,
+        "item_kind_label": quote.get("item_kind_label") or ITEM_KIND_LABELS.get(normalized_kind, normalized_kind),
+        "item_ref_id": int(item_ref_id),
+        "item_name": quote.get("item_name") or f"{normalized_kind}#{item_ref_id}",
+        "quality_level": int(quote.get("quality_level") or 1),
+        "quality_label": quote.get("quality_label") or "",
+        "quality_color": quote.get("quality_color"),
+        "quantity": requested_quantity,
+        "available_quantity_before": available_quantity,
+        "available_quantity_after": max(available_quantity - requested_quantity, 0),
+        "unit_price_stone": unit_price,
+        "total_price_stone": total_price,
+        "quote_note": quote.get("quote_note") or "",
+        "spiritual_stone_after": int(getattr(stone_result.get("profile"), "spiritual_stone", 0) or 0),
+        "net_stone_gain": int(stone_result.get("net_delta") or total_price),
+    }
+
+
 def patch_shop_listing(item_id: int, **fields) -> dict[str, Any] | None:
     if "quantity" in fields:
         current = next(
@@ -9753,13 +10113,94 @@ def breakthrough_for_user(tg: int, use_pill: bool = False) -> dict[str, Any]:
     }
 
 
-def consume_pill_for_user(tg: int, pill_id: int) -> dict[str, Any]:
+def _apply_pill_effect_once(
+    session: Session,
+    tg: int,
+    profile: XiuxianProfile,
+    pill: Any,
+    pill_data: dict[str, Any],
+) -> dict[str, Any]:
+    profile_data = serialize_profile(profile) or {}
+    effects = resolve_pill_effects(profile_data, pill_data)
+    bone_resistance = min((float(profile.bone or 0) / 200), 0.45)
+    dan_poison = min(int(profile.dan_poison or 0) + int(round(float(effects.get("poison_delta", 0) or 0) * (1 - bone_resistance))), 100)
+    cultivation = int(profile.cultivation or 0)
+    spiritual_stone = int(profile.spiritual_stone or 0)
+    bone = int(profile.bone or 0) + int(round(effects.get("bone_bonus", 0)))
+    comprehension = int(profile.comprehension or 0) + int(round(effects.get("comprehension_bonus", 0)))
+    divine_sense = int(profile.divine_sense or 0) + int(round(effects.get("divine_sense_bonus", 0)))
+    fortune = int(profile.fortune or 0) + int(round(effects.get("fortune_bonus", 0)))
+    willpower = int(profile.willpower or 0) + int(round(effects.get("willpower_bonus", 0)))
+    charisma = int(profile.charisma or 0) + int(round(effects.get("charisma_bonus", 0)))
+    karma = int(profile.karma or 0) + int(round(effects.get("karma_bonus", 0)))
+    qi_blood = int(profile.qi_blood or 0) + int(round(effects.get("qi_blood_bonus", 0)))
+    true_yuan = int(profile.true_yuan or 0) + int(round(effects.get("true_yuan_bonus", 0)))
+    body_movement = int(profile.body_movement or 0) + int(round(effects.get("body_movement_bonus", 0)))
+    attack_power = int(profile.attack_power or 0) + int(round(effects.get("attack_bonus", 0)))
+    defense_power = int(profile.defense_power or 0) + int(round(effects.get("defense_bonus", 0)))
+    root_patch: dict[str, Any] | None = None
+
+    if pill.pill_type == "clear_poison":
+        dan_poison = max(dan_poison - int(round(effects.get("clear_poison", effects.get("effect_value", 50)))), 0)
+    elif pill.pill_type == "cultivation":
+        cultivation += int(round(effects.get("cultivation_gain", effects.get("effect_value", 0))))
+    elif pill.pill_type == "stone":
+        spiritual_stone += int(round(effects.get("stone_gain", effects.get("effect_value", 0))))
+    elif pill.pill_type == "root_refine":
+        steps = max(int(round(float(effects.get("root_quality_gain", 0) or 0))), 0)
+        root_patch = _refined_root_payload(profile_data, steps)
+    elif pill.pill_type == "root_remold":
+        floor_level = max(int(round(float(effects.get("root_quality_floor", 0) or 0))), 0)
+        root_patch = _generate_root_payload_with_floor(floor_level)
+    elif pill.pill_type in ROOT_TRANSFORM_PILL_TYPES:
+        root_patch = _transformed_root_payload(profile_data, pill.pill_type, effects.get("effect_value", pill_data.get("effect_value", 0)))
+
+    layer, cultivation, _, _ = apply_cultivation_gain(
+        normalize_realm_stage(profile.realm_stage or FIRST_REALM_STAGE),
+        int(profile.realm_layer or 1),
+        cultivation,
+        0,
+    )
+    stone_delta = spiritual_stone - int(profile.spiritual_stone or 0)
+    if stone_delta:
+        apply_spiritual_stone_delta(
+            session,
+            tg,
+            stone_delta,
+            action_text="通过丹药变动灵石",
+            enforce_currency_lock=stone_delta != 0,
+            allow_dead=False,
+            apply_tribute=stone_delta > 0,
+        )
+    profile.dan_poison = dan_poison
+    profile.cultivation = cultivation
+    profile.bone = bone
+    profile.comprehension = comprehension
+    profile.divine_sense = divine_sense
+    profile.fortune = fortune
+    profile.willpower = willpower
+    profile.charisma = charisma
+    profile.karma = karma
+    profile.qi_blood = qi_blood
+    profile.true_yuan = true_yuan
+    profile.body_movement = body_movement
+    profile.attack_power = attack_power
+    profile.defense_power = defense_power
+    profile.realm_layer = layer
+    for key, value in (root_patch or {}).items():
+        setattr(profile, key, value)
+    return effects
+
+
+def consume_pill_for_user(tg: int, pill_id: int, quantity: int = 1) -> dict[str, Any]:
     pill = get_pill(pill_id)
     if pill is None or not pill.enabled:
         raise ValueError("未找到可用的丹药。")
     pill_data = serialize_pill(pill)
     profile_data: dict[str, Any] = {}
     effects: dict[str, Any] = {}
+    requested_quantity = max(int(quantity or 0), 1)
+    batch_usable = _pill_supports_batch_use(pill_data)
     with Session() as session:
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if profile is None or not profile.consented:
@@ -9778,9 +10219,13 @@ def consume_pill_for_user(tg: int, pill_id: int) -> dict[str, Any]:
         total_quantity = sum(max(int(row.quantity or 0), 0) for row in rows)
         if total_quantity < 1:
             raise ValueError("你的背包里没有这枚丹药。")
+        if total_quantity < requested_quantity:
+            raise ValueError("背包里的丹药数量不足。")
+        if requested_quantity > 1 and not batch_usable:
+            raise ValueError("这枚丹药当前仅支持单次服用。")
 
         now = utcnow()
-        remaining = 1
+        remaining = requested_quantity
         for row in rows:
             if remaining <= 0:
                 break
@@ -9794,78 +10239,24 @@ def consume_pill_for_user(tg: int, pill_id: int) -> dict[str, Any]:
             if row.quantity <= 0:
                 session.delete(row)
 
-        effects = resolve_pill_effects(profile_data, pill_data)
-        bone_resistance = min((float(profile.bone or 0) / 200), 0.45)
-        dan_poison = min(int(profile.dan_poison or 0) + int(round(float(effects.get("poison_delta", 0) or 0) * (1 - bone_resistance))), 100)
-        cultivation = int(profile.cultivation or 0)
-        spiritual_stone = int(profile.spiritual_stone or 0)
-        bone = int(profile.bone or 0) + int(round(effects.get("bone_bonus", 0)))
-        comprehension = int(profile.comprehension or 0) + int(round(effects.get("comprehension_bonus", 0)))
-        divine_sense = int(profile.divine_sense or 0) + int(round(effects.get("divine_sense_bonus", 0)))
-        fortune = int(profile.fortune or 0) + int(round(effects.get("fortune_bonus", 0)))
-        willpower = int(profile.willpower or 0) + int(round(effects.get("willpower_bonus", 0)))
-        charisma = int(profile.charisma or 0) + int(round(effects.get("charisma_bonus", 0)))
-        karma = int(profile.karma or 0) + int(round(effects.get("karma_bonus", 0)))
-        qi_blood = int(profile.qi_blood or 0) + int(round(effects.get("qi_blood_bonus", 0)))
-        true_yuan = int(profile.true_yuan or 0) + int(round(effects.get("true_yuan_bonus", 0)))
-        body_movement = int(profile.body_movement or 0) + int(round(effects.get("body_movement_bonus", 0)))
-        attack_power = int(profile.attack_power or 0) + int(round(effects.get("attack_bonus", 0)))
-        defense_power = int(profile.defense_power or 0) + int(round(effects.get("defense_bonus", 0)))
-        root_patch: dict[str, Any] | None = None
-
-        if pill.pill_type == "clear_poison":
-            dan_poison = max(dan_poison - int(round(effects.get("clear_poison", effects.get("effect_value", 50)))), 0)
-        elif pill.pill_type == "cultivation":
-            cultivation += int(round(effects.get("cultivation_gain", effects.get("effect_value", 0))))
-        elif pill.pill_type == "stone":
-            spiritual_stone += int(round(effects.get("stone_gain", effects.get("effect_value", 0))))
-        elif pill.pill_type == "root_refine":
-            steps = max(int(round(float(effects.get("root_quality_gain", 0) or 0))), 0)
-            root_patch = _refined_root_payload(profile_data, steps)
-        elif pill.pill_type == "root_remold":
-            floor_level = max(int(round(float(effects.get("root_quality_floor", 0) or 0))), 0)
-            root_patch = _generate_root_payload_with_floor(floor_level)
-        elif pill.pill_type in ROOT_TRANSFORM_PILL_TYPES:
-            root_patch = _transformed_root_payload(profile_data, pill.pill_type, effects.get("effect_value", pill_data.get("effect_value", 0)))
-
-        layer, cultivation, _, _ = apply_cultivation_gain(normalize_realm_stage(profile.realm_stage or FIRST_REALM_STAGE), int(profile.realm_layer or 1), cultivation, 0)
-        stone_delta = spiritual_stone - int(profile.spiritual_stone or 0)
-        if stone_delta:
-            apply_spiritual_stone_delta(
-                session,
-                tg,
-                stone_delta,
-                action_text="通过丹药变动灵石",
-                enforce_currency_lock=stone_delta != 0,
-                allow_dead=False,
-                apply_tribute=stone_delta > 0,
-            )
-        profile.dan_poison = dan_poison
-        profile.cultivation = cultivation
-        profile.bone = bone
-        profile.comprehension = comprehension
-        profile.divine_sense = divine_sense
-        profile.fortune = fortune
-        profile.willpower = willpower
-        profile.charisma = charisma
-        profile.karma = karma
-        profile.qi_blood = qi_blood
-        profile.true_yuan = true_yuan
-        profile.body_movement = body_movement
-        profile.attack_power = attack_power
-        profile.defense_power = defense_power
-        profile.realm_layer = layer
-        for key, value in (root_patch or {}).items():
-            setattr(profile, key, value)
+        for _ in range(requested_quantity):
+            effects = _apply_pill_effect_once(session, tg, profile, pill, pill_data)
         profile.updated_at = now
         _queue_profile_cache_invalidation(session, tg)
         _queue_user_view_cache_invalidation(session, tg)
         session.commit()
     bundle = serialize_full_profile(tg)
     return {
-        "pill": {**pill_data, "resolved_effects": effects},
+        "pill": {
+            **pill_data,
+            "resolved_effects": effects,
+            "batch_usable": batch_usable,
+            "batch_use_note": _pill_batch_use_note(pill_data),
+        },
         "profile": bundle,
         "summary": _pill_effect_summary(profile_data, bundle["profile"]),
+        "used_quantity": requested_quantity,
+        "batch_used": requested_quantity > 1,
     }
 
 

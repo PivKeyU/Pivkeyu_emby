@@ -29,7 +29,7 @@ from bot.sql_helper.sql_bot_access import (
     serialize_bot_access_block,
 )
 from bot.sql_helper.sql_code import Code, CodeRedeem
-from bot.sql_helper.sql_emby import Emby
+from bot.sql_helper.sql_emby import Emby, sql_invalidate_emby_namespace
 from bot.web.migration_bundle import MigrationBundleError, create_migration_bundle, restore_migration_bundle
 from bot.web.presenters import get_level_meta, serialize_emby_user
 
@@ -368,6 +368,7 @@ async def summary():
         active_accounts = (
             session.query(func.count(Emby.tg)).filter(Emby.embyid.isnot(None)).scalar() or 0
         )
+        whitelist_users = session.query(func.count(Emby.tg)).filter(Emby.lv == "a").scalar() or 0
         banned_users = session.query(func.count(Emby.tg)).filter(Emby.lv == "c").scalar() or 0
         total_currency = session.query(func.coalesce(func.sum(Emby.iv), 0)).scalar() or 0
 
@@ -376,6 +377,7 @@ async def summary():
         "data": {
             "total_users": total_users,
             "active_accounts": active_accounts,
+            "whitelist_users": whitelist_users,
             "banned_users": banned_users,
             "total_currency": int(total_currency),
             "auto_update": serialize_auto_update_state(),
@@ -520,6 +522,27 @@ async def update_user(tg: int, payload: AdminUserPatch):
         session.refresh(user)
     identity_map = await _fetch_telegram_identity_map([tg])
     return {"code": 200, "data": _serialize_admin_user(user, identity_map.get(int(tg)))}
+
+
+@router.post("/users/whitelist/revoke-all")
+async def revoke_all_whitelist_users(request: Request):
+    actor_tg = _resolve_admin_actor_id(request)
+    with Session() as session:
+        affected = int(session.query(func.count(Emby.tg)).filter(Emby.lv == "a").scalar() or 0)
+        if affected > 0:
+            session.query(Emby).filter(Emby.lv == "a").update({Emby.lv: "b"}, synchronize_session=False)
+            session.commit()
+        else:
+            session.rollback()
+    sql_invalidate_emby_namespace()
+    LOGGER.info(f"admin whitelist revoke-all actor={actor_tg} affected={affected}")
+    return {
+        "code": 200,
+        "data": {
+            "updated_count": affected,
+            "target_level": "b",
+        },
+    }
 
 
 @router.get("/bot-access-blocks")

@@ -467,6 +467,11 @@ def sql_invalidate_emby_cache(tg: int | str) -> bool:
     return True
 
 
+def sql_invalidate_emby_namespace() -> bool:
+    _invalidate_emby_namespace()
+    return True
+
+
 #
 # def sql_change_emby(name, new_tg):
 #     with Session() as session:

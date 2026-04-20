@@ -200,5 +200,5 @@ def pill_effect_summary(before_profile: dict[str, Any], after_profile: dict[str,
     return "；".join(parts) if parts else "药力已经化开。"
 
 
-def consume_pill_for_user(tg: int, pill_id: int) -> dict[str, Any]:
-    return _legacy_service().consume_pill_for_user(tg, pill_id)
+def consume_pill_for_user(tg: int, pill_id: int, quantity: int = 1) -> dict[str, Any]:
+    return _legacy_service().consume_pill_for_user(tg, pill_id, quantity=quantity)
