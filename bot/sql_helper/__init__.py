@@ -187,6 +187,16 @@ Base.metadata.bind = engine
 _MIGRATION_GUARD_ENV = "PIVKEYU_RUNNING_MIGRATIONS"
 
 
+def _quote_postgresql_identifier(name: str) -> str:
+    return '"' + str(name).replace('"', '""') + '"'
+
+
+def _format_postgresql_relation_name(schema: str | None, table_name: str) -> str:
+    if schema:
+        return f"{_quote_postgresql_identifier(schema)}.{_quote_postgresql_identifier(table_name)}"
+    return _quote_postgresql_identifier(table_name)
+
+
 def sync_postgresql_sequences(*, table_names: set[str] | None = None, log_result: bool = False) -> dict[str, object]:
     if DB_BACKEND != "postgresql":
         return {"applied": False, "tables": []}
@@ -208,11 +218,17 @@ def sync_postgresql_sequences(*, table_names: set[str] | None = None, log_result
             if not isinstance(column.type, Integer):
                 continue
 
-            qualified_table_name = f"{table.schema}.{table.name}" if table.schema else table.name
-            sequence_name = connection.execute(
-                text("SELECT pg_get_serial_sequence(:table_name, :column_name)"),
-                {"table_name": qualified_table_name, "column_name": column.name},
-            ).scalar()
+            qualified_table_name = _format_postgresql_relation_name(table.schema, table.name)
+            try:
+                sequence_name = connection.execute(
+                    text("SELECT pg_get_serial_sequence(:table_name, :column_name)"),
+                    {"table_name": qualified_table_name, "column_name": column.name},
+                ).scalar()
+            except Exception:
+                LOGGER.warning(
+                    f"跳过 PostgreSQL 序列校正：无法获取 {qualified_table_name}.{column.name} 对应的序列"
+                )
+                continue
             if not sequence_name:
                 continue
 
