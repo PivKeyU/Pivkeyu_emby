@@ -125,6 +125,7 @@ const refs = {
   levelLegend: document.querySelector("#level-legend"),
   prevPage: document.querySelector("#prev-page"),
   nextPage: document.querySelector("#next-page"),
+  revokeAllWhitelist: document.querySelector("#revoke-all-whitelist"),
   saveUser: document.querySelector("#save-user"),
   navButtons: [...document.querySelectorAll("[data-section-target]")]
 };
@@ -1055,6 +1056,126 @@ async function saveUser(event) {
   }
 }
 
+async function revokeAllWhitelistUsers() {
+  const confirmed = window.confirm("确认将所有白名单用户批量改为正常用户吗？\n\n这次操作只会把等级 a 调整为 b，不会影响封禁或未注册状态。");
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const result = await runButtonAction(refs.revokeAllWhitelist, "撤销中...", () => api("/admin-api/users/revoke-whitelist-all", {
+      method: "POST"
+    }));
+    const updated = Math.max(Number(result.data?.updated || 0), 0);
+    await Promise.all([loadSummary(), loadUsers(), refreshSelectedUser().catch(() => null)]);
+
+    const message = updated > 0
+      ? `已将 ${updated} 个白名单账号调整为正常用户。`
+      : "当前没有白名单账号需要撤销。";
+    const tone = updated > 0 ? "success" : "warning";
+
+    refs.editorStatus.textContent = message;
+    setAdminStatus(message, tone);
+    showToast(message, tone);
+    await popup(updated > 0 ? "操作完成" : "无需处理", message, tone);
+  } catch (error) {
+    const message = normalizeError(error);
+    setAdminStatus(`批量撤销白名单失败：${message}`, "error");
+    showToast(`批量撤销白名单失败：${message}`, "error");
+    await popup("操作失败", message, "error");
+  }
+}
+
+async function createBotAccessBlock(event) {
+  event.preventDefault();
+
+  const payload = {
+    tg: refs.botBlockTg.value ? Number(refs.botBlockTg.value) : null,
+    username: refs.botBlockUsername.value.trim() || null,
+    note: refs.botBlockNote.value.trim() || null
+  };
+
+  if (!payload.tg && !payload.username) {
+    const message = "TGID 和 TG 用户名至少需要填写一项。";
+    refs.botBlockStatus.textContent = message;
+    refs.botBlockStatus.dataset.tone = "error";
+    setAdminStatus(message, "warning");
+    showToast(message, "warning");
+    await popup("无法加入黑名单", message, "warning");
+    return;
+  }
+
+  try {
+    const result = await runButtonAction(refs.botBlockSubmit, "提交中...", () => api("/admin-api/bot-access-blocks", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }));
+    refs.botBlockForm.reset();
+    refs.botBlockStatus.textContent = `已加入黑名单：${fmtBotBlockTarget(result.data)}`;
+    refs.botBlockStatus.dataset.tone = "info";
+    await Promise.all([loadBotAccessBlocks(), loadUsers(), refreshSelectedUser().catch(() => null)]);
+    setAdminStatus(`已禁止 ${fmtBotBlockTarget(result.data)} 使用 Bot。`, "success");
+    showToast(`已禁止 ${fmtBotBlockTarget(result.data)} 使用 Bot。`, "success");
+    await popup("已加入黑名单", `规则已生效：${fmtBotBlockTarget(result.data)}。Bot 将不再响应该用户的消息、按钮和内联查询。`, "success");
+  } catch (error) {
+    const message = normalizeError(error);
+    refs.botBlockStatus.textContent = `加入黑名单失败：${message}`;
+    refs.botBlockStatus.dataset.tone = "error";
+    setAdminStatus(`加入 Bot 黑名单失败：${message}`, "error");
+    showToast(`加入黑名单失败：${message}`, "error");
+    await popup("加入失败", message, "error");
+  }
+}
+
+async function deleteBotAccessBlock(blockId) {
+  if (!blockId) {
+    return;
+  }
+
+  const target = state.botAccessBlocks.find((item) => String(item.id) === String(blockId));
+  const confirmed = window.confirm(`确认移除这条 Bot 黑名单规则吗？\n\n${fmtBotBlockTarget(target)}`);
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const result = await api(`/admin-api/bot-access-blocks/${encodeURIComponent(blockId)}`, {
+      method: "DELETE"
+    });
+    refs.botBlockStatus.textContent = `已移除黑名单：${fmtBotBlockTarget(result.data?.item)}`;
+    refs.botBlockStatus.dataset.tone = "info";
+    await Promise.all([loadBotAccessBlocks(), loadUsers(), refreshSelectedUser().catch(() => null)]);
+    setAdminStatus(`已解除 ${fmtBotBlockTarget(result.data?.item)} 的 Bot 限制。`, "success");
+    showToast(`已解除 ${fmtBotBlockTarget(result.data?.item)} 的 Bot 限制。`, "success");
+    await popup("已移除黑名单", `规则已删除：${fmtBotBlockTarget(result.data?.item)}。`, "success");
+  } catch (error) {
+    const message = normalizeError(error);
+    refs.botBlockStatus.textContent = `移除黑名单失败：${message}`;
+    refs.botBlockStatus.dataset.tone = "error";
+    setAdminStatus(`移除 Bot 黑名单失败：${message}`, "error");
+    showToast(`移除黑名单失败：${message}`, "error");
+    await popup("移除失败", message, "error");
+  }
+}
+
+function useSelectedUserForBotBlock() {
+  const item = state.selectedUser;
+  if (!item) {
+    const message = "请先从用户列表选择一个账号，再带入黑名单表单。";
+    refs.botBlockStatus.textContent = message;
+    refs.botBlockStatus.dataset.tone = "error";
+    setAdminStatus(message, "warning");
+    showToast(message, "warning");
+    return;
+  }
+
+  refs.botBlockTg.value = item.tg ?? "";
+  refs.botBlockUsername.value = item.tg_username ? `@${item.tg_username}` : "";
+  refs.botBlockStatus.textContent = `已带入当前选中账号：${fmtBotBlockTarget({ tg: item.tg, username: item.tg_username })}`;
+  refs.botBlockStatus.dataset.tone = "info";
+  focusSection("bot-block-section");
+  showToast("已带入当前选中账号。", "success");
+}
 async function createCodes(event) {
   event.preventDefault();
 
@@ -1382,6 +1503,8 @@ document.querySelector("#search-form").addEventListener("submit", async (event) 
     showToast(`搜索失败：${message}`, "error");
   }
 });
+
+refs.revokeAllWhitelist?.addEventListener("click", revokeAllWhitelistUsers);
 
 refs.prevPage.addEventListener("click", async () => {
   if (state.page <= 1) {

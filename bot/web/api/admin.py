@@ -460,6 +460,24 @@ async def list_users(
     }
 
 
+@router.post("/users/revoke-whitelist-all")
+async def revoke_all_whitelist_users():
+    with Session() as session:
+        updated = (
+            session.query(Emby)
+            .filter(Emby.lv == "a")
+            .update({Emby.lv: "b"}, synchronize_session=False)
+        )
+        session.commit()
+
+    return {
+        "code": 200,
+        "data": {
+            "updated": int(updated or 0),
+        },
+    }
+
+
 @router.get("/users/{tg}")
 async def get_user(tg: int):
     with Session() as session:

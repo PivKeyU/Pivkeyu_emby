@@ -265,6 +265,33 @@
         </summary>
         <div class="fold-body">
           <div id="official-shop-list" class="stack-list"></div>
+          <section>
+            <h3 id="official-recycle-title">官方回收</h3>
+            <form id="official-recycle-form" class="mini-form">
+              <div class="compact-grid">
+                <label>
+                  回收类型
+                  <select id="recycle-item-kind">
+                    <option value="artifact">法宝</option>
+                    <option value="talisman">符箓</option>
+                    <option value="pill">丹药</option>
+                    <option value="material">材料</option>
+                  </select>
+                </label>
+                <label>
+                  物品
+                  <select id="recycle-item-ref"></select>
+                </label>
+                <label>
+                  数量
+                  <input id="recycle-quantity" type="number" min="1" value="1">
+                </label>
+              </div>
+              <p id="official-recycle-hint" class="section-copy">按物品品阶、基础属性与特效做保守折价，不收已绑定或已装备库存。</p>
+              <button type="submit">卖给官方</button>
+            </form>
+            <div id="official-recycle-preview" class="stack-list"></div>
+          </section>
         </div>
       </details>
 

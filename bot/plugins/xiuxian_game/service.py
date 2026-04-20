@@ -86,6 +86,8 @@ from bot.sql_helper.sql_xiuxian import (
     purchase_shop_item as sql_purchase_shop_item,
     plunder_random_artifact_to_user,
     realm_index,
+    release_starter_artifact_protection,
+    resolve_duel_bet_settings,
     search_profiles,
     serialize_artifact,
     serialize_pill,
@@ -171,6 +173,11 @@ ROOT_SPECIAL_QUALITIES = {"天灵根", "变异灵根"}
 ROOT_TRANSFORM_PILL_TYPES = {"root_single", "root_double", "root_earth", "root_heaven", "root_variant"}
 
 PERSONAL_SHOP_NAME = "游仙小铺"
+OFFICIAL_RECYCLE_NAME = "官方回收"
+IMMORTAL_STONE_NAME = "仙界奇石"
+GAMBLING_SUPPORTED_ITEM_KINDS = {"artifact", "pill", "talisman", "material"}
+STARTER_TECHNIQUE_NAME = "长青诀"
+STARTER_TITLE_NAME = "初入仙途"
 
 DEFAULT_ARTIFACTS = [
     {
@@ -1875,6 +1882,218 @@ def _item_quality_multiplier(item: dict[str, Any] | None, item_kind: str) -> flo
     return float(1.0 if value is None else value)
 
 
+OFFICIAL_RECYCLE_BASE_PRICES = {
+    "artifact": {1: 8, 2: 12, 3: 18, 4: 28, 5: 40, 6: 58, 7: 82},
+    "pill": {1: 5, 2: 8, 3: 12, 4: 18, 5: 26, 6: 38, 7: 54},
+    "talisman": {1: 6, 2: 10, 3: 16, 4: 24, 5: 36, 6: 52, 7: 72},
+    "material": {1: 1, 2: 3, 3: 5, 4: 8, 5: 12, 6: 18, 7: 26},
+}
+OFFICIAL_RECYCLE_PRICE_CAPS = {
+    "artifact": {1: 24, 2: 32, 3: 46, 4: 64, 5: 90, 6: 128, 7: 180},
+    "pill": {1: 12, 2: 18, 3: 26, 4: 38, 5: 52, 6: 74, 7: 108},
+    "talisman": {1: 18, 2: 26, 3: 38, 4: 54, 5: 76, 6: 108, 7: 150},
+    "material": {1: 6, 2: 10, 3: 14, 4: 20, 5: 30, 6: 42, 7: 60},
+}
+PILL_TYPE_RECYCLE_FACTORS = {
+    "foundation": 0.55,
+    "clear_poison": 0.18,
+    "cultivation": 0.10,
+    "stone": 0.08,
+    "bone": 0.58,
+    "comprehension": 0.58,
+    "divine_sense": 0.60,
+    "fortune": 0.64,
+    "qi_blood": 0.42,
+    "true_yuan": 0.42,
+    "body_movement": 0.56,
+    "attack": 0.56,
+    "defense": 0.56,
+}
+
+
+def _official_recycle_quality_level(item_kind: str, item: dict[str, Any] | None) -> int:
+    payload = item or {}
+    if item_kind == "material":
+        return max(min(int(payload.get("quality_level") or 1), 7), 1)
+    return max(min(int(payload.get("rarity_level") or 1), 7), 1)
+
+
+def _official_recycle_quality_label(item_kind: str, item: dict[str, Any] | None) -> str:
+    payload = item or {}
+    if item_kind == "material":
+        return str(payload.get("quality_label") or get_quality_meta(payload.get("quality_level")).get("label") or "凡品").strip() or "凡品"
+    return str(payload.get("rarity") or "凡品").strip() or "凡品"
+
+
+def _official_recycle_stat_score(
+    item: dict[str, Any] | None,
+    *,
+    stat_scale: float,
+    resource_scale: float,
+    duel_scale: float,
+    cultivation_scale: float,
+    breakthrough_scale: float = 0.0,
+) -> float:
+    payload = item or {}
+    regular_stats = (
+        int(payload.get("attack_bonus") or 0)
+        + int(payload.get("defense_bonus") or 0)
+        + int(payload.get("bone_bonus") or 0)
+        + int(payload.get("comprehension_bonus") or 0)
+        + int(payload.get("divine_sense_bonus") or 0)
+        + int(payload.get("fortune_bonus") or 0)
+        + int(payload.get("body_movement_bonus") or 0)
+    )
+    resources = int(payload.get("qi_blood_bonus") or 0) + int(payload.get("true_yuan_bonus") or 0)
+    duel_rate = int(payload.get("duel_rate_bonus") or 0)
+    cultivation = int(payload.get("cultivation_bonus") or 0)
+    breakthrough = int(payload.get("breakthrough_bonus") or 0)
+    return (
+        regular_stats * stat_scale
+        + resources * resource_scale
+        + duel_rate * duel_scale
+        + cultivation * cultivation_scale
+        + breakthrough * breakthrough_scale
+    )
+
+
+def _official_recycle_combat_config_bonus(item: dict[str, Any] | None, *, cap: int) -> int:
+    config = (item or {}).get("combat_config")
+    if not isinstance(config, dict):
+        return 0
+    total = 0.0
+    if str(config.get("opening_text") or "").strip():
+        total += 0.6
+    for group in ("skills", "passives"):
+        entries = config.get(group)
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            total += 1.1
+            total += max(min(int(entry.get("chance") or 0), 100), 0) / 55.0
+            total += abs(int(entry.get("flat_damage") or 0)) * 0.03
+            total += abs(int(entry.get("flat_heal") or 0)) * 0.03
+            total += abs(int(entry.get("flat_shield") or 0)) * 0.03
+            total += abs(int(entry.get("ratio_percent") or 0)) * 0.06
+            total += abs(int(entry.get("defense_ratio_percent") or 0)) * 0.05
+            total += abs(int(entry.get("dodge_bonus") or 0)) * 0.04
+            total += abs(int(entry.get("duration") or 0)) * 0.35
+    return max(min(int(round(total)), cap), 0)
+
+
+def _official_recycle_unit_price(item_kind: str, item: dict[str, Any] | None) -> int:
+    normalized_kind = str(item_kind or "").strip()
+    if normalized_kind not in OFFICIAL_RECYCLE_BASE_PRICES:
+        raise ValueError("当前类型暂不支持官方回收。")
+    payload = item or {}
+    quality_level = _official_recycle_quality_level(normalized_kind, payload)
+    base_price = OFFICIAL_RECYCLE_BASE_PRICES[normalized_kind][quality_level]
+    cap_price = OFFICIAL_RECYCLE_PRICE_CAPS[normalized_kind][quality_level]
+
+    if normalized_kind == "artifact":
+        raw_price = (
+            base_price
+            + _official_recycle_stat_score(
+                payload,
+                stat_scale=0.38,
+                resource_scale=0.045,
+                duel_scale=2.4,
+                cultivation_scale=1.6,
+            )
+            + _official_recycle_combat_config_bonus(payload, cap=14)
+        )
+        quality_multiplier = _item_quality_multiplier(payload, normalized_kind)
+    elif normalized_kind == "talisman":
+        raw_price = (
+            base_price
+            + _official_recycle_stat_score(
+                payload,
+                stat_scale=0.32,
+                resource_scale=0.035,
+                duel_scale=2.6,
+                cultivation_scale=0.0,
+            )
+            + max(int(payload.get("effect_uses") or 1) - 1, 0) * 1.2
+            + _official_recycle_combat_config_bonus(payload, cap=12)
+        )
+        quality_multiplier = _item_quality_multiplier(payload, normalized_kind)
+    elif normalized_kind == "pill":
+        pill_type = str(payload.get("pill_type") or "").strip()
+        effect_factor = PILL_TYPE_RECYCLE_FACTORS.get(pill_type, 0.18)
+        raw_price = (
+            base_price
+            + max(int(payload.get("effect_value") or 0), 0) * effect_factor
+            + _official_recycle_stat_score(
+                payload,
+                stat_scale=0.24,
+                resource_scale=0.03,
+                duel_scale=0.0,
+                cultivation_scale=0.0,
+                breakthrough_scale=1.8,
+            )
+            - max(int(payload.get("poison_delta") or 0), 0) * 0.35
+        )
+        quality_multiplier = _item_quality_multiplier(payload, normalized_kind)
+    else:
+        seed_anchor = max(int(payload.get("seed_price_stone") or 0), 0)
+        raw_price = base_price + min(seed_anchor, cap_price * 2) * 0.35
+        quality_multiplier = 1.0
+
+    unit_price = int(round(max(raw_price, 1.0) * max(quality_multiplier, 0.0)))
+    return max(min(unit_price, cap_price), 1)
+
+
+def build_official_recycle_quote(
+    item_kind: str,
+    item: dict[str, Any] | None,
+    quantity: int = 1,
+) -> dict[str, Any]:
+    payload = item or {}
+    amount = max(int(quantity or 0), 0)
+    unit_price = _official_recycle_unit_price(item_kind, payload) if payload else 0
+    return {
+        "official_name": OFFICIAL_RECYCLE_NAME,
+        "item_kind": item_kind,
+        "item_kind_label": ITEM_KIND_LABELS.get(item_kind, item_kind),
+        "item_ref_id": int(payload.get("id") or 0),
+        "item_name": str(payload.get("name") or "").strip(),
+        "quality_level": _official_recycle_quality_level(item_kind, payload) if payload else 1,
+        "quality_label": _official_recycle_quality_label(item_kind, payload) if payload else "凡品",
+        "quantity": amount,
+        "unit_price_stone": unit_price,
+        "total_price_stone": unit_price * amount,
+    }
+
+
+def attach_official_recycle_quotes(bundle: dict[str, Any] | None) -> dict[str, Any]:
+    payload = bundle if isinstance(bundle, dict) else {}
+    settings = payload.setdefault("settings", {})
+    settings["official_recycle_name"] = OFFICIAL_RECYCLE_NAME
+    kind_rows = (
+        ("artifacts", "artifact"),
+        ("pills", "pill"),
+        ("talismans", "talisman"),
+        ("materials", "material"),
+    )
+    for bundle_key, item_kind in kind_rows:
+        rows = payload.get(bundle_key)
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            item = row.get(item_kind) or {}
+            if not isinstance(item, dict) or not item:
+                continue
+            available_quantity = max(int(row.get("tradeable_quantity", row.get("quantity") or 0) or 0), 0)
+            row.setdefault("tradeable_quantity", available_quantity)
+            row.setdefault("consumable_quantity", available_quantity)
+            row["recycle_quote"] = build_official_recycle_quote(item_kind, item, available_quantity)
+    return payload
+
+
 def _root_quality_payload(name: str | None) -> dict[str, Any]:
     rules = _normalize_root_quality_value_rules(
         get_xiuxian_settings().get("root_quality_value_rules", DEFAULT_SETTINGS["root_quality_value_rules"])
@@ -3533,6 +3752,211 @@ def finish_retreat_for_user(tg: int) -> dict[str, Any]:
     }
 
 
+def _consume_official_recycle_inventory(
+    session: Session,
+    tg: int,
+    item_kind: str,
+    item_ref_id: int,
+    quantity: int,
+) -> set[int]:
+    normalized_kind = str(item_kind or "").strip()
+    remaining = max(int(quantity or 0), 1)
+    release_owner_tgs: set[int] = set()
+    now = utcnow()
+
+    if normalized_kind == "artifact":
+        rows = _ordered_owner_rows(session, XiuxianArtifactInventory, tg, "artifact_id", item_ref_id)
+        if not rows:
+            raise ValueError("你的背包里没有这件法宝。")
+        owner_tgs = [int(row.tg or 0) for row in rows if int(row.tg or 0) > 0]
+        equipped_count = 0
+        if owner_tgs:
+            equipped_count = len(
+                session.query(XiuxianEquippedArtifact)
+                .filter(
+                    XiuxianEquippedArtifact.tg.in_(owner_tgs),
+                    XiuxianEquippedArtifact.artifact_id == int(item_ref_id),
+                )
+                .with_for_update()
+                .all()
+            )
+        total_quantity = sum(max(int(row.quantity or 0), 0) for row in rows)
+        total_bound_quantity = sum(
+            max(min(int(row.bound_quantity or 0), max(int(row.quantity or 0), 0)), 0)
+            for row in rows
+        )
+        total_available = max(total_quantity - total_bound_quantity - equipped_count, 0)
+        if total_available < remaining:
+            raise ValueError("可回收的法宝数量不足，已绑定或已装备的法宝无法回收。")
+        starter_row = session.query(XiuxianArtifact.id).filter(XiuxianArtifact.name == STARTER_ARTIFACT_NAME).first()
+        starter_artifact_id = int(starter_row[0]) if starter_row else None
+        for row in rows:
+            if remaining <= 0:
+                break
+            quantity_value = max(int(row.quantity or 0), 0)
+            bound_quantity = max(min(int(row.bound_quantity or 0), quantity_value), 0)
+            available = max(quantity_value - bound_quantity, 0)
+            if available <= 0:
+                continue
+            delta = min(available, remaining)
+            row.quantity = quantity_value - delta
+            row.bound_quantity = max(min(bound_quantity, int(row.quantity or 0)), 0)
+            row.updated_at = now
+            if delta > 0 and int(item_ref_id or 0) == int(starter_artifact_id or 0):
+                release_owner_tgs.add(int(row.tg or 0))
+            remaining -= delta
+            if row.quantity <= 0:
+                session.delete(row)
+    elif normalized_kind == "pill":
+        rows = _ordered_owner_rows(session, XiuxianPillInventory, tg, "pill_id", item_ref_id)
+        total_quantity = sum(max(int(row.quantity or 0), 0) for row in rows)
+        if total_quantity < remaining:
+            raise ValueError("背包里的丹药数量不足。")
+        for row in rows:
+            if remaining <= 0:
+                break
+            available = max(int(row.quantity or 0), 0)
+            if available <= 0:
+                continue
+            delta = min(available, remaining)
+            row.quantity = available - delta
+            row.updated_at = now
+            remaining -= delta
+            if row.quantity <= 0:
+                session.delete(row)
+    elif normalized_kind == "material":
+        rows = _ordered_owner_rows(session, XiuxianMaterialInventory, tg, "material_id", item_ref_id)
+        total_quantity = sum(max(int(row.quantity or 0), 0) for row in rows)
+        if total_quantity < remaining:
+            raise ValueError("背包里的材料数量不足。")
+        for row in rows:
+            if remaining <= 0:
+                break
+            available = max(int(row.quantity or 0), 0)
+            if available <= 0:
+                continue
+            delta = min(available, remaining)
+            row.quantity = available - delta
+            row.updated_at = now
+            remaining -= delta
+            if row.quantity <= 0:
+                session.delete(row)
+    elif normalized_kind == "talisman":
+        rows = _ordered_owner_rows(session, XiuxianTalismanInventory, tg, "talisman_id", item_ref_id)
+        total_available = 0
+        for row in rows:
+            quantity_value = max(int(row.quantity or 0), 0)
+            bound_quantity = max(min(int(row.bound_quantity or 0), quantity_value), 0)
+            total_available += max(quantity_value - bound_quantity, 0)
+        if total_available < remaining:
+            raise ValueError("可回收的符箓数量不足，已绑定的符箓无法回收。")
+        for row in rows:
+            if remaining <= 0:
+                break
+            quantity_value = max(int(row.quantity or 0), 0)
+            bound_quantity = max(min(int(row.bound_quantity or 0), quantity_value), 0)
+            available = max(quantity_value - bound_quantity, 0)
+            if available <= 0:
+                continue
+            delta = min(available, remaining)
+            row.quantity = quantity_value - delta
+            row.bound_quantity = max(min(bound_quantity, int(row.quantity or 0)), 0)
+            row.updated_at = now
+            remaining -= delta
+            if row.quantity <= 0:
+                session.delete(row)
+    else:
+        raise ValueError("当前类型暂不支持官方回收。")
+
+    if remaining > 0:
+        raise ValueError("可回收库存不足。")
+    return release_owner_tgs
+
+
+def _official_recycle_item_payload(item_kind: str, item_ref_id: int) -> dict[str, Any]:
+    normalized_kind = str(item_kind or "").strip()
+    if normalized_kind == "artifact":
+        item = serialize_artifact(get_artifact(item_ref_id))
+    elif normalized_kind == "pill":
+        item = serialize_pill(get_pill(item_ref_id))
+    elif normalized_kind == "material":
+        item = serialize_material(get_material(item_ref_id))
+    elif normalized_kind == "talisman":
+        item = serialize_talisman(get_talisman(item_ref_id))
+    else:
+        item = None
+    if not item:
+        raise ValueError(f"未找到目标{ITEM_KIND_LABELS.get(normalized_kind, '物品')}。")
+    return item
+
+
+def recycle_item_to_official_shop(
+    *,
+    tg: int,
+    item_kind: str,
+    item_ref_id: int,
+    quantity: int,
+) -> dict[str, Any]:
+    profile = _require_alive_profile_obj(tg, "官坊回收")
+    if _is_retreating(profile):
+        raise ValueError("闭关期间无法进行官坊回收。")
+    assert_currency_operation_allowed(tg, "官坊回收", profile=profile)
+
+    normalized_kind = str(item_kind or "").strip()
+    amount = max(int(quantity or 0), 1)
+    item = _official_recycle_item_payload(normalized_kind, int(item_ref_id))
+    quote = build_official_recycle_quote(normalized_kind, item, amount)
+    total_price = max(int(quote.get("total_price_stone") or 0), 0)
+    if total_price <= 0:
+        raise ValueError("当前物品暂时无法被官方回收。")
+
+    release_owner_tgs: set[int] = set()
+    with Session() as session:
+        profile_row = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(tg)).with_for_update().first()
+        if profile_row is None:
+            raise ValueError("你还没有踏入仙途。")
+        assert_profile_alive(profile_row, "官坊回收")
+        _assert_gender_ready(profile_row, "官坊回收")
+        assert_currency_operation_allowed(int(tg), "官坊回收", session=session, profile=profile_row)
+        release_owner_tgs = _consume_official_recycle_inventory(
+            session,
+            int(tg),
+            normalized_kind,
+            int(item_ref_id),
+            amount,
+        )
+        stone_result = apply_spiritual_stone_delta(
+            session,
+            int(tg),
+            total_price,
+            action_text="官坊回收入账",
+            allow_dead=False,
+            apply_tribute=True,
+        )
+        session.commit()
+
+    for owner_tg in release_owner_tgs:
+        release_starter_artifact_protection(
+            owner_tg,
+            reason="你将新手法宝用于官坊回收，此后它不再受新手保护，日后重修也不会再次补发。",
+        )
+
+    tribute_amount = int(stone_result.get("tribute_amount") or 0)
+    return {
+        "official_name": OFFICIAL_RECYCLE_NAME,
+        "item_kind": normalized_kind,
+        "item_kind_label": ITEM_KIND_LABELS.get(normalized_kind, normalized_kind),
+        "item_ref_id": int(item_ref_id),
+        "item_name": str(item.get("name") or "").strip() or "未知物品",
+        "quantity": amount,
+        "unit_price_stone": int(quote.get("unit_price_stone") or 0),
+        "total_price_stone": total_price,
+        "net_income_stone": max(total_price - tribute_amount, 0),
+        "tribute_amount": tribute_amount,
+        "quote": quote,
+    }
+
+
 def create_personal_shop_listing(
     *,
     tg: int,
@@ -4937,6 +5361,9 @@ def consume_pill_for_user(tg: int, pill_id: int) -> dict[str, Any]:
     }
 
 
+_consume_pill_for_user_impl = consume_pill_for_user
+
+
 def _duel_display_name(profile: dict[str, Any]) -> str:
     return _profile_name_with_title(profile)
 
@@ -6139,6 +6566,7 @@ def generate_duel_preview_text(duel: dict[str, Any], stake: int = 0, duel_mode: 
 
 from bot.plugins.xiuxian_game.features.pills import (  # noqa: E402
     consume_pill_for_user as consume_pill_for_user,
+    consume_pill_for_user_batch as consume_pill_for_user_batch,
     pill_effect_summary as _pill_effect_summary,
     pill_usage_reason as _pill_usage_reason,
     resolve_pill_effects as resolve_pill_effects,

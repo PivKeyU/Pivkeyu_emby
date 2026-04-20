@@ -290,3 +290,56 @@ def consume_pill_for_user(tg: int, pill_id: int) -> dict[str, Any]:
         "profile": bundle,
         "summary": pill_effect_summary(profile_data, bundle["profile"]),
     }
+
+
+def consume_pill_for_user_batch(tg: int, pill_id: int, quantity: int = 1) -> dict[str, Any]:
+    legacy_service = _legacy_service()
+    requested_quantity = max(int(quantity or 1), 1)
+
+    if requested_quantity == 1:
+        result = consume_pill_for_user(tg, pill_id)
+        return {
+            **result,
+            "requested_quantity": 1,
+            "used_count": 1,
+            "completed": True,
+            "stopped_reason": "",
+        }
+
+    pill = get_pill(pill_id)
+    if pill is None or not pill.enabled:
+        raise ValueError("未找到可用的丹药。")
+
+    profile = legacy_service._require_alive_profile_obj(tg, "批量服用丹药")
+    if is_retreating(profile):
+        raise ValueError("闭关期间无法服用丹药。")
+
+    before_profile = serialize_profile(profile)
+    last_result: dict[str, Any] | None = None
+    used_count = 0
+    stopped_reason = ""
+
+    for _ in range(requested_quantity):
+        try:
+            last_result = consume_pill_for_user(tg, pill_id)
+        except ValueError as exc:
+            if used_count <= 0:
+                raise
+            stopped_reason = str(exc).strip() or "后续已无法继续服用。"
+            break
+        used_count += 1
+
+    if last_result is None:
+        raise ValueError("服用丹药失败，请稍后再试。")
+
+    bundle = last_result.get("profile") or legacy_service.serialize_full_profile(tg)
+    after_profile = (bundle or {}).get("profile") or before_profile
+
+    return {
+        **last_result,
+        "summary": pill_effect_summary(before_profile, after_profile),
+        "requested_quantity": requested_quantity,
+        "used_count": used_count,
+        "completed": used_count >= requested_quantity and not stopped_reason,
+        "stopped_reason": stopped_reason,
+    }

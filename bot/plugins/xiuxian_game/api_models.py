@@ -17,6 +17,11 @@ class ConsumePillPayload(InitDataPayload):
     pill_id: int
 
 
+class BatchConsumePillPayload(InitDataPayload):
+    pill_id: int
+    quantity: int = Field(default=1, ge=1, le=99)
+
+
 class EquipArtifactPayload(InitDataPayload):
     artifact_id: int
 
@@ -66,6 +71,12 @@ class PersonalShopPayload(InitDataPayload):
 
 class PurchasePayload(InitDataPayload):
     item_id: int
+    quantity: int = 1
+
+
+class OfficialRecyclePayload(InitDataPayload):
+    item_kind: str
+    item_ref_id: int
     quantity: int = 1
 
 

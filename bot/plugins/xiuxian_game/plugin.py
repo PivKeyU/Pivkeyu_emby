@@ -32,6 +32,7 @@ from bot.plugins.xiuxian_game.api_models import (
     ArtifactBindingPayload,
     ArtifactPayload,
     ArtifactSetPayload,
+    BatchConsumePillPayload,
     BreakthroughPayload,
     ConsumePillPayload,
     CraftPayload,
@@ -47,6 +48,7 @@ from bot.plugins.xiuxian_game.api_models import (
     LeaderboardPayload,
     MaterialPayload,
     OfficialShopPatchPayload,
+    OfficialRecyclePayload,
     OfficialShopPayload,
     PersonalShopPayload,
     PillPayload,
@@ -139,7 +141,7 @@ from bot.plugins.xiuxian_game.features.inventory import (
     unbind_artifact_for_user,
     unbind_talisman_for_user,
 )
-from bot.plugins.xiuxian_game.features.pills import consume_pill_for_user
+from bot.plugins.xiuxian_game.features.pills import consume_pill_for_user, consume_pill_for_user_batch
 from bot.plugins.xiuxian_game.features.retreat import finish_retreat_for_user, start_retreat_for_user
 from bot.plugins.xiuxian_game.features.sects import (
     claim_sect_salary_for_user,
@@ -149,6 +151,7 @@ from bot.plugins.xiuxian_game.features.sects import (
     set_user_sect_role,
 )
 from bot.plugins.xiuxian_game.features.shop import (
+    attach_official_recycle_quotes,
     broadcast_shop_copy,
     convert_emby_coin_to_stone,
     convert_stone_to_emby_coin,
@@ -159,6 +162,7 @@ from bot.plugins.xiuxian_game.features.shop import (
     list_public_shop_items,
     patch_shop_listing,
     purchase_shop_item,
+    recycle_item_to_official_shop,
     search_xiuxian_players,
 )
 from bot.plugins.xiuxian_game.features.social import (
@@ -792,7 +796,7 @@ def _full_bundle(tg: int) -> dict[str, Any]:
     )
     bundle["capabilities"]["is_admin"] = bool(is_admin_user_id(tg))
     bundle["capabilities"]["admin_panel_url"] = _admin_panel_url() if is_admin_user_id(tg) else None
-    return bundle
+    return attach_official_recycle_quotes(bundle)
 
 
 def _message_auto_delete_seconds() -> int:
@@ -2668,6 +2672,12 @@ def register_web(app) -> None:
         result = consume_pill_for_user(telegram_user["id"], payload.pill_id)
         return {"code": 200, "data": result}
 
+    @user_router.post("/api/pill/use-batch")
+    async def xiuxian_use_pill_batch_api(payload: BatchConsumePillPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = consume_pill_for_user_batch(telegram_user["id"], payload.pill_id, payload.quantity)
+        return {"code": 200, "data": result}
+
     @user_router.post("/api/artifact/equip")
     async def xiuxian_equip_api(payload: EquipArtifactPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
@@ -2918,6 +2928,31 @@ def register_web(app) -> None:
                 LOGGER.warning(f"xiuxian seller notify failed: {exc}")
         return {"code": 200, "data": result}
 
+    @user_router.post("/api/recycle/official")
+    async def xiuxian_official_recycle_api(payload: OfficialRecyclePayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = recycle_item_to_official_shop(
+            tg=telegram_user["id"],
+            item_kind=payload.item_kind,
+            item_ref_id=payload.item_ref_id,
+            quantity=payload.quantity,
+        )
+        _remember_journal(
+            telegram_user["id"],
+            "shop",
+            "官坊回收",
+            f"回收了【{result['item_name']}】×{result['quantity']}，结算 {result['total_price_stone']} 灵石",
+        )
+        return {"code": 200, "data": {"result": result, "bundle": _full_bundle(telegram_user["id"])}}
+
+    @user_router.post("/api/player/search")
+    async def xiuxian_player_search_api(payload: PlayerLookupPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        keyword = str(payload.query or "").strip()
+        if not keyword:
+            return {"code": 200, "data": {"items": [], "page": payload.page, "page_size": payload.page_size, "total": 0}}
+        result = search_xiuxian_players(query=keyword, page=payload.page, page_size=payload.page_size, include_secluded=False)
+        return {"code": 200, "data": _minimal_player_lookup_payload(result, telegram_user["id"])}
     @user_router.post("/api/gift")
     async def xiuxian_gift_api(payload: GiftPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)

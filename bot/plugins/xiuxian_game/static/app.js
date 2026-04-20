@@ -210,6 +210,11 @@ function officialShopName(bundle = state.profileBundle) {
   return String(raw || "").trim() || "官方商店";
 }
 
+function officialRecycleName(bundle = state.profileBundle) {
+  const raw = bundle?.settings?.official_recycle_name;
+  return String(raw || "").trim() || "官方回收";
+}
+
 function currentDuelLockReason(bundle = state.profileBundle) {
   const reason = bundle?.capabilities?.duel_lock_reason;
   return String(reason || "").trim();
@@ -319,34 +324,194 @@ function ensureSectionState(selector, visible, openWhenVisible = false) {
   syncFoldToolbar();
 }
 
-function renderInventorySelect() {
-  const select = document.querySelector("#shop-item-ref");
-  const kind = document.querySelector("#shop-item-kind").value;
-  const bundle = state.profileBundle;
-  if (!bundle) return;
+function inventoryRowsByKind(kind, bundle = state.profileBundle) {
+  const source = bundle || {};
+  if (kind === "artifact") return source.artifacts || [];
+  if (kind === "pill") return source.pills || [];
+  if (kind === "talisman") return source.talismans || [];
+  if (kind === "material") return source.materials || [];
+  return [];
+}
 
-  let rows = [];
-  if (kind === "artifact") rows = bundle.artifacts;
-  if (kind === "pill") rows = bundle.pills;
-  if (kind === "talisman") rows = bundle.talismans;
-  if (kind === "material") rows = bundle.materials;
+function findPillInventoryRow(pillId, bundle = state.profileBundle) {
+  const targetId = Number(pillId || 0);
+  return inventoryRowsByKind("pill", bundle).find((row) => Number(row?.pill?.id || 0) === targetId) || null;
+}
 
+function pillActionButtonsHtml(row, disabled) {
+  const item = row?.pill || {};
+  const quantity = Math.max(Number(row?.quantity || 0), 0);
+  const disabledAttr = disabled ? "disabled" : "";
+  const batchButton = quantity > 1
+    ? `<button type="button" class="secondary" data-pill-batch-id="${item.id}" ${disabledAttr}>批量服用</button>`
+    : "";
+  return `
+    <div class="inline-action-buttons">
+      <button type="button" data-pill-id="${item.id}" ${disabledAttr}>服用丹药</button>
+      ${batchButton}
+    </div>
+  `;
+}
+
+function requestBatchPillQuantity(row) {
+  const item = row?.pill || {};
+  const available = Math.max(Number(row?.quantity || 0), 0);
+  if (available <= 0) {
+    throw new Error("你的背包里没有这枚丹药。");
+  }
+  const raw = window.prompt(
+    `要连续服用多少枚【${item.name || "丹药"}】？\n当前最多可服用 ${available} 枚。`,
+    String(Math.min(available, 10) || 1)
+  );
+  if (raw === null) {
+    return null;
+  }
+  const quantity = Number.parseInt(String(raw).trim(), 10);
+  if (!Number.isFinite(quantity) || quantity < 1) {
+    throw new Error("请输入大于等于 1 的整数数量。");
+  }
+  if (quantity > available) {
+    throw new Error(`当前最多只能连续服用 ${available} 枚。`);
+  }
+  return quantity;
+}
+
+function tradeableInventoryRows(kind, bundle = state.profileBundle) {
+  return inventoryRowsByKind(kind, bundle).filter((row) => Number(row.tradeable_quantity ?? row.quantity ?? 0) > 0);
+}
+
+function populateTradeableInventorySelect(select, kind, emptyText) {
+  if (!select) return;
+  const previousValue = select.value;
+  const rows = tradeableInventoryRows(kind);
   select.innerHTML = "";
-  const available = rows.filter((row) => Number(row.tradeable_quantity ?? row.quantity ?? 0) > 0);
-  if (!available.length) {
-    select.innerHTML = `<option value="">暂无可上架物品</option>`;
+  if (!rows.length) {
+    select.innerHTML = `<option value="">${emptyText}</option>`;
     return;
   }
 
-  for (const row of available) {
+  for (const row of rows) {
     const item = row[kind];
     const option = document.createElement("option");
     option.value = item.id;
     option.textContent = `${item.name} · 可交易 ${row.tradeable_quantity ?? row.quantity}`;
     select.appendChild(option);
   }
+
+  if ([...select.options].some((option) => String(option.value) === String(previousValue))) {
+    select.value = previousValue;
+  }
 }
 
+function renderInventorySelect() {
+  const select = document.querySelector("#shop-item-ref");
+  const kind = document.querySelector("#shop-item-kind")?.value || "artifact";
+  populateTradeableInventorySelect(select, kind, "暂无可上架物品");
+}
+
+function renderAuctionInventorySelect() {
+  const select = document.querySelector("#auction-item-ref");
+  const kind = document.querySelector("#auction-item-kind")?.value || "artifact";
+  populateTradeableInventorySelect(select, kind, "暂无可拍卖物品");
+}
+
+function recycleInventoryRows(kind, bundle = state.profileBundle) {
+  return tradeableInventoryRows(kind, bundle).filter((row) => Number(row?.recycle_quote?.unit_price_stone || 0) > 0);
+}
+
+function populateRecycleInventorySelect(select, kind, emptyText) {
+  if (!select) return;
+  const previousValue = select.value;
+  const rows = recycleInventoryRows(kind);
+  select.innerHTML = "";
+  if (!rows.length) {
+    select.innerHTML = `<option value="">${emptyText}</option>`;
+    select.value = "";
+    return;
+  }
+
+  rows.forEach((row) => {
+    const item = row[kind];
+    const available = Number(row.tradeable_quantity ?? row.quantity ?? 0);
+    const unitPrice = Number(row?.recycle_quote?.unit_price_stone || 0);
+    const option = document.createElement("option");
+    option.value = item.id;
+    option.textContent = `${item.name} · 可回收 ${available} · ${unitPrice} 灵石/件`;
+    select.appendChild(option);
+  });
+
+  if ([...select.options].some((option) => String(option.value) === String(previousValue))) {
+    select.value = previousValue;
+  }
+}
+
+function recycleQuoteSummary(row) {
+  const quote = row?.recycle_quote || {};
+  const available = Math.max(Number(row?.tradeable_quantity ?? row?.quantity ?? 0), 0);
+  const unitPrice = Math.max(Number(quote.unit_price_stone || 0), 0);
+  const totalPrice = Math.max(Number(quote.total_price_stone || unitPrice * available), 0);
+  if (unitPrice <= 0) return `${officialRecycleName()}暂不收购`;
+  if (available <= 0) return `${officialRecycleName()}报价 ${unitPrice} 灵石/件，当前无可回收库存`;
+  return `${officialRecycleName()}报价 ${unitPrice} 灵石/件 ｜ 当前可回收 ${available} 件，共 ${totalPrice} 灵石`;
+}
+
+function currentRecycleRow(bundle = state.profileBundle) {
+  const kind = document.querySelector("#recycle-item-kind")?.value || "artifact";
+  const refId = Number(document.querySelector("#recycle-item-ref")?.value || 0);
+  const row = recycleInventoryRows(kind, bundle).find((item) => Number(item?.[kind]?.id || 0) === refId) || null;
+  return { kind, row };
+}
+
+function renderOfficialRecyclePanel(bundle = state.profileBundle, retreating = Boolean(bundle?.capabilities?.is_in_retreat)) {
+  const title = document.querySelector("#official-recycle-title");
+  const hint = document.querySelector("#official-recycle-hint");
+  const preview = document.querySelector("#official-recycle-preview");
+  const kindSelect = document.querySelector("#recycle-item-kind");
+  const refSelect = document.querySelector("#recycle-item-ref");
+  const quantityInput = document.querySelector("#recycle-quantity");
+  const submitButton = document.querySelector("#official-recycle-form button[type='submit']");
+  if (!title || !hint || !preview || !kindSelect || !refSelect || !quantityInput || !submitButton) return;
+
+  title.textContent = officialRecycleName(bundle);
+  populateRecycleInventorySelect(refSelect, kindSelect.value || "artifact", "暂无可回收物品");
+
+  const duelLockReason = currentDuelLockReason(bundle);
+  const blockedReason = retreating ? "闭关期间无法交易。" : duelLockReason;
+  const { row } = currentRecycleRow(bundle);
+  const available = Math.max(Number(row?.tradeable_quantity ?? row?.quantity ?? 0), 0);
+  const unitPrice = Math.max(Number(row?.recycle_quote?.unit_price_stone || 0), 0);
+  const itemName = String(row?.[kindSelect.value || "artifact"]?.name || "").trim();
+  const nextQuantity = Math.max(Math.min(Number(quantityInput.value || 1), available || 1), 1);
+  quantityInput.value = String(nextQuantity);
+  quantityInput.max = String(Math.max(available, 1));
+
+  const quoteTotal = unitPrice * nextQuantity;
+  hint.textContent = blockedReason
+    ? `${officialRecycleName(bundle)}当前不可用：${blockedReason}`
+    : "按物品品阶、基础属性与特效做保守折价，不收已绑定或已装备库存。";
+
+  setDisabled(kindSelect, Boolean(blockedReason), blockedReason);
+  setDisabled(refSelect, Boolean(blockedReason) || !row, blockedReason || "暂无可回收物品");
+  setDisabled(quantityInput, Boolean(blockedReason) || !row, blockedReason || "暂无可回收物品");
+  setDisabled(submitButton, Boolean(blockedReason) || !row, blockedReason || "暂无可回收物品");
+
+  if (!row) {
+    preview.innerHTML = `<article class="stack-item"><strong>${officialRecycleName(bundle)}暂未开张</strong><p>你当前没有可回收的法宝、符箓、丹药或材料。</p></article>`;
+    return;
+  }
+
+  preview.innerHTML = `
+    <article class="stack-item">
+      <div class="stack-item-head">
+        <strong>${escapeHtml(itemName || "未命名物品")}</strong>
+        <span class="badge badge--normal">${escapeHtml(unitPrice)} 灵石/件</span>
+      </div>
+      <p>当前选择 ${escapeHtml(nextQuantity)} 件，可回收上限 ${escapeHtml(available)} 件。</p>
+      <p>本次预计结算 ${escapeHtml(quoteTotal)} 灵石。</p>
+      <p class="muted">${escapeHtml(recycleQuoteSummary(row))}</p>
+    </article>
+  `;
+}
 function taskRequirementRows(kind) {
   const bundle = state.profileBundle || {};
   if (kind === "artifact") {
@@ -1575,6 +1740,10 @@ document.querySelector("#stone-to-coin-form").addEventListener("submit", async (
 });
 
 document.querySelector("#shop-item-kind").addEventListener("change", renderInventorySelect);
+document.querySelector("#auction-item-kind")?.addEventListener("change", renderAuctionInventorySelect);
+document.querySelector("#recycle-item-kind")?.addEventListener("change", () => renderOfficialRecyclePanel());
+document.querySelector("#recycle-item-ref")?.addEventListener("change", () => renderOfficialRecyclePanel());
+document.querySelector("#recycle-quantity")?.addEventListener("input", () => renderOfficialRecyclePanel());
 
 document.querySelector("#shop-name-toggle")?.addEventListener("click", () => {
   state.shopNameEditing = !state.shopNameEditing;
@@ -1609,6 +1778,68 @@ document.querySelector("#personal-shop-form").addEventListener("submit", async (
   }
 });
 
+document.querySelector("#official-recycle-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector("button[type='submit']");
+  try {
+    const payload = await runButtonAction(button, "回收中…", () => postJson("/plugins/xiuxian/api/recycle/official", {
+      item_kind: document.querySelector("#recycle-item-kind")?.value || "artifact",
+      item_ref_id: Number(document.querySelector("#recycle-item-ref")?.value || 0),
+      quantity: Number(document.querySelector("#recycle-quantity")?.value || 1),
+    }));
+    const result = payload?.result || {};
+    const totalPrice = Number(result.total_price_stone || 0);
+    const netIncome = Number(result.net_income_stone || totalPrice);
+    const tributeAmount = Number(result.tribute_amount || 0);
+    const itemName = String(result.item_name || "物品").trim();
+    const quantity = Number(result.quantity || 1);
+    const message = tributeAmount > 0
+      ? `已将 ${itemName} ×${quantity} 交给${result.official_name || officialRecycleName()}，官坊结算 ${totalPrice} 灵石，实际到账 ${netIncome} 灵石，上缴给主人 ${tributeAmount} 灵石。`
+      : `已将 ${itemName} ×${quantity} 交给${result.official_name || officialRecycleName()}，获得 ${totalPrice} 灵石。`;
+    if (payload?.bundle) {
+      applyProfileBundle(payload.bundle);
+    } else {
+      await refreshBundle();
+    }
+    setStatus(message, "success");
+    await popup("回收成功", message);
+  } catch (error) {
+    const message = normalizeError(error, "官方回收失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
+});
+
+document.querySelector("#personal-auction-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector("button[type='submit']");
+  try {
+    const payload = await runButtonAction(button, "发起中…", () => postJson("/plugins/xiuxian/api/auction/personal", {
+      item_kind: document.querySelector("#auction-item-kind").value,
+      item_ref_id: Number(document.querySelector("#auction-item-ref").value || 0),
+      quantity: Number(document.querySelector("#auction-quantity").value || 1),
+      opening_price_stone: Number(document.querySelector("#auction-opening-price").value || 0),
+      bid_increment_stone: Number(document.querySelector("#auction-bid-increment").value || 1),
+      buyout_price_stone: Number(document.querySelector("#auction-buyout-price").value || 0) || null,
+    }));
+    const itemName = payload.auction?.item_name || "拍品";
+    const buyoutPrice = Number(payload.auction?.buyout_price_stone || 0);
+    const pushWarning = String(payload.push_warning || "").trim();
+    const message = `${itemName} 已发起群拍，起拍价 ${payload.auction?.opening_price_stone || 0} 灵石，单次加价 ${payload.auction?.bid_increment_stone || 1} 灵石${buyoutPrice > 0 ? `，一口价 ${buyoutPrice} 灵石` : ""}。${pushWarning || "群消息已推送并置顶。"}`
+      .trim();
+    if (payload.bundle) {
+      applyProfileBundle(payload.bundle);
+    } else {
+      await refreshBundle();
+    }
+    setStatus(message, pushWarning ? "warning" : "success");
+    await popup(pushWarning ? "拍卖已创建，但置顶失败" : "拍卖已发起", message, pushWarning ? "warning" : "success");
+  } catch (error) {
+    const message = normalizeError(error, "发起拍卖失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
+});
 document.querySelector("#personal-shop-list")?.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-cancel-id]");
   if (!button || button.disabled) return;
@@ -1664,16 +1895,44 @@ document.querySelector("#artifact-list").addEventListener("click", async (event)
 });
 
 document.querySelector("#pill-list").addEventListener("click", async (event) => {
-  const button = event.target.closest("[data-pill-id]");
+  const button = event.target.closest("[data-pill-id], [data-pill-batch-id]");
   if (!button || button.disabled) return;
   try {
-    const payload = await runButtonAction(button, "服用中…", () => postJson("/plugins/xiuxian/api/pill/use", {
-      pill_id: Number(button.dataset.pillId)
-    }));
-    const statusMessage = `已服用 ${payload.pill.name}。`;
-    const message = payload.summary ? `${statusMessage}\n${payload.summary}` : statusMessage;
-    setStatus(statusMessage, "success");
-    await popup("服用成功", message);
+    const isBatch = Boolean(button.dataset.pillBatchId);
+    const pillId = Number(button.dataset.pillBatchId || button.dataset.pillId || 0);
+
+    if (isBatch) {
+      const row = findPillInventoryRow(pillId);
+      const quantity = requestBatchPillQuantity(row);
+      if (quantity === null) return;
+      const payload = await runButtonAction(button, "批量服用中…", () => postJson("/plugins/xiuxian/api/pill/use-batch", {
+        pill_id: pillId,
+        quantity
+      }));
+      const usedCount = Math.max(Number(payload.used_count || 0), 0);
+      const pillName = payload.pill?.name || row?.pill?.name || "丹药";
+      const partial = !payload.completed;
+      const statusMessage = partial
+        ? `已连续服用 ${usedCount} 枚 ${pillName}，后续已停止。`
+        : `已连续服用 ${usedCount} 枚 ${pillName}。`;
+      const lines = [statusMessage];
+      if (payload.summary) {
+        lines.push(payload.summary);
+      }
+      if (partial && payload.stopped_reason) {
+        lines.push(`停止原因：${payload.stopped_reason}`);
+      }
+      setStatus(statusMessage, partial ? "warning" : "success");
+      await popup(partial ? "批量服用已中止" : "批量服用成功", lines.join("\n"), partial ? "warning" : "success");
+    } else {
+      const payload = await runButtonAction(button, "服用中…", () => postJson("/plugins/xiuxian/api/pill/use", {
+        pill_id: pillId
+      }));
+      const statusMessage = `已服用 ${payload.pill.name}。`;
+      const message = payload.summary ? `${statusMessage}\n${payload.summary}` : statusMessage;
+      setStatus(statusMessage, "success");
+      await popup("服用成功", message);
+    }
     await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "服用丹药失败。");
@@ -2189,7 +2448,7 @@ renderPillList = function renderPillList(items, retreating) {
         ${itemAffixTags(item, effects)}
       </div>
       ${reason ? `<p class="reason-text">${escapeHtml(reason)}</p>` : ""}
-      <button type="button" data-pill-id="${item.id}" ${disabled ? "disabled" : ""}>服用丹药</button>
+      ${pillActionButtonsHtml(row, disabled)}
     `;
     root.appendChild(card);
   }
@@ -2253,6 +2512,7 @@ renderCraftArea = function renderCraftArea(bundle) {
           ${qualityBadgeHtml(row.material.quality_label || row.material.quality_level, row.material.quality_color, "badge badge--normal")}
         </div>
         <p>数量 ${escapeHtml(row.quantity)}</p>
+        <p>官坊回收：${escapeHtml(recycleQuoteSummary(row))}</p>
         <p class="muted">${escapeHtml(row.material.quality_feature || row.material.quality_description || "")}</p>
       </article>
     `).join("")
@@ -2328,6 +2588,7 @@ renderArtifactList = function renderArtifactList(items, retreating, equipLimit, 
       </div>
       <p>境界要求：${escapeHtml(item.min_realm_stage ? `${item.min_realm_stage}${item.min_realm_layer}层` : "无限制")}</p>
       <p>可交易：${escapeHtml(row.tradeable_quantity ?? 0)} ｜ 可提交：${escapeHtml(row.consumable_quantity ?? 0)}</p>
+      <p>官坊回收：${escapeHtml(recycleQuoteSummary(row))}</p>
       ${reason ? `<p class="reason-text">${escapeHtml(reason)}</p>` : ""}
       <div class="inline-action-buttons">
         <button type="button" data-equip-id="${item.id}" ${disabled ? "disabled" : ""}>${escapeHtml(item.action_label || (item.equipped ? "卸下法宝" : "装备法宝"))}</button>
@@ -2376,6 +2637,7 @@ renderTalismanList = function renderTalismanList(items, retreating) {
       <p>斗法内最多显化 ${escapeHtml(item.effect_uses || 1)} 次，斗法结束后会自动消散。</p>
       <p>境界要求：${escapeHtml(item.min_realm_stage ? `${item.min_realm_stage}${item.min_realm_layer}层` : "无限制")}</p>
       <p>可交易：${escapeHtml(row.tradeable_quantity ?? 0)} ｜ 可提交：${escapeHtml(row.consumable_quantity ?? 0)}</p>
+      <p>官坊回收：${escapeHtml(recycleQuoteSummary(row))}</p>
       ${reason ? `<p class="reason-text">${escapeHtml(reason)}</p>` : ""}
       <div class="inline-action-buttons">
         <button type="button" data-talisman-id="${item.id}" ${disabled ? "disabled" : ""}>${item.active ? "已待生效" : "激活到下一场斗法"}</button>
@@ -2416,8 +2678,9 @@ renderPillList = function renderPillList(items, retreating) {
         ${itemAffixTags(item, effects)}
       </div>
       <p>境界要求：${escapeHtml(item.min_realm_stage ? `${item.min_realm_stage}${item.min_realm_layer}层` : "无限制")}</p>
+      <p>官坊回收：${escapeHtml(recycleQuoteSummary(row))}</p>
       ${reason ? `<p class="reason-text">${escapeHtml(reason)}</p>` : ""}
-      <button type="button" data-pill-id="${item.id}" ${disabled ? "disabled" : ""}>服用丹药</button>
+      ${pillActionButtonsHtml(row, disabled)}
     `;
     root.appendChild(card);
   }
@@ -2782,6 +3045,7 @@ renderProfile = function renderProfileRedesigned(bundle) {
   renderTalismanList(bundle.talismans || [], retreating);
   renderPillList(bundle.pills || [], retreating);
   renderOfficialShop(bundle.official_shop || [], retreating);
+  renderOfficialRecyclePanel(bundle, retreating);
   renderPersonalShop(bundle.personal_shop || []);
   renderCommunityShop(bundle.community_shop || [], retreating);
   renderInventorySelect();
