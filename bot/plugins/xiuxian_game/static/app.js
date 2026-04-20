@@ -1147,6 +1147,7 @@ function syncFoldToolbar() {
       button.className = `ghost fold-shortcut${card.open ? " is-active" : ""}`;
       button.textContent = foldCardLabel(card);
       button.dataset.foldTarget = card.id;
+      button.setAttribute("draggable", "true");
       shortcuts.appendChild(button);
     }
   }
@@ -1162,11 +1163,78 @@ function toggleFoldCards(open) {
 function setupFoldToolbar() {
   document.querySelector("[data-fold-open-all]")?.addEventListener("click", () => toggleFoldCards(true));
   document.querySelector("[data-fold-close-all]")?.addEventListener("click", () => toggleFoldCards(false));
-  document.querySelector("#fold-shortcuts")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-fold-target]");
-    if (!button) return;
-    jumpToFoldCard(button.dataset.foldTarget);
-  });
+  const shortcuts = document.querySelector("#fold-shortcuts");
+  if (shortcuts) {
+    shortcuts.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-fold-target]");
+      if (!button) return;
+      jumpToFoldCard(button.dataset.foldTarget);
+    });
+
+    let draggingShortcut = null;
+    shortcuts.addEventListener("dragstart", (e) => {
+      const btn = e.target.closest(".fold-shortcut");
+      if (!btn) return;
+      draggingShortcut = btn;
+      btn.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+    });
+
+    shortcuts.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      if (!draggingShortcut) return;
+      const afterElement = getDragAfterShortcut(shortcuts, e.clientX);
+      if (afterElement == null) {
+        shortcuts.appendChild(draggingShortcut);
+      } else {
+        shortcuts.insertBefore(draggingShortcut, afterElement);
+      }
+    });
+
+    shortcuts.addEventListener("dragend", (e) => {
+      if (draggingShortcut) {
+        draggingShortcut.classList.remove("dragging");
+        
+        const boardGrid = document.querySelector(".board-grid");
+        if (boardGrid) {
+          const newOrderIds = Array.from(shortcuts.querySelectorAll(".fold-shortcut"))
+            .map(btn => btn.dataset.foldTarget)
+            .filter(Boolean);
+            
+          const cardMap = new Map();
+          Array.from(boardGrid.querySelectorAll(".fold-card")).forEach(c => cardMap.set(c.id, c));
+          
+          newOrderIds.forEach(id => {
+            if (cardMap.has(id)) {
+              boardGrid.appendChild(cardMap.get(id));
+              cardMap.delete(id);
+            }
+          });
+          cardMap.forEach(c => boardGrid.appendChild(c));
+          
+          localStorage.setItem("xiuxian_layout_order", JSON.stringify(
+            Array.from(boardGrid.querySelectorAll(".fold-card")).map(c => c.id).filter(Boolean)
+          ));
+        }
+        draggingShortcut = null;
+      }
+    });
+  }
+
+  function getDragAfterShortcut(container, x) {
+    const draggableElements = [...container.querySelectorAll(".fold-shortcut:not(.dragging)")];
+    return draggableElements.reduce((closest, child) => {
+      const box = child.getBoundingClientRect();
+      const offset = x - box.left - box.width / 2;
+      if (offset < 0 && offset > closest.offset) {
+        return { offset: offset, element: child };
+      } else {
+        return closest;
+      }
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
+  }
+
   document.querySelectorAll(".fold-card").forEach((card) => {
     card.addEventListener("toggle", syncFoldToolbar);
   });
@@ -4204,6 +4272,7 @@ renderArtifactList = function renderArtifactList(items, retreating, equipLimit, 
       : `<article class="stack-item"><strong>暂无法宝</strong><p>管理后台发放或在${escapeHtml(officialShopName())}购买后会出现在这里。</p></article>`;
     return;
   }
+  const cardsArray = [];
   for (const row of rows) {
     const item = row.artifact;
     const effects = item.resolved_effects || {};
@@ -4247,8 +4316,9 @@ renderArtifactList = function renderArtifactList(items, retreating, equipLimit, 
         <button type="button" class="ghost" data-artifact-unbind-id="${item.id}" ${canUnbind ? "" : "disabled"}>解绑1件${unbindCost > 0 ? `（${escapeHtml(unbindCost)}灵石）` : ""}</button>
       </div>
     `;
-    root.appendChild(card);
+    cardsArray.push({ card, item });
   }
+  renderGroupedCards(root, cardsArray, item => item.rarity || "凡品");
 };
 
 renderTalismanList = function renderTalismanList(items, retreating) {
@@ -4267,6 +4337,7 @@ renderTalismanList = function renderTalismanList(items, retreating) {
       : `<article class="stack-item"><strong>暂无符箓</strong><p>符箓会在下一场斗法中生效，后续可通过商店、掉落或发放获得。</p></article>`;
     return;
   }
+  const cardsArray = [];
   for (const row of rows) {
     const item = row.talisman;
     const effects = item.resolved_effects || {};
@@ -4303,8 +4374,9 @@ renderTalismanList = function renderTalismanList(items, retreating) {
         <button type="button" class="ghost" data-talisman-unbind-id="${item.id}" ${canUnbind ? "" : "disabled"}>解绑1件${unbindCost > 0 ? `（${escapeHtml(unbindCost)}灵石）` : ""}</button>
       </div>
     `;
-    root.appendChild(card);
+    cardsArray.push({ card, item });
   }
+  renderGroupedCards(root, cardsArray, item => item.rarity || "凡品");
 };
 
 renderPillList = function renderPillList(items, retreating) {
@@ -4323,6 +4395,7 @@ renderPillList = function renderPillList(items, retreating) {
       : `<article class="stack-item"><strong>暂无丹药</strong><p>${escapeHtml(officialShopName())}购买或主人发放后会出现在这里。</p></article>`;
     return;
   }
+  const cardsArray = [];
   for (const row of rows) {
     const item = row.pill;
     const effects = item.resolved_effects || {};
@@ -4355,8 +4428,9 @@ renderPillList = function renderPillList(items, retreating) {
         ${batchUsable ? `<button type="button" class="ghost" data-pill-batch-id="${item.id}" ${disabled ? "disabled" : ""}>批量服用</button>` : ""}
       </div>
     `;
-    root.appendChild(card);
+    cardsArray.push({ card, item });
   }
+  renderGroupedCards(root, cardsArray, item => item.pill_type_label || item.pill_type || "其他");
 };
 
 ["#artifact-search", "#talisman-search", "#pill-search", "#material-search"].forEach((selector) => {
@@ -6463,3 +6537,217 @@ bootstrap().catch(async (error) => {
   setStatus(message, "error");
   await popup("初始化失败", message, "error");
 });
+
+// --- Redesign Additions: Drag & Drop ---
+const boardGrid = document.querySelector(".board-grid");
+if (boardGrid) {
+  const cards = Array.from(boardGrid.querySelectorAll(".fold-card"));
+  cards.forEach(card => {
+    card.setAttribute("draggable", "true");
+    const summary = card.querySelector(".fold-summary");
+    if (summary) {
+      const handle = document.createElement("span");
+      handle.className = "drag-handle";
+      handle.innerHTML = '<svg viewBox="0 0 24 24"><path d="M3 15h18v-2H3v2zm0 4h18v-2H3v2zm0-8h18V9H3v2zm0-6v2h18V5H3z"/></svg>';
+      const titleDiv = summary.querySelector("div");
+      if (titleDiv) {
+        titleDiv.appendChild(handle);
+      }
+    }
+  });
+
+  const savedOrder = localStorage.getItem("xiuxian_layout_order");
+  if (savedOrder) {
+    try {
+      const orderIds = JSON.parse(savedOrder);
+      const cardMap = new Map();
+      cards.forEach(card => cardMap.set(card.id, card));
+      
+      orderIds.forEach(id => {
+        if (cardMap.has(id)) {
+          boardGrid.appendChild(cardMap.get(id));
+          cardMap.delete(id);
+        }
+      });
+      cardMap.forEach(card => boardGrid.appendChild(card));
+    } catch (e) {
+      console.error("Failed to restore layout order", e);
+    }
+  }
+
+  let draggingCard = null;
+
+  boardGrid.addEventListener("dragstart", e => {
+    const card = e.target.closest(".fold-card");
+    if (!card) return;
+    draggingCard = card;
+    card.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+  });
+
+  boardGrid.addEventListener("dragover", e => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const afterElement = getDragAfterElement(boardGrid, e.clientY);
+    if (draggingCard) {
+      if (afterElement == null) {
+        boardGrid.appendChild(draggingCard);
+      } else {
+        boardGrid.insertBefore(draggingCard, afterElement);
+      }
+    }
+  });
+
+  boardGrid.addEventListener("dragend", e => {
+    if (draggingCard) {
+      draggingCard.classList.remove("dragging");
+      draggingCard = null;
+      const newOrder = Array.from(boardGrid.querySelectorAll(".fold-card"))
+        .map(c => c.id).filter(Boolean);
+      localStorage.setItem("xiuxian_layout_order", JSON.stringify(newOrder));
+      setupFoldToolbar();
+    }
+  });
+
+  function getDragAfterElement(container, y) {
+    const draggableElements = [...container.querySelectorAll(".fold-card:not(.dragging)")];
+    return draggableElements.reduce((closest, child) => {
+      const box = child.getBoundingClientRect();
+      const offset = y - box.top - box.height / 2;
+      if (offset < 0 && offset > closest.offset) {
+        return { offset: offset, element: child };
+      } else {
+        return closest;
+      }
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
+  }
+}
+
+// --- Redesign Additions: FABs (Admin & Quick Inventory) ---
+const fabAdmin = document.getElementById("fab-admin");
+const fabInventory = document.getElementById("fab-inventory");
+const quickInventoryModal = document.getElementById("quick-inventory-modal");
+const quickInventoryList = document.getElementById("quick-inventory-list");
+const quickInventorySearch = document.getElementById("quick-inventory-search");
+
+if (fabAdmin) {
+  const observer = new MutationObserver(() => {
+    const heroAdmin = document.getElementById("hero-admin-entry");
+    if (heroAdmin && !heroAdmin.classList.contains("hidden")) {
+      fabAdmin.classList.remove("hidden");
+    } else {
+      fabAdmin.classList.add("hidden");
+    }
+  });
+  const heroAdmin = document.getElementById("hero-admin-entry");
+  if (heroAdmin) {
+    observer.observe(heroAdmin, { attributes: true, attributeFilter: ["class"] });
+    if (!heroAdmin.classList.contains("hidden")) {
+      fabAdmin.classList.remove("hidden");
+    }
+  }
+
+  fabAdmin.addEventListener("click", () => {
+    const adminBtn = document.getElementById("open-admin-panel");
+    if (adminBtn) adminBtn.click();
+  });
+}
+
+if (fabInventory && quickInventoryModal) {
+  fabInventory.addEventListener("click", () => {
+    quickInventoryModal.classList.remove("hidden");
+    quickInventoryModal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("is-modal-open");
+    renderQuickInventory();
+  });
+
+  document.querySelectorAll("[data-quick-inventory-close]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      quickInventoryModal.classList.add("hidden");
+      quickInventoryModal.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("is-modal-open");
+    });
+  });
+
+  quickInventorySearch?.addEventListener("input", () => {
+    renderQuickInventory();
+  });
+}
+
+function renderQuickInventory() {
+  if (!quickInventoryList) return;
+  const bundle = state.profileBundle;
+  if (!bundle) {
+    quickInventoryList.innerHTML = "<p class='muted'>数据加载中...</p>";
+    return;
+  }
+
+  const query = (quickInventorySearch?.value || "").trim().toLowerCase();
+  
+  const items = [];
+  
+  (bundle.artifacts || []).forEach(item => {
+    items.push({ type: "法宝", name: item.artifact?.name || "", desc: item.artifact?.description || "", element: "请在【仓储整理】装备" });
+  });
+  (bundle.pills || []).forEach(item => {
+    items.push({ type: "丹药", name: item.pill?.name || "", desc: item.pill?.description || "", count: item.quantity, element: "破境丹在【日常修行】使用" });
+  });
+  (bundle.talismans || []).forEach(item => {
+    items.push({ type: "符箓", name: item.talisman?.name || "", desc: item.talisman?.description || "", count: item.quantity, element: "请在【仓储整理】装备" });
+  });
+
+  const filtered = items.filter(item => 
+    !query || item.name.toLowerCase().includes(query) || item.desc.toLowerCase().includes(query)
+  );
+
+  if (!filtered.length) {
+    quickInventoryList.innerHTML = "<p class='muted'>没有找到匹配的物品。</p>";
+    return;
+  }
+
+  quickInventoryList.innerHTML = "";
+  const cardsArray = filtered.map(item => {
+    const card = document.createElement("article");
+    card.className = "stack-item";
+    card.innerHTML = `
+      <div class="stack-item-head">
+        <strong>【${item.type}】${escapeHtml(item.name)} ${item.count ? `x${item.count}` : ""}</strong>
+      </div>
+      <p>${escapeHtml(item.desc)}</p>
+      <p class="muted" style="margin-top: 4px; font-size: 11px;">提示: ${item.element}</p>
+    `;
+    return { card, item };
+  });
+
+  renderGroupedCards(quickInventoryList, cardsArray, item => item.type);
+}
+
+function renderGroupedCards(root, cardsHtmlArray, groupingFn) {
+  if (cardsHtmlArray.length <= 5) {
+    cardsHtmlArray.forEach(({card}) => root.appendChild(card));
+    return;
+  }
+  const groups = new Map();
+  cardsHtmlArray.forEach(({card, item}) => {
+    const key = groupingFn(item) || "其他";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(card);
+  });
+  
+  if (groups.size === 1) {
+    cardsHtmlArray.forEach(({card}) => root.appendChild(card));
+    return;
+  }
+  
+  groups.forEach((cards, key) => {
+    const details = document.createElement("details");
+    details.className = "mini-fold";
+    details.open = true;
+    details.innerHTML = `<summary class="mini-fold-summary"><h3>${escapeHtml(key)} (${cards.length})</h3><span class="summary-tip">折叠分组</span></summary>`;
+    const body = document.createElement("div");
+    body.className = "mini-fold-body stack-list";
+    cards.forEach(c => body.appendChild(c));
+    details.appendChild(body);
+    root.appendChild(details);
+  });
+}
