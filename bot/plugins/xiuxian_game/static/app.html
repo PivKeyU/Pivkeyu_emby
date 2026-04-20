@@ -50,15 +50,14 @@
     </section>
 
     <section id="fold-toolbar" class="card fold-toolbar hidden">
-      <div class="fold-toolbar-copy">
-        <p class="eyebrow">区块折叠</p>
-        <p id="fold-count" class="section-copy">当前显示 0 个模块</p>
+      <div class="fold-toolbar-head">
+        <p class="eyebrow">快捷跳转 <span id="fold-count" class="muted">(0)</span></p>
+        <div class="fold-toolbar-actions">
+          <button type="button" class="ghost mini" data-fold-open-all>展</button>
+          <button type="button" class="ghost mini" data-fold-close-all>收</button>
+        </div>
       </div>
-      <div class="fold-toolbar-actions">
-        <button type="button" class="ghost" data-fold-open-all>全部展开</button>
-        <button type="button" class="ghost" data-fold-close-all>全部收起</button>
-      </div>
-      <div id="fold-shortcuts" class="fold-shortcuts" aria-label="模块快捷跳转"></div>
+      <div id="fold-shortcuts" class="fold-shortcuts scrollable-row" aria-label="模块快捷跳转"></div>
     </section>
 
     <details id="wiki-card" class="card fold-card" open>
@@ -1131,6 +1130,6 @@
   <nav id="bottom-nav" class="bottom-nav"></nav>
 
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="/plugins/xiuxian/static/app.js"></script>
+  <script defer src="/plugins/xiuxian/static/app.js"></script>
 </body>
 </html>

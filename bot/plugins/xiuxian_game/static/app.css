@@ -81,8 +81,6 @@ body.is-modal-open {
 .hero-side,
 .hero-admin,
 .hero-admin-copy,
-.fold-toolbar,
-.fold-toolbar-copy,
 .board-grid,
 .toast-stack,
 .modal-actions,
@@ -197,23 +195,46 @@ h3 {
 }
 
 .fold-toolbar {
-  padding: 14px 16px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fold-toolbar-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .fold-toolbar-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: flex;
   gap: 8px;
 }
 
-.fold-toolbar-actions button {
-  width: 100%;
+.ghost.mini {
+  padding: 4px 10px;
+  min-height: auto;
+  font-size: 11px;
 }
 
 .fold-shortcuts {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.scrollable-row {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  /* Hide scrollbar */
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollable-row::-webkit-scrollbar {
+  display: none;
 }
 
 .fold-shortcut {

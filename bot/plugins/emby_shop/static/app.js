@@ -252,8 +252,8 @@ refs.listingForm?.addEventListener("submit", async (event) => {
   if (tg) {
     tg.ready();
     tg.expand();
-    tg.setHeaderColor("#f5efe5");
-    tg.setBackgroundColor("#f5efe5");
+    tg.setHeaderColor("#101010");
+    tg.setBackgroundColor("#101010");
     tg.BackButton.show();
     tg.BackButton.onClick(() => {
       window.location.href = "/miniapp";

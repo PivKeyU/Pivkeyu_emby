@@ -990,7 +990,13 @@ def _full_bundle(tg: int) -> dict[str, Any]:
 
 
 def _bootstrap_core_bundle(tg: int) -> dict[str, Any]:
-    return build_bootstrap_core_bundle(tg, **_bundle_runtime_flags(tg))
+    from bot.plugins.xiuxian_game.cache import load_versioned_json, USER_VIEW_TTL
+    return load_versioned_json(
+        version_parts=("profile", tg),
+        cache_parts=("bootstrap", tg),
+        ttl=min(USER_VIEW_TTL, 10),
+        loader=lambda: build_bootstrap_core_bundle(tg, **_bundle_runtime_flags(tg)),
+    )
 
 
 def _deferred_bundle_sections(tg: int) -> dict[str, Any]:
@@ -4089,7 +4095,17 @@ def register_web(app) -> None:
     @user_router.post("/api/wiki")
     async def xiuxian_wiki_api(payload: InitDataPayload):
         _verify_user_from_init_data(payload.init_data)
-        return {"code": 200, "data": await run_in_threadpool(build_wiki_bundle)}
+
+        def _cached_wiki():
+            from bot.plugins.xiuxian_game.cache import load_versioned_json, CATALOG_TTL
+            return load_versioned_json(
+                version_parts=("catalog", "wiki"),
+                cache_parts=("wiki-bundle",),
+                ttl=min(CATALOG_TTL, 60),
+                loader=build_wiki_bundle,
+            )
+
+        return {"code": 200, "data": await run_in_threadpool(_cached_wiki)}
 
     @user_router.post("/api/upload-image")
     async def xiuxian_upload_image_api(

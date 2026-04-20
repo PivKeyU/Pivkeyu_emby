@@ -1125,7 +1125,7 @@ function syncFoldToolbar() {
 
   const count = document.querySelector("#fold-count");
   if (count) {
-    count.textContent = `当前显示 ${cards.length} 个模块`;
+    count.textContent = `(${cards.length})`;
   }
 
   const openAllButton = document.querySelector("[data-fold-open-all]");
@@ -6646,5 +6646,20 @@ function renderGroupedCards(root, cardsHtmlArray, groupingFn) {
     cards.forEach(c => body.appendChild(c));
     details.appendChild(body);
     root.appendChild(details);
+  });
+}
+
+// --- Back to Top FAB ---
+const fabToTop = document.querySelector("#fab-totop");
+if (fabToTop) {
+  window.addEventListener("scroll", () => {
+    if (window.scrollY > 300) {
+      fabToTop.classList.remove("hidden");
+    } else {
+      fabToTop.classList.add("hidden");
+    }
+  }, { passive: true });
+  fabToTop.addEventListener("click", () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
   });
 }
