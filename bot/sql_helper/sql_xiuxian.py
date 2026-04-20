@@ -4809,6 +4809,54 @@ def list_equipped_artifacts(tg: int) -> list[dict[str, Any]]:
     return _load_user_view_cache(actor_tg, "equipped-artifacts", loader=_loader)
 
 
+def reindex_equipped_artifact_slots_in_session(
+    session: OrmSession,
+    tg: int,
+    rows: list[XiuxianEquippedArtifact] | None = None,
+) -> list[XiuxianEquippedArtifact]:
+    actor_tg = int(tg or 0)
+    ordered_rows = list(rows) if rows is not None else (
+        session.query(XiuxianEquippedArtifact)
+        .filter(XiuxianEquippedArtifact.tg == actor_tg)
+        .order_by(XiuxianEquippedArtifact.slot.asc(), XiuxianEquippedArtifact.id.asc())
+        .all()
+    )
+    if not ordered_rows:
+        return []
+
+    max_existing_slot = (
+        session.query(XiuxianEquippedArtifact.slot)
+        .filter(XiuxianEquippedArtifact.tg == actor_tg)
+        .order_by(XiuxianEquippedArtifact.slot.desc())
+        .limit(1)
+        .scalar()
+    )
+    temp_slot_base = max(int(max_existing_slot or 0), len(ordered_rows)) + len(ordered_rows) + 1
+
+    staged = False
+    for offset, row in enumerate(ordered_rows):
+        temp_slot = temp_slot_base + offset
+        if int(row.slot or 0) == temp_slot:
+            continue
+        row.slot = temp_slot
+        row.updated_at = utcnow()
+        staged = True
+    if staged:
+        session.flush()
+
+    reindexed = False
+    for index, row in enumerate(ordered_rows, start=1):
+        if int(row.slot or 0) == index:
+            continue
+        row.slot = index
+        row.updated_at = utcnow()
+        reindexed = True
+    if reindexed:
+        session.flush()
+
+    return ordered_rows
+
+
 def plunder_random_artifact_to_user(receiver_tg: int, owner_tg: int) -> dict[str, Any] | None:
     if receiver_tg == owner_tg:
         raise ValueError("不能从自己身上掠夺法宝。")
@@ -4898,8 +4946,7 @@ def plunder_random_artifact_to_user(receiver_tg: int, owner_tg: int) -> dict[str
             .order_by(XiuxianEquippedArtifact.slot.asc(), XiuxianEquippedArtifact.id.asc())
             .all()
         )
-        for index, row in enumerate(refreshed_equipped, start=1):
-            row.slot = index
+        refreshed_equipped = reindex_equipped_artifact_slots_in_session(session, owner_tg, refreshed_equipped)
 
         owner_profile.current_artifact_id = refreshed_equipped[0].artifact_id if refreshed_equipped else None
         owner_profile.updated_at = utcnow()
@@ -5102,8 +5149,7 @@ def admin_set_user_artifact_inventory(
             .order_by(XiuxianEquippedArtifact.slot.asc(), XiuxianEquippedArtifact.id.asc())
             .all()
         )
-        for index, equipped_row in enumerate(refreshed_equipped, start=1):
-            equipped_row.slot = index
+        refreshed_equipped = reindex_equipped_artifact_slots_in_session(session, tg, refreshed_equipped)
         profile.current_artifact_id = refreshed_equipped[0].artifact_id if refreshed_equipped else None
         profile.updated_at = utcnow()
         _queue_profile_cache_invalidation(session, tg)
@@ -5611,8 +5657,7 @@ def set_equipped_artifact(tg: int, artifact_id: int, equip_limit: int = 3) -> di
             .order_by(XiuxianEquippedArtifact.slot.asc(), XiuxianEquippedArtifact.id.asc())
             .all()
         )
-        for index, row in enumerate(refreshed, start=1):
-            row.slot = index
+        refreshed = reindex_equipped_artifact_slots_in_session(session, tg, refreshed)
 
         profile.current_artifact_id = refreshed[0].artifact_id if refreshed else None
         profile.updated_at = utcnow()

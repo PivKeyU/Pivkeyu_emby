@@ -42,6 +42,7 @@ from bot.sql_helper.sql_xiuxian import (
     list_recipes,
     list_user_techniques,
     realm_index,
+    reindex_equipped_artifact_slots_in_session,
     serialize_artifact,
     serialize_exploration,
     serialize_material,
@@ -729,8 +730,7 @@ def _drop_random_unbound_artifacts(tg: int, count: int) -> list[dict[str, Any]]:
                 .order_by(XiuxianEquippedArtifact.slot.asc(), XiuxianEquippedArtifact.id.asc())
                 .all()
             )
-            for index, equipped_row in enumerate(refreshed_equipped, start=1):
-                equipped_row.slot = index
+            refreshed_equipped = reindex_equipped_artifact_slots_in_session(session, tg, refreshed_equipped)
 
             profile.current_artifact_id = refreshed_equipped[0].artifact_id if refreshed_equipped else None
             profile.updated_at = utcnow()
