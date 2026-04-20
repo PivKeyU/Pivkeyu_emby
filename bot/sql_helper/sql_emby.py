@@ -440,6 +440,33 @@ def sql_update_emby(condition, **kwargs):
             return False
 
 
+def sql_invalidate_emby_cache(tg: int | str) -> bool:
+    """
+    Invalidate cached Emby payload for a specific Telegram user.
+
+    Some call sites update Emby rows inside their own session/transaction and
+    cannot reuse sql_update_emby(). This helper lets those paths explicitly
+    clear stale cache entries after they commit.
+    """
+    numeric_tg, _ = _normalize_lookup_candidates(tg)
+    if numeric_tg is None:
+        return False
+
+    latest_payload = None
+    with Session() as session:
+        try:
+            emby = session.query(Emby).filter(Emby.tg == numeric_tg).first()
+            if emby is not None:
+                latest_payload = _serialize_emby_row(emby)
+        except Exception as exc:
+            LOGGER.warning(f"读取 Emby 缓存失效快照失败: tg={numeric_tg}, error={exc}")
+
+    _invalidate_emby_payload({"tg": numeric_tg})
+    if latest_payload is not None:
+        _invalidate_emby_payload(latest_payload)
+    return True
+
+
 #
 # def sql_change_emby(name, new_tg):
 #     with Session() as session:
