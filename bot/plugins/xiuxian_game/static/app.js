@@ -1142,29 +1142,12 @@ function syncFoldToolbar() {
     shortcuts.innerHTML = "";
     for (const card of cards) {
       if (!card.id) continue;
-      const wrapper = document.createElement("div");
-      wrapper.className = "shortcut-wrapper";
-      
       const button = document.createElement("button");
       button.type = "button";
       button.className = `ghost fold-shortcut${card.open ? " is-active" : ""}`;
       button.textContent = foldCardLabel(card);
       button.dataset.foldTarget = card.id;
-      
-      const upBtn = document.createElement("button");
-      upBtn.className = "sort-btn up";
-      upBtn.innerHTML = "↑";
-      upBtn.onclick = (e) => { e.stopPropagation(); moveShortcut(wrapper, -1); };
-      
-      const downBtn = document.createElement("button");
-      downBtn.className = "sort-btn down";
-      downBtn.innerHTML = "↓";
-      downBtn.onclick = (e) => { e.stopPropagation(); moveShortcut(wrapper, 1); };
-
-      wrapper.appendChild(upBtn);
-      wrapper.appendChild(button);
-      wrapper.appendChild(downBtn);
-      shortcuts.appendChild(wrapper);
+      shortcuts.appendChild(button);
     }
   }
 }
@@ -1186,42 +1169,6 @@ function setupFoldToolbar() {
       if (!button) return;
       jumpToFoldCard(button.dataset.foldTarget);
     });
-
-    // Touch/click sorting replaced dragging
-    window.moveShortcut = (wrapper, direction) => {
-      const parent = wrapper.parentNode;
-      const index = Array.from(parent.children).indexOf(wrapper);
-      if (direction === -1 && index > 0) {
-        parent.insertBefore(wrapper, parent.children[index - 1]);
-      } else if (direction === 1 && index < parent.children.length - 1) {
-        parent.insertBefore(wrapper, parent.children[index + 2]);
-      }
-      syncBoardGridFromShortcuts();
-    };
-
-    function syncBoardGridFromShortcuts() {
-      const boardGrid = document.querySelector(".board-grid");
-      if (boardGrid) {
-        const newOrderIds = Array.from(shortcuts.querySelectorAll(".fold-shortcut"))
-          .map(btn => btn.dataset.foldTarget)
-          .filter(Boolean);
-          
-        const cardMap = new Map();
-        Array.from(boardGrid.querySelectorAll(".fold-card")).forEach(c => cardMap.set(c.id, c));
-        
-        newOrderIds.forEach(id => {
-          if (cardMap.has(id)) {
-            boardGrid.appendChild(cardMap.get(id));
-            cardMap.delete(id);
-          }
-        });
-        cardMap.forEach(c => boardGrid.appendChild(c));
-        
-        localStorage.setItem("xiuxian_layout_order", JSON.stringify(
-          Array.from(boardGrid.querySelectorAll(".fold-card")).map(c => c.id).filter(Boolean)
-        ));
-      }
-    }
   }
 
   document.querySelectorAll(".fold-card").forEach((card) => {

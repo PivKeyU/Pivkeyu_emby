@@ -221,31 +221,20 @@ h3 {
 .fold-shortcuts {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-}
-
-.scrollable-row {
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  padding-bottom: 4px;
-  /* Hide scrollbar */
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-.scrollable-row::-webkit-scrollbar {
-  display: none;
+  gap: 6px;
 }
 
 .fold-shortcut {
   width: auto;
   min-width: auto;
-  padding: 8px 12px;
+  padding: 6px 10px;
   border-radius: 999px;
   color: var(--accent-strong);
   background: rgba(255, 255, 255, 0.88);
   border: 1px solid var(--line);
   box-shadow: none;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .fold-shortcut.is-active {
@@ -972,30 +961,6 @@ button.is-blocked:not(:disabled) {
 /* --- Redesign Additions --- */
 
 /* --- Redesign Additions: Sorting & FABs --- */
-
-.shortcut-wrapper {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  background: rgba(204, 167, 114, 0.05);
-  border-radius: 999px;
-  padding: 2px;
-}
-
-.sort-btn {
-  background: transparent;
-  border: none;
-  color: var(--muted);
-  font-size: 12px;
-  padding: 4px 6px;
-  cursor: pointer;
-  border-radius: 999px;
-}
-
-.sort-btn:hover {
-  background: rgba(204, 167, 114, 0.2);
-  color: var(--accent);
-}
 
 .card-sort-controls {
   display: flex;
