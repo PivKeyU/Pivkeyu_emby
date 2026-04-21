@@ -1416,7 +1416,7 @@ function renderProfile(bundle) {
   const profile = bundle.profile;
 
   if (!profile.consented) {
-    ensureSectionState("#enter-card", true, true);
+    ensureSectionState("#enter-card", true);
     [
       "#profile-card",
       "#action-card",
@@ -1519,7 +1519,7 @@ function renderProfile(bundle) {
   const profile = bundle.profile || {};
   const consented = Boolean(profile.consented);
 
-  ensureSectionState("#enter-card", !consented, true);
+  ensureSectionState("#enter-card", !consented);
   [
     "#profile-card",
     "#action-card",
@@ -4665,7 +4665,7 @@ renderProfile = function renderProfileRedesigned(bundle) {
   const profile = bundle.profile || {};
   const consented = Boolean(profile.consented);
 
-  ensureSectionState("#enter-card", !consented, true);
+  ensureSectionState("#enter-card", !consented);
   [
     "#profile-card",
     "#action-card",
