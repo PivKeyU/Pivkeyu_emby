@@ -1764,13 +1764,24 @@ function renderOfficialShop(items, retreating) {
   const blockedReason = retreating ? "闭关期间无法交易。" : duelLockReason;
   for (const item of items) {
     const card = document.createElement("article");
-    card.className = "stack-item";
+    card.className = "stack-item official-shop-item";
     card.innerHTML = `
-      <div class="stack-item-head">
-        <strong>${escapeHtml(item.item_name)}</strong>
-        <span class="badge badge--vip">${escapeHtml(item.price_stone)} 灵石</span>
+      <div class="official-shop-item-top">
+        <div class="official-shop-copy">
+          <strong class="official-shop-name">${escapeHtml(item.item_name)}</strong>
+          <p class="official-shop-meta">${escapeHtml(item.item_kind_label)} · ${escapeHtml(item.shop_name)}</p>
+        </div>
+        <div class="official-shop-price" aria-label="售价 ${escapeHtml(item.price_stone)} 灵石一件">
+          <span class="official-shop-price-label">售价</span>
+          <strong class="official-shop-price-value">${escapeHtml(item.price_stone)}</strong>
+          <span class="official-shop-price-unit">灵石 / 件</span>
+        </div>
       </div>
-      <p>${escapeHtml(item.item_kind_label)} · 库存 ${escapeHtml(item.quantity)} · ${escapeHtml(item.shop_name)}</p>
+      <div class="item-tags official-shop-tags">
+        <span class="tag official-shop-tag">官方供给</span>
+        <span class="tag">库存 ${escapeHtml(item.quantity)}</span>
+        <span class="tag">${escapeHtml(item.item_kind_label)}</span>
+      </div>
       ${blockedReason ? `<p class="reason-text">${escapeHtml(blockedReason)}</p>` : ""}
       <button type="button" data-buy-id="${item.id}" ${(retreating || duelLockReason) ? "disabled" : ""}>购买 1 件</button>
     `;
