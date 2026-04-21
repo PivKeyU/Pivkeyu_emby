@@ -20,6 +20,13 @@ def _legacy_service():
     return legacy_service
 
 
+def _pill_poison_lock_reason(profile: dict[str, Any], pill_type: str) -> str:
+    current_poison = max(int(profile.get("dan_poison") or 0), 0)
+    if pill_type != "clear_poison" and current_poison >= 100:
+        return "丹毒已满，普通丹药药力会反噬，请先服用解毒丹。"
+    return ""
+
+
 def resolve_pill_effects(
     profile: dict[str, Any],
     pill: dict[str, Any] | None,
@@ -53,9 +60,10 @@ def resolve_pill_effects(
     pill_type = pill.get("pill_type")
     multiplier = legacy_service._item_quality_multiplier(pill, "pill")
     base_effect_value = max(float(pill.get("effect_value", 0) or 0) * multiplier, 0.0)
+    poison_delta = 0.0 if pill_type == "clear_poison" else float(pill.get("poison_delta", 0) or 0)
     payload = {
         "effect_value": base_effect_value,
-        "poison_delta": float(pill.get("poison_delta", 0) or 0),
+        "poison_delta": poison_delta,
         "success_rate_bonus": 0.0,
         "clear_poison": base_effect_value if pill_type == "clear_poison" else 0.0,
         "cultivation_gain": base_effect_value if pill_type == "cultivation" else 0.0,
@@ -121,6 +129,9 @@ def pill_usage_reason(profile_data: dict[str, Any], pill: dict[str, Any]) -> str
             " 才能服用这枚丹药。"
         )
     pill_type = str(pill.get("pill_type") or "").strip()
+    poison_reason = _pill_poison_lock_reason(profile_data, pill_type)
+    if poison_reason:
+        return poison_reason
     if pill_type == "foundation":
         return "破境丹只能在对应的大境界突破时配合使用。"
     if pill_type == "root_refine":

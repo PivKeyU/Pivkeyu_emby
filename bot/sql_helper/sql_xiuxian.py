@@ -3662,8 +3662,33 @@ def user_has_technique(tg: int, technique_id: int) -> bool:
         return row is not None
 
 
+def _integrity_error_message(exc: IntegrityError) -> str:
+    return str(getattr(exc, "orig", exc) or exc).lower()
+
+
+def _integrity_error_sqlstate(exc: IntegrityError) -> str | None:
+    orig = getattr(exc, "orig", None)
+    for attr in ("sqlstate", "pgcode"):
+        value = getattr(orig, attr, None)
+        if value:
+            return str(value)
+    diag = getattr(orig, "diag", None)
+    value = getattr(diag, "sqlstate", None)
+    return str(value) if value else None
+
+
+def _integrity_error_constraint_name(exc: IntegrityError) -> str | None:
+    diag = getattr(getattr(exc, "orig", None), "diag", None)
+    constraint_name = getattr(diag, "constraint_name", None)
+    return str(constraint_name) if constraint_name else None
+
+
 def _is_duplicate_integrity_error(exc: IntegrityError, constraint_name: str) -> bool:
-    message = str(getattr(exc, "orig", exc) or exc).lower()
+    actual_constraint_name = _integrity_error_constraint_name(exc)
+    if actual_constraint_name and actual_constraint_name.lower() == constraint_name.lower():
+        return True
+
+    message = _integrity_error_message(exc)
     return constraint_name.lower() in message and (
         "duplicate key value" in message
         or "duplicate entry" in message
@@ -3671,8 +3696,29 @@ def _is_duplicate_integrity_error(exc: IntegrityError, constraint_name: str) -> 
     )
 
 
+def _is_primary_key_id_insert_conflict(exc: IntegrityError, table_name: str) -> bool:
+    if _is_duplicate_integrity_error(exc, f"{table_name}_pkey"):
+        return True
+
+    message = _integrity_error_message(exc)
+    statement = str(getattr(exc, "statement", "") or "").lower()
+    sqlstate = _integrity_error_sqlstate(exc)
+    return (
+        sqlstate in {None, "23505"}
+        and table_name.lower() in statement
+        and "insert into" in statement
+        and "key (id)=" in message
+        and "already exists" in message
+        and (
+            "duplicate key value" in message
+            or "duplicate entry" in message
+            or "unique constraint" in message
+        )
+    )
+
+
 def _sync_sequence_for_primary_key_conflict(exc: IntegrityError, table_name: str) -> bool:
-    if not _is_duplicate_integrity_error(exc, f"{table_name}_pkey"):
+    if not _is_primary_key_id_insert_conflict(exc, table_name):
         return False
     from bot.sql_helper import sync_postgresql_sequences
 

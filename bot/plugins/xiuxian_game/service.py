@@ -463,9 +463,10 @@ DEFAULT_PILLS = [
     },
     {
         "name": "清心丹",
+        "rarity": "凡品",
         "pill_type": "clear_poison",
         "description": "以九种清心草药炼制，入口如饮甘露。丹丸入腹化作一缕清凉之气，缓缓涤荡经脉，将沉积已久的丹毒杂质尽数净化。",
-        "effect_value": 50,
+        "effect_value": 12,
         "poison_delta": 0,
         "image_url": "",
         "enabled": True,
@@ -4013,7 +4014,7 @@ def _current_technique_payload(profile_data: dict[str, Any]) -> dict[str, Any] |
     return technique
 
 
-SEED_DATA_VERSION = "2026-04-17-default-content-v3"
+SEED_DATA_VERSION = "2026-04-21-default-content-v4"
 SEED_DATA_READY = False
 SEED_DATA_LOCK = threading.RLock()
 SEED_DATA_DB_LOCK_KEY = 2026041701
@@ -10121,6 +10122,9 @@ def _apply_pill_effect_once(
     pill_data: dict[str, Any],
 ) -> dict[str, Any]:
     profile_data = serialize_profile(profile) or {}
+    usage_reason = _pill_usage_reason(profile_data, pill_data)
+    if usage_reason:
+        raise ValueError(usage_reason)
     effects = resolve_pill_effects(profile_data, pill_data)
     bone_resistance = min((float(profile.bone or 0) / 200), 0.45)
     dan_poison = min(int(profile.dan_poison or 0) + int(round(float(effects.get("poison_delta", 0) or 0) * (1 - bone_resistance))), 100)

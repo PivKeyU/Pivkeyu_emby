@@ -2313,6 +2313,16 @@ function renderExploreArea(bundle) {
   }
   for (const { scene, meta } of scenes) {
     const explorationCount = Number(scene.user_exploration_count || 0);
+    const entryDisabled = !meta.qualified;
+    const entryLabel = !meta.realmQualified && !meta.powerQualified
+      ? "条件不足"
+      : !meta.realmQualified
+        ? "境界不足"
+        : !meta.powerQualified
+          ? "战力不足"
+          : meta.riskLevel === "high" || meta.riskLevel === "extreme"
+            ? "冒险进入"
+            : "开始探索";
     const rewardCards = (scene.drops || []).slice(0, 6).map((drop) => `
       <article class="scene-drop-item">
         <strong>${escapeHtml(drop.reward_name || drop.reward_ref_id_name || drop.reward_kind_label || "未知掉落")}</strong>
@@ -2354,11 +2364,11 @@ function renderExploreArea(bundle) {
       ${warningText ? `<p class="reason-text">${escapeHtml(warningText)}</p>` : `<p>${escapeHtml(safeText)}</p>`}
       <div class="scene-drop-list">${rewardCards || `<article class="scene-drop-item"><strong>掉落待补充</strong><p>当前秘境尚未配置可展示的奖励。</p></article>`}</div>
       <label>探索时长
-        <select data-scene-minutes="${scene.id}">
+        <select data-scene-minutes="${scene.id}" ${entryDisabled ? "disabled" : ""}>
           ${buildDurationOptions(scene.max_minutes)}
         </select>
       </label>
-      <button type="button" data-scene-id="${scene.id}">${meta.riskLevel === "high" || meta.riskLevel === "extreme" ? "冒险进入" : "开始探索"}</button>
+      <button type="button" data-scene-id="${scene.id}" ${entryDisabled ? "disabled" : ""}>${escapeHtml(entryLabel)}</button>
     `;
     sceneRoot.appendChild(card);
   }

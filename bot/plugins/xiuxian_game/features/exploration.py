@@ -767,6 +767,18 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
         scene,
         int(bundle.get("combat_power") or 0),
     )
+    if not bool(requirement_state.get("requirements_met")):
+        reasons = [
+            str(reason).strip()
+            for reason in (requirement_state.get("risk_reasons") or [])
+            if str(reason or "").strip()
+        ]
+        if reasons:
+            raise ValueError("；".join(reasons))
+        raise ValueError(
+            f"需要达到 {legacy_service.format_realm_requirement(scene.get('min_realm_stage'), scene.get('min_realm_layer'))}"
+            f" 且战力至少 {int(scene.get('min_combat_power') or 0)} 才能进入该秘境。"
+        )
     duration = max(min(int(minutes or 60), int(scene.get("max_minutes") or 60), 60), 1)
     drops = list_scene_drops(scene_id)
     if not drops:
