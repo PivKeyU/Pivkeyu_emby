@@ -2317,6 +2317,58 @@ function summarizeSceneDrops(drops = []) {
   return [...grouped.values()];
 }
 
+function materialSourceScenes(materialName, bundle = state.profileBundle) {
+  const targetName = String(materialName || "").trim();
+  if (!targetName) return [];
+  const seen = new Set();
+  return (bundle?.scenes || []).filter((scene) => {
+    const sceneId = Number(scene?.id || 0);
+    if (sceneId > 0 && seen.has(sceneId)) return false;
+    const matched = (scene?.drops || []).some((drop) => (
+      String(drop?.reward_kind || "").trim() === "material"
+      && sceneDropName(drop) === targetName
+    ));
+    if (matched && sceneId > 0) seen.add(sceneId);
+    return matched;
+  });
+}
+
+function materialSourceSceneNames(materialName, bundle = state.profileBundle) {
+  return materialSourceScenes(materialName, bundle)
+    .map((scene) => String(scene?.name || "").trim())
+    .filter(Boolean);
+}
+
+function materialSceneJumpButtonHtml(materialName, bundle = state.profileBundle) {
+  const targetName = String(materialName || "").trim();
+  const sceneNames = materialSourceSceneNames(targetName, bundle);
+  const disabled = !targetName || !sceneNames.length;
+  const label = disabled
+    ? "暂无地图"
+    : sceneNames.length > 1
+      ? `去地图 ×${sceneNames.length}`
+      : "去地图";
+  const title = disabled
+    ? "当前未找到该材料对应的探索地图"
+    : `前往 ${sceneNames.join("、")}`;
+  return `<button type="button" class="ghost mini material-jump-button" data-material-scene-query="${escapeHtml(targetName)}" title="${escapeHtml(title)}" ${disabled ? "disabled" : ""}>${escapeHtml(label)}</button>`;
+}
+
+function jumpToMaterialSourceScenes(materialName) {
+  const targetName = String(materialName || "").trim();
+  if (!targetName) return;
+  const searchInput = document.querySelector("#scene-search");
+  if (searchInput) {
+    searchInput.value = targetName;
+  }
+  document.querySelectorAll("#explore-card .mini-fold").forEach((fold) => {
+    fold.open = true;
+  });
+  renderExploreArea(state.profileBundle);
+  jumpToFoldCard("explore-card");
+  setStatus(`已定位 ${targetName} 的获取地图。`, "info");
+}
+
 function renderExploreArea(bundle) {
   const sceneRoot = document.querySelector("#scene-list");
   const activeRoot = document.querySelector("#exploration-active");
@@ -3527,7 +3579,18 @@ document.querySelector("#technique-list")?.addEventListener("click", async (even
   }
 });
 
+document.querySelector("#material-list")?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-material-scene-query]");
+  if (!button || button.disabled) return;
+  jumpToMaterialSourceScenes(button.dataset.materialSceneQuery);
+});
+
 document.querySelector("#recipe-list")?.addEventListener("click", async (event) => {
+  const jumpButton = event.target.closest("[data-material-scene-query]");
+  if (jumpButton && !jumpButton.disabled) {
+    jumpToMaterialSourceScenes(jumpButton.dataset.materialSceneQuery);
+    return;
+  }
   const button = event.target.closest("[data-recipe-id]");
   if (!button || button.disabled) return;
   try {
@@ -4276,7 +4339,10 @@ renderCraftArea = function renderCraftArea(bundle) {
     ? materials.map((row) => `
       <article class="stack-item">
         <div class="stack-item-head">
-          <strong>${escapeHtml(row.material.name)}</strong>
+          <div class="material-item-head">
+            <strong>${escapeHtml(row.material.name)}</strong>
+            ${materialSceneJumpButtonHtml(row.material.name, bundle)}
+          </div>
           ${qualityBadgeHtml(row.material.quality_label || row.material.quality_level, row.material.quality_color, "badge badge--normal")}
         </div>
         <p>数量 ${escapeHtml(row.quantity)}</p>
@@ -4307,15 +4373,28 @@ renderCraftArea = function renderCraftArea(bundle) {
   }
   for (const recipe of filteredRecipes) {
     const ingredientTags = (recipe.ingredients || [])
-      .map((item) => `<span class="tag">${escapeHtml(item.material?.name || "材料")} × ${escapeHtml(item.quantity)}</span>`)
+      .map((item) => {
+        const materialName = item.material?.name || "材料";
+        return `<span class="tag">${escapeHtml(materialName)} × ${escapeHtml(item.quantity)}</span>`;
+      })
       .join("");
     const sourceCards = (recipe.ingredients || [])
-      .map((item) => `
+      .map((item) => {
+        const materialName = item.material?.name || "材料";
+        const sceneNames = materialSourceSceneNames(materialName, bundle);
+        const sourceText = sceneNames.length
+          ? `地图：${sceneNames.join("、")}`
+          : (item.source_text || (item.sources || []).join("、") || "暂未补充获取路径");
+        return `
         <article class="recipe-source-item">
-          <strong>${escapeHtml(item.material?.name || "材料")} × ${escapeHtml(item.quantity)}</strong>
-          <p>${escapeHtml(item.source_text || (item.sources || []).join("、") || "暂未补充获取路径")}</p>
+          <div class="recipe-source-head">
+            <strong>${escapeHtml(materialName)} × ${escapeHtml(item.quantity)}</strong>
+            ${materialSceneJumpButtonHtml(materialName, bundle)}
+          </div>
+          <p>${escapeHtml(sourceText)}</p>
         </article>
-      `)
+      `;
+      })
       .join("");
     const card = document.createElement("article");
     card.className = "stack-item";

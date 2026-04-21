@@ -649,6 +649,28 @@ h3 {
   line-height: 1.4;
 }
 
+.material-item-head,
+.recipe-source-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.material-item-head {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.material-jump-button {
+  width: auto;
+  min-width: auto;
+  min-height: auto;
+  padding: 6px 10px;
+  flex: 0 0 auto;
+}
+
 .scene-section {
   margin-top: 12px;
 }
