@@ -1361,6 +1361,30 @@ function applyShopNameState(shopName) {
   }
 }
 
+function currentShopNameValue() {
+  return document.querySelector("#shop-name")?.value?.trim()
+    || state.profileBundle?.profile?.shop_name
+    || "游仙小铺";
+}
+
+function focusShopNameInput(selectAll = false) {
+  const input = document.querySelector("#shop-name");
+  if (!input || input.disabled) return;
+  input.focus({ preventScroll: true });
+  if (selectAll) {
+    input.select?.();
+    return;
+  }
+  const end = input.value.length;
+  input.setSelectionRange?.(end, end);
+}
+
+function openShopNameEditor(selectAll = true) {
+  state.shopNameEditing = true;
+  applyShopNameState(currentShopNameValue());
+  focusShopNameInput(selectAll);
+}
+
 function artifactTypeLabel(type) {
   return type === "support" ? "辅助法宝" : "战斗法宝";
 }
@@ -2248,6 +2272,51 @@ function buildSceneSearchText(scene = {}) {
   ];
 }
 
+function sceneDropName(drop = {}) {
+  return String(
+    drop.reward_name
+    || drop.reward_ref_id_name
+    || drop.reward_kind_label
+    || drop.reward_kind
+    || "未知掉落"
+  ).trim() || "未知掉落";
+}
+
+function sceneDropQuantityText(drop = {}) {
+  const quantityMin = Math.max(Number(drop.quantity_min || 1), 1);
+  const quantityMax = Math.max(Number(drop.quantity_max || quantityMin), quantityMin);
+  const unit = String(drop.reward_kind || "").trim() === "material" ? "份" : "件";
+  return quantityMin === quantityMax ? `${quantityMin} ${unit}` : `${quantityMin}~${quantityMax} ${unit}`;
+}
+
+function summarizeSceneDrops(drops = []) {
+  const grouped = new Map();
+  (drops || []).forEach((drop) => {
+    if (!drop || typeof drop !== "object") return;
+    const rewardKind = String(drop.reward_kind || "").trim();
+    const rewardRefId = Number(drop.reward_ref_id || 0);
+    const name = sceneDropName(drop);
+    const key = `${rewardKind}:${rewardRefId || name}`;
+    const quantityMin = Math.max(Number(drop.quantity_min || 1), 1);
+    const quantityMax = Math.max(Number(drop.quantity_max || quantityMin), quantityMin);
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.quantity_min = Math.min(existing.quantity_min, quantityMin);
+      existing.quantity_max = Math.max(existing.quantity_max, quantityMax);
+      return;
+    }
+    grouped.set(key, {
+      reward_kind: rewardKind,
+      reward_kind_label: String(drop.reward_kind_label || rewardKind || "掉落"),
+      reward_ref_id: rewardRefId,
+      reward_name: name,
+      quantity_min: quantityMin,
+      quantity_max: quantityMax,
+    });
+  });
+  return [...grouped.values()];
+}
+
 function renderExploreArea(bundle) {
   const sceneRoot = document.querySelector("#scene-list");
   const activeRoot = document.querySelector("#exploration-active");
@@ -2323,12 +2392,54 @@ function renderExploreArea(bundle) {
           : meta.riskLevel === "high" || meta.riskLevel === "extreme"
             ? "冒险进入"
             : "开始探索";
-    const rewardCards = (scene.drops || []).slice(0, 6).map((drop) => `
-      <article class="scene-drop-item">
-        <strong>${escapeHtml(drop.reward_name || drop.reward_ref_id_name || drop.reward_kind_label || "未知掉落")}</strong>
-        <p>${escapeHtml(cleanSceneCopy(drop.event_text) || `${drop.quantity_min || 1}~${drop.quantity_max || 1} 件掉落`)}</p>
+    const summarizedDrops = summarizeSceneDrops(scene.drops || []);
+    const materialDrops = summarizedDrops.filter((drop) => drop.reward_kind === "material");
+    const otherDrops = summarizedDrops.filter((drop) => drop.reward_kind !== "material");
+    const materialCards = materialDrops.map((drop) => `
+      <article class="scene-material-item">
+        <div class="scene-material-head">
+          <strong>${escapeHtml(drop.reward_name || "未知材料")}</strong>
+          <span class="badge badge--normal">${escapeHtml(sceneDropQuantityText(drop))}</span>
+        </div>
+        <div class="item-tags">
+          <span class="tag">材料</span>
+          <span class="tag">秘境掉落</span>
+        </div>
       </article>
     `).join("");
+    const otherRewardCards = otherDrops.map((drop) => `
+      <article class="scene-drop-item">
+        <div class="scene-drop-head">
+          <strong>${escapeHtml(drop.reward_name || "未知掉落")}</strong>
+          <span class="badge badge--normal">${escapeHtml(sceneDropQuantityText(drop))}</span>
+        </div>
+        <p>${escapeHtml(drop.reward_kind_label || "其他掉落")}</p>
+      </article>
+    `).join("");
+    const rewardSections = [
+      materialDrops.length
+        ? `
+          <section class="scene-section">
+            <div class="scene-section-head">
+              <h4>可获取材料</h4>
+              <span class="summary-tip">共 ${escapeHtml(materialDrops.length)} 种</span>
+            </div>
+            <div class="scene-material-list">${materialCards}</div>
+          </section>
+        `
+        : "",
+      otherDrops.length
+        ? `
+          <section class="scene-section">
+            <div class="scene-section-head">
+              <h4>其他掉落</h4>
+              <span class="summary-tip">功法、配方或特殊奖励</span>
+            </div>
+            <div class="scene-drop-list">${otherRewardCards}</div>
+          </section>
+        `
+        : "",
+    ].filter(Boolean).join("");
     const warningText = meta.warnings.join(" · ");
     const safeText = meta.safeNote || "当前实力已基本覆盖此处风险，可优先刷取所需材料与功法。";
     const riskText = meta.itemLossRisk > 0
@@ -2362,7 +2473,7 @@ function renderExploreArea(bundle) {
       </div>
       ${meta.requirementSummary ? `<p class="muted">${escapeHtml(`进入要求：${meta.requirementSummary}`)}</p>` : ""}
       ${warningText ? `<p class="reason-text">${escapeHtml(warningText)}</p>` : `<p>${escapeHtml(safeText)}</p>`}
-      <div class="scene-drop-list">${rewardCards || `<article class="scene-drop-item"><strong>掉落待补充</strong><p>当前秘境尚未配置可展示的奖励。</p></article>`}</div>
+      ${rewardSections || `<div class="scene-drop-list"><article class="scene-drop-item"><div class="scene-drop-head"><strong>掉落待补充</strong></div><p>当前秘境尚未配置可展示的奖励。</p></article></div>`}
       <label>探索时长
         <select data-scene-minutes="${scene.id}" ${entryDisabled ? "disabled" : ""}>
           ${buildDurationOptions(scene.max_minutes)}
@@ -2963,14 +3074,37 @@ document.querySelector("#official-recycle-kind")?.addEventListener("change", () 
 });
 document.querySelector("#official-recycle-item-ref")?.addEventListener("change", () => updateOfficialRecycleQuotePreview());
 document.querySelector("#official-recycle-quantity")?.addEventListener("input", () => updateOfficialRecycleQuotePreview());
+["#official-recycle-jump-from-shop", "#official-recycle-jump-from-market"].forEach((selector) => {
+  document.querySelector(selector)?.addEventListener("click", () => jumpToFoldCard("official-recycle-card"));
+});
 
 document.querySelector("#shop-name-toggle")?.addEventListener("click", () => {
   state.shopNameEditing = !state.shopNameEditing;
-  applyShopNameState(document.querySelector("#shop-name")?.value?.trim() || state.profileBundle?.profile?.shop_name || "游仙小铺");
+  applyShopNameState(currentShopNameValue());
   if (state.shopNameEditing) {
-    document.querySelector("#shop-name")?.focus();
-    document.querySelector("#shop-name")?.select();
+    focusShopNameInput(true);
   }
+});
+
+document.querySelector("#shop-name")?.addEventListener("pointerdown", () => {
+  const input = document.querySelector("#shop-name");
+  if (!input || input.disabled || state.shopNameEditing) return;
+  state.shopNameEditing = true;
+  applyShopNameState(currentShopNameValue());
+});
+
+document.querySelector("#shop-name")?.addEventListener("click", () => {
+  const input = document.querySelector("#shop-name");
+  if (!input || input.disabled || state.shopNameEditing) return;
+  openShopNameEditor(false);
+});
+
+document.querySelector("#shop-name")?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  state.shopNameEditing = false;
+  applyShopNameState(currentShopNameValue());
+  document.querySelector("#shop-name-toggle")?.focus({ preventScroll: true });
 });
 
 document.querySelector("#personal-shop-form").addEventListener("submit", async (event) => {
