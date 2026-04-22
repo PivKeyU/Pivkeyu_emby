@@ -1548,6 +1548,30 @@ function queueOpenLazyFoldCards() {
   deferUiWork(renderOpenLazyFoldCards);
 }
 
+function keepShortcutVisible(shortcuts, button) {
+  if (!shortcuts || !button) return;
+  if (shortcuts.scrollWidth <= shortcuts.clientWidth + 4) return;
+
+  const padding = 12;
+  const visibleLeft = Number(shortcuts.scrollLeft || 0);
+  const visibleRight = visibleLeft + Number(shortcuts.clientWidth || 0);
+  const buttonLeft = Number(button.offsetLeft || 0) - padding;
+  const buttonRight = Number(button.offsetLeft || 0) + Number(button.offsetWidth || 0) + padding;
+
+  if (buttonLeft >= visibleLeft && buttonRight <= visibleRight) {
+    return;
+  }
+
+  const centeredLeft = Math.max(
+    0,
+    Number(button.offsetLeft || 0) - Math.max((Number(shortcuts.clientWidth || 0) - Number(button.offsetWidth || 0)) / 2, padding)
+  );
+  shortcuts.scrollTo({
+    left: centeredLeft,
+    behavior: "smooth",
+  });
+}
+
 function syncFoldToolbar() {
   const toolbar = document.querySelector("#fold-toolbar");
   if (!toolbar) return;
@@ -1581,7 +1605,7 @@ function syncFoldToolbar() {
       button.dataset.foldTarget = card.id;
       shortcuts.appendChild(button);
     }
-    shortcuts.querySelector(".is-active")?.scrollIntoView({ inline: "center", block: "nearest" });
+    keepShortcutVisible(shortcuts, shortcuts.querySelector(".is-active"));
   }
 }
 
