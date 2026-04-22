@@ -1402,18 +1402,6 @@ function scrollPageToTop({ behavior = "smooth" } = {}) {
   }
 }
 
-let pageAutoTopTimer = null;
-
-function queuePageAutoTop(delay = 80) {
-  if (pageAutoTopTimer) {
-    window.clearTimeout(pageAutoTopTimer);
-  }
-  pageAutoTopTimer = window.setTimeout(() => {
-    scrollPageToTop({ behavior: "smooth" });
-    pageAutoTopTimer = null;
-  }, delay);
-}
-
 function watchPageScroll(listener) {
   const seen = new Set();
   [window, ...candidatePageScrollTargets()].forEach((target) => {
@@ -5642,7 +5630,6 @@ popup = async function popupRefined(title, message, tone = "success") {
   document.body.classList.add("is-modal-open");
   layer.scrollTop = 0;
   messageNode.scrollTop = 0;
-  queuePageAutoTop();
   if (popupAutoCloseTimer) {
     window.clearTimeout(popupAutoCloseTimer);
   }

@@ -368,6 +368,7 @@ AUCTION_FINALIZE_TASKS: dict[int, asyncio.Task] = {}
 ARENA_FINALIZE_TASKS: dict[int, asyncio.Task] = {}
 EVENT_SUMMARY_MESSAGES: dict[int, int] = {}
 EVENT_SUMMARY_LAST_TEXTS: dict[int, str] = {}
+EVENT_SUMMARY_PINNED_MESSAGES: dict[int, int] = {}
 EVENT_SUMMARY_REFRESH_TASK: asyncio.Task | None = None
 EVENT_SUMMARY_LOOP_TASK: asyncio.Task | None = None
 COMMAND_DISPATCH_CACHE: dict[tuple[int, int, str], float] = {}
@@ -1240,7 +1241,7 @@ def _build_event_summary_text(chat_id: int) -> str:
     arenas = _active_notice_arenas(chat_id)
     shops = _active_notice_shop_items(chat_id)
     lines = [
-        "🗂️ **仙市汇总**",
+        "🗂️ **修仙汇总**",
         f"🕰️ 刷新：`{datetime.now(SHANGHAI_TZ).strftime('%m-%d %H:%M')}`",
     ]
     if not auctions and not arenas and not shops:
@@ -1290,6 +1291,20 @@ def _build_event_summary_text(chat_id: int) -> str:
     return "\n".join(lines)
 
 
+async def _pin_event_summary_message(chat_id: int, message_id: int) -> None:
+    if not chat_id or not message_id:
+        return
+    try:
+        await bot.unpin_all_chat_messages(chat_id=chat_id)
+    except Exception as exc:
+        LOGGER.warning(f"xiuxian event summary unpin-all failed chat={chat_id}: {exc}")
+    try:
+        await bot.pin_chat_message(chat_id=chat_id, message_id=message_id, disable_notification=True)
+        EVENT_SUMMARY_PINNED_MESSAGES[int(chat_id)] = int(message_id)
+    except Exception as exc:
+        LOGGER.warning(f"xiuxian event summary pin failed chat={chat_id} message={message_id}: {exc}")
+
+
 async def _refresh_event_summary_for_chat(chat_id: int) -> None:
     resolved_chat_id = int(chat_id or 0)
     if not resolved_chat_id:
@@ -1298,6 +1313,8 @@ async def _refresh_event_summary_for_chat(chat_id: int) -> None:
     message_id = int(EVENT_SUMMARY_MESSAGES.get(resolved_chat_id) or 0)
     if message_id > 0:
         if EVENT_SUMMARY_LAST_TEXTS.get(resolved_chat_id) == text:
+            if int(EVENT_SUMMARY_PINNED_MESSAGES.get(resolved_chat_id) or 0) != message_id:
+                await _pin_event_summary_message(resolved_chat_id, message_id)
             return
         try:
             await _edit_message_text(
@@ -1309,11 +1326,13 @@ async def _refresh_event_summary_for_chat(chat_id: int) -> None:
                 persistent=True,
             )
             EVENT_SUMMARY_LAST_TEXTS[resolved_chat_id] = text
+            await _pin_event_summary_message(resolved_chat_id, message_id)
             return
         except Exception as exc:
             LOGGER.warning(f"xiuxian event summary refresh failed chat={resolved_chat_id} message={message_id}: {exc}")
             EVENT_SUMMARY_MESSAGES.pop(resolved_chat_id, None)
             EVENT_SUMMARY_LAST_TEXTS.pop(resolved_chat_id, None)
+            EVENT_SUMMARY_PINNED_MESSAGES.pop(resolved_chat_id, None)
     has_active_rows = any(
         (
             _active_notice_auctions(resolved_chat_id),
@@ -1326,6 +1345,7 @@ async def _refresh_event_summary_for_chat(chat_id: int) -> None:
     sent = await _send_message(bot, resolved_chat_id, text, parse_mode=RICH_TEXT_MODE, persistent=True)
     EVENT_SUMMARY_MESSAGES[resolved_chat_id] = int(sent.id)
     EVENT_SUMMARY_LAST_TEXTS[resolved_chat_id] = text
+    await _pin_event_summary_message(resolved_chat_id, int(sent.id))
 
 
 async def _refresh_all_event_summaries() -> None:
@@ -2004,10 +2024,9 @@ async def _push_auction_to_group(auction: dict[str, Any]) -> tuple[dict[str, Any
         "group_chat_id": chat_id,
         "group_message_id": sent.id,
     }
-    pin_warning = await _pin_auction_group_message(chat_id, sent.id)
     _queue_auction_finalize_task(updated)
     _queue_event_summary_refresh()
-    return updated, pin_warning
+    return updated, None
 
 
 def _arena_remaining_text(arena: dict[str, Any]) -> str:
@@ -2253,10 +2272,9 @@ async def _push_arena_to_group(arena: dict[str, Any]) -> tuple[dict[str, Any], s
         "group_chat_id": chat_id,
         "group_message_id": sent.id,
     }
-    pin_warning = await _pin_arena_group_message(chat_id, sent.id)
     _queue_arena_finalize_task(updated)
     _queue_event_summary_refresh()
-    return updated, pin_warning
+    return updated, None
 
 
 def _quiz_task_text(task: dict[str, Any]) -> str:
