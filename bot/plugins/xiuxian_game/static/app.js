@@ -1496,7 +1496,12 @@ function toggleFoldCards(open) {
 }
 
 function isNarrowViewport() {
-  return window.matchMedia?.("(max-width: 720px)")?.matches ?? window.innerWidth <= 720;
+  const matchMedia = window.matchMedia?.bind(window);
+  const isNarrow = matchMedia?.("(max-width: 720px)")?.matches ?? window.innerWidth <= 720;
+  const isShortLandscape = matchMedia?.("(orientation: landscape) and (max-height: 520px)")?.matches
+    ?? (window.innerWidth > window.innerHeight && window.innerHeight <= 520);
+  const hasTouchPointer = matchMedia?.("(pointer: coarse)")?.matches ?? navigator.maxTouchPoints > 0;
+  return isNarrow || (hasTouchPointer && isShortLandscape);
 }
 
 function scrollElementIntoComfortableView(element, options = {}) {

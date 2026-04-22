@@ -34,14 +34,20 @@ html {
   color-scheme: dark;
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
+  min-height: 100dvh;
+  max-width: 100%;
   padding-bottom: calc(92px + env(safe-area-inset-bottom));
   color: var(--ink);
   background: var(--bg-top);
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
 }
 
 body.is-modal-open {
@@ -51,11 +57,19 @@ body.is-modal-open {
 .app-shell {
   position: relative;
   z-index: 1;
-  width: min(1200px, calc(100vw - 16px));
+  width: 100%;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 12px 0 24px;
+  padding: 12px max(8px, env(safe-area-inset-right)) 24px max(8px, env(safe-area-inset-left));
   display: grid;
   gap: 10px;
+}
+
+img,
+svg,
+canvas,
+video {
+  max-width: 100%;
 }
 
 .card {
@@ -99,6 +113,37 @@ body.is-modal-open {
 .retreat-row {
   display: grid;
   gap: 12px;
+}
+
+.app-shell > *,
+.hero-main,
+.hero-side,
+.hero-admin,
+.hero-admin-copy,
+.fold-toolbar,
+.fold-toolbar-head,
+.fold-shortcuts,
+.fold-card,
+.fold-body,
+.mini-fold,
+.mini-fold-body,
+.board-grid,
+.stack-list,
+.stack-item,
+.inline-actions,
+.inventory-columns,
+.profile-grid,
+.compact-grid,
+.action-grid,
+.tab-row,
+.pager,
+.retreat-row,
+.info-grid,
+.recipe-source-list,
+.scene-drop-list,
+.scene-material-list,
+.farm-summary-grid {
+  min-width: 0;
 }
 
 .eyebrow {
@@ -214,6 +259,8 @@ h3 {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .fold-toolbar-actions {
@@ -237,6 +284,7 @@ h3 {
   overscroll-behavior-x: contain;
   scroll-snap-type: x proximity;
   scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
 }
 
 .fold-shortcuts::-webkit-scrollbar {
@@ -357,6 +405,7 @@ h3 {
   text-align: right;
   font-size: 12px;
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .fold-body {
@@ -546,7 +595,7 @@ h3 {
 
 .official-shop-price {
   justify-self: start;
-  min-width: 132px;
+  min-width: min(132px, 100%);
   padding: 12px 14px;
   border-radius: 16px;
   border: 1px solid rgba(255, 232, 176, 0.28);
@@ -943,6 +992,8 @@ select,
 textarea,
 button {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   border-radius: 16px;
   border: 1px solid var(--line);
   padding: 11px 13px;
@@ -1057,11 +1108,14 @@ button.is-blocked:not(:disabled) {
   position: fixed;
   left: 12px;
   right: 12px;
+  max-width: calc(100% - 24px);
   bottom: max(12px, env(safe-area-inset-bottom));
   z-index: 24;
   display: flex;
   gap: 8px;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: 22px;
@@ -1069,6 +1123,7 @@ button.is-blocked:not(:disabled) {
   box-shadow: 0 20px 48px rgba(0, 0, 0, 0.42);
   backdrop-filter: blur(20px);
   scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
 }
 
 .bottom-nav::-webkit-scrollbar {
@@ -1078,6 +1133,8 @@ button.is-blocked:not(:disabled) {
 .bottom-nav a {
   flex: 0 0 auto;
   min-width: 96px;
+  white-space: nowrap;
+  scroll-snap-align: start;
   text-decoration: none;
   color: var(--ink);
   background: var(--surface-strong);
@@ -1295,16 +1352,27 @@ button.is-blocked:not(:disabled) {
 
 @media (max-width: 640px) {
   body {
-    padding-bottom: calc(108px + env(safe-area-inset-bottom));
+    padding-bottom: calc(100px + env(safe-area-inset-bottom));
   }
 
   .app-shell {
-    width: min(100vw, calc(100vw - 10px));
-    padding-top: 8px;
+    width: 100%;
+    padding: 8px max(6px, env(safe-area-inset-right)) 18px max(6px, env(safe-area-inset-left));
+    gap: 8px;
+  }
+
+  h1 {
+    font-size: 34px;
   }
 
   .hero-panel {
     padding: 12px;
+  }
+
+  .fold-toolbar {
+    top: max(4px, env(safe-area-inset-top));
+    padding: 8px 10px;
+    border-radius: 14px;
   }
 
   .summary-tip {
@@ -1319,6 +1387,13 @@ button.is-blocked:not(:disabled) {
 
   .fold-body {
     padding: 0 12px 14px;
+  }
+
+  .info-grid,
+  .scene-material-list,
+  .scene-drop-list,
+  .farm-summary-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .profile-grid {
@@ -1376,6 +1451,7 @@ button.is-blocked:not(:disabled) {
   .bottom-nav {
     left: 8px;
     right: 8px;
+    max-width: calc(100% - 16px);
     bottom: max(8px, env(safe-area-inset-bottom));
     padding: 8px;
     border-radius: 18px;
@@ -1402,6 +1478,52 @@ button.is-blocked:not(:disabled) {
     width: min(100%, 520px);
     max-height: min(82dvh, 720px);
     border-radius: 22px 22px 16px 16px;
+  }
+}
+
+@media (max-width: 420px) {
+  body {
+    padding-bottom: calc(94px + env(safe-area-inset-bottom));
+  }
+
+  .app-shell {
+    padding-inline: max(5px, env(safe-area-inset-left)) max(5px, env(safe-area-inset-right));
+  }
+
+  .hero-copy,
+  .section-copy,
+  .modal-message {
+    font-size: 13px;
+  }
+
+  .summary-tip {
+    display: none;
+  }
+
+  .fold-summary {
+    gap: 8px;
+    min-height: 56px;
+    padding: 14px 12px;
+  }
+
+  .fold-summary::after {
+    min-width: 42px;
+    font-size: 11px;
+  }
+
+  .mini-fold-summary {
+    padding: 13px 12px;
+  }
+
+  .bottom-nav {
+    gap: 6px;
+    padding: 7px;
+  }
+
+  .bottom-nav a {
+    min-width: 76px;
+    min-height: 42px;
+    padding: 7px 9px;
   }
 }
 
@@ -1456,4 +1578,138 @@ button.is-blocked:not(:disabled) {
 
 .fab.admin-fab {
   background: linear-gradient(135deg, #a43e26, #c2410c);
+}
+
+@media (max-width: 640px) {
+  .fab-container {
+    right: 12px;
+    bottom: calc(max(10px, env(safe-area-inset-bottom)) + 62px);
+    gap: 10px;
+  }
+
+  .fab {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+@media (max-height: 520px) and (orientation: landscape) {
+  body {
+    padding-bottom: calc(58px + env(safe-area-inset-bottom));
+  }
+
+  .app-shell {
+    padding-top: 6px;
+    padding-bottom: 10px;
+    gap: 8px;
+  }
+
+  h1 {
+    font-size: 30px;
+    line-height: 1;
+  }
+
+  h2 {
+    font-size: 18px;
+  }
+
+  .hero-panel {
+    grid-template-columns: minmax(0, 1fr) minmax(180px, 0.7fr);
+    align-items: start;
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .hero-copy,
+  .hero-note,
+  .hero-admin p,
+  .section-copy,
+  .modal-message {
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .hero-pill,
+  .badge,
+  .tag,
+  .feedback-chip,
+  .rank-tab,
+  .bottom-nav a {
+    min-height: 34px;
+    padding: 6px 9px;
+  }
+
+  .fold-toolbar {
+    position: static;
+    padding: 8px 10px;
+  }
+
+  .fold-shortcuts,
+  .wiki-filter-row,
+  .tab-row,
+  .item-tags {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .fold-summary {
+    min-height: 50px;
+    padding: 12px 14px;
+  }
+
+  .summary-tip {
+    display: none;
+  }
+
+  .fold-body {
+    padding: 0 12px 12px;
+    gap: 10px;
+  }
+
+  .bottom-nav {
+    left: 8px;
+    right: 8px;
+    max-width: calc(100% - 16px);
+    bottom: max(6px, env(safe-area-inset-bottom));
+    gap: 6px;
+    padding: 6px;
+    border-radius: 16px;
+  }
+
+  .bottom-nav a {
+    min-width: 78px;
+    min-height: 36px;
+    font-size: 11px;
+  }
+
+  .fab-container {
+    right: 10px;
+    bottom: calc(max(8px, env(safe-area-inset-bottom)) + 48px);
+    gap: 8px;
+  }
+
+  .fab {
+    width: 40px;
+    height: 40px;
+  }
+
+  .fab svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .modal-layer {
+    align-items: center;
+    padding: 8px;
+  }
+
+  .modal-card {
+    width: min(520px, 100%);
+    max-height: calc(100dvh - 16px);
+    padding: 14px;
+    border-radius: 18px;
+  }
 }

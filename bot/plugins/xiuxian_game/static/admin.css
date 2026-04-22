@@ -24,15 +24,22 @@
 
 html {
   color-scheme: dark;
+  max-width: 100%;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
+  min-height: 100dvh;
+  max-width: 100%;
   color: var(--ink);
   background:
     radial-gradient(circle at top center, rgba(204, 167, 114, 0.16), transparent 26%),
     linear-gradient(180deg, var(--bg-1) 0%, var(--bg-2) 100%);
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
 }
 
 body::before {
@@ -49,11 +56,41 @@ body::before {
 .admin-shell {
   position: relative;
   z-index: 1;
-  width: min(1120px, calc(100vw - 16px));
+  width: 100%;
+  max-width: 1120px;
   margin: 0 auto;
-  padding: 12px 0 24px;
+  padding: 12px max(8px, env(safe-area-inset-right)) 24px max(8px, env(safe-area-inset-left));
   display: grid;
   gap: 12px;
+}
+
+.admin-shell > *,
+.hero-card,
+.hero-topbar,
+.hero-pills,
+.fold-card,
+.fold-body,
+.grid-form,
+.mini-form,
+.stack-list,
+.inline-editor,
+.inline-actions,
+.settings-layout,
+.setting-panel,
+.setting-panel-grid,
+.control-deck,
+.control-head,
+.control-actions,
+.control-pills,
+.player-workspace,
+.player-search-pane,
+.player-edit-panel,
+.player-resource-workspace,
+.player-owned-columns,
+.builder-row,
+.builder-row .builder-grid,
+.title-color-control-grid {
+  min-width: 0;
 }
 
 .card {
@@ -118,7 +155,7 @@ h1 {
   font-family: "IBM Plex Serif", "Source Serif 4", Georgia, serif;
   font-size: clamp(30px, 7vw, 46px);
   line-height: 0.94;
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
 }
 
 h2 {
@@ -183,7 +220,7 @@ h2 {
 }
 
 .settings-layout {
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
   align-items: start;
 }
 
@@ -243,7 +280,7 @@ h2 {
 .setting-panel-grid {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
 }
 
 .setting-panel.is-collapsed > :not(.setting-panel-head) {
@@ -269,10 +306,13 @@ select,
 textarea,
 button {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   border-radius: 14px;
   border: 1px solid var(--line);
   padding: 11px 12px;
   font: inherit;
+  font-size: 16px;
 }
 
 input,
@@ -594,7 +634,7 @@ button:disabled {
 }
 
 .control-pills {
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
 }
 
 .nav-pill {
@@ -790,11 +830,11 @@ button:disabled {
 .title-color-control-grid {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
 }
 
 .title-color-control-grid--gradient {
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
 }
 
 .title-color-control {
@@ -920,11 +960,11 @@ button.title-color-swatch--wide {
 .builder-row .builder-grid {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
 }
 
 .builder-row .builder-grid--wide {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
 }
 
 .builder-row textarea {
@@ -958,4 +998,107 @@ button.title-color-swatch--wide {
 
 .mini-actions button {
   width: auto;
+}
+
+@media (max-width: 640px) {
+  .admin-shell {
+    padding: 8px max(6px, env(safe-area-inset-right)) 18px max(6px, env(safe-area-inset-left));
+    gap: 10px;
+  }
+
+  .card,
+  .setting-panel,
+  .player-edit-panel,
+  .title-color-editor {
+    padding: 12px;
+    border-radius: 14px;
+  }
+
+  .hero-topbar,
+  .setting-panel-head,
+  .form-edit-banner,
+  .compact-hint,
+  .title-color-preview-row,
+  .stack-item-head {
+    align-items: stretch;
+  }
+
+  .summary-tip {
+    display: none;
+  }
+
+  .nav-back,
+  .hero-inline-action,
+  .setting-panel-toggle,
+  .builder-row-actions button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .tag-cloud,
+  .item-tags,
+  .title-color-toolbar,
+  .title-color-swatches,
+  .inline-action-buttons,
+  .mini-actions {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tag-cloud::-webkit-scrollbar,
+  .item-tags::-webkit-scrollbar,
+  .title-color-toolbar::-webkit-scrollbar,
+  .title-color-swatches::-webkit-scrollbar,
+  .inline-action-buttons::-webkit-scrollbar,
+  .mini-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tag,
+  .nav-pill,
+  .title-color-toolbar button,
+  button.title-color-swatch,
+  .inline-action-buttons button,
+  .mini-actions button {
+    width: auto;
+    min-width: 88px;
+    flex: 0 0 auto;
+  }
+}
+
+@media (max-height: 520px) and (orientation: landscape) {
+  .admin-shell {
+    padding-top: 6px;
+    padding-bottom: 10px;
+    gap: 8px;
+  }
+
+  h1 {
+    font-size: 30px;
+    line-height: 1;
+  }
+
+  .card,
+  .setting-panel,
+  .player-edit-panel,
+  .title-color-editor {
+    padding: 10px;
+  }
+
+  .control-deck,
+  .player-edit-panel {
+    position: static !important;
+  }
+
+  .fold-summary {
+    padding: 12px;
+  }
+
+  .fold-body {
+    padding: 0 12px 12px;
+    gap: 10px;
+  }
 }
