@@ -201,6 +201,7 @@ from bot.plugins.xiuxian_game.probability import (
     roll_probability_percent,
 )
 from bot.plugins.xiuxian_game.world_service import (
+    _get_item_payload,
     get_sect_effects,
     sync_recipe_with_ingredients_by_name,
     sync_scene_with_drops_by_name,
