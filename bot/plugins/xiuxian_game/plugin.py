@@ -371,6 +371,7 @@ EVENT_SUMMARY_LAST_TEXTS: dict[int, str] = {}
 EVENT_SUMMARY_PINNED_MESSAGES: dict[int, int] = {}
 EVENT_SUMMARY_REFRESH_TASK: asyncio.Task | None = None
 EVENT_SUMMARY_LOOP_TASK: asyncio.Task | None = None
+EVENT_SUMMARY_REFRESH_LOCK: asyncio.Lock | None = None
 COMMAND_DISPATCH_CACHE: dict[tuple[int, int, str], float] = {}
 DUEL_SETTLEMENT_PAGE_SIZE = 10
 STATIC_ASSET_PATTERN = re.compile(r'(/plugins/xiuxian/static/([A-Za-z0-9_.-]+\.(?:css|js)))')
@@ -1222,6 +1223,13 @@ def _event_summary_target_chat_ids() -> set[int]:
     return {chat_id for chat_id in chat_ids if chat_id}
 
 
+def _event_summary_lock() -> asyncio.Lock:
+    global EVENT_SUMMARY_REFRESH_LOCK
+    if EVENT_SUMMARY_REFRESH_LOCK is None:
+        EVENT_SUMMARY_REFRESH_LOCK = asyncio.Lock()
+    return EVENT_SUMMARY_REFRESH_LOCK
+
+
 def _summary_remaining_text(end_at: str | None) -> str:
     target = _parse_shanghai_datetime(end_at)
     if target is None:
@@ -1349,11 +1357,12 @@ async def _refresh_event_summary_for_chat(chat_id: int) -> None:
 
 
 async def _refresh_all_event_summaries() -> None:
-    for chat_id in sorted(_event_summary_target_chat_ids()):
-        try:
-            await _refresh_event_summary_for_chat(chat_id)
-        except Exception as exc:
-            LOGGER.warning(f"xiuxian event summary update failed chat={chat_id}: {exc}")
+    async with _event_summary_lock():
+        for chat_id in sorted(_event_summary_target_chat_ids()):
+            try:
+                await _refresh_event_summary_for_chat(chat_id)
+            except Exception as exc:
+                LOGGER.warning(f"xiuxian event summary update failed chat={chat_id}: {exc}")
 
 
 def _queue_event_summary_refresh(delay_seconds: float = 1.5) -> None:
@@ -3145,8 +3154,10 @@ def register_bot(bot_instance) -> None:
     _schedule_command_refresh(bot_instance)
     _schedule_active_auction_finalize_tasks()
     _schedule_active_arena_finalize_tasks()
+    started_event_summary_loop = False
     if EVENT_SUMMARY_LOOP_TASK is None or EVENT_SUMMARY_LOOP_TASK.done():
         loop = asyncio.get_event_loop()
+        started_event_summary_loop = True
 
         async def refresh_event_summary_loop() -> None:
             while True:
@@ -3164,7 +3175,8 @@ def register_bot(bot_instance) -> None:
                     await asyncio.sleep(60)
 
         EVENT_SUMMARY_LOOP_TASK = loop.create_task(refresh_event_summary_loop())
-    _queue_event_summary_refresh(0.2)
+    if not started_event_summary_loop:
+        _queue_event_summary_refresh(0.2)
 
     async def refresh_duel_bet_countdown(pool_id: int, message, bets_close_at: str | None) -> None:
         close_at = _parse_shanghai_datetime(bets_close_at)
