@@ -2543,13 +2543,16 @@ SPIRIT_STONE_COMMISSIONS = {
     "work": {
         "key": "work",
         "name": "仙坊打工",
-        "description": "在坊市轮值、搬运灵材与看守地火，风险最低，报酬稳定。",
-        "summary": "适合所有新弟子稳定换灵石。",
+        "description": "在坊市轮值、搬运灵材与整理柜台，风险最低，但也得有足够心志和脚力才不会手忙脚乱。",
+        "summary": "入门稳定差事，适合刚踏入仙途的修士慢慢攒第一桶灵石。",
         "cooldown_hours": 4,
         "min_realm_stage": FIRST_REALM_STAGE,
         "min_realm_layer": 1,
-        "stone_range": (18, 36),
-        "cultivation_range": (12, 26),
+        "stone_range": (12, 24),
+        "cultivation_range": (8, 16),
+        "stone_bonus_cap": 8,
+        "cultivation_bonus_cap": 6,
+        "attribute_requirements": {"willpower": 10, "body_movement": 8},
         "stone_bonus_divisors": {"fortune": 4, "body_movement": 6, "charisma": 8},
         "cultivation_bonus_divisors": {"comprehension": 4, "willpower": 6},
         "result_texts": [
@@ -2560,13 +2563,16 @@ SPIRIT_STONE_COMMISSIONS = {
     "spirit_field": {
         "key": "spirit_field",
         "name": "照料灵田",
-        "description": "替药圃巡查灵田、调理地脉和分拣草木精华，讲究耐心与药理底子。",
-        "summary": "低风险稳定差事，偏重悟性、机缘与真元续航。",
+        "description": "替药圃巡查灵田、调理地脉和分拣草木精华，讲究悟性、机缘和真元续航。",
+        "summary": "低风险技术活，基础奖励略低，但稳定且吃悟性。",
         "cooldown_hours": 4,
         "min_realm_stage": "炼气",
-        "min_realm_layer": 6,
-        "stone_range": (28, 52),
-        "cultivation_range": (18, 38),
+        "min_realm_layer": 4,
+        "stone_range": (18, 32),
+        "cultivation_range": (10, 22),
+        "stone_bonus_cap": 10,
+        "cultivation_bonus_cap": 8,
+        "attribute_requirements": {"comprehension": 16, "fortune": 12, "true_yuan": 520},
         "stone_bonus_divisors": {"fortune": 4, "charisma": 7, "true_yuan": 42},
         "cultivation_bonus_divisors": {"comprehension": 4, "divine_sense": 7},
         "result_texts": [
@@ -2574,16 +2580,39 @@ SPIRIT_STONE_COMMISSIONS = {
             "灵露与草木精气被你调配得分毫不差，药农额外添了一份酬谢。",
         ],
     },
+    "ore_sorting": {
+        "key": "ore_sorting",
+        "name": "巡拣矿脉",
+        "description": "替矿坊分辨矿脉、搬运矿料并守住坍塌口，既吃体魄，也考验防御底子。",
+        "summary": "炼气后期开放，偏重根骨、气血与防御，回报比灵田略高。",
+        "cooldown_hours": 4,
+        "min_realm_stage": "炼气",
+        "min_realm_layer": 7,
+        "stone_range": (22, 40),
+        "cultivation_range": (12, 26),
+        "stone_bonus_cap": 12,
+        "cultivation_bonus_cap": 8,
+        "attribute_requirements": {"bone": 16, "defense_power": 20, "qi_blood": 720},
+        "stone_bonus_divisors": {"bone": 4, "defense_power": 5, "qi_blood": 90},
+        "cultivation_bonus_divisors": {"bone": 4, "willpower": 6},
+        "result_texts": [
+            "你顺着地脉把几处杂矿分拣清楚，矿坊按件结算了酬劳。",
+            "塌方点被你稳稳守住，矿监满意地补发了一笔灵石。",
+        ],
+    },
     "beast_hunt": {
         "key": "beast_hunt",
         "name": "代捕灵兽",
         "description": "替洞府雇主追索走失灵兽，讲究胆气、身手与追踪机缘。",
-        "summary": "偏重攻伐与机缘，报酬明显更高。",
+        "summary": "筑基后可接的实战差事，偏重攻击、身法与机缘。",
         "cooldown_hours": 6,
         "min_realm_stage": "筑基",
-        "min_realm_layer": 4,
-        "stone_range": (52, 92),
-        "cultivation_range": (32, 62),
+        "min_realm_layer": 3,
+        "stone_range": (34, 60),
+        "cultivation_range": (20, 40),
+        "stone_bonus_cap": 18,
+        "cultivation_bonus_cap": 12,
+        "attribute_requirements": {"attack_power": 32, "body_movement": 16, "fortune": 14},
         "stone_bonus_divisors": {"attack_power": 3, "fortune": 4, "qi_blood": 40},
         "cultivation_bonus_divisors": {"bone": 3, "willpower": 4, "karma": 5},
         "result_texts": [
@@ -2595,12 +2624,15 @@ SPIRIT_STONE_COMMISSIONS = {
         "key": "caravan_guard",
         "name": "护送灵材商队",
         "description": "替跨境商队压阵护镖、驱散沿途妖匪，既看战力也看身法和眼力。",
-        "summary": "中期高强度差事，风险更高，灵石回报明显上浮。",
+        "summary": "筑基中后期高强度差事，收益更稳，但更吃攻防底子。",
         "cooldown_hours": 6,
         "min_realm_stage": "筑基",
-        "min_realm_layer": 8,
-        "stone_range": (68, 118),
-        "cultivation_range": (44, 82),
+        "min_realm_layer": 7,
+        "stone_range": (46, 78),
+        "cultivation_range": (28, 50),
+        "stone_bonus_cap": 22,
+        "cultivation_bonus_cap": 14,
+        "attribute_requirements": {"attack_power": 38, "defense_power": 36, "body_movement": 22},
         "stone_bonus_divisors": {"attack_power": 3, "defense_power": 4, "body_movement": 3},
         "cultivation_bonus_divisors": {"willpower": 3, "body_movement": 5, "karma": 5},
         "result_texts": [
@@ -2608,16 +2640,39 @@ SPIRIT_STONE_COMMISSIONS = {
             "一路压阵到最后一站，商会按高风险档位发下了整笔酬金。",
         ],
     },
+    "fire_watch": {
+        "key": "fire_watch",
+        "name": "值守地火室",
+        "description": "替炼丹房和炼器铺值守地火，既要扛得住火压，也得有足够真元维持火候稳定。",
+        "summary": "金丹期开放的耐力差事，偏重心志、防御与真元。",
+        "cooldown_hours": 6,
+        "min_realm_stage": "金丹",
+        "min_realm_layer": 1,
+        "stone_range": (56, 92),
+        "cultivation_range": (32, 60),
+        "stone_bonus_cap": 24,
+        "cultivation_bonus_cap": 16,
+        "attribute_requirements": {"willpower": 22, "defense_power": 44, "true_yuan": 820},
+        "stone_bonus_divisors": {"willpower": 4, "defense_power": 5, "true_yuan": 70},
+        "cultivation_bonus_divisors": {"willpower": 4, "true_yuan": 60},
+        "result_texts": [
+            "你把地火火势稳稳压在最佳区间，丹房按值守档给了工钱。",
+            "几炉灵材都顺利出炉，掌柜满意地加发了一笔酬劳。",
+        ],
+    },
     "formation_maintenance": {
         "key": "formation_maintenance",
         "name": "检修护山阵",
         "description": "替洞府和坊市修补阵纹、校准灵枢，要求悟性、神识与真元足够扎实。",
-        "summary": "偏技术路线，收益稳定且明显高于基础差事。",
+        "summary": "偏技术路线的金丹差事，门槛更明确，基础回报比旧版更收敛。",
         "cooldown_hours": 8,
         "min_realm_stage": "金丹",
-        "min_realm_layer": 1,
-        "stone_range": (82, 146),
-        "cultivation_range": (54, 98),
+        "min_realm_layer": 3,
+        "stone_range": (66, 108),
+        "cultivation_range": (38, 70),
+        "stone_bonus_cap": 26,
+        "cultivation_bonus_cap": 18,
+        "attribute_requirements": {"comprehension": 24, "divine_sense": 22, "true_yuan": 860},
         "stone_bonus_divisors": {"comprehension": 3, "divine_sense": 4, "true_yuan": 28},
         "cultivation_bonus_divisors": {"comprehension": 3, "divine_sense": 4, "fortune": 6},
         "result_texts": [
@@ -2629,12 +2684,15 @@ SPIRIT_STONE_COMMISSIONS = {
         "key": "sword_repair",
         "name": "修补灵剑",
         "description": "替剑修温养剑胚、补全剑纹与禁制，最吃悟性与神识。",
-        "summary": "偏重悟性、神识与真元，收益最厚。",
+        "summary": "高阶技术差事，重悟性、神识与真元，收益高但不再离谱。",
         "cooldown_hours": 8,
         "min_realm_stage": "金丹",
-        "min_realm_layer": 2,
-        "stone_range": (108, 188),
-        "cultivation_range": (66, 122),
+        "min_realm_layer": 5,
+        "stone_range": (76, 124),
+        "cultivation_range": (44, 80),
+        "stone_bonus_cap": 28,
+        "cultivation_bonus_cap": 20,
+        "attribute_requirements": {"comprehension": 28, "divine_sense": 24, "true_yuan": 920, "charisma": 18},
         "stone_bonus_divisors": {"comprehension": 3, "divine_sense": 4, "true_yuan": 35, "charisma": 10},
         "cultivation_bonus_divisors": {"comprehension": 3, "divine_sense": 5, "karma": 4},
         "result_texts": [
@@ -2642,16 +2700,39 @@ SPIRIT_STONE_COMMISSIONS = {
             "一番祭炼后剑鸣再起，主人满意地结清了报酬。",
         ],
     },
+    "cloud_escort": {
+        "key": "cloud_escort",
+        "name": "云舟押阵",
+        "description": "替跨州云舟压阵护航，要在高空乱流和突袭之间稳住全船阵脚。",
+        "summary": "元婴初期开放，偏重攻防、身法与气血，是新版中高阶主力委托。",
+        "cooldown_hours": 10,
+        "min_realm_stage": "元婴",
+        "min_realm_layer": 1,
+        "stone_range": (90, 148),
+        "cultivation_range": (52, 96),
+        "stone_bonus_cap": 32,
+        "cultivation_bonus_cap": 22,
+        "attribute_requirements": {"attack_power": 56, "defense_power": 50, "body_movement": 30, "qi_blood": 1200},
+        "stone_bonus_divisors": {"attack_power": 3, "defense_power": 4, "qi_blood": 55},
+        "cultivation_bonus_divisors": {"willpower": 3, "body_movement": 5, "karma": 4},
+        "result_texts": [
+            "你压住了云舟沿途几波袭扰，船主按高阶护航价结算了酬金。",
+            "乱流与妖匪都被你稳稳挡下，整船平安抵达后拿到了厚实报酬。",
+        ],
+    },
     "rift_patrol": {
         "key": "rift_patrol",
         "name": "镇守裂隙前哨",
         "description": "前往高危裂隙前哨清剿异兽、稳住阵脚，是当前最凶险也最赚钱的长期差事。",
-        "summary": "高门槛高回报，适合有硬实力的修士冲刺资源。",
+        "summary": "当前最高阶日常委托，回报仍高，但基础值已比旧版收紧。",
         "cooldown_hours": 10,
         "min_realm_stage": "元婴",
-        "min_realm_layer": 3,
-        "stone_range": (148, 260),
-        "cultivation_range": (90, 160),
+        "min_realm_layer": 4,
+        "stone_range": (108, 176),
+        "cultivation_range": (64, 118),
+        "stone_bonus_cap": 36,
+        "cultivation_bonus_cap": 24,
+        "attribute_requirements": {"attack_power": 68, "defense_power": 60, "willpower": 30, "qi_blood": 1450},
         "stone_bonus_divisors": {"attack_power": 2, "defense_power": 3, "qi_blood": 24, "willpower": 4},
         "cultivation_bonus_divisors": {"bone": 3, "willpower": 3, "karma": 4, "true_yuan": 36},
         "result_texts": [
@@ -2660,6 +2741,8 @@ SPIRIT_STONE_COMMISSIONS = {
         ],
     },
 }
+DAILY_PRACTICE_CULTIVATION_FACTOR = 0.88
+DAILY_PRACTICE_STONE_FACTOR = 0.84
 ROOT_QUALITY_ROLLS = [
     ("天灵根", 1),
     ("变异灵根", 1),
@@ -2751,6 +2834,77 @@ def _format_countdown(delta: timedelta) -> str:
     return f"{seconds} 秒"
 
 
+def _attribute_display_label(attribute_key: str) -> str:
+    key = str(attribute_key or "").strip()
+    return {
+        "attack_power": "攻击",
+        "defense_power": "防御",
+    }.get(key, ATTRIBUTE_LABELS.get(f"{key}_bonus", key))
+
+
+def _commission_effective_stats(tg: int, profile_data: dict[str, Any]) -> dict[str, float]:
+    artifact_effects = merge_artifact_effects(profile_data, collect_equipped_artifacts(tg))
+    active_talisman = serialize_talisman(get_talisman(profile_data.get("active_talisman_id"))) if profile_data.get("active_talisman_id") else None
+    current_technique = _current_technique_payload(profile_data)
+    current_title = get_current_title(tg)
+    talisman_effects = resolve_talisman_effects(profile_data, active_talisman) if active_talisman else None
+    technique_effects = resolve_technique_effects(profile_data, current_technique) if current_technique else None
+    title_effects = resolve_title_effects(profile_data, current_title) if current_title else None
+    return _effective_stats(
+        profile_data,
+        artifact_effects,
+        talisman_effects,
+        get_sect_effects(profile_data),
+        technique_effects,
+        title_effects,
+    )
+
+
+def _commission_attribute_requirements(config: dict[str, Any]) -> dict[str, int]:
+    requirements: dict[str, int] = {}
+    for key, value in (config.get("attribute_requirements") or {}).items():
+        amount = max(int(value or 0), 0)
+        if amount > 0:
+            requirements[str(key)] = amount
+    return requirements
+
+
+def _commission_attribute_requirement_rows(stats: dict[str, Any], config: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for key, required in _commission_attribute_requirements(config).items():
+        current = max(int(stats.get(key, 0) or 0), 0)
+        rows.append(
+            {
+                "key": key,
+                "label": _attribute_display_label(key),
+                "required": required,
+                "current": current,
+                "met": current >= required,
+            }
+        )
+    return rows
+
+
+def _commission_requirement_summary(config: dict[str, Any]) -> str:
+    parts: list[str] = []
+    if config.get("min_realm_stage"):
+        parts.append(format_realm_requirement(config.get("min_realm_stage"), config.get("min_realm_layer")))
+    parts.extend(
+        f"{_attribute_display_label(key)}≥{required}"
+        for key, required in _commission_attribute_requirements(config).items()
+    )
+    return " · ".join(parts) if parts else "无门槛"
+
+
+def _commission_missing_requirement_text(stats: dict[str, Any], config: dict[str, Any]) -> str:
+    missing = [
+        f"{row['label']} {row['current']}/{row['required']}"
+        for row in _commission_attribute_requirement_rows(stats, config)
+        if not row.get("met")
+    ]
+    return "、".join(missing)
+
+
 def _commission_reward_bonus(
     stats: dict[str, Any],
     divisors: dict[str, int],
@@ -2771,6 +2925,7 @@ def build_spirit_stone_commissions(tg: int) -> list[dict[str, Any]]:
     if profile is None or not profile.consented:
         return []
     profile_data = serialize_profile(profile) or {}
+    effective_stats = _commission_effective_stats(tg, profile_data)
     retreating = _is_retreating(profile)
     duel_lock = get_active_duel_lock(tg)
     now = utcnow()
@@ -2787,11 +2942,14 @@ def build_spirit_stone_commissions(tg: int) -> list[dict[str, Any]]:
                 config.get("min_realm_stage"),
                 config.get("min_realm_layer"),
             )
+            attribute_requirements = _commission_attribute_requirement_rows(effective_stats, config)
+            unmet_attribute_text = _commission_missing_requirement_text(effective_stats, config)
             available = bool(
                 not profile_data.get("is_dead")
                 and not retreating
                 and not duel_lock
                 and unlocked
+                and not unmet_attribute_text
                 and (next_available_at is None or next_available_at <= now)
             )
             reason = ""
@@ -2803,6 +2961,8 @@ def build_spirit_stone_commissions(tg: int) -> list[dict[str, Any]]:
                 reason = duel_lock.get("duel_mode_label", "斗法") + "结算前，禁止灵石操作"
             elif not unlocked:
                 reason = f"需要达到 {format_realm_requirement(config.get('min_realm_stage'), config.get('min_realm_layer'))}"
+            elif unmet_attribute_text:
+                reason = f"属性未达标：{unmet_attribute_text}"
             elif next_available_at is not None and next_available_at > now:
                 reason = f"冷却中，还需 {_format_countdown(next_available_at - now)}"
             rows.append(
@@ -2818,6 +2978,8 @@ def build_spirit_stone_commissions(tg: int) -> list[dict[str, Any]]:
                     "reward_stone_max": int(config["stone_range"][1]),
                     "reward_cultivation_min": int(config["cultivation_range"][0]),
                     "reward_cultivation_max": int(config["cultivation_range"][1]),
+                    "attribute_requirements": attribute_requirements,
+                    "requirement_summary": _commission_requirement_summary(config),
                     "available": available,
                     "reason": reason,
                     "last_claimed_at": serialize_datetime(last_entry.created_at) if last_entry else None,
@@ -2839,15 +3001,10 @@ def claim_spirit_stone_commission(tg: int, commission_key: str) -> dict[str, Any
     profile_data = serialize_profile(profile) or {}
     if not realm_requirement_met(profile_data, config.get("min_realm_stage"), config.get("min_realm_layer")):
         raise ValueError(f"需要达到 {format_realm_requirement(config.get('min_realm_stage'), config.get('min_realm_layer'))} 才能承接该委托。")
-
-    active_talisman = serialize_talisman(get_talisman(profile.active_talisman_id)) if profile.active_talisman_id else None
-    current_technique = _current_technique_payload(profile_data)
-    current_title = get_current_title(tg)
-    artifact_effects = merge_artifact_effects(profile_data, collect_equipped_artifacts(tg))
-    talisman_effects = resolve_talisman_effects(profile_data, active_talisman) if active_talisman else None
-    technique_effects = resolve_technique_effects(profile_data, current_technique) if current_technique else None
-    title_effects = resolve_title_effects(profile_data, current_title) if current_title else None
-    stats = _effective_stats(profile_data, artifact_effects, talisman_effects, get_sect_effects(profile_data), technique_effects, title_effects)
+    stats = _commission_effective_stats(tg, profile_data)
+    missing_requirement_text = _commission_missing_requirement_text(stats, config)
+    if missing_requirement_text:
+        raise ValueError(f"当前属性未达标：{missing_requirement_text}。")
 
     stone_bonus_cap = max(int(config.get("stone_bonus_cap") or config["stone_range"][1] or 0), 0)
     cultivation_bonus_cap = max(int(config.get("cultivation_bonus_cap") or config["cultivation_range"][1] or 0), 0)
@@ -4014,7 +4171,7 @@ def _current_technique_payload(profile_data: dict[str, Any]) -> dict[str, Any] |
     return technique
 
 
-SEED_DATA_VERSION = "2026-04-21-default-content-v4"
+SEED_DATA_VERSION = "2026-04-22-default-content-v6"
 SEED_DATA_READY = False
 SEED_DATA_LOCK = threading.RLock()
 SEED_DATA_DB_LOCK_KEY = 2026041701
@@ -4044,6 +4201,18 @@ DEFAULT_OFFICIAL_SHOP_ITEMS = (
     {"item_kind": "talisman", "item_name": "雷火符", "quantity": 8},
     {"item_kind": "talisman", "item_name": "金钟符", "quantity": 8},
     {"item_kind": "talisman", "item_name": "破甲符", "quantity": 6},
+    {"item_kind": "material", "item_name": "灵露滴", "quantity": 16},
+    {"item_kind": "material", "item_name": "清心兰", "quantity": 10},
+    {"item_kind": "material", "item_name": "风灵石", "quantity": 8},
+    {"item_kind": "material", "item_name": "鬼画符骨", "quantity": 6},
+    {"item_kind": "material", "item_name": "寒铁", "quantity": 6},
+    {"item_kind": "material", "item_name": "太白精金", "quantity": 4},
+    {"item_kind": "material", "item_name": "天师袍角", "quantity": 4},
+    {"item_kind": "material", "item_name": "九幽寒莲", "quantity": 2},
+    {"item_kind": "material", "item_name": "曜金雷髓", "quantity": 2},
+    {"item_kind": "material", "item_name": "大道符纸", "quantity": 1},
+    {"item_kind": "material", "item_name": "开天神石", "quantity": 1},
+    {"item_kind": "material", "item_name": "轮回祖符", "quantity": 1},
 )
 
 
@@ -4159,30 +4328,201 @@ def _weighted_seed_stat_value(payload: dict[str, Any], weights: dict[str, float]
     return total
 
 
+def _seed_text_keyword_score(text: str, keyword_weights: tuple[tuple[str, float], ...]) -> float:
+    source = str(text or "")
+    if not source:
+        return 0.0
+    score = 0.0
+    for keyword, weight in keyword_weights:
+        if keyword and keyword in source:
+            score += float(weight)
+    return score
+
+
+def _material_seed_attribute_score(payload: dict[str, Any]) -> float:
+    source_text = " ".join(
+        filter(
+            None,
+            [
+                str(payload.get("name") or "").strip(),
+                str(payload.get("description") or "").strip(),
+            ],
+        )
+    )
+    if not source_text:
+        return 0.0
+
+    offense_score = _seed_text_keyword_score(
+        source_text,
+        (
+            ("攻伐", 3.6),
+            ("杀伐", 3.4),
+            ("爆发", 2.8),
+            ("破甲", 2.8),
+            ("锋", 1.9),
+            ("锐", 1.8),
+            ("雷", 1.3),
+            ("火", 1.2),
+            ("焰", 1.2),
+            ("剑", 1.1),
+            ("斧", 1.1),
+            ("枪", 1.1),
+        ),
+    )
+    defense_score = _seed_text_keyword_score(
+        source_text,
+        (
+            ("护体", 3.4),
+            ("防御", 3.0),
+            ("守护", 1.8),
+            ("护持", 1.7),
+            ("稳固", 1.8),
+            ("卸力", 1.7),
+            ("盾", 1.6),
+            ("甲片", 1.7),
+            ("龟甲", 1.8),
+            ("壁", 1.3),
+            ("玄武", 2.6),
+        ),
+    )
+    support_score = _seed_text_keyword_score(
+        source_text,
+        (
+            ("修炼", 3.0),
+            ("悟道", 3.0),
+            ("凝神", 2.7),
+            ("定心", 2.4),
+            ("安神", 2.2),
+            ("生机", 2.8),
+            ("疗伤", 2.8),
+            ("恢复", 2.4),
+            ("温养", 2.4),
+            ("神魂", 2.2),
+            ("识海", 2.0),
+        ),
+    )
+    mobility_score = _seed_text_keyword_score(
+        source_text,
+        (
+            ("轻灵", 2.6),
+            ("迅捷", 2.6),
+            ("腾挪", 2.4),
+            ("身法", 2.4),
+            ("极速", 2.8),
+            ("风", 1.2),
+            ("羽", 1.0),
+        ),
+    )
+    destiny_score = _seed_text_keyword_score(
+        source_text,
+        (
+            ("气运", 3.0),
+            ("因果", 3.2),
+            ("命运", 3.6),
+            ("轮回", 4.0),
+            ("天道", 4.2),
+            ("大道", 4.0),
+            ("鸿蒙", 4.4),
+            ("混沌", 4.0),
+            ("本源", 4.2),
+            ("创世", 4.8),
+            ("开天", 4.8),
+            ("至宝", 4.0),
+            ("无上", 3.0),
+        ),
+    )
+    craft_scope_score = _seed_text_keyword_score(
+        source_text,
+        (
+            ("炼器", 2.6),
+            ("炼丹", 2.6),
+            ("制符", 2.6),
+            ("符箓", 2.4),
+            ("法宝", 2.2),
+            ("丹药", 2.0),
+            ("药引", 2.2),
+            ("主材", 2.8),
+            ("主药", 2.8),
+            ("核心", 3.0),
+            ("符骨", 2.4),
+            ("符纸", 2.2),
+            ("药材", 2.0),
+        ),
+    )
+
+    trait_hits = sum(1 for value in (offense_score, defense_score, support_score, mobility_score, destiny_score) if value > 0)
+    versatility_bonus = max(trait_hits - 1, 0) * 5.5
+    return (
+        offense_score * 1.08
+        + defense_score * 1.02
+        + support_score * 1.06
+        + mobility_score * 1.04
+        + destiny_score * 1.12
+        + craft_scope_score * 1.35
+        + versatility_bonus
+    )
+
+
+def _official_seed_item_payload(item_kind: str, item_ref_id: int) -> dict[str, Any] | None:
+    normalized_kind = str(item_kind or "").strip()
+    if normalized_kind == "artifact":
+        return serialize_artifact(get_artifact(item_ref_id))
+    if normalized_kind == "pill":
+        return serialize_pill(get_pill(item_ref_id))
+    if normalized_kind == "talisman":
+        return serialize_talisman(get_talisman(item_ref_id))
+    if normalized_kind == "material":
+        return serialize_material(get_material(item_ref_id))
+    return None
+
+
 def _round_seed_shop_price(value: float) -> int:
     return max(int(ceil(max(float(value), 1.0) / 5.0) * 5), 5)
 
 
+def _seed_quality_price_multiplier(level: int, *, item_kind: str) -> float:
+    rarity_level = max(int(level or 1), 1)
+    base_step = {
+        "artifact": 0.20,
+        "pill": 0.18,
+        "talisman": 0.19,
+        "material": 0.17,
+    }.get(str(item_kind or "").strip(), 0.18)
+    advanced_bonus = max(rarity_level - 4, 0) * 0.05
+    mythic_bonus = max(rarity_level - 6, 0) * 0.08
+    return 1.0 + (rarity_level - 1) * base_step + advanced_bonus + mythic_bonus
+
+
 def _artifact_seed_shop_price(payload: dict[str, Any]) -> int:
     rarity_level = max(int(payload.get("rarity_level") or 1), 1)
-    base = 40 + rarity_level * 28 + _seed_listing_realm_markup(payload) + _seed_listing_skill_count(payload) * 22
+    type_bonus = 18 if str(payload.get("artifact_type") or "").strip() == "battle" else 12
+    unique_bonus = 140 if payload.get("unique_item") else 0
+    base = (
+        46
+        + rarity_level * 34
+        + int(round(_seed_listing_realm_markup(payload) * 1.25))
+        + _seed_listing_skill_count(payload) * 28
+        + type_bonus
+        + unique_bonus
+    )
     stats = _weighted_seed_stat_value(
         payload,
         {
-            "attack_bonus": 2.4,
-            "defense_bonus": 2.0,
-            "bone_bonus": 8.0,
-            "comprehension_bonus": 9.0,
-            "divine_sense_bonus": 8.0,
-            "fortune_bonus": 8.0,
-            "qi_blood_bonus": 0.45,
-            "true_yuan_bonus": 0.42,
-            "body_movement_bonus": 1.9,
-            "duel_rate_bonus": 16.0,
-            "cultivation_bonus": 14.0,
+            "attack_bonus": 2.8,
+            "defense_bonus": 2.4,
+            "bone_bonus": 9.2,
+            "comprehension_bonus": 9.8,
+            "divine_sense_bonus": 8.8,
+            "fortune_bonus": 9.2,
+            "qi_blood_bonus": 0.52,
+            "true_yuan_bonus": 0.48,
+            "body_movement_bonus": 2.2,
+            "duel_rate_bonus": 18.0,
+            "cultivation_bonus": 15.0,
         },
     )
-    return _round_seed_shop_price((base + stats) * 1.18)
+    multiplier = _seed_quality_price_multiplier(rarity_level, item_kind="artifact")
+    return _round_seed_shop_price((base + stats) * multiplier)
 
 
 def _pill_seed_shop_price(payload: dict[str, Any]) -> int:
@@ -4254,31 +4594,63 @@ def _pill_seed_shop_price(payload: dict[str, Any]) -> int:
             "body_movement_bonus": 15.0,
         },
     )
-    base = 16 + rarity_level * 18 + _seed_listing_realm_markup(payload) + int(type_base.get(pill_type, 28))
+    base = 18 + rarity_level * 22 + int(round(_seed_listing_realm_markup(payload) * 1.1)) + int(type_base.get(pill_type, 28))
     effect_price = effect_value * float(type_weight.get(pill_type, 12.0))
-    return _round_seed_shop_price((base + effect_price + poison_delta * 1.2 + stat_bonus) * 1.15)
+    multiplier = _seed_quality_price_multiplier(rarity_level, item_kind="pill")
+    return _round_seed_shop_price((base + effect_price + poison_delta * 1.25 + stat_bonus) * multiplier)
 
 
 def _talisman_seed_shop_price(payload: dict[str, Any]) -> int:
     rarity_level = max(int(payload.get("rarity_level") or 1), 1)
     effect_uses = max(int(payload.get("effect_uses") or 1), 1)
-    base = 24 + rarity_level * 18 + _seed_listing_realm_markup(payload) + _seed_listing_skill_count(payload) * 18 + effect_uses * 8
+    base = (
+        26
+        + rarity_level * 22
+        + int(round(_seed_listing_realm_markup(payload) * 1.15))
+        + _seed_listing_skill_count(payload) * 22
+        + effect_uses * 10
+    )
     stats = _weighted_seed_stat_value(
         payload,
         {
-            "attack_bonus": 1.9,
-            "defense_bonus": 1.7,
-            "bone_bonus": 6.0,
-            "comprehension_bonus": 6.0,
-            "divine_sense_bonus": 6.0,
-            "fortune_bonus": 6.0,
-            "qi_blood_bonus": 0.35,
-            "true_yuan_bonus": 0.32,
-            "body_movement_bonus": 1.6,
-            "duel_rate_bonus": 13.0,
+            "attack_bonus": 2.2,
+            "defense_bonus": 2.0,
+            "bone_bonus": 6.8,
+            "comprehension_bonus": 6.8,
+            "divine_sense_bonus": 6.8,
+            "fortune_bonus": 6.8,
+            "qi_blood_bonus": 0.40,
+            "true_yuan_bonus": 0.36,
+            "body_movement_bonus": 1.9,
+            "duel_rate_bonus": 14.5,
         },
     )
-    return _round_seed_shop_price((base + stats) * 1.16)
+    multiplier = _seed_quality_price_multiplier(rarity_level, item_kind="talisman")
+    return _round_seed_shop_price((base + stats) * multiplier)
+
+
+def _material_seed_shop_price(payload: dict[str, Any]) -> int:
+    quality_level = max(int(payload.get("quality_level") or 1), 1)
+    seed_price = max(int(payload.get("seed_price_stone") or 0), 0)
+    growth_minutes = max(int(payload.get("growth_minutes") or 0), 0)
+    yield_min = max(int(payload.get("yield_min") or 0), 0)
+    yield_max = max(int(payload.get("yield_max") or 0), yield_min)
+    yield_average = (yield_min + yield_max) / 2 if (yield_min or yield_max) else 0.0
+    yield_span = max(yield_max - yield_min, 0)
+    base = (
+        20
+        + quality_level * 26
+        + int(round(_seed_listing_realm_markup(payload) * 1.1))
+        + (24 if payload.get("can_plant") else 0)
+    )
+    growth_markup = min(growth_minutes / 10.0, 150.0)
+    yield_markup = yield_average * (6.5 + quality_level * 1.1) + min(float(yield_span * 8), 120.0)
+    attribute_score = _material_seed_attribute_score(payload)
+    attribute_markup = attribute_score * (5.4 + quality_level * 1.25)
+    multiplier = _seed_quality_price_multiplier(quality_level, item_kind="material")
+    seed_anchor = float(seed_price) * 1.7 if seed_price > 0 else 0.0
+    quality_floor = (40.0 + quality_level * 30.0) * multiplier * (1.0 + max(quality_level - 1, 0) * 0.08)
+    return _round_seed_shop_price(max((base + growth_markup + yield_markup + attribute_markup) * multiplier, quality_floor, seed_anchor, 15.0))
 
 
 def _seed_official_shop_price(item_kind: str, payload: dict[str, Any]) -> int:
@@ -4289,30 +4661,15 @@ def _seed_official_shop_price(item_kind: str, payload: dict[str, Any]) -> int:
         return _pill_seed_shop_price(payload)
     if normalized_kind == "talisman":
         return _talisman_seed_shop_price(payload)
+    if normalized_kind == "material":
+        return _material_seed_shop_price(payload)
     raise ValueError("默认官方商店暂不支持该物品类型")
-
-
-def _material_official_recycle_anchor_price(payload: dict[str, Any]) -> int:
-    quality_level = max(int(payload.get("quality_level") or 1), 1)
-    seed_price = max(int(payload.get("seed_price_stone") or 0), 0)
-    growth_minutes = max(int(payload.get("growth_minutes") or 0), 0)
-    yield_min = max(int(payload.get("yield_min") or 0), 0)
-    yield_max = max(int(payload.get("yield_max") or 0), yield_min)
-    yield_average = (yield_min + yield_max) / 2 if (yield_min or yield_max) else 0.0
-    plant_bonus = 14 if payload.get("can_plant") else 0
-    base = 18 + quality_level * 22 + _seed_listing_realm_markup(payload) + plant_bonus
-    growth_markup = min(growth_minutes / 12.0, 120.0)
-    yield_markup = yield_average * (6.0 + quality_level * 0.8)
-    seed_anchor = float(seed_price) * 1.45 if seed_price > 0 else 0.0
-    return _round_seed_shop_price(max(base + growth_markup + yield_markup, seed_anchor, 12.0))
 
 
 def _official_recycle_anchor_price(item_kind: str, payload: dict[str, Any]) -> int:
     normalized_kind = str(item_kind or "").strip()
-    if normalized_kind in {"artifact", "pill", "talisman"}:
+    if normalized_kind in {"artifact", "pill", "talisman", "material"}:
         return _seed_official_shop_price(normalized_kind, payload)
-    if normalized_kind == "material":
-        return _material_official_recycle_anchor_price(payload)
     raise ValueError("当前物品类型暂不支持官方回收")
 
 
@@ -4320,16 +4677,17 @@ def _official_recycle_ratio(item_kind: str, quality_level: int, payload: dict[st
     normalized_kind = str(item_kind or "").strip()
     level = max(int(quality_level or 1), 1)
     if normalized_kind == "artifact":
-        ratio = max(0.10, 0.22 - (level - 1) * 0.018)
+        ratio = min(0.44, 0.22 + (level - 1) * 0.035)
         if payload.get("unique_item"):
-            ratio = min(ratio, 0.14)
+            ratio = max(ratio - 0.05, 0.28)
         return ratio
     if normalized_kind == "pill":
-        return max(0.12, 0.24 - (level - 1) * 0.016)
+        return min(0.42, 0.24 + (level - 1) * 0.028)
     if normalized_kind == "talisman":
-        return max(0.11, 0.21 - (level - 1) * 0.015)
+        return min(0.43, 0.23 + (level - 1) * 0.03)
     if normalized_kind == "material":
-        return max(0.15, 0.28 - (level - 1) * 0.018)
+        plant_bonus = 0.02 if payload.get("can_plant") else 0.0
+        return min(0.46, 0.26 + (level - 1) * 0.03 + plant_bonus)
     raise ValueError("当前物品类型暂不支持官方回收")
 
 
@@ -4416,12 +4774,14 @@ def _official_recycle_price_cap(item_kind: str, quality_level: int, payload: dic
     if normalized_kind == "material":
         seed_price = max(int(payload.get("seed_price_stone") or 0), 0)
         yield_bonus = max(int(payload.get("yield_max") or 0), 0) * 18
+        attribute_score = _material_seed_attribute_score(payload)
         return max(
             _round_seed_shop_price(
                 60
                 + level * 110
                 + min(seed_price / 2.0, 260.0)
                 + min(float(yield_bonus), 180.0)
+                + attribute_score * (4.0 + level * 0.75)
                 + (30 if payload.get("can_plant") else 0)
             ),
             5,
@@ -4452,7 +4812,7 @@ def build_official_recycle_quote(
     quality_color = payload.get("quality_color")
     anchor_price = _official_recycle_anchor_price(normalized_kind, payload)
     ratio = _official_recycle_ratio(normalized_kind, quality_level, payload)
-    hard_limit = max((anchor_price // 15) * 5, 5)
+    hard_limit = _round_seed_shop_price(anchor_price * 0.55)
     cap_price = _official_recycle_price_cap(normalized_kind, quality_level, payload)
     unit_price = _round_seed_shop_price(anchor_price * ratio)
     unit_price = max(min(unit_price, hard_limit, cap_price), 5)
@@ -4471,7 +4831,7 @@ def build_official_recycle_quote(
         "total_price_stone": unit_price * requested,
         "max_total_price_stone": unit_price * available,
         "anchor_price_stone": anchor_price,
-        "quote_note": f"按{quality_label}品阶与属性保守折价回收，价格低于官方商店。",
+        "quote_note": f"按{quality_label}品阶与属性折价回收，品质越高、属性越强，回收价越高，但仍低于官方商店售价。",
     }
 
 
@@ -4518,7 +4878,7 @@ def attach_official_recycle_quotes(bundle: dict[str, Any]) -> dict[str, Any]:
     )
     bundle["official_recycle"] = {
         "shop_name": OFFICIAL_RECYCLE_NAME,
-        "description": "按物品品阶和属性保守估价，官方压价回收，避免高价套利。",
+        "description": "官方会按物品品阶和属性统一估价，品质越高、属性越强，回收价越高，但仍会压低于官方售价。",
         "items": entries,
     }
     return bundle
@@ -4530,18 +4890,45 @@ def _ensure_default_official_shop_listings(
     artifact_map: dict[str, dict[str, Any]],
     pill_map: dict[str, dict[str, Any]],
     talisman_map: dict[str, dict[str, Any]],
+    material_map: dict[str, dict[str, Any]],
 ) -> None:
     official_name = str(settings.get("official_shop_name", DEFAULT_SETTINGS["official_shop_name"]) or DEFAULT_SETTINGS["official_shop_name"]).strip() or DEFAULT_SETTINGS["official_shop_name"]
     source_map = {
         "artifact": artifact_map,
         "pill": pill_map,
         "talisman": talisman_map,
+        "material": material_map,
     }
-    existing_keys = {
-        (str(item.get("item_kind") or "").strip(), int(item.get("item_ref_id") or 0))
+    source_id_map = {
+        kind: {
+            int(payload.get("id") or 0): payload
+            for payload in values.values()
+            if int(payload.get("id") or 0) > 0
+        }
+        for kind, values in source_map.items()
+    }
+    existing_items = {
+        (str(item.get("item_kind") or "").strip(), int(item.get("item_ref_id") or 0)): item
         for item in list_shop_items(official_only=True, include_disabled=True)
         if int(item.get("item_ref_id") or 0) > 0
     }
+
+    for (item_kind, item_id), item in existing_items.items():
+        payload = (source_id_map.get(item_kind) or {}).get(item_id)
+        if payload is None or not payload.get("enabled"):
+            continue
+        resolved_price = _seed_official_shop_price(item_kind, payload)
+        patch: dict[str, Any] = {}
+        resolved_name = str(payload.get("name") or item.get("item_name") or "").strip()
+        if resolved_name and str(item.get("item_name") or "").strip() != resolved_name:
+            patch["item_name"] = resolved_name
+        if str(item.get("shop_name") or "").strip() != official_name:
+            patch["shop_name"] = official_name
+        if int(item.get("price_stone") or 0) != resolved_price:
+            patch["price_stone"] = resolved_price
+        if patch:
+            update_shop_item(int(item.get("id") or 0), **patch)
+
     for seed in DEFAULT_OFFICIAL_SHOP_ITEMS:
         item_kind = str(seed["item_kind"]).strip()
         item_name = str(seed["item_name"]).strip()
@@ -4552,7 +4939,7 @@ def _ensure_default_official_shop_listings(
         if item_id <= 0:
             continue
         key = (item_kind, item_id)
-        if key in existing_keys:
+        if key in existing_items:
             continue
         create_shop_item(
             owner_tg=None,
@@ -4564,7 +4951,7 @@ def _ensure_default_official_shop_listings(
             price_stone=_seed_official_shop_price(item_kind, payload),
             is_official=True,
         )
-        existing_keys.add(key)
+        existing_items[key] = {"id": 0}
 
 
 def ensure_seed_data(force: bool = False) -> None:
@@ -4644,6 +5031,7 @@ def ensure_seed_data(force: bool = False) -> None:
                 artifact_map=artifact_map,
                 pill_map=pill_map,
                 talisman_map=talisman_map,
+                material_map=material_map,
             )
 
             for recipe in DEFAULT_RECIPES:
@@ -7677,30 +8065,25 @@ def create_official_shop_listing(
 ) -> dict[str, Any]:
     settings = get_xiuxian_settings()
     official_name = str(settings.get("official_shop_name", DEFAULT_SETTINGS["official_shop_name"]) or DEFAULT_SETTINGS["official_shop_name"]).strip() or DEFAULT_SETTINGS["official_shop_name"]
+    payload = _official_seed_item_payload(item_kind, item_ref_id)
+    if payload is None:
+        if item_kind == "artifact":
+            raise ValueError("未找到目标法宝。")
+        if item_kind == "pill":
+            raise ValueError("未找到目标丹药。")
+        if item_kind == "talisman":
+            raise ValueError("未找到目标符箓。")
+        if item_kind == "material":
+            raise ValueError("未找到目标材料。")
+        raise ValueError("不支持的官方商店物品类型。")
     if item_kind == "artifact":
         artifact = get_artifact(item_ref_id)
         if artifact is None:
             raise ValueError("未找到目标法宝。")
         if bool(getattr(artifact, "unique_item", False)) and int(quantity or 0) > 1:
             raise ValueError(f"唯一法宝【{getattr(artifact, 'name', item_ref_id)}】在官方商店最多只能上架 1 件。")
-        item_name = artifact.name
-    elif item_kind == "pill":
-        pill = get_pill(item_ref_id)
-        if pill is None:
-            raise ValueError("未找到目标丹药。")
-        item_name = pill.name
-    elif item_kind == "talisman":
-        talisman = get_talisman(item_ref_id)
-        if talisman is None:
-            raise ValueError("未找到目标符箓。")
-        item_name = talisman.name
-    elif item_kind == "material":
-        material = get_material(item_ref_id)
-        if material is None:
-            raise ValueError("未找到目标材料。")
-        item_name = material.name
-    else:
-        raise ValueError("不支持的官方商店物品类型。")
+    item_name = str(payload.get("name") or item_ref_id)
+    resolved_price = _seed_official_shop_price(item_kind, payload)
 
     return create_shop_item(
         owner_tg=None,
@@ -7709,7 +8092,7 @@ def create_official_shop_listing(
         item_ref_id=item_ref_id,
         item_name=item_name,
         quantity=quantity,
-        price_stone=price_stone,
+        price_stone=resolved_price,
         is_official=True,
     )
 
@@ -7803,20 +8186,91 @@ def recycle_item_to_official_shop(
 
 
 def patch_shop_listing(item_id: int, **fields) -> dict[str, Any] | None:
+    current = next(
+        (item for item in list_shop_items(official_only=None, include_disabled=True) if int(item.get("id") or 0) == int(item_id)),
+        None,
+    )
     if "quantity" in fields:
-        current = next(
-            (item for item in list_shop_items(official_only=None, include_disabled=True) if int(item.get("id") or 0) == int(item_id)),
-            None,
-        )
         if current is not None and str(current.get("item_kind") or "") == "artifact":
             artifact = get_artifact(int(current.get("item_ref_id") or 0))
             if artifact is not None and bool(getattr(artifact, "unique_item", False)) and int(fields.get("quantity") or 0) > 1:
                 raise ValueError(f"唯一法宝【{getattr(artifact, 'name', current.get('item_ref_id'))}】最多只能上架 1 件。")
+    if current is not None and bool(current.get("is_official")):
+        payload = _official_seed_item_payload(str(current.get("item_kind") or ""), int(current.get("item_ref_id") or 0))
+        if payload is not None:
+            fields["item_name"] = str(payload.get("name") or current.get("item_name") or "")
+            fields["price_stone"] = _seed_official_shop_price(str(current.get("item_kind") or ""), payload)
     return update_shop_item(item_id, **fields)
 
 
 def patch_auction_listing(auction_id: int, **fields) -> dict[str, Any] | None:
     return update_auction_item(auction_id, **fields)
+
+
+def _normalize_notice_group_id(value: Any) -> int:
+    if value in {None, ""}:
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _default_arena_stage_rule_map() -> dict[str, dict[str, int]]:
+    rules: dict[str, dict[str, int]] = {}
+    for entry in list(DEFAULT_SETTINGS.get("arena_stage_rules") or []):
+        stage = normalize_realm_stage((entry or {}).get("realm_stage") or FIRST_REALM_STAGE)
+        if stage not in REALM_ORDER or stage in rules:
+            continue
+        rules[stage] = {
+            "duration_minutes": max(int((entry or {}).get("duration_minutes") or 60), 1),
+            "reward_cultivation": max(int((entry or {}).get("reward_cultivation") or 0), 0),
+        }
+    for stage in REALM_ORDER:
+        rules.setdefault(
+            stage,
+            {
+                "duration_minutes": 120,
+                "reward_cultivation": max(int(calculate_realm_threshold(stage, 1) or 0), 0),
+            },
+        )
+    return rules
+
+
+def _normalize_arena_stage_rules(raw: Any) -> list[dict[str, int | str]]:
+    defaults = _default_arena_stage_rule_map()
+    normalized_map: dict[str, dict[str, int | str]] = {}
+    if isinstance(raw, list):
+        for entry in raw:
+            if not isinstance(entry, dict):
+                continue
+            stage = normalize_realm_stage(entry.get("realm_stage") or FIRST_REALM_STAGE)
+            if stage not in REALM_ORDER or stage in normalized_map:
+                continue
+            default_rule = defaults.get(stage) or defaults[FIRST_REALM_STAGE]
+            normalized_map[stage] = {
+                "realm_stage": stage,
+                "duration_minutes": min(
+                    max(_coerce_int(entry.get("duration_minutes"), int(default_rule["duration_minutes"]), 10), 10),
+                    7 * 24 * 60,
+                ),
+                "reward_cultivation": min(
+                    max(_coerce_int(entry.get("reward_cultivation"), int(default_rule["reward_cultivation"]), 0), 0),
+                    10**12,
+                ),
+            }
+    rows: list[dict[str, int | str]] = []
+    for stage in REALM_ORDER:
+        rule = normalized_map.get(stage)
+        if rule is None:
+            default_rule = defaults.get(stage) or defaults[FIRST_REALM_STAGE]
+            rule = {
+                "realm_stage": stage,
+                "duration_minutes": int(default_rule["duration_minutes"]),
+                "reward_cultivation": int(default_rule["reward_cultivation"]),
+            }
+        rows.append(rule)
+    return rows
 
 
 def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
@@ -7861,8 +8315,12 @@ def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
             ),
             1000000,
         )
+    if "shop_notice_group_id" in patch:
+        patch["shop_notice_group_id"] = _normalize_notice_group_id(patch.get("shop_notice_group_id"))
     if "official_shop_name" in patch and patch["official_shop_name"] is not None:
         patch["official_shop_name"] = str(patch["official_shop_name"]).strip() or DEFAULT_SETTINGS["official_shop_name"]
+    if "auction_notice_group_id" in patch:
+        patch["auction_notice_group_id"] = _normalize_notice_group_id(patch.get("auction_notice_group_id"))
     if "allow_user_task_publish" in patch:
         patch["allow_user_task_publish"] = bool(patch["allow_user_task_publish"])
     if "task_publish_cost" in patch and patch["task_publish_cost"] is not None:
@@ -7989,6 +8447,22 @@ def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
                 0,
             ),
             1000000,
+        )
+    if "arena_notice_group_id" in patch:
+        patch["arena_notice_group_id"] = _normalize_notice_group_id(patch.get("arena_notice_group_id"))
+    if "arena_stage_rules" in patch:
+        patch["arena_stage_rules"] = _normalize_arena_stage_rules(patch.get("arena_stage_rules"))
+    if "event_summary_interval_minutes" in patch and patch["event_summary_interval_minutes"] is not None:
+        patch["event_summary_interval_minutes"] = min(
+            max(
+                _coerce_int(
+                    patch["event_summary_interval_minutes"],
+                    DEFAULT_SETTINGS.get("event_summary_interval_minutes", 10),
+                    0,
+                ),
+                0,
+            ),
+            1440,
         )
     if "slave_tribute_percent" in patch and patch["slave_tribute_percent"] is not None:
         patch["slave_tribute_percent"] = min(
@@ -9615,26 +10089,26 @@ def _battle_bundle(bundle_or_profile: dict[str, Any], opponent_profile: dict[str
 
     stage_index = max(realm_index(profile.get("realm_stage")), 0)
     layer, progress_ratio, _ = _profile_layer_progress(profile)
-    realm_score = 520 + stage_index * 1700 + (layer + progress_ratio) * 92
+    realm_score = 560 + stage_index * 1750 + (layer + progress_ratio) * 96
     attribute_score = (
-        stats["bone"] * 5.8
-        + stats["comprehension"] * 6.2
-        + stats["divine_sense"] * 6.5
-        + stats["fortune"] * 3.2
-        + stats["willpower"] * 4.2
-        + stats["charisma"] * 2.2
-        + stats["karma"] * 3.8
+        stats["bone"] * 5.2
+        + stats["comprehension"] * 5.8
+        + stats["divine_sense"] * 5.9
+        + stats["fortune"] * 2.4
+        + stats["willpower"] * 4.6
+        + stats["charisma"] * 1.5
+        + stats["karma"] * 3.0
     )
     combat_score = (
-        stats["attack_power"] * 18.0
-        + stats["defense_power"] * 16.0
-        + stats["body_movement"] * 11.0
-        + stats["qi_blood"] * 0.36
-        + stats["true_yuan"] * 0.28
+        stats["attack_power"] * 19.5
+        + stats["defense_power"] * 17.5
+        + stats["body_movement"] * 12.5
+        + stats["qi_blood"] * 0.40
+        + stats["true_yuan"] * 0.32
     )
     root_factor = _resolved_root_combat_factor(profile, quality, opponent_profile)
     duel_rate_factor = 1 + max(min(stats["duel_rate_bonus"], 40), -40) / 120
-    random_factor = random.uniform(0.96, 1.06) if apply_random else 1.0
+    random_factor = random.uniform(0.98, 1.04) if apply_random else 1.0
     power = (realm_score + (attribute_score + combat_score) * root_factor) * max(duel_rate_factor, 0.75) * random_factor
     return {
         "profile": profile,
@@ -10016,13 +10490,28 @@ def practice_for_user(tg: int) -> dict[str, Any]:
     stage_rule = _realm_stage_rule(stage)
     poison_penalty = max(float(profile.dan_poison or 0) - stats["bone"] * 0.45, 0.0) / 110
     base_gain = random.randint(int(stage_rule["practice_gain_min"]), int(stage_rule["practice_gain_max"]))
-    gain = int(round((base_gain + stats["bone"] * 0.55 + stats["comprehension"] * 0.75 + stats["cultivation_bonus"]) * quality["cultivation_rate"] * max(0.55, 1 - poison_penalty)))
-    gain = max(gain, max(int(stage_rule["practice_gain_min"] * 0.6), 8))
+    gain = int(
+        round(
+            (base_gain + stats["bone"] * 0.55 + stats["comprehension"] * 0.75 + stats["cultivation_bonus"])
+            * quality["cultivation_rate"]
+            * max(0.55, 1 - poison_penalty)
+            * DAILY_PRACTICE_CULTIVATION_FACTOR
+        )
+    )
+    gain = max(gain, max(int(round(stage_rule["practice_gain_min"] * 0.55 * DAILY_PRACTICE_CULTIVATION_FACTOR)), 6))
     raw_gain = gain
-    stone_gain = (
-        random.randint(int(stage_rule["practice_stone_min"]), int(stage_rule["practice_stone_max"]))
-        + int(stats["fortune"] // 8)
-        + int(stats["charisma"] // 10)
+    stone_gain = max(
+        int(
+            round(
+                (
+                    random.randint(int(stage_rule["practice_stone_min"]), int(stage_rule["practice_stone_max"]))
+                    + int(stats["fortune"] // 8)
+                    + int(stats["charisma"] // 10)
+                )
+                * DAILY_PRACTICE_STONE_FACTOR
+            )
+        ),
+        1,
     )
     activity_growth = {"triggered": False, "changes": [], "patch": {}, "chance": 0, "roll": None}
     cultivation_meta = {
@@ -11798,37 +12287,59 @@ def _arena_challenge_fee_stone(settings: dict[str, Any] | None = None) -> int:
     return max(int(source.get("arena_challenge_fee_stone", DEFAULT_SETTINGS.get("arena_challenge_fee_stone", 0)) or 0), 0)
 
 
-def _arena_reward_values(profile: XiuxianProfile, arena: XiuxianArena) -> dict[str, int]:
-    stage = normalize_realm_stage(profile.realm_stage or FIRST_REALM_STAGE)
-    layer = max(int(profile.realm_layer or 1), 1)
-    threshold = cultivation_threshold(stage, layer)
-    stage_rank = realm_index(stage) + 1
-    fortune = max(int(profile.fortune or 0), 0)
-    defense_count = min(max(int(arena.defense_success_count or 0), 0), 5)
-    challenge_count = min(max(int(arena.challenge_count or 0), 0), 8)
-    stone_reward = max(
-        40,
-        min(
-            4800,
-            threshold // 48 + stage_rank * 12 + fortune * 4 + defense_count * 18 + challenge_count * 8,
-        ),
-    )
+def _arena_stage_rule(stage: str | None, settings: dict[str, Any] | None = None) -> dict[str, Any]:
+    source = settings or get_xiuxian_settings()
+    target_stage = normalize_realm_stage(stage or FIRST_REALM_STAGE)
+    for row in list(source.get("arena_stage_rules") or []):
+        if normalize_realm_stage((row or {}).get("realm_stage")) != target_stage:
+            continue
+        return {
+            "realm_stage": target_stage,
+            "duration_minutes": _arena_duration_minutes(int((row or {}).get("duration_minutes") or ARENA_DEFAULT_DURATION_MINUTES)),
+            "reward_cultivation": max(int((row or {}).get("reward_cultivation") or 0), 0),
+        }
     return {
-        "threshold": threshold,
-        "stage_rank": stage_rank,
-        "fortune": fortune,
-        "stone_reward": stone_reward,
-        "cultivation_reward": 0,
+        "realm_stage": target_stage,
+        "duration_minutes": _arena_duration_minutes(ARENA_DEFAULT_DURATION_MINUTES),
+        "reward_cultivation": max(int(calculate_realm_threshold(target_stage, 1) or 0), 0),
     }
 
 
-def list_group_arenas(*, status: str | None = None, group_chat_id: int | None = None) -> list[dict[str, Any]]:
+def _profile_realm_stage_only(profile: XiuxianProfile | dict[str, Any] | None) -> str:
+    if isinstance(profile, dict):
+        return normalize_realm_stage(profile.get("realm_stage") or FIRST_REALM_STAGE)
+    return normalize_realm_stage(getattr(profile, "realm_stage", None) or FIRST_REALM_STAGE)
+
+
+def _assert_arena_realm_match(profile: XiuxianProfile, arena_stage: str, *, action_text: str) -> str:
+    current_stage = _profile_realm_stage_only(profile)
+    if current_stage != normalize_realm_stage(arena_stage):
+        raise ValueError(f"{action_text}仅限 {normalize_realm_stage(arena_stage)} 修士参加，你当前为 {current_stage}。")
+    return current_stage
+
+
+def _arena_reward_values(profile: XiuxianProfile, arena: XiuxianArena) -> dict[str, int]:
+    return {
+        "stone_reward": 0,
+        "cultivation_reward": max(int(arena.reward_cultivation or 0), 0),
+        "fortune": 0,
+    }
+
+
+def list_group_arenas(
+    *,
+    status: str | None = None,
+    group_chat_id: int | None = None,
+    realm_stage: str | None = None,
+) -> list[dict[str, Any]]:
     with Session() as session:
         query = session.query(XiuxianArena)
         if status:
             query = query.filter(XiuxianArena.status == str(status))
         if group_chat_id is not None:
             query = query.filter(XiuxianArena.group_chat_id == int(group_chat_id))
+        if realm_stage:
+            query = query.filter(XiuxianArena.realm_stage == normalize_realm_stage(realm_stage))
         query = query.order_by(XiuxianArena.id.desc())
         return [serialize_arena(row) for row in query.all()]
 
@@ -11839,14 +12350,12 @@ def get_group_arena(arena_id: int) -> dict[str, Any] | None:
         return serialize_arena(row)
 
 
-def get_active_group_arena(group_chat_id: int) -> dict[str, Any] | None:
+def get_active_group_arena(group_chat_id: int, realm_stage: str | None = None) -> dict[str, Any] | None:
     with Session() as session:
-        row = (
-            session.query(XiuxianArena)
-            .filter(XiuxianArena.group_chat_id == int(group_chat_id), XiuxianArena.status == "active")
-            .order_by(XiuxianArena.id.desc())
-            .first()
-        )
+        query = session.query(XiuxianArena).filter(XiuxianArena.group_chat_id == int(group_chat_id), XiuxianArena.status == "active")
+        if realm_stage:
+            query = query.filter(XiuxianArena.realm_stage == normalize_realm_stage(realm_stage))
+        row = query.order_by(XiuxianArena.id.desc()).first()
         return serialize_arena(row)
 
 
@@ -11924,26 +12433,33 @@ def open_group_arena_for_user(
     chat_id = int(group_chat_id)
     if actor_tg <= 0 or chat_id == 0:
         raise ValueError("擂台参数无效。")
-    duration = _arena_duration_minutes(duration_minutes)
     settings = get_xiuxian_settings()
     open_fee_stone = _arena_open_fee_stone(settings)
 
     with Session() as session:
-        active = (
-            session.query(XiuxianArena)
-            .filter(XiuxianArena.group_chat_id == chat_id, XiuxianArena.status == "active")
-            .with_for_update()
-            .order_by(XiuxianArena.id.desc())
-            .first()
-        )
-        if active is not None:
-            raise ValueError("当前群里已有一座擂台正在开启，请先等这一期结束。")
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == actor_tg).with_for_update().first()
         if profile is None or not profile.consented:
             raise ValueError("你还没有踏入仙途。")
         assert_currency_operation_allowed(actor_tg, "开设擂台", session=session, profile=profile)
         if is_profile_secluded(profile):
             raise ValueError("你当前处于避世状态，无法开设擂台。")
+        arena_stage = _assert_arena_realm_match(profile, profile.realm_stage or FIRST_REALM_STAGE, action_text="开擂")
+        arena_rule = _arena_stage_rule(arena_stage, settings)
+        duration = int(arena_rule["duration_minutes"])
+        reward_cultivation = int(arena_rule["reward_cultivation"])
+        active = (
+            session.query(XiuxianArena)
+            .filter(
+                XiuxianArena.group_chat_id == chat_id,
+                XiuxianArena.status == "active",
+                XiuxianArena.realm_stage == arena_stage,
+            )
+            .with_for_update()
+            .order_by(XiuxianArena.id.desc())
+            .first()
+        )
+        if active is not None:
+            raise ValueError(f"当前已存在一座 {arena_stage} 擂台正在开启，请先等这一期结束。")
         if open_fee_stone > 0:
             apply_spiritual_stone_delta(
                 session,
@@ -11961,7 +12477,9 @@ def open_group_arena_for_user(
             champion_tg=actor_tg,
             champion_display_name=display_name,
             group_chat_id=chat_id,
+            realm_stage=arena_stage,
             duration_minutes=duration,
+            reward_cultivation=reward_cultivation,
             challenge_count=0,
             defense_success_count=0,
             champion_change_count=0,
@@ -11978,7 +12496,7 @@ def open_group_arena_for_user(
         "arena",
         "开设擂台",
         (
-            f"在群 {chat_id} 开设一座持续 {duration} 分钟的擂台。"
+            f"在群 {chat_id} 开设一座 {arena_stage} 擂台，持续 {duration} 分钟，落幕奖励修为 +{reward_cultivation}。"
             + (f" 支付 {open_fee_stone} 灵石开擂手续费。" if open_fee_stone > 0 else "")
         ),
     )
@@ -12026,6 +12544,7 @@ def challenge_group_arena_for_user(
             raise ValueError("当前已有道友正在攻擂，请稍后再试。")
         if int(arena.champion_tg or 0) == actor_tg:
             raise ValueError("你已经是当前擂主，无需再次挑战自己。")
+        arena_stage = normalize_realm_stage(arena.realm_stage or FIRST_REALM_STAGE)
 
         challenger = session.query(XiuxianProfile).filter(XiuxianProfile.tg == actor_tg).with_for_update().first()
         if challenger is None or not challenger.consented:
@@ -12033,6 +12552,7 @@ def challenge_group_arena_for_user(
         assert_currency_operation_allowed(actor_tg, "攻擂", session=session, profile=challenger)
         if is_profile_secluded(challenger):
             raise ValueError("你当前处于避世状态，无法攻擂。")
+        _assert_arena_realm_match(challenger, arena_stage, action_text="攻擂")
         if challenge_fee_stone > 0:
             apply_spiritual_stone_delta(
                 session,
@@ -12055,9 +12575,10 @@ def challenge_group_arena_for_user(
             or not champion.consented
             or champion.death_at is not None
             or is_profile_secluded(champion)
+            or _profile_realm_stage_only(champion) != arena_stage
         ):
             forfeit = True
-            current_summary = f"{challenger_name} 登台时发现旧擂主已失去守擂资格，直接接掌擂台。"
+            current_summary = f"{challenger_name} 登台时发现旧擂主已失去 {arena_stage} 守擂资格，直接接掌擂台。"
             now = utcnow()
             arena.challenge_count = max(int(arena.challenge_count or 0), 0) + 1
             arena.champion_change_count = max(int(arena.champion_change_count or 0), 0) + 1
@@ -12215,13 +12736,16 @@ def finalize_group_arena(arena_id: int, *, force: bool = False) -> dict[str, Any
         arena.current_challenger_tg = None
         arena.current_challenger_display_name = None
 
+        arena_stage = normalize_realm_stage(arena.realm_stage or FIRST_REALM_STAGE)
         champion = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(arena.champion_tg or 0)).with_for_update().first()
         if (
             champion is None
             or not champion.consented
             or champion.death_at is not None
+            or is_profile_secluded(champion)
+            or _profile_realm_stage_only(champion) != arena_stage
         ):
-            arena.latest_result_summary = arena.latest_result_summary or "擂台期满，但最终已无合格擂主可领取奖励。"
+            arena.latest_result_summary = arena.latest_result_summary or f"擂台期满，但最终已无符合 {arena_stage} 境界要求的擂主可领取奖励。"
             session.commit()
             return {
                 "result": "finished_no_reward",
@@ -12232,25 +12756,12 @@ def finalize_group_arena(arena_id: int, *, force: bool = False) -> dict[str, Any
             }
 
         reward = _arena_reward_values(champion, arena)
-        if reward["stone_reward"] > 0:
-            apply_spiritual_stone_delta(
-                session,
-                int(champion.tg),
-                reward["stone_reward"],
-                action_text="擂台结算奖励",
-                allow_dead=False,
-                apply_tribute=False,
-            )
         stage = normalize_realm_stage(champion.realm_stage or FIRST_REALM_STAGE)
-        layer = max(int(champion.realm_layer or 1), 1)
-        cultivation = max(int(champion.cultivation or 0), 0)
-        threshold = cultivation_threshold(stage, layer)
-        upgraded_layers: list[int] = []
-        remaining = max(threshold - min(cultivation, threshold), 0)
+        layer, _, upgraded_layers, remaining = _settle_profile_cultivation(champion, reward["cultivation_reward"])
         champion.updated_at = now
         arena.latest_result_summary = (
             f"{_profile_display_label(champion, '擂主')} 守到擂台落幕，"
-            f"收下 {reward['stone_reward']} 灵石奖励。"
+            f"收下 {reward['cultivation_reward']} 修为奖励。"
         )
         session.commit()
         arena_payload = serialize_arena(arena)
@@ -12261,7 +12772,7 @@ def finalize_group_arena(arena_id: int, *, force: bool = False) -> dict[str, Any
         champion_tg,
         "arena",
         "擂台结算",
-        f"擂台落幕，作为最终擂主收下 {reward['stone_reward']} 灵石。",
+        f"擂台落幕，作为最终擂主收下 {reward['cultivation_reward']} 修为。",
     )
     achievement_unlocks = record_arena_metrics(champion_tg, final_win=1)
     return {
@@ -12274,7 +12785,7 @@ def finalize_group_arena(arena_id: int, *, force: bool = False) -> dict[str, Any
         "defense_success_count": max(int(arena_payload.get("defense_success_count") or 0), 0),
         "challenge_count": max(int(arena_payload.get("challenge_count") or 0), 0),
         "stone_reward": reward["stone_reward"],
-        "cultivation_reward": 0,
+        "cultivation_reward": reward["cultivation_reward"],
         "fortune_used": reward["fortune"],
         "upgraded_layers": upgraded_layers,
         "remaining": remaining,

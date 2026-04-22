@@ -1439,7 +1439,7 @@ function updateOfficialRecycleQuotePreview(bundle = state.profileBundle) {
     if (Number(quantityInput.value || 0) < 1) quantityInput.value = "1";
     preview.value = officialRecycleItems(bundle).length ? "请选择可回收物品" : "暂无可回收物品";
     if (hint) {
-      hint.textContent = String(bundle?.official_recycle?.description || "官方会按物品品阶与属性保守估价回收。");
+      hint.textContent = String(bundle?.official_recycle?.description || "官方会按物品品阶与属性自动折价回收。");
     }
     return;
   }
@@ -1453,7 +1453,7 @@ function updateOfficialRecycleQuotePreview(bundle = state.profileBundle) {
   const totalPrice = Math.max(Number(quote.unit_price_stone || 0), 0) * quantity;
   preview.value = `单价 ${quote.unit_price_stone || 0} 灵石，当前可回收 ${availableQuantity} 件，本次到账 ${totalPrice} 灵石`;
   if (hint) {
-    hint.textContent = String(quote.quote_note || bundle?.official_recycle?.description || "官方会按物品品阶与属性保守估价回收。");
+    hint.textContent = String(quote.quote_note || bundle?.official_recycle?.description || "官方会按物品品阶与属性自动折价回收。");
   }
 }
 
@@ -1645,6 +1645,8 @@ function renderProfile(bundle) {
   const equipLimit = bundle.settings?.artifact_equip_limit || bundle.capabilities?.artifact_equip_limit || 1;
   const talismanName = bundle.active_talisman?.name || "暂无";
   const retreatStatus = retreating ? `闭关中，预计结束 ${formatDate(profile.retreat_end_at)}` : "未在闭关";
+  const sharedStone = bundle.capabilities?.shared_spiritual_stone_total ?? profile.spiritual_stone ?? 0;
+  const combatPower = bundle.combat_power ?? 0;
 
   document.querySelector("#realm-badge").textContent = `${profile.realm_stage}${profile.realm_layer}层`;
   document.querySelector("#root-text").textContent = `灵根：${profileRootText(profile)} · 斗法修正 ${profile.root_bonus >= 0 ? "+" : ""}${profile.root_bonus}%`;
@@ -1653,7 +1655,9 @@ function renderProfile(bundle) {
     <article class="profile-item"><span>当前修为</span><strong>${escapeHtml(progress.current ?? profile.cultivation)} / ${escapeHtml(progress.threshold ?? 0)}</strong></article>
     <article class="profile-item"><span>距离下层</span><strong>${escapeHtml(progress.remaining ?? 0)}</strong></article>
     <article class="profile-item"><span>灵石</span><strong>${escapeHtml(profile.spiritual_stone)}</strong></article>
+    <article class="profile-item"><span>共享灵石</span><strong>${escapeHtml(sharedStone)}</strong></article>
     <article class="profile-item"><span>片刻碎片</span><strong>${escapeHtml(bundle.emby_balance)}</strong></article>
+    <article class="profile-item"><span>综合战力</span><strong>${escapeHtml(combatPower)}</strong></article>
     <article class="profile-item"><span>丹毒</span><strong>${escapeHtml(profile.dan_poison)}/100</strong></article>
     <article class="profile-item"><span>已装备法宝</span><strong>${escapeHtml(artifactNames)}</strong></article>
     <article class="profile-item"><span>装备数量</span><strong>${escapeHtml(equippedArtifacts.length)} / ${escapeHtml(equipLimit)}</strong></article>
@@ -1673,7 +1677,7 @@ function renderProfile(bundle) {
   const exchangeEnabled = bundle.settings?.coin_stone_exchange_enabled ?? true;
   document.querySelector("#exchange-hint").textContent =
     exchangeEnabled
-      ? `当前比例：1 片刻碎片 = ${bundle.settings.rate} 灵石，手续费 ${bundle.settings.fee_percent}%，灵石兑换碎片最低 ${bundle.settings.min_coin_exchange} 灵石。`
+      ? exchangeHintText(bundle.settings || {})
       : "灵石互兑功能当前已关闭，可联系管理员在后台重新开启。";
 
   setDisabled(document.querySelector("#train-btn"), !bundle.capabilities?.can_train, "当前无法吐纳修炼");
@@ -1734,6 +1738,8 @@ function renderProfile(bundle) {
   const artifactNames = equippedArtifacts.length ? equippedArtifacts.map((item) => item.name).join("、") : "暂无";
   const talismanName = bundle.active_talisman?.name || "暂无";
   const retreatStatus = retreating ? `闭关中，预计结束 ${formatDate(profile.retreat_end_at)}` : "未在闭关";
+  const sharedStone = bundle.capabilities?.shared_spiritual_stone_total ?? profile.spiritual_stone ?? 0;
+  const combatPower = bundle.combat_power ?? 0;
   const profileGrid = document.querySelector("#profile-grid");
   const rootText = document.querySelector("#root-text");
   const realmBadge = document.querySelector("#realm-badge");
@@ -1750,7 +1756,9 @@ function renderProfile(bundle) {
       <article class="profile-item"><span>当前修为</span><strong>${escapeHtml(progress.current ?? profile.cultivation ?? 0)} / ${escapeHtml(progress.threshold ?? 0)}</strong></article>
       <article class="profile-item"><span>距离下一层</span><strong>${escapeHtml(progress.remaining ?? 0)}</strong></article>
       <article class="profile-item"><span>灵石</span><strong>${escapeHtml(profile.spiritual_stone ?? 0)}</strong></article>
+      <article class="profile-item"><span>共享灵石</span><strong>${escapeHtml(sharedStone)}</strong></article>
       <article class="profile-item"><span>片刻碎片</span><strong>${escapeHtml(bundle.emby_balance ?? 0)}</strong></article>
+      <article class="profile-item"><span>综合战力</span><strong>${escapeHtml(combatPower)}</strong></article>
       <article class="profile-item"><span>丹毒</span><strong>${escapeHtml(profile.dan_poison ?? 0)} / 100</strong></article>
       <article class="profile-item"><span>法宝</span><strong>${escapeHtml(artifactNames)}</strong></article>
       <article class="profile-item"><span>装备数量</span><strong>${escapeHtml(equippedArtifacts.length)} / ${escapeHtml(equipLimit)}</strong></article>
@@ -1774,14 +1782,11 @@ function renderProfile(bundle) {
     actionHint.textContent = hints.join(" ") || "状态平稳，可以继续吐纳、突破、经营坊市或探索。";
   }
 
-  const rate = settings.rate ?? settings.coin_exchange_rate ?? 100;
-  const fee = settings.fee_percent ?? settings.exchange_fee_percent ?? 1;
-  const minExchange = settings.min_coin_exchange ?? 1;
   const exchangeEnabled = settings.coin_stone_exchange_enabled ?? true;
   const exchangeHint = document.querySelector("#exchange-hint");
   if (exchangeHint) {
     exchangeHint.textContent = exchangeEnabled
-      ? `当前比例：1 片刻碎片 = ${rate} 灵石，手续费 ${fee}%，灵石兑换碎片最低消耗 ${minExchange} 灵石，不足 ${rate} 灵石一份的零头会保留。`
+      ? exchangeHintText(settings)
       : "灵石互兑功能当前已关闭，可联系管理员在后台重新开启。";
   }
   const officialShopTitle = document.querySelector("#official-shop-title");
@@ -1983,7 +1988,7 @@ function renderOfficialRecyclePanel(bundle, retreating) {
     root.innerHTML = `<article class="stack-item"><strong>${escapeHtml(officialRecycleName(bundle))}暂无可回收物品</strong><p>未绑定且可交易的法宝、符箓，以及背包内丹药材料会显示在这里。</p></article>`;
     if (preview) preview.value = "暂无可回收物品";
     if (hint) {
-      hint.textContent = String(bundle?.official_recycle?.description || "官方会按物品品阶与属性保守估价回收。");
+      hint.textContent = String(bundle?.official_recycle?.description || "官方会按物品品阶与属性自动折价回收。");
     }
     populateOfficialRecycleInventorySelect();
     updateOfficialRecycleQuotePreview(bundle);
@@ -2981,14 +2986,11 @@ function applyProfileBundle(bundle, { deferSecondary = true } = {}) {
   applyShopNameState(bundle?.profile?.shop_name || "游仙小铺");
 
   const settings = bundle?.settings || {};
-  const rate = settings.rate ?? settings.coin_exchange_rate ?? 100;
-  const fee = settings.fee_percent ?? settings.exchange_fee_percent ?? 1;
-  const minExchange = settings.min_coin_exchange ?? 1;
   const exchangeEnabled = settings.coin_stone_exchange_enabled ?? true;
   const exchangeHint = document.querySelector("#exchange-hint");
   if (exchangeHint) {
     exchangeHint.textContent = exchangeEnabled
-      ? `当前比例：1 片刻碎片 = ${rate} 灵石，手续费 ${fee}%，灵石兑换碎片最低消耗 ${minExchange} 灵石，不足 ${rate} 灵石一份的零头会保留。`
+      ? exchangeHintText(settings)
       : "灵石互兑功能当前已关闭，可联系管理员在后台重新开启。";
   }
 
@@ -2996,6 +2998,14 @@ function applyProfileBundle(bundle, { deferSecondary = true } = {}) {
   ensureSectionState("#technique-card", Boolean(bundle?.profile?.consented));
   ensureSectionState("#auction-card", Boolean(bundle?.profile?.consented));
   ensureSectionState("#gift-card", Boolean(bundle?.profile?.consented));
+}
+
+function exchangeHintText(settings = {}) {
+  const rate = settings.rate ?? settings.coin_exchange_rate ?? 100;
+  const fee = settings.fee_percent ?? settings.exchange_fee_percent ?? 1;
+  const minExchange = settings.min_coin_exchange ?? 1;
+  const effectiveMin = settings.stone_to_coin_min_stone ?? Math.max(rate, minExchange);
+  return `当前比例：1 片刻碎片 = ${rate} 灵石，反向即 ${rate} 灵石 = 1 片刻碎片；手续费 ${fee}%，灵石兑换碎片至少按 ${effectiveMin} 灵石结算，不足 ${rate} 灵石一份的零头会保留。`;
 }
 
 function mergeBundleData(baseBundle, patchBundle) {
@@ -3381,7 +3391,10 @@ document.querySelector("#personal-shop-form").addEventListener("submit", async (
       broadcast: document.querySelector("#shop-broadcast").checked
     }));
     const discountText = payload.broadcast_discount ? `，魅力减免 ${payload.broadcast_discount} 灵石播报费` : "";
-    const message = `已上架 ${payload.listing.item_name}，售价 ${payload.listing.price_stone} 灵石${discountText}。`;
+    const noticeText = payload.push_warning
+      ? ` ${payload.push_warning}`
+      : (document.querySelector("#shop-broadcast").checked ? " 商品通知已推送到群里。" : "");
+    const message = `已上架 ${payload.listing.item_name}，售价 ${payload.listing.price_stone} 灵石${discountText}。${noticeText}`;
     setStatus(message, "success");
     await popup("上架成功", message);
     await refreshBundle();
@@ -5371,14 +5384,11 @@ renderProfile = function renderProfileRedesigned(bundle) {
     actionHint.textContent = hints.join(" ") || "状态稳定，可以继续修炼、交易、探索或发布任务。";
   }
 
-  const rate = settings.rate ?? settings.coin_exchange_rate ?? 100;
-  const fee = settings.fee_percent ?? settings.exchange_fee_percent ?? 1;
-  const minExchange = settings.min_coin_exchange ?? 1;
   const exchangeEnabled = settings.coin_stone_exchange_enabled ?? true;
   const exchangeHint = document.querySelector("#exchange-hint");
   if (exchangeHint) {
     exchangeHint.textContent = exchangeEnabled
-      ? `当前比例：1 片刻碎片 = ${rate} 灵石，手续费 ${fee}%，灵石兑换碎片最低消耗 ${minExchange} 灵石，不足 ${rate} 灵石一份的零头会保留。${duelLockReason ? ` 当前状态：${duelLockReason}` : ""}`
+      ? `${exchangeHintText(settings)}${duelLockReason ? ` 当前状态：${duelLockReason}` : ""}`
       : `灵石互兑功能当前已关闭。${duelLockReason ? ` 当前状态：${duelLockReason}` : ""}`;
   }
 
@@ -6171,6 +6181,7 @@ renderSectArea = function renderSectAreaEnhanced(bundle) {
 };
 
 function commissionRequirementText(item = {}) {
+  if (item.requirement_summary) return item.requirement_summary;
   if (!item.min_realm_stage) return "无门槛";
   return `${item.min_realm_stage}${item.min_realm_layer || 1}层`;
 }

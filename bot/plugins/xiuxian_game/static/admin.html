@@ -90,9 +90,10 @@
                 <input id="setting-fee" type="number" min="0" value="1">
               </label>
               <label>
-                灵石兑换碎片最低灵石
+                灵石兑换碎片最低附加门槛
                 <input id="setting-min" type="number" min="1" value="1">
               </label>
+              <p id="setting-exchange-rate-note" class="muted wide-field">当前比例示例：100 灵石 = 1 片刻碎片；实际最低门槛会取“兑换比例”和“附加门槛”中的较大值。</p>
               <label class="inline-check">
                 <input id="setting-exchange-enabled" type="checkbox" checked>
                 开启灵石互兑
@@ -116,6 +117,22 @@
               <label>
                 拍卖持续时间（分钟）
                 <input id="setting-auction-duration" type="number" min="1" max="10080" value="60">
+              </label>
+              <label>
+                小铺通知群 ID
+                <input id="setting-shop-notice-group" type="number" placeholder="-100xxxxxxxxxx">
+              </label>
+              <label>
+                拍卖通知群 ID
+                <input id="setting-auction-notice-group" type="number" placeholder="-100xxxxxxxxxx">
+              </label>
+              <label>
+                擂台通知群 ID
+                <input id="setting-arena-notice-group" type="number" placeholder="-100xxxxxxxxxx">
+              </label>
+              <label>
+                事件汇总间隔（分钟，0 关闭）
+                <input id="setting-event-summary-interval" type="number" min="0" max="1440" value="10">
               </label>
               <label>
                 玩家发布任务消耗
@@ -146,7 +163,7 @@
               </label>
               <label>
                 群聊涨修为概率（%）
-                <input id="setting-chat-chance" type="number" min="0" max="100" value="8">
+                <input id="setting-chat-chance" type="number" min="0" max="100" value="6">
               </label>
               <label>
                 群聊最少涨修为
@@ -154,7 +171,7 @@
               </label>
               <label>
                 群聊最多涨修为
-                <input id="setting-chat-max" type="number" min="1" value="3">
+                <input id="setting-chat-max" type="number" min="1" value="2">
               </label>
               <label>
                 每日抢劫上限
@@ -412,6 +429,21 @@
                 叛宗供奉上限
                 <input id="setting-sect-betrayal-max" type="number" min="0" value="300">
               </label>
+            </div>
+          </section>
+          <section class="setting-panel setting-panel--full">
+            <div class="setting-panel-head">
+              <div>
+                <strong>分境界擂台</strong>
+                <p>同一时间每个大境界只允许存在一座擂台，持续时间和落幕修为奖励都在这里独立配置。</p>
+              </div>
+            </div>
+            <div class="builder-section wide-field">
+              <div class="builder-head">
+                <strong>擂台规则表</strong>
+                <span class="summary-tip">炼气、筑基、金丹等大境界分别生效</span>
+              </div>
+              <div id="setting-arena-stage-rows" class="builder-list"></div>
             </div>
           </section>
           <div class="form-actions wide-field">
@@ -1614,7 +1646,7 @@
           <p class="eyebrow" data-section-key="official shop">官方商店</p>
           <h2>官方商店</h2>
         </div>
-        <span class="summary-tip">单独维护官方供给，不与发放系统混用</span>
+        <span class="summary-tip">售价按品阶与属性自动估价</span>
       </summary>
       <div class="fold-body">
         <form id="official-shop-form" class="grid-form">
@@ -1636,8 +1668,8 @@
             <input id="official-quantity" type="number" min="1" value="1">
           </label>
           <label>
-            售价（灵石）
-            <input id="official-price" type="number" min="0" value="10">
+            售价（灵石，自动估价）
+            <input id="official-price" type="number" min="0" value="0" readonly>
           </label>
           <label class="wide-field">
             店铺名称（自动跟随基础规则）

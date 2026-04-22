@@ -255,8 +255,8 @@ DEFAULT_ITEM_QUALITY_VALUE_RULES = {
     "先天至宝": {"artifact_multiplier": 1.0, "pill_multiplier": 1.0, "talisman_multiplier": 1.0},
 }
 DEFAULT_ACTIVITY_STAT_GROWTH_RULES = {
-    "practice": {"chance_percent": 18, "gain_min": 1, "gain_max": 2, "attribute_count": 1},
-    "commission": {"chance_percent": 22, "gain_min": 1, "gain_max": 2, "attribute_count": 1},
+    "practice": {"chance_percent": 16, "gain_min": 1, "gain_max": 2, "attribute_count": 1},
+    "commission": {"chance_percent": 18, "gain_min": 1, "gain_max": 2, "attribute_count": 1},
     "exploration": {"chance_percent": 26, "gain_min": 1, "gain_max": 3, "attribute_count": 1},
     "duel": {"chance_percent": 20, "gain_min": 1, "gain_max": 2, "attribute_count": 2},
 }
@@ -390,6 +390,53 @@ DEPRECATED_XIUXIAN_SETTING_KEYS = {
     "red_packet_merit_reward",
     "red_packet_merit_modes",
 }
+
+
+def _default_arena_stage_rule(stage: str, index: int) -> dict[str, Any]:
+    threshold_base = int((REALM_STAGE_RULES.get(stage) or REALM_STAGE_RULES[REALM_ORDER[0]])["threshold_base"])
+    duration_minutes = 60 if index < 2 else 90 if index < 5 else 120 if index < 9 else 180
+    return {
+        "realm_stage": stage,
+        "duration_minutes": duration_minutes,
+        "reward_cultivation": threshold_base,
+    }
+
+
+DEFAULT_ARENA_STAGE_RULES = [_default_arena_stage_rule(stage, index) for index, stage in enumerate(REALM_ORDER)]
+
+
+def _arena_stage_rule_key(entry: Any) -> str | None:
+    if not isinstance(entry, dict):
+        return None
+    stage = normalize_realm_stage(entry.get("realm_stage"))
+    return stage if stage in REALM_ORDER else None
+
+
+def _merge_default_arena_stage_rules(raw: Any) -> list[dict[str, Any]]:
+    current_rows = [copy.deepcopy(entry) for entry in raw] if isinstance(raw, list) else []
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for entry in current_rows:
+        stage = _arena_stage_rule_key(entry)
+        if stage is None or stage in seen:
+            continue
+        default_rule = _default_arena_stage_rule(stage, REALM_ORDER.index(stage))
+        normalized.append(
+            {
+                "realm_stage": stage,
+                "duration_minutes": max(int(entry.get("duration_minutes", default_rule["duration_minutes"]) or default_rule["duration_minutes"]), 1),
+                "reward_cultivation": max(int(entry.get("reward_cultivation", default_rule["reward_cultivation"]) or 0), 0),
+            }
+        )
+        seen.add(stage)
+    for index, stage in enumerate(REALM_ORDER):
+        if stage in seen:
+            continue
+        normalized.append(copy.deepcopy(_default_arena_stage_rule(stage, index)))
+    normalized.sort(key=lambda item: REALM_ORDER.index(item["realm_stage"]))
+    return normalized
+
+
 DEFAULT_SETTINGS = {
     "coin_stone_exchange_enabled": True,
     "coin_exchange_rate": 100,
@@ -399,9 +446,11 @@ DEFAULT_SETTINGS = {
     "equipment_unbind_cost": 100,
     "artifact_plunder_chance": 20,
     "shop_broadcast_cost": 20,
+    "shop_notice_group_id": 0,
     "official_shop_name": "官方商店",
     "auction_fee_percent": 5,
     "auction_duration_minutes": 60,
+    "auction_notice_group_id": 0,
     "allow_user_task_publish": True,
     "task_publish_cost": 20,
     "user_task_daily_limit": 3,
@@ -415,10 +464,13 @@ DEFAULT_SETTINGS = {
     "duel_invite_timeout_seconds": 90,
     "arena_open_fee_stone": 0,
     "arena_challenge_fee_stone": 0,
+    "arena_notice_group_id": 0,
+    "arena_stage_rules": DEFAULT_ARENA_STAGE_RULES,
+    "event_summary_interval_minutes": 10,
     "allow_non_admin_image_upload": False,
-    "chat_cultivation_chance": 8,
+    "chat_cultivation_chance": 6,
     "chat_cultivation_min_gain": 1,
-    "chat_cultivation_max_gain": 3,
+    "chat_cultivation_max_gain": 2,
     "robbery_daily_limit": 3,
     "robbery_max_steal": 180,
     "high_quality_broadcast_level": 4,
@@ -1696,6 +1748,8 @@ class XiuxianShopItem(Base):
     price_stone = Column(Integer, default=0, nullable=False)
     enabled = Column(Boolean, default=True, nullable=False)
     is_official = Column(Boolean, default=False, nullable=False)
+    notice_group_chat_id = Column(BigInteger, nullable=True)
+    notice_group_message_id = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
@@ -1754,7 +1808,9 @@ class XiuxianArena(Base):
     champion_display_name = Column(String(128), nullable=True)
     group_chat_id = Column(BigInteger, nullable=False)
     group_message_id = Column(Integer, nullable=True)
+    realm_stage = Column(String(32), nullable=False, default=REALM_ORDER[0])
     duration_minutes = Column(Integer, default=120, nullable=False)
+    reward_cultivation = Column(Integer, default=0, nullable=False)
     challenge_count = Column(Integer, default=0, nullable=False)
     defense_success_count = Column(Integer, default=0, nullable=False)
     champion_change_count = Column(Integer, default=0, nullable=False)
@@ -2722,6 +2778,8 @@ def serialize_shop_item(item: XiuxianShopItem | None) -> dict[str, Any] | None:
         "price_stone": item.price_stone,
         "enabled": item.enabled,
         "is_official": item.is_official,
+        "notice_group_chat_id": int(item.notice_group_chat_id or 0) or None,
+        "notice_group_message_id": int(item.notice_group_message_id or 0) or None,
         "created_at": serialize_datetime(item.created_at),
     }
 
@@ -2816,7 +2874,9 @@ def serialize_arena(item: XiuxianArena | None) -> dict[str, Any] | None:
         "champion_display_name": item.champion_display_name or "",
         "group_chat_id": int(item.group_chat_id or 0),
         "group_message_id": int(item.group_message_id or 0) or None,
+        "realm_stage": normalize_realm_stage(item.realm_stage),
         "duration_minutes": max(int(item.duration_minutes or 0), 0),
+        "reward_cultivation": max(int(item.reward_cultivation or 0), 0),
         "challenge_count": max(int(item.challenge_count or 0), 0),
         "defense_success_count": max(int(item.defense_success_count or 0), 0),
         "champion_change_count": max(int(item.champion_change_count or 0), 0),
@@ -3016,6 +3076,7 @@ def get_xiuxian_settings() -> dict[str, Any]:
         merged = copy.deepcopy(DEFAULT_SETTINGS)
         merged.update(settings)
         merged["gambling_reward_pool"] = _merge_default_gambling_reward_pool(merged.get("gambling_reward_pool"))
+        merged["arena_stage_rules"] = _merge_default_arena_stage_rules(merged.get("arena_stage_rules"))
         if "duel_bet_seconds" not in settings and "duel_bet_minutes" in settings:
             merged["duel_bet_seconds"] = max(_coerce_int(settings.get("duel_bet_minutes"), DEFAULT_SETTINGS["duel_bet_minutes"]), 1) * 60
         merged.update(resolve_duel_bet_settings(merged))
@@ -5817,6 +5878,12 @@ def list_shop_items(
         ttl=xiuxian_cache.USER_VIEW_TTL,
         loader=_loader,
     )
+
+
+def get_shop_item(item_id: int) -> dict[str, Any] | None:
+    with Session() as session:
+        row = session.query(XiuxianShopItem).filter(XiuxianShopItem.id == int(item_id)).first()
+        return serialize_shop_item(row)
 
 
 def create_shop_item(

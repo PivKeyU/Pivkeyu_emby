@@ -1747,6 +1747,48 @@ function applyGamblingRewardPool(settings = {}) {
   rows.forEach((row) => addGamblingPoolRow(row));
 }
 
+function applyArenaStageRules(settings = {}) {
+  const root = $("setting-arena-stage-rows");
+  if (!root) return;
+  const ruleMap = new Map(
+    (Array.isArray(settings.arena_stage_rules) ? settings.arena_stage_rules : [])
+      .map((row) => [String(row?.realm_stage || "").trim(), row || {}])
+  );
+  root.innerHTML = REALM_OPTIONS.map((stage, index) => {
+    const fallbackDuration = index < 2 ? 60 : index < 5 ? 90 : index < 9 ? 120 : 180;
+    const current = ruleMap.get(stage) || {};
+    return `
+      <div class="builder-row">
+        <div class="builder-inline-label">
+          <strong>${escapeHtml(stage)}</strong>
+          <span class="summary-tip">同境界同一时间仅保留一座擂台</span>
+        </div>
+        <label>
+          持续分钟
+          <input type="number" min="10" max="10080" data-arena-stage="${escapeHtml(stage)}" data-arena-rule="duration_minutes" value="${escapeHtml(current.duration_minutes ?? fallbackDuration)}">
+        </label>
+        <label>
+          落幕修为奖励
+          <input type="number" min="0" max="1000000000000" data-arena-stage="${escapeHtml(stage)}" data-arena-rule="reward_cultivation" value="${escapeHtml(current.reward_cultivation ?? 0)}">
+        </label>
+      </div>
+    `;
+  }).join("");
+}
+
+function collectArenaStageRules() {
+  return REALM_OPTIONS.map((stage, index) => {
+    const fallbackDuration = index < 2 ? 60 : index < 5 ? 90 : index < 9 ? 120 : 180;
+    const durationNode = document.querySelector(`[data-arena-stage="${stage}"][data-arena-rule="duration_minutes"]`);
+    const rewardNode = document.querySelector(`[data-arena-stage="${stage}"][data-arena-rule="reward_cultivation"]`);
+    return {
+      realm_stage: stage,
+      duration_minutes: Number(durationNode?.value || fallbackDuration),
+      reward_cultivation: Number(rewardNode?.value || 0),
+    };
+  });
+}
+
 function collectSectRoles() {
   return [...document.querySelectorAll("#sect-role-rows .builder-row")].map((row, index) => ({
     role_key: row.querySelector("[data-role-key]").value,
@@ -1949,6 +1991,7 @@ function applySettings(settings = {}) {
   $("setting-rate").value = settings.coin_exchange_rate ?? 100;
   $("setting-fee").value = settings.exchange_fee_percent ?? 1;
   $("setting-min").value = settings.min_coin_exchange ?? 1;
+  updateExchangeSettingNote();
   $("setting-duel-bet-enabled").checked = settings.duel_bet_enabled ?? true;
   $("setting-duel-seconds").value = settings.duel_bet_seconds ?? 120;
   $("setting-duel-bet-min").value = settings.duel_bet_min_amount ?? 10;
@@ -1962,9 +2005,13 @@ function applySettings(settings = {}) {
   $("setting-message-auto-delete").value = settings.message_auto_delete_seconds ?? 180;
   $("setting-unbind-cost").value = settings.equipment_unbind_cost ?? 100;
   $("setting-broadcast").value = settings.shop_broadcast_cost ?? 20;
+  $("setting-shop-notice-group").value = settings.shop_notice_group_id ?? 0;
   $("setting-shop-name").value = settings.official_shop_name ?? "官方商店";
   $("setting-auction-fee").value = settings.auction_fee_percent ?? 5;
   $("setting-auction-duration").value = settings.auction_duration_minutes ?? 60;
+  $("setting-auction-notice-group").value = settings.auction_notice_group_id ?? 0;
+  $("setting-arena-notice-group").value = settings.arena_notice_group_id ?? 0;
+  $("setting-event-summary-interval").value = settings.event_summary_interval_minutes ?? 10;
   $("setting-task-publish-cost").value = settings.task_publish_cost ?? 20;
   $("setting-user-task-daily-limit").value = settings.user_task_daily_limit ?? 3;
   $("setting-allow-user-task-publish").checked = settings.allow_user_task_publish ?? true;
@@ -1977,9 +2024,9 @@ function applySettings(settings = {}) {
   if ($("official-shop-name")) $("official-shop-name").value = settings.official_shop_name ?? "官方商店";
   $("setting-artifact-limit").value = settings.artifact_equip_limit ?? 3;
   $("setting-user-upload").checked = Boolean(settings.allow_non_admin_image_upload);
-  $("setting-chat-chance").value = settings.chat_cultivation_chance ?? 8;
+  $("setting-chat-chance").value = settings.chat_cultivation_chance ?? 6;
   $("setting-chat-min").value = settings.chat_cultivation_min_gain ?? 1;
-  $("setting-chat-max").value = settings.chat_cultivation_max_gain ?? 3;
+  $("setting-chat-max").value = settings.chat_cultivation_max_gain ?? 2;
   $("setting-robbery-limit").value = settings.robbery_daily_limit ?? 3;
   $("setting-robbery-max").value = settings.robbery_max_steal ?? 180;
   $("setting-seclusion-efficiency").value = settings.seclusion_cultivation_efficiency_percent ?? 60;
@@ -2004,6 +2051,16 @@ function applySettings(settings = {}) {
   applyGamblingQualityRules(settings);
   applyFishingQualityRules(settings);
   applyGamblingRewardPool(settings);
+  applyArenaStageRules(settings);
+}
+
+function updateExchangeSettingNote() {
+  const rate = Math.max(Number($("setting-rate")?.value || 100), 1);
+  const min = Math.max(Number($("setting-min")?.value || 1), 1);
+  const effective = Math.max(rate, min);
+  const node = $("setting-exchange-rate-note");
+  if (!node) return;
+  node.textContent = `当前比例示例：${rate} 灵石 = 1 片刻碎片；实际最低门槛 = max(${rate}, ${min}) = ${effective} 灵石。`;
 }
 
 function renderErrorLogs(rows = []) {
@@ -2148,16 +2205,20 @@ function bindEvents() {
       min_coin_exchange: Number($("setting-min").value || 1),
       message_auto_delete_seconds: Number($("setting-message-auto-delete").value || 0),
       shop_broadcast_cost: Number($("setting-broadcast").value || 20),
+      shop_notice_group_id: Number($("setting-shop-notice-group").value || 0),
       official_shop_name: $("setting-shop-name").value.trim(),
       auction_fee_percent: Number($("setting-auction-fee").value || 0),
       auction_duration_minutes: Number($("setting-auction-duration").value || 60),
+      auction_notice_group_id: Number($("setting-auction-notice-group").value || 0),
+      arena_notice_group_id: Number($("setting-arena-notice-group").value || 0),
+      event_summary_interval_minutes: Number($("setting-event-summary-interval").value || 0),
       task_publish_cost: Number($("setting-task-publish-cost").value || 0),
       user_task_daily_limit: Number($("setting-user-task-daily-limit").value || 0),
       allow_user_task_publish: $("setting-allow-user-task-publish").checked,
       allow_non_admin_image_upload: $("setting-user-upload").checked,
-      chat_cultivation_chance: Number($("setting-chat-chance").value || 8),
+      chat_cultivation_chance: Number($("setting-chat-chance").value || 6),
       chat_cultivation_min_gain: Number($("setting-chat-min").value || 1),
-      chat_cultivation_max_gain: Number($("setting-chat-max").value || 3),
+      chat_cultivation_max_gain: Number($("setting-chat-max").value || 2),
       robbery_daily_limit: Number($("setting-robbery-limit").value || 3),
       robbery_max_steal: Number($("setting-robbery-max").value || 180),
       seclusion_cultivation_efficiency_percent: Number($("setting-seclusion-efficiency").value || 60),
@@ -2188,6 +2249,8 @@ function bindEvents() {
       $("official-shop-name").value = event.currentTarget?.value?.trim?.() || "";
     }
   });
+  $("setting-rate")?.addEventListener("input", updateExchangeSettingNote);
+  $("setting-min")?.addEventListener("input", updateExchangeSettingNote);
 
   $("duel-settings-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -2216,6 +2279,7 @@ function bindEvents() {
       sect_betrayal_stone_percent: Number($("setting-sect-betrayal-percent").value || 10),
       sect_betrayal_stone_min: Number($("setting-sect-betrayal-min").value || 20),
       sect_betrayal_stone_max: Number($("setting-sect-betrayal-max").value || 300),
+      arena_stage_rules: collectArenaStageRules(),
     }), "保存成功", "斗法与装备规则已更新。", {
       refresh: "none",
       afterSuccess: (settings) => {

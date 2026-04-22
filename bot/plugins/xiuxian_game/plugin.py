@@ -222,7 +222,6 @@ from bot.plugins.xiuxian_game.features.sects import (
     set_user_sect_role,
 )
 from bot.plugins.xiuxian_game.features.shop import (
-    broadcast_shop_copy,
     cancel_personal_auction_listing,
     create_personal_auction_listing,
     convert_emby_coin_to_stone,
@@ -273,6 +272,7 @@ from bot.ranks_helper.ranks_draw import RanksDraw
 from bot.scheduler.bot_commands import BotCommands
 from bot.sql_helper.sql_xiuxian import (
     DEFAULT_SETTINGS,
+    REALM_ORDER,
     cancel_personal_shop_item,
     create_achievement,
     create_artifact,
@@ -366,6 +366,10 @@ PENDING_DUEL_INVITES: dict[tuple[int, int], dict[str, Any]] = {}
 MESSAGE_AUTO_DELETE_TASKS: dict[tuple[int, int], asyncio.Task] = {}
 AUCTION_FINALIZE_TASKS: dict[int, asyncio.Task] = {}
 ARENA_FINALIZE_TASKS: dict[int, asyncio.Task] = {}
+EVENT_SUMMARY_MESSAGES: dict[int, int] = {}
+EVENT_SUMMARY_LAST_TEXTS: dict[int, str] = {}
+EVENT_SUMMARY_REFRESH_TASK: asyncio.Task | None = None
+EVENT_SUMMARY_LOOP_TASK: asyncio.Task | None = None
 COMMAND_DISPATCH_CACHE: dict[tuple[int, int, str], float] = {}
 DUEL_SETTLEMENT_PAGE_SIZE = 10
 STATIC_ASSET_PATTERN = re.compile(r'(/plugins/xiuxian/static/([A-Za-z0-9_.-]+\.(?:css|js)))')
@@ -379,7 +383,7 @@ XIUXIAN_BOT_COMMANDS = (
     BotCommand("duel", "回复目标发起斗法 [群聊]"),
     BotCommand("deathduel", "回复目标发起生死斗 [群聊]"),
     BotCommand("servitudeduel", "回复目标发起炉鼎斗 [群聊]"),
-    BotCommand("leitai", "开启群擂台 [群聊]"),
+    BotCommand("leitai", "开启分境界擂台 [群聊]"),
     BotCommand("caibu", "回复自己的炉鼎进行采补 [群聊]"),
     BotCommand("seek", "回复目标探查对方信息 [群聊]"),
     BotCommand("rob", "回复目标发起抢劫 [群聊]"),
@@ -787,6 +791,24 @@ def _md_escape(value: Any) -> str:
     return MARKDOWN_ESCAPE_PATTERN.sub(r"\\\1", str(value or ""))
 
 
+def _message_jump_url(chat_id: int | None, message_id: int | None) -> str | None:
+    try:
+        resolved_chat_id = int(chat_id or 0)
+        resolved_message_id = int(message_id or 0)
+    except (TypeError, ValueError):
+        return None
+    raw_chat_id = str(resolved_chat_id)
+    if resolved_message_id <= 0 or not raw_chat_id.startswith("-100"):
+        return None
+    return f"https://t.me/c/{raw_chat_id[4:]}/{resolved_message_id}"
+
+
+def _message_jump_link(label: str, chat_id: int | None, message_id: int | None) -> str:
+    url = _message_jump_url(chat_id, message_id)
+    safe_label = _md_escape(label)
+    return f"[{safe_label}]({url})" if url else safe_label
+
+
 def _format_group_profile_showcase(payload: dict[str, Any], fallback_name: str | None = None) -> str:
     profile = payload["profile"]
     effective_stats = payload.get("effective_stats") or {}
@@ -877,6 +899,34 @@ def _main_group_chat_id() -> int | None:
     if not group:
         return None
     return int(group[0])
+
+
+def _notice_group_chat_id(scope: str, fallback_chat_id: int | None = None) -> int | None:
+    key_map = {
+        "shop": "shop_notice_group_id",
+        "auction": "auction_notice_group_id",
+        "arena": "arena_notice_group_id",
+    }
+    key = key_map.get(str(scope or "").strip().lower())
+    settings = get_xiuxian_settings()
+    try:
+        configured = int(settings.get(key, 0) or 0) if key else 0
+    except (TypeError, ValueError):
+        configured = 0
+    if configured:
+        return configured
+    if fallback_chat_id:
+        return int(fallback_chat_id)
+    return _main_group_chat_id()
+
+
+def _event_summary_interval_minutes(settings: dict[str, Any] | None = None) -> int:
+    source = settings if isinstance(settings, dict) else get_xiuxian_settings()
+    try:
+        value = int(source.get("event_summary_interval_minutes", DEFAULT_SETTINGS.get("event_summary_interval_minutes", 10)) or 0)
+    except (TypeError, ValueError):
+        value = int(DEFAULT_SETTINGS.get("event_summary_interval_minutes", 10))
+    return max(value, 0)
 
 
 def _admin_panel_url() -> str:
@@ -1126,6 +1176,188 @@ async def _edit_message_text(
 ):
     edited = await client.edit_message_text(chat_id, message_id, text, **kwargs)
     return _apply_message_auto_delete(edited, persistent=persistent, seconds=auto_delete_seconds)
+
+
+def _active_notice_shop_items(chat_id: int) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in list_shop_items(official_only=False, include_disabled=False)
+        if int(item.get("notice_group_chat_id") or 0) == int(chat_id) and int(item.get("notice_group_message_id") or 0) > 0
+    ]
+
+
+def _active_notice_auctions(chat_id: int) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in list_auction_items(status="active")
+        if int(item.get("group_chat_id") or 0) == int(chat_id) and int(item.get("group_message_id") or 0) > 0
+    ]
+
+
+def _active_notice_arenas(chat_id: int) -> list[dict[str, Any]]:
+    rows = [
+        item
+        for item in list_group_arenas(status="active")
+        if int(item.get("group_chat_id") or 0) == int(chat_id) and int(item.get("group_message_id") or 0) > 0
+    ]
+    return sorted(rows, key=lambda item: REALM_ORDER.index(item.get("realm_stage")) if item.get("realm_stage") in REALM_ORDER else 999)
+
+
+def _event_summary_target_chat_ids() -> set[int]:
+    chat_ids = {int(chat_id) for chat_id in EVENT_SUMMARY_MESSAGES if int(chat_id or 0) != 0}
+    for scope in ("shop", "auction", "arena"):
+        configured = _notice_group_chat_id(scope)
+        if configured:
+            chat_ids.add(int(configured))
+    for row in list_auction_items(status="active"):
+        if int(row.get("group_chat_id") or 0):
+            chat_ids.add(int(row["group_chat_id"]))
+    for row in list_group_arenas(status="active"):
+        if int(row.get("group_chat_id") or 0):
+            chat_ids.add(int(row["group_chat_id"]))
+    for row in list_shop_items(official_only=False, include_disabled=False):
+        if int(row.get("notice_group_chat_id") or 0):
+            chat_ids.add(int(row["notice_group_chat_id"]))
+    return {chat_id for chat_id in chat_ids if chat_id}
+
+
+def _summary_remaining_text(end_at: str | None) -> str:
+    target = _parse_shanghai_datetime(end_at)
+    if target is None:
+        return "剩余未知"
+    remaining = max(int((target - datetime.now(SHANGHAI_TZ)).total_seconds()), 0)
+    if remaining <= 0:
+        return "已到时"
+    hours, rem = divmod(remaining, 3600)
+    minutes = max(rem // 60, 0)
+    if hours > 0:
+        return f"剩 {hours}时{minutes}分"
+    return f"剩 {max(minutes, 1)}分"
+
+
+def _build_event_summary_text(chat_id: int) -> str:
+    auctions = _active_notice_auctions(chat_id)
+    arenas = _active_notice_arenas(chat_id)
+    shops = _active_notice_shop_items(chat_id)
+    lines = [
+        "🗂️ **仙市汇总**",
+        f"🕰️ 刷新：`{datetime.now(SHANGHAI_TZ).strftime('%m-%d %H:%M')}`",
+    ]
+    if not auctions and not arenas and not shops:
+        lines.append("")
+        lines.append("当前暂无进行中的拍卖、擂台或小铺通知。")
+        return "\n".join(lines)
+
+    if auctions:
+        lines.append("")
+        lines.append(f"🏺 拍卖行：`{len(auctions)}` 场")
+        for row in auctions[:8]:
+            label = f"{row.get('item_name') or '未知拍品'} · {int(row.get('current_display_price_stone') or 0)}灵石"
+            detail = _summary_remaining_text(row.get("end_at"))
+            lines.append(
+                f"• {_message_jump_link(label, int(row.get('group_chat_id') or 0), int(row.get('group_message_id') or 0))} · {detail}"
+            )
+        if len(auctions) > 8:
+            lines.append(f"• 其余还有 `{len(auctions) - 8}` 场拍卖进行中")
+
+    if arenas:
+        lines.append("")
+        lines.append(f"🏟️ 擂台：`{len(arenas)}` 座")
+        for row in arenas[:8]:
+            champion_name = str(row.get("champion_display_name") or "").strip() or f"TG {int(row.get('champion_tg') or 0)}"
+            label = f"{row.get('realm_stage') or '未知'}擂台 · {champion_name}"
+            detail = _summary_remaining_text(row.get("end_at"))
+            lines.append(
+                f"• {_message_jump_link(label, int(row.get('group_chat_id') or 0), int(row.get('group_message_id') or 0))} · {detail}"
+            )
+        if len(arenas) > 8:
+            lines.append(f"• 其余还有 `{len(arenas) - 8}` 座擂台开放中")
+
+    if shops:
+        lines.append("")
+        lines.append(f"🏪 小铺子：`{len(shops)}` 条")
+        for row in shops[:8]:
+            label = f"{row.get('shop_name') or '游仙小铺'} · {row.get('item_name') or '未知商品'}"
+            detail = f"{int(row.get('price_stone') or 0)}灵石 / 余 {int(row.get('quantity') or 0)}"
+            lines.append(
+                f"• {_message_jump_link(label, int(row.get('notice_group_chat_id') or 0), int(row.get('notice_group_message_id') or 0))} · {detail}"
+            )
+        if len(shops) > 8:
+            lines.append(f"• 其余还有 `{len(shops) - 8}` 条小铺通知")
+
+    lines.append("")
+    lines.append("点击蓝字可直接跳到原消息进行购买、竞拍或攻擂。")
+    return "\n".join(lines)
+
+
+async def _refresh_event_summary_for_chat(chat_id: int) -> None:
+    resolved_chat_id = int(chat_id or 0)
+    if not resolved_chat_id:
+        return
+    text = _build_event_summary_text(resolved_chat_id)
+    message_id = int(EVENT_SUMMARY_MESSAGES.get(resolved_chat_id) or 0)
+    if message_id > 0:
+        if EVENT_SUMMARY_LAST_TEXTS.get(resolved_chat_id) == text:
+            return
+        try:
+            await _edit_message_text(
+                bot,
+                resolved_chat_id,
+                message_id,
+                text,
+                parse_mode=RICH_TEXT_MODE,
+                persistent=True,
+            )
+            EVENT_SUMMARY_LAST_TEXTS[resolved_chat_id] = text
+            return
+        except Exception as exc:
+            LOGGER.warning(f"xiuxian event summary refresh failed chat={resolved_chat_id} message={message_id}: {exc}")
+            EVENT_SUMMARY_MESSAGES.pop(resolved_chat_id, None)
+            EVENT_SUMMARY_LAST_TEXTS.pop(resolved_chat_id, None)
+    has_active_rows = any(
+        (
+            _active_notice_auctions(resolved_chat_id),
+            _active_notice_arenas(resolved_chat_id),
+            _active_notice_shop_items(resolved_chat_id),
+        )
+    )
+    if not has_active_rows:
+        return
+    sent = await _send_message(bot, resolved_chat_id, text, parse_mode=RICH_TEXT_MODE, persistent=True)
+    EVENT_SUMMARY_MESSAGES[resolved_chat_id] = int(sent.id)
+    EVENT_SUMMARY_LAST_TEXTS[resolved_chat_id] = text
+
+
+async def _refresh_all_event_summaries() -> None:
+    for chat_id in sorted(_event_summary_target_chat_ids()):
+        try:
+            await _refresh_event_summary_for_chat(chat_id)
+        except Exception as exc:
+            LOGGER.warning(f"xiuxian event summary update failed chat={chat_id}: {exc}")
+
+
+def _queue_event_summary_refresh(delay_seconds: float = 1.5) -> None:
+    global EVENT_SUMMARY_REFRESH_TASK
+    if _event_summary_interval_minutes() <= 0:
+        return
+    existing = EVENT_SUMMARY_REFRESH_TASK
+    if existing is not None and not existing.done():
+        return
+
+    async def runner() -> None:
+        try:
+            if delay_seconds > 0:
+                await asyncio.sleep(delay_seconds)
+            await _refresh_all_event_summaries()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            LOGGER.warning(f"xiuxian event summary queue refresh failed: {exc}")
+        finally:
+            if EVENT_SUMMARY_REFRESH_TASK is asyncio.current_task():
+                globals()["EVENT_SUMMARY_REFRESH_TASK"] = None
+
+    EVENT_SUMMARY_REFRESH_TASK = asyncio.create_task(runner())
 
 
 def _duel_settlement_total_pages(bet_settlement: dict[str, Any] | None) -> int:
@@ -1429,6 +1661,76 @@ def _encounter_keyboard(instance_id: int, button_text: str | None = None) -> Inl
     )
 
 
+def _shop_notice_text(item: dict[str, Any]) -> str:
+    item = item or {}
+    quantity = max(int(item.get("quantity") or 0), 0)
+    enabled = bool(item.get("enabled")) and quantity > 0
+    status_text = "上架中" if enabled else "已结束"
+    lines = [
+        "🏪 **小铺子**",
+        f"🛍️ 店名：{_md_escape(item.get('shop_name') or '游仙小铺')}",
+        f"📦 商品：**{_md_escape(item.get('item_name') or '未知商品')}** × `{quantity}`",
+        f"📚 类型：{_md_escape(item.get('item_kind_label') or item.get('item_kind') or '商品')}",
+        f"💰 售价：`{int(item.get('price_stone') or 0)}` 灵石 / 件",
+        f"🪧 状态：{_md_escape(status_text)}",
+    ]
+    if enabled:
+        lines.append("点击下方按钮可直接购买 1 件，库存会随成交自动刷新。")
+    else:
+        lines.append("这条小铺通知已结束，按钮已自动关闭。")
+    return "\n".join(lines)
+
+
+def _shop_notice_keyboard(item: dict[str, Any]) -> InlineKeyboardMarkup | None:
+    item = item or {}
+    if not bool(item.get("enabled")) or int(item.get("quantity") or 0) <= 0:
+        return None
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton(f"🛒 购买 1 件 · {int(item.get('price_stone') or 0)} 灵石", callback_data=f"xiuxian:shop:buy:{int(item.get('id') or 0)}")]]
+    )
+
+
+async def _refresh_shop_notice_message(item: dict[str, Any]) -> None:
+    item = item or {}
+    chat_id = int(item.get("notice_group_chat_id") or 0)
+    message_id = int(item.get("notice_group_message_id") or 0)
+    if not chat_id or not message_id:
+        return
+    try:
+        await _edit_message_text(
+            bot,
+            chat_id,
+            message_id,
+            _shop_notice_text(item),
+            reply_markup=_shop_notice_keyboard(item),
+            parse_mode=RICH_TEXT_MODE,
+            persistent=True,
+        )
+    except Exception as exc:
+        LOGGER.warning(f"xiuxian shop notice refresh failed item={item.get('id')} chat={chat_id}: {exc}")
+
+
+async def _push_shop_notice_to_group(item: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+    chat_id = int(item.get("notice_group_chat_id") or _notice_group_chat_id("shop") or 0)
+    if not chat_id:
+        raise ValueError("未配置小铺通知群，无法推送商品通知。")
+    sent = await _send_message(
+        bot,
+        chat_id,
+        _shop_notice_text(item),
+        reply_markup=_shop_notice_keyboard(item),
+        parse_mode=RICH_TEXT_MODE,
+        persistent=True,
+    )
+    updated = patch_shop_listing(int(item["id"]), notice_group_chat_id=chat_id, notice_group_message_id=sent.id) or {
+        **item,
+        "notice_group_chat_id": chat_id,
+        "notice_group_message_id": sent.id,
+    }
+    _queue_event_summary_refresh()
+    return updated, None
+
+
 def _auction_time_text(value: str | None) -> str:
     dt = _parse_shanghai_datetime(value)
     if dt is None:
@@ -1590,7 +1892,7 @@ async def _finalize_auction_flow(result: dict[str, Any] | None) -> None:
     await _unpin_auction_group_message(auction)
 
     outcome = str(result.get("result") or "")
-    chat_id = int(auction.get("group_chat_id") or _main_group_chat_id() or 0)
+    chat_id = int(auction.get("group_chat_id") or _notice_group_chat_id("auction") or 0)
     winner_tg = int(result.get("winner_tg") or 0)
     seller_tg = int(result.get("seller_tg") or 0)
     item_name = str(auction.get("item_name") or "未知拍品")
@@ -1635,6 +1937,7 @@ async def _finalize_auction_flow(result: dict[str, Any] | None) -> None:
                 )
             except Exception as exc:
                 LOGGER.warning(f"xiuxian auction seller notify failed tg={seller_tg}: {exc}")
+        _queue_event_summary_refresh()
         return
 
     if outcome == "expired" and seller_tg > 0:
@@ -1642,6 +1945,7 @@ async def _finalize_auction_flow(result: dict[str, Any] | None) -> None:
             await _send_message(bot, seller_tg, f"⌛ 你的拍卖【{item_name}】已流拍，拍品已退回背包。", persistent=True)
         except Exception as exc:
             LOGGER.warning(f"xiuxian auction expire notify failed tg={seller_tg}: {exc}")
+    _queue_event_summary_refresh()
 
 
 def _queue_auction_finalize_task(auction: dict[str, Any] | None) -> None:
@@ -1684,9 +1988,9 @@ def _schedule_active_auction_finalize_tasks() -> None:
 
 
 async def _push_auction_to_group(auction: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
-    chat_id = int(auction.get("group_chat_id") or _main_group_chat_id() or 0)
+    chat_id = int(auction.get("group_chat_id") or _notice_group_chat_id("auction") or 0)
     if not chat_id:
-        raise ValueError("未配置修仙群组，无法推送拍卖消息。")
+        raise ValueError("未配置拍卖通知群，无法推送拍卖消息。")
     sent = await _send_message(
         bot,
         chat_id,
@@ -1702,6 +2006,7 @@ async def _push_auction_to_group(auction: dict[str, Any]) -> tuple[dict[str, Any
     }
     pin_warning = await _pin_auction_group_message(chat_id, sent.id)
     _queue_auction_finalize_task(updated)
+    _queue_event_summary_refresh()
     return updated, pin_warning
 
 
@@ -1733,6 +2038,8 @@ def _arena_keyboard(arena: dict[str, Any]) -> InlineKeyboardMarkup | None:
 
 def _arena_group_text(arena: dict[str, Any]) -> str:
     arena = arena or {}
+    arena_stage = str(arena.get("realm_stage") or "炼气").strip() or "炼气"
+    reward_cultivation = int(arena.get("reward_cultivation") or 0)
     champion_tg = int(arena.get("champion_tg") or 0)
     champion_name = str(arena.get("champion_display_name") or "").strip() or f"TG {champion_tg}"
     settings = get_xiuxian_settings()
@@ -1760,17 +2067,19 @@ def _arena_group_text(arena: dict[str, Any]) -> str:
     end_at = _parse_shanghai_datetime(arena.get("end_at"))
     end_text = end_at.strftime("%m-%d %H:%M") if end_at else "未知"
     status_label = str(arena.get("status_label") or "开放挑战").strip()
-    footer = "群内任意道友都可点击下方按钮攻擂，胜者自动接掌擂主之位。"
+    footer = f"仅限 {arena_stage} 大境界修士点击下方按钮攻擂，修为过高或过低都无法参加。"
     if str(arena.get("status") or "") != "active":
         footer = "本期擂台已经落幕，等待下一位擂主重新开坛。"
     return "\n".join(
         [
-            "🏟️ **群擂台**",
+            f"🏟️ **{_md_escape(arena_stage)}擂台**",
+            f"🎯 准入：仅限 `{_md_escape(arena_stage)}` 修士",
             f"👑 当前擂主：{_md_escape(champion_name)}",
-            f"🏯 境界：{_md_escape(realm_text)} ｜ ⚔️ 战力：`{combat_power}`",
+            f"🏯 擂主境界：{_md_escape(realm_text)} ｜ ⚔️ 战力：`{combat_power}`",
             f"📣 开擂者：{_md_escape(opener_name)}",
             f"🛡️ 守擂成功：`{defense_count}` ｜ 🔁 易主次数：`{change_count}` ｜ ⚔️ 总挑战：`{challenge_count}`",
             f"⏳ 状态：{_md_escape(status_label)} ｜ 剩余：`{_arena_remaining_text(arena)}`",
+            f"🎁 落幕奖励：`+{reward_cultivation}` 修为",
             (
                 f"🎫 手续费：开擂 `{arena_open_fee_stone}` 灵石 ｜ 攻擂 `{arena_challenge_fee_stone}` 灵石"
                 if arena_open_fee_stone > 0 or arena_challenge_fee_stone > 0
@@ -1841,15 +2150,18 @@ async def _finalize_arena_flow(result: dict[str, Any] | None) -> None:
     await _unpin_arena_group_message(arena)
 
     outcome = str(result.get("result") or "")
-    chat_id = int(arena.get("group_chat_id") or _main_group_chat_id() or 0)
+    chat_id = int(arena.get("group_chat_id") or _notice_group_chat_id("arena") or 0)
     if chat_id and outcome == "finished":
         lines = [
             "🏁 **擂台落幕**",
+            f"🏟️ 境界：`{_md_escape(arena.get('realm_stage') or '炼气')}`",
             f"👑 最终擂主：{_md_escape(result.get('champion_name') or arena.get('champion_display_name') or '未知擂主')}",
             f"🛡️ 守擂成功：`{int(result.get('defense_success_count') or 0)}` ｜ ⚔️ 总挑战：`{int(result.get('challenge_count') or 0)}`",
-            f"💎 奖励：`{int(result.get('stone_reward') or 0)}` 灵石",
-            f"🍀 本次结算参考机缘：`{int(result.get('fortune_used') or 0)}`",
+            f"🌿 奖励：`+{int(result.get('cultivation_reward') or 0)}` 修为",
         ]
+        upgraded_layers = list(result.get("upgraded_layers") or [])
+        if upgraded_layers:
+            lines.append(f"📈 擂主本次直升至 `{int(upgraded_layers[-1] or 0)}` 层")
         await _send_message(bot, chat_id, "\n".join(lines), parse_mode=RICH_TEXT_MODE, persistent=True)
     elif chat_id and outcome == "finished_no_reward":
         await _send_message(
@@ -1875,6 +2187,7 @@ async def _finalize_arena_flow(result: dict[str, Any] | None) -> None:
         )
 
     await _notify_achievement_unlocks(result.get("achievement_unlocks"))
+    _queue_event_summary_refresh()
 
 
 def _queue_arena_finalize_task(arena: dict[str, Any] | None) -> None:
@@ -1924,9 +2237,9 @@ def _schedule_active_arena_finalize_tasks() -> None:
 
 
 async def _push_arena_to_group(arena: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
-    chat_id = int(arena.get("group_chat_id") or _main_group_chat_id() or 0)
+    chat_id = int(arena.get("group_chat_id") or _notice_group_chat_id("arena") or 0)
     if not chat_id:
-        raise ValueError("未配置修仙群组，无法推送擂台消息。")
+        raise ValueError("未配置擂台通知群，无法推送擂台消息。")
     sent = await _send_message(
         bot,
         chat_id,
@@ -1942,6 +2255,7 @@ async def _push_arena_to_group(arena: dict[str, Any]) -> tuple[dict[str, Any], s
     }
     pin_warning = await _pin_arena_group_message(chat_id, sent.id)
     _queue_arena_finalize_task(updated)
+    _queue_event_summary_refresh()
     return updated, pin_warning
 
 
@@ -2808,10 +3122,31 @@ async def _maybe_refresh_duel_bet_message(pool_id: int, message, remaining_secon
 
 
 def register_bot(bot_instance) -> None:
+    global EVENT_SUMMARY_LOOP_TASK
     _ensure_xiuxian_bot_commands()
     _schedule_command_refresh(bot_instance)
     _schedule_active_auction_finalize_tasks()
     _schedule_active_arena_finalize_tasks()
+    if EVENT_SUMMARY_LOOP_TASK is None or EVENT_SUMMARY_LOOP_TASK.done():
+        loop = asyncio.get_event_loop()
+
+        async def refresh_event_summary_loop() -> None:
+            while True:
+                try:
+                    interval_minutes = _event_summary_interval_minutes()
+                    if interval_minutes > 0:
+                        await _refresh_all_event_summaries()
+                        await asyncio.sleep(interval_minutes * 60)
+                    else:
+                        await asyncio.sleep(60)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    LOGGER.warning(f"xiuxian event summary loop failed: {exc}")
+                    await asyncio.sleep(60)
+
+        EVENT_SUMMARY_LOOP_TASK = loop.create_task(refresh_event_summary_loop())
+    _queue_event_summary_refresh(0.2)
 
     async def refresh_duel_bet_countdown(pool_id: int, message, bets_close_at: str | None) -> None:
         close_at = _parse_shanghai_datetime(bets_close_at)
@@ -3260,12 +3595,8 @@ def register_bot(bot_instance) -> None:
             actor = await _require_message_user(msg, action_text="开设擂台")
             if actor is None:
                 return
-            duration_minutes = 120
             if len(msg.command or []) > 1:
-                raw = str(msg.command[1] or "").strip()
-                if not re.fullmatch(r"\d+", raw):
-                    return await _reply_text(msg, "用法：/leitai [持续分钟]，例如 /leitai 90", quote=True)
-                duration_minutes = int(raw)
+                return await _reply_text(msg, "新版擂台时长改为后台按境界配置，直接使用 /leitai 即可。", quote=True)
             actor_name = " ".join(part for part in [actor.first_name, actor.last_name] if part).strip()
             if not actor_name:
                 actor_name = f"@{actor.username}" if getattr(actor, "username", None) else f"TG {actor.id}"
@@ -3273,9 +3604,8 @@ def register_bot(bot_instance) -> None:
             try:
                 opened = open_group_arena_for_user(
                     actor.id,
-                    group_chat_id=msg.chat.id,
+                    group_chat_id=_notice_group_chat_id("arena", fallback_chat_id=msg.chat.id) or msg.chat.id,
                     champion_display_name=actor_name,
-                    duration_minutes=duration_minutes,
                 )
                 arena_payload = opened.get("arena") or {}
                 try:
@@ -3295,8 +3625,8 @@ def register_bot(bot_instance) -> None:
                 end_at = _parse_shanghai_datetime(arena_payload.get("end_at"))
                 end_text = end_at.strftime("%m-%d %H:%M") if end_at else str(arena_payload.get("end_at") or "未知")
                 success_lines = [
-                    f"群擂台已开启，持续约 {int(arena_payload.get('duration_minutes') or duration_minutes)} 分钟。",
-                    f"你已登上首任擂主之位，结算时刻约为 {end_text}。",
+                    f"{arena_payload.get('realm_stage') or '炼气'}擂台已开启，持续约 {int(arena_payload.get('duration_minutes') or 0)} 分钟。",
+                    f"你已登上首任擂主之位，结算时刻约为 {end_text}，落幕奖励修为 +{int(arena_payload.get('reward_cultivation') or 0)}。",
                 ]
                 if int(opened.get("open_fee_stone") or 0) > 0:
                     success_lines.append(f"本次已扣除 {int(opened.get('open_fee_stone') or 0)} 灵石开擂手续费。")
@@ -3529,6 +3859,37 @@ def register_bot(bot_instance) -> None:
         except Exception as exc:
             await callAnswer(call, str(exc), True)
 
+    @bot_instance.on_callback_query(filters.regex(r"^xiuxian:shop:buy:(\d+)$"))
+    async def xiuxian_shop_buy_callback(_, call):
+        item_id = int(call.matches[0].group(1))
+        buyer = getattr(call, "from_user", None)
+        if buyer is None:
+            return await callAnswer(call, "当前无法识别你的 TG 身份。", True)
+        try:
+            result = purchase_shop_item(buyer.id, item_id, 1)
+        except Exception as exc:
+            return await callAnswer(call, str(exc) or "购买失败", True)
+
+        item = result.get("item") or {}
+        await _refresh_shop_notice_message(item)
+        _queue_event_summary_refresh()
+        _remember_journal(buyer.id, "shop", "购买商品", f"购买了【{item.get('item_name') or '未知商品'}】")
+        seller_tg = int(result.get("seller_tg") or 0)
+        if seller_tg > 0 and seller_tg != int(buyer.id):
+            try:
+                await _send_message(
+                    bot,
+                    seller_tg,
+                    f"你的商品【{item.get('item_name') or '未知商品'}】已被 {result.get('buyer_name') or '道友'} 购买，到账 {int(result.get('total_cost') or 0)} 灵石。",
+                    persistent=True,
+                )
+            except Exception as exc:
+                LOGGER.warning(f"xiuxian shop seller notify failed tg={seller_tg}: {exc}")
+        remaining = int(item.get("quantity") or 0)
+        if remaining > 0:
+            return await callAnswer(call, f"购买成功，剩余库存 {remaining}。")
+        return await callAnswer(call, "购买成功，这件商品已经售罄。")
+
     @bot_instance.on_callback_query(filters.regex(r"^xiuxian:auction:(bid|buyout):(\d+)$"))
     async def xiuxian_auction_callback(_, call):
         action = str(call.matches[0].group(1) or "bid").strip().lower()
@@ -3563,6 +3924,7 @@ def register_bot(bot_instance) -> None:
         outcome = str(result.get("result") or "")
         if outcome == "bid":
             await _refresh_auction_group_message(auction)
+            _queue_event_summary_refresh()
             current_price = int(auction.get("current_display_price_stone") or 0)
             return await callAnswer(call, f"已出价，当前价格 {current_price} 灵石。")
 
@@ -3605,6 +3967,7 @@ def register_bot(bot_instance) -> None:
                 await _finalize_arena_flow(finalized)
         else:
             await _refresh_arena_group_message(arena)
+            _queue_event_summary_refresh()
 
         await _notify_achievement_unlocks(result.get("achievement_unlocks"))
         fee_notice = int(result.get("challenge_fee_stone") or 0)
@@ -4572,25 +4935,18 @@ def register_web(app) -> None:
             price_stone=payload.price_stone,
             broadcast=payload.broadcast,
         )
+        push_warning = None
 
         if payload.broadcast:
             try:
-                await _send_message(
-                    bot,
-                    group[0],
-                    broadcast_shop_copy(
-                        telegram_user.get("first_name", "道友"),
-                        result["listing"]["shop_name"],
-                        result["listing"]["item_name"],
-                        result["listing"]["price_stone"],
-                    ),
-                    parse_mode=RICH_TEXT_MODE,
-                )
+                listing, push_warning = await _push_shop_notice_to_group(result["listing"])
+                result["listing"] = listing
             except Exception as exc:
-                LOGGER.warning(f"修仙坊市全群播报发送失败: {exc}")
+                push_warning = str(exc) or "小铺通知推送失败。"
+                LOGGER.warning(f"xiuxian shop notice push failed: {exc}")
 
         _remember_journal(telegram_user["id"], "shop", "上架商品", f"上架了【{result['listing']['item_name']}】")
-        return {"code": 200, "data": _with_full_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_full_bundle(telegram_user["id"], {**result, "push_warning": push_warning})}
 
     @user_router.post("/api/auction/personal")
     async def xiuxian_personal_auction_api(payload: PersonalAuctionPayload):
@@ -4642,6 +4998,8 @@ def register_web(app) -> None:
     async def xiuxian_cancel_listing_api(payload: ShopCancelPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = cancel_personal_shop_item(telegram_user["id"], payload.item_id)
+        await _refresh_shop_notice_message((result or {}).get("item") or {})
+        _queue_event_summary_refresh()
         _remember_journal(telegram_user["id"], "shop", "取消上架", f"取消了商品 #{payload.item_id} 的上架")
         return {"code": 200, "data": {"result": result, "bundle": _full_bundle(telegram_user["id"])}}
 
@@ -4649,6 +5007,8 @@ def register_web(app) -> None:
     async def xiuxian_purchase_api(payload: PurchasePayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = purchase_shop_item(telegram_user["id"], payload.item_id, payload.quantity)
+        await _refresh_shop_notice_message((result or {}).get("item") or {})
+        _queue_event_summary_refresh()
         _remember_journal(telegram_user["id"], "shop", "购买商品", f"购买了【{result['item']['item_name']}】")
         seller_tg = result.get("seller_tg")
         if seller_tg and int(seller_tg) != int(telegram_user["id"]):
