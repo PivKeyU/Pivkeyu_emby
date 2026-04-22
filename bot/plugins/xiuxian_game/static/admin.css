@@ -187,6 +187,18 @@ h2 {
   align-items: start;
 }
 
+.settings-toolbar {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-toolbar label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .setting-panel {
   display: grid;
   gap: 12px;
@@ -209,6 +221,13 @@ h2 {
   gap: 10px;
 }
 
+.setting-panel-toggle {
+  width: auto;
+  min-width: 72px;
+  flex: 0 0 auto;
+  padding: 8px 10px;
+}
+
 .setting-panel-head strong {
   display: block;
   font-size: 15px;
@@ -225,6 +244,15 @@ h2 {
   display: grid;
   gap: 10px;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.setting-panel.is-collapsed > :not(.setting-panel-head) {
+  display: none;
+}
+
+.setting-panel.is-hidden-setting-panel,
+.is-hidden-setting-match {
+  display: none !important;
 }
 
 .grid-form label,

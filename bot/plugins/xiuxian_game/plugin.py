@@ -4478,9 +4478,8 @@ def register_web(app) -> None:
     @user_router.post("/api/bootstrap")
     async def xiuxian_bootstrap(payload: InitDataPayload):
         telegram_user = await run_in_threadpool(_verify_user_from_init_data, payload.init_data)
-        profile, initial_leaderboard, bottom_nav = await asyncio.gather(
+        profile, bottom_nav = await asyncio.gather(
             run_in_threadpool(_bootstrap_core_bundle, telegram_user["id"]),
-            run_in_threadpool(build_leaderboard, "stone", 1),
             run_in_threadpool(_build_bottom_nav),
         )
         return {
@@ -4488,7 +4487,6 @@ def register_web(app) -> None:
             "data": {
                 "telegram_user": telegram_user,
                 "profile_bundle": profile,
-                "initial_leaderboard": initial_leaderboard,
                 "app_url": build_plugin_url("/plugins/xiuxian/app"),
                 "admin_panel_url": _admin_panel_url() if is_admin_user_id(telegram_user["id"]) else None,
                 "home_url": build_plugin_url("/miniapp"),
@@ -5038,8 +5036,8 @@ def register_web(app) -> None:
         _remember_journal(
             telegram_user["id"],
             "shop",
-            "官方回收",
-            f"回收了【{result.get('item_name') or '未知物品'}】x{result.get('quantity') or 0}，到账 {result.get('total_price_stone') or 0} 灵石",
+            "万宝归炉",
+            f"归炉了【{result.get('item_name') or '未知物品'}】x{result.get('quantity') or 0}，到账 {result.get('total_price_stone') or 0} 灵石",
         )
         return {"code": 200, "data": {"result": result, "bundle": _full_bundle(telegram_user["id"])}}
 

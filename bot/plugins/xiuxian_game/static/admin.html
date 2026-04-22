@@ -72,11 +72,17 @@
         <span class="summary-tip">兑换、广播、聊天成长、掉落倍率与上传权限</span>
       </summary>
       <div class="fold-body">
+        <div class="settings-toolbar">
+          <label>
+            搜索基础设定
+            <input id="settings-search" type="search" placeholder="搜索兑换、广播、掉落、奇石、垂钓或上传权限">
+          </label>
+        </div>
         <form id="settings-form" class="grid-form settings-layout">
           <section class="setting-panel">
             <div class="setting-panel-head">
               <div>
-                <strong>货币与消息</strong>
+                <strong>灵石互兑与交易通告</strong>
                 <p>兑换比例、手续费、商店广播和消息清理。</p>
               </div>
             </div>
@@ -152,7 +158,7 @@
           <section class="setting-panel">
             <div class="setting-panel-head">
               <div>
-                <strong>聊天与日常事件</strong>
+                <strong>日常修炼与群内事件</strong>
                 <p>群聊修炼、抢劫和红包奖励统一管理。</p>
               </div>
             </div>
@@ -191,7 +197,7 @@
           <section class="setting-panel setting-panel--full">
             <div class="setting-panel-head">
               <div>
-                <strong>倍率与掉落规则</strong>
+                <strong>灵根、品阶与掉落公式</strong>
                 <p>灵根、品质与探索掉落的数值规则集中管理。</p>
               </div>
             </div>
@@ -228,7 +234,7 @@
           <section class="setting-panel setting-panel--full">
             <div class="setting-panel-head">
               <div>
-                <strong>仙界奇石与垂钓</strong>
+                <strong>奇石、垂钓与共享奖池</strong>
                 <p>奇石和垂钓共用一套奖池，可分别调权重、开关与高品压制规则，手机端也能直接改。</p>
               </div>
             </div>
@@ -324,12 +330,18 @@
         <span class="summary-tip">把斗法倒计时、擂台手续费、掠夺比例、法宝位和解绑成本独立管理</span>
       </summary>
       <div class="fold-body">
+        <div class="settings-toolbar">
+          <label>
+            搜索斗法设定
+            <input id="duel-settings-search" type="search" placeholder="搜索下注、擂台、掠夺、装备、炉鼎、重修或宗门">
+          </label>
+        </div>
         <form id="duel-settings-form" class="grid-form settings-layout">
           <section class="setting-panel setting-panel--full">
             <div class="setting-panel-head">
               <div>
-                <strong>斗法核心参数</strong>
-                <p>影响赌斗节奏、擂台收费、法宝掠夺和装备管理成本。</p>
+                <strong>下注与擂台节奏</strong>
+                <p>赌斗开关、下注挡位、邀请时限和擂台收费。</p>
               </div>
             </div>
             <div class="setting-panel-grid">
@@ -365,6 +377,16 @@
                 攻擂手续费（灵石）
                 <input id="setting-arena-challenge-fee" type="number" min="0" value="0">
               </label>
+            </div>
+          </section>
+          <section class="setting-panel setting-panel--full">
+            <div class="setting-panel-head">
+              <div>
+                <strong>掠夺与装备管理</strong>
+                <p>胜者掠夺、法宝掉落概率、装备位、解绑费用和高品质群播。</p>
+              </div>
+            </div>
+            <div class="setting-panel-grid">
               <label>
                 胜者额外掠夺比例（%）
                 <input id="setting-duel-steal" type="number" min="0" max="100" value="25">
@@ -385,6 +407,16 @@
                 高品质群播阈值
                 <input id="setting-quality-broadcast" type="number" min="1" value="4">
               </label>
+            </div>
+          </section>
+          <section class="setting-panel setting-panel--full">
+            <div class="setting-panel-head">
+              <div>
+                <strong>炉鼎与转世重修</strong>
+                <p>炉鼎上供、采补、脱离挑战冷却和转世冷却递增。</p>
+              </div>
+            </div>
+            <div class="setting-panel-grid">
               <label>
                 炉鼎上供比例（%）
                 <input id="setting-slave-tribute" type="number" min="0" max="100" value="20">
@@ -409,6 +441,16 @@
                 每次重修递增（小时）
                 <input id="setting-rebirth-cooldown-increment" type="number" min="0" max="8760" value="6">
               </label>
+            </div>
+          </section>
+          <section class="setting-panel setting-panel--full">
+            <div class="setting-panel-head">
+              <div>
+                <strong>宗门供奉规则</strong>
+                <p>宗门月俸考察期、叛宗冷却和叛宗供奉上下限。</p>
+              </div>
+            </div>
+            <div class="setting-panel-grid">
               <label>
                 宗门月俸考察期（天）
                 <input id="setting-sect-salary-stay" type="number" min="1" max="3650" value="30">

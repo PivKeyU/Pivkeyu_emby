@@ -561,12 +561,12 @@
             <p class="eyebrow">官方供给</p>
             <h2 id="official-shop-title">官方商店</h2>
           </div>
-          <span class="summary-tip">官方上架区与回收入口</span>
+          <span class="summary-tip">官方上架区与归炉入口</span>
         </summary>
         <div class="fold-body">
           <div class="inline-action-buttons">
-            <p class="section-copy">官方商品购买价会按品阶与属性自动估价，背包里多余的法宝、符箓、丹药、材料也可按同体系折价回收成灵石。</p>
-            <button id="official-recycle-jump-from-shop" type="button" class="ghost">前往官网回收</button>
+            <p class="section-copy">官方商品购买价会按品阶与属性自动估价，背包里多余的法宝、符箓、丹药、材料、功法与配方也可按同体系投入万宝归炉。</p>
+            <button id="official-recycle-jump-from-shop" type="button" class="ghost">前往万宝归炉</button>
           </div>
           <div id="official-shop-list" class="stack-list"></div>
         </div>
@@ -575,22 +575,24 @@
       <details id="official-recycle-card" class="card fold-card hidden">
         <summary class="fold-summary">
           <div>
-            <p class="eyebrow">官方回收</p>
-            <h2>官网回收</h2>
+            <p class="eyebrow">炼器归藏</p>
+            <h2>万宝归炉</h2>
           </div>
-          <span class="summary-tip">按品阶和属性自动折价</span>
+          <span class="summary-tip">万物入炉，折算灵石</span>
         </summary>
         <div class="fold-body">
-          <p id="official-recycle-hint" class="section-copy">官方会按物品品阶与属性自动折价回收，回收价会明显低于购买价，避免高价套利。</p>
+          <p id="official-recycle-hint" class="section-copy">万宝归炉会按物品品阶与属性自动折价，归炉价会明显低于购买价，避免高价套利。</p>
           <form id="official-recycle-form" class="mini-form">
             <div class="compact-grid">
               <label>
-                回收类型
+                归炉类型
                 <select id="official-recycle-kind">
                   <option value="artifact">法宝</option>
                   <option value="talisman">符箓</option>
                   <option value="pill">丹药</option>
                   <option value="material">材料</option>
+                  <option value="technique">功法</option>
+                  <option value="recipe">配方</option>
                 </select>
               </label>
               <label>
@@ -603,15 +605,24 @@
               </label>
               <label class="wide-field">
                 当前报价
-                <input id="official-recycle-preview" type="text" value="请选择可回收物品" readonly>
+                <input id="official-recycle-preview" type="text" value="请选择可归炉物品" readonly>
               </label>
             </div>
-            <button type="submit">提交给官网回收</button>
+            <button type="submit">投入万宝炉</button>
           </form>
-          <section>
-            <h3>可回收报价</h3>
-            <div id="official-recycle-list" class="stack-list"></div>
-          </section>
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>万宝炉报价</h3>
+              <span class="summary-tip">按类型分组，可搜索名称、品阶、类型</span>
+            </summary>
+            <div class="mini-fold-body">
+              <label class="wide-field">
+                搜索报价
+                <input id="official-recycle-search" type="search" placeholder="搜索名称、品阶、类型或说明">
+              </label>
+              <div id="official-recycle-list" class="stack-list recycle-quote-list"></div>
+            </div>
+          </details>
         </div>
       </details>
 
@@ -621,12 +632,12 @@
             <p class="eyebrow">交易往来</p>
             <h2>坊市</h2>
           </div>
-          <span class="summary-tip">个人店铺、群修市集与回收跳转</span>
+          <span class="summary-tip">个人店铺、群修市集与归炉跳转</span>
         </summary>
         <div class="fold-body">
           <div class="inline-action-buttons">
-            <p class="section-copy">不想上架或卖不动的物品，可直接前往官网回收。</p>
-            <button id="official-recycle-jump-from-market" type="button" class="ghost">去官网回收</button>
+            <p class="section-copy">不想上架或卖不动的物品，可直接投入万宝归炉换成灵石。</p>
+            <button id="official-recycle-jump-from-market" type="button" class="ghost">去万宝归炉</button>
           </div>
           <form id="personal-shop-form" class="mini-form">
             <div class="compact-grid">

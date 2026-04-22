@@ -2164,8 +2164,107 @@ async function submitAndRefresh(handler, successTitle, successMessage, { refresh
   return result;
 }
 
+function normalizeSettingSearchQuery(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function collectSettingSearchText(node) {
+  if (!node) return "";
+  const pieces = [
+    node.textContent || "",
+    node.id || "",
+    node.className || "",
+    node.getAttribute?.("data-setting-tags") || "",
+  ];
+  node.querySelectorAll?.("input, select, textarea, button").forEach((field) => {
+    pieces.push(
+      field.id || "",
+      field.name || "",
+      field.placeholder || "",
+      field.value || "",
+      field.textContent || "",
+    );
+  });
+  return pieces.join(" ").toLowerCase();
+}
+
+function settingPanelSearchTargets(panel) {
+  const targets = [
+    ...panel.querySelectorAll(":scope > .setting-panel-grid > label"),
+    ...panel.querySelectorAll(":scope > .builder-section"),
+  ];
+  if (targets.length) return targets;
+  return [...panel.children].filter((child) => !child.classList.contains("setting-panel-head"));
+}
+
+function syncSettingPanelToggle(panel) {
+  const button = panel.querySelector(":scope > .setting-panel-head .setting-panel-toggle");
+  if (!button) return;
+  const collapsed = panel.classList.contains("is-collapsed");
+  button.textContent = collapsed ? "展开" : "折叠";
+  button.setAttribute("aria-expanded", String(!collapsed));
+}
+
+function initSettingPanelControls() {
+  document.querySelectorAll(".setting-panel").forEach((panel) => {
+    if (panel.dataset.foldReady === "1") return;
+    const head = panel.querySelector(":scope > .setting-panel-head");
+    if (!head) return;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ghost setting-panel-toggle";
+    button.textContent = "折叠";
+    button.setAttribute("aria-expanded", "true");
+    button.addEventListener("click", () => {
+      panel.classList.toggle("is-collapsed");
+      syncSettingPanelToggle(panel);
+    });
+    head.appendChild(button);
+    panel.dataset.foldReady = "1";
+  });
+}
+
+function applySettingsModuleSearch(formId, searchId) {
+  const form = $(formId);
+  const search = $(searchId);
+  if (!form || !search) return;
+  const query = normalizeSettingSearchQuery(search.value);
+  form.querySelectorAll(".setting-panel").forEach((panel) => {
+    const heading = panel.querySelector(":scope > .setting-panel-head");
+    const headingMatched = query ? collectSettingSearchText(heading).includes(query) : false;
+    const targets = settingPanelSearchTargets(panel);
+    let visibleTargets = 0;
+    targets.forEach((target) => {
+      const matched = !query || headingMatched || collectSettingSearchText(target).includes(query);
+      target.classList.toggle("is-hidden-setting-match", !matched);
+      if (matched) visibleTargets += 1;
+    });
+    const visiblePanel = !query || headingMatched || visibleTargets > 0 || collectSettingSearchText(panel).includes(query);
+    panel.classList.toggle("is-hidden-setting-panel", !visiblePanel);
+    if (query && visiblePanel) {
+      panel.classList.remove("is-collapsed");
+      syncSettingPanelToggle(panel);
+    }
+  });
+}
+
+function bindSettingsModuleSearch() {
+  [
+    ["settings-form", "settings-search"],
+    ["duel-settings-form", "duel-settings-search"],
+  ].forEach(([formId, searchId]) => {
+    const search = $(searchId);
+    if (!search || search.dataset.bound === "1") return;
+    search.dataset.bound = "1";
+    search.addEventListener("input", () => applySettingsModuleSearch(formId, searchId));
+    applySettingsModuleSearch(formId, searchId);
+  });
+}
+
 function bindEvents() {
   initTitleColorEditor();
+  initSettingPanelControls();
+  bindSettingsModuleSearch();
   $("pill-type")?.addEventListener("change", updatePillEffectLabel);
   $("recipe-result-kind")?.addEventListener("change", syncSelects);
   $("grant-kind")?.addEventListener("change", syncSelects);

@@ -66,6 +66,7 @@ from bot.sql_helper.sql_xiuxian import (
     get_material,
     get_pill,
     get_profile,
+    get_recipe,
     get_technique,
     get_talisman,
     get_xiuxian_settings,
@@ -125,6 +126,7 @@ from bot.sql_helper.sql_xiuxian import (
     serialize_arena,
     serialize_pill,
     serialize_profile,
+    serialize_recipe,
     serialize_technique,
     serialize_talisman,
     starter_artifact_protection_active,
@@ -247,9 +249,10 @@ ROOT_ELEMENT_FACTOR_WEIGHT = 0.35
 ROOT_VARIANT_FACTOR_BONUS = 0.01
 
 PERSONAL_SHOP_NAME = "游仙小铺"
-OFFICIAL_RECYCLE_NAME = "官方回收"
+OFFICIAL_RECYCLE_NAME = "万宝归炉"
 IMMORTAL_STONE_NAME = "仙界奇石"
 GAMBLING_SUPPORTED_ITEM_KINDS = {"artifact", "pill", "talisman", "material"}
+RECYCLABLE_ITEM_KINDS = {"artifact", "pill", "talisman", "material", "technique", "recipe"}
 STARTER_TECHNIQUE_NAME = "长青诀"
 STARTER_TITLE_NAME = "初入仙途"
 STARTER_FOUNDATION_PILL_NAME = "筑基丹"
@@ -4473,6 +4476,10 @@ def _official_seed_item_payload(item_kind: str, item_ref_id: int) -> dict[str, A
         return serialize_talisman(get_talisman(item_ref_id))
     if normalized_kind == "material":
         return serialize_material(get_material(item_ref_id))
+    if normalized_kind == "technique":
+        return serialize_technique(get_technique(item_ref_id))
+    if normalized_kind == "recipe":
+        return serialize_recipe(get_recipe(item_ref_id))
     return None
 
 
@@ -4487,6 +4494,8 @@ def _seed_quality_price_multiplier(level: int, *, item_kind: str) -> float:
         "pill": 0.18,
         "talisman": 0.19,
         "material": 0.17,
+        "technique": 0.21,
+        "recipe": 0.16,
     }.get(str(item_kind or "").strip(), 0.18)
     advanced_bonus = max(rarity_level - 4, 0) * 0.05
     mythic_bonus = max(rarity_level - 6, 0) * 0.08
@@ -4653,6 +4662,107 @@ def _material_seed_shop_price(payload: dict[str, Any]) -> int:
     return _round_seed_shop_price(max((base + growth_markup + yield_markup + attribute_markup) * multiplier, quality_floor, seed_anchor, 15.0))
 
 
+def _recipe_result_payload(payload: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
+    result_kind = str(payload.get("result_kind") or "").strip()
+    result_ref_id = int(payload.get("result_ref_id") or 0)
+    if not result_kind or result_ref_id <= 0 or result_kind == "recipe":
+        return result_kind, None
+    try:
+        return result_kind, _official_seed_item_payload(result_kind, result_ref_id)
+    except Exception:
+        return result_kind, None
+
+
+def _official_payload_quality_level(item_kind: str, payload: dict[str, Any]) -> int:
+    normalized_kind = str(item_kind or "").strip()
+    if normalized_kind == "recipe":
+        _result_kind, result_payload = _recipe_result_payload(payload)
+        if result_payload:
+            return max(int(result_payload.get("rarity_level") or result_payload.get("quality_level") or 1), 1)
+    return max(int(payload.get("rarity_level") or payload.get("quality_level") or 1), 1)
+
+
+def _official_payload_quality_label(item_kind: str, payload: dict[str, Any], quality_level: int) -> str:
+    normalized_kind = str(item_kind or "").strip()
+    if normalized_kind == "recipe":
+        _result_kind, result_payload = _recipe_result_payload(payload)
+        result_quality = ""
+        if result_payload:
+            result_quality = str(
+                result_payload.get("rarity")
+                or result_payload.get("quality_label")
+                or f"{quality_level}阶"
+            ).strip()
+        recipe_kind = str(payload.get("recipe_kind_label") or "配方").strip() or "配方"
+        return f"{result_quality or f'{quality_level}阶'}{recipe_kind}"
+    return str(payload.get("rarity") or payload.get("quality_label") or f"{quality_level}阶").strip() or f"{quality_level}阶"
+
+
+def _official_payload_quality_color(item_kind: str, payload: dict[str, Any]) -> str | None:
+    normalized_kind = str(item_kind or "").strip()
+    if payload.get("quality_color"):
+        return payload.get("quality_color")
+    if normalized_kind == "recipe":
+        _result_kind, result_payload = _recipe_result_payload(payload)
+        if result_payload:
+            return result_payload.get("quality_color")
+    return None
+
+
+def _technique_seed_shop_price(payload: dict[str, Any]) -> int:
+    rarity_level = max(int(payload.get("rarity_level") or 1), 1)
+    type_bonus = {
+        "cultivation": 34,
+        "battle": 40,
+        "body": 30,
+        "support": 28,
+    }.get(str(payload.get("technique_type") or "").strip(), 32)
+    base = (
+        64
+        + rarity_level * 42
+        + int(round(_seed_listing_realm_markup(payload) * 1.25))
+        + _seed_listing_skill_count(payload) * 34
+        + type_bonus
+    )
+    stats = _weighted_seed_stat_value(
+        payload,
+        {
+            "attack_bonus": 2.4,
+            "defense_bonus": 2.2,
+            "bone_bonus": 10.0,
+            "comprehension_bonus": 10.5,
+            "divine_sense_bonus": 9.5,
+            "fortune_bonus": 9.8,
+            "qi_blood_bonus": 0.46,
+            "true_yuan_bonus": 0.44,
+            "body_movement_bonus": 2.5,
+            "duel_rate_bonus": 17.0,
+            "cultivation_bonus": 18.0,
+            "breakthrough_bonus": 20.0,
+        },
+    )
+    multiplier = _seed_quality_price_multiplier(rarity_level, item_kind="technique")
+    return _round_seed_shop_price((base + stats) * multiplier)
+
+
+def _recipe_seed_shop_price(payload: dict[str, Any]) -> int:
+    quality_level = _official_payload_quality_level("recipe", payload)
+    result_quantity = max(int(payload.get("result_quantity") or 1), 1)
+    success_rate = min(max(float(payload.get("base_success_rate") or 0), 1.0), 100.0)
+    result_kind, result_payload = _recipe_result_payload(payload)
+    result_anchor = 0
+    if result_payload and result_kind in (RECYCLABLE_ITEM_KINDS - {"recipe"}):
+        try:
+            result_anchor = _seed_official_shop_price(result_kind, result_payload)
+        except ValueError:
+            result_anchor = 0
+    multiplier = _seed_quality_price_multiplier(quality_level, item_kind="recipe")
+    base = 52 + quality_level * 30 + result_quantity * 10
+    rarity_markup = max(100.0 - success_rate, 0.0) * (0.75 + quality_level * 0.08)
+    result_markup = result_anchor * result_quantity * (0.30 + success_rate / 300.0)
+    return _round_seed_shop_price(max((base + rarity_markup) * multiplier, result_markup, 35.0))
+
+
 def _seed_official_shop_price(item_kind: str, payload: dict[str, Any]) -> int:
     normalized_kind = str(item_kind or "").strip()
     if normalized_kind == "artifact":
@@ -4663,14 +4773,18 @@ def _seed_official_shop_price(item_kind: str, payload: dict[str, Any]) -> int:
         return _talisman_seed_shop_price(payload)
     if normalized_kind == "material":
         return _material_seed_shop_price(payload)
+    if normalized_kind == "technique":
+        return _technique_seed_shop_price(payload)
+    if normalized_kind == "recipe":
+        return _recipe_seed_shop_price(payload)
     raise ValueError("默认官方商店暂不支持该物品类型")
 
 
 def _official_recycle_anchor_price(item_kind: str, payload: dict[str, Any]) -> int:
     normalized_kind = str(item_kind or "").strip()
-    if normalized_kind in {"artifact", "pill", "talisman", "material"}:
+    if normalized_kind in RECYCLABLE_ITEM_KINDS:
         return _seed_official_shop_price(normalized_kind, payload)
-    raise ValueError("当前物品类型暂不支持官方回收")
+    raise ValueError("当前物品类型暂不支持万宝归炉")
 
 
 def _official_recycle_ratio(item_kind: str, quality_level: int, payload: dict[str, Any]) -> float:
@@ -4688,7 +4802,11 @@ def _official_recycle_ratio(item_kind: str, quality_level: int, payload: dict[st
     if normalized_kind == "material":
         plant_bonus = 0.02 if payload.get("can_plant") else 0.0
         return min(0.46, 0.26 + (level - 1) * 0.03 + plant_bonus)
-    raise ValueError("当前物品类型暂不支持官方回收")
+    if normalized_kind == "technique":
+        return min(0.41, 0.20 + (level - 1) * 0.032)
+    if normalized_kind == "recipe":
+        return min(0.38, 0.18 + (level - 1) * 0.028)
+    raise ValueError("当前物品类型暂不支持万宝归炉")
 
 
 def _official_recycle_price_cap(item_kind: str, quality_level: int, payload: dict[str, Any]) -> int:
@@ -4786,7 +4904,54 @@ def _official_recycle_price_cap(item_kind: str, quality_level: int, payload: dic
             ),
             5,
         )
-    raise ValueError("当前物品类型暂不支持官方回收")
+    if normalized_kind == "technique":
+        stat_score = _weighted_seed_stat_value(
+            payload,
+            {
+                "attack_bonus": 5.5,
+                "defense_bonus": 5.2,
+                "bone_bonus": 8.5,
+                "comprehension_bonus": 9.0,
+                "divine_sense_bonus": 8.2,
+                "fortune_bonus": 8.6,
+                "qi_blood_bonus": 0.38,
+                "true_yuan_bonus": 0.36,
+                "body_movement_bonus": 6.5,
+                "duel_rate_bonus": 12.0,
+                "cultivation_bonus": 13.0,
+                "breakthrough_bonus": 14.0,
+            },
+        )
+        return max(
+            _round_seed_shop_price(
+                110
+                + level * 165
+                + int(round(_seed_listing_realm_markup(payload) * 2.0))
+                + _seed_listing_skill_count(payload) * 65
+                + stat_score / 3.2
+            ),
+            5,
+        )
+    if normalized_kind == "recipe":
+        result_quantity = max(int(payload.get("result_quantity") or 1), 1)
+        success_rate = min(max(float(payload.get("base_success_rate") or 0), 1.0), 100.0)
+        result_kind, result_payload = _recipe_result_payload(payload)
+        result_anchor = 0
+        if result_payload and result_kind in (RECYCLABLE_ITEM_KINDS - {"recipe"}):
+            try:
+                result_anchor = _seed_official_shop_price(result_kind, result_payload)
+            except ValueError:
+                result_anchor = 0
+        return max(
+            _round_seed_shop_price(
+                80
+                + level * 120
+                + min(result_anchor * result_quantity * 0.42, 640.0)
+                + max(100.0 - success_rate, 0.0) * 1.8
+            ),
+            5,
+        )
+    raise ValueError("当前物品类型暂不支持万宝归炉")
 
 
 def build_official_recycle_quote(
@@ -4797,19 +4962,19 @@ def build_official_recycle_quote(
     quantity: int = 1,
 ) -> dict[str, Any]:
     normalized_kind = str(item_kind or "").strip()
-    if normalized_kind not in {"artifact", "pill", "talisman", "material"}:
-        raise ValueError("当前物品类型暂不支持官方回收")
+    if normalized_kind not in RECYCLABLE_ITEM_KINDS:
+        raise ValueError("当前物品类型暂不支持万宝归炉")
     payload = dict(item_payload or {})
     item_ref_id = int(payload.get("id") or 0)
     if item_ref_id <= 0:
-        raise ValueError("未找到可回收物品。")
+        raise ValueError("未找到可归炉物品。")
     available = max(int(available_quantity or 0), 0)
     if available <= 0:
-        raise ValueError("当前没有可回收库存。")
+        raise ValueError("当前没有可归炉库存。")
     requested = max(int(quantity or 0), 1)
-    quality_level = max(int(payload.get("rarity_level") or payload.get("quality_level") or 1), 1)
-    quality_label = str(payload.get("rarity") or payload.get("quality_label") or f"{quality_level}阶").strip() or f"{quality_level}阶"
-    quality_color = payload.get("quality_color")
+    quality_level = _official_payload_quality_level(normalized_kind, payload)
+    quality_label = _official_payload_quality_label(normalized_kind, payload, quality_level)
+    quality_color = _official_payload_quality_color(normalized_kind, payload)
     anchor_price = _official_recycle_anchor_price(normalized_kind, payload)
     ratio = _official_recycle_ratio(normalized_kind, quality_level, payload)
     hard_limit = _round_seed_shop_price(anchor_price * 0.55)
@@ -4831,7 +4996,7 @@ def build_official_recycle_quote(
         "total_price_stone": unit_price * requested,
         "max_total_price_stone": unit_price * available,
         "anchor_price_stone": anchor_price,
-        "quote_note": f"按{quality_label}品阶与属性折价回收，品质越高、属性越强，回收价越高，但仍低于官方商店售价。",
+        "quote_note": f"按{quality_label}品阶与属性折价归炉，品质越高、属性越强，归炉价越高，但仍低于官方商店售价。",
     }
 
 
@@ -4844,6 +5009,8 @@ def attach_official_recycle_quotes(bundle: dict[str, Any]) -> dict[str, Any]:
         ("pill", "pills", "pill"),
         ("talisman", "talismans", "talisman"),
         ("material", "materials", "material"),
+        ("technique", "techniques", "technique"),
+        ("recipe", "recipes", "recipe"),
     )
     for item_kind, source_key, item_key in source_specs:
         for row in bundle.get(source_key) or []:
@@ -4854,6 +5021,8 @@ def attach_official_recycle_quotes(bundle: dict[str, Any]) -> dict[str, Any]:
                 continue
             if "tradeable_quantity" in row and row.get("tradeable_quantity") is not None:
                 available_quantity = max(int(row.get("tradeable_quantity") or 0), 0)
+            elif item_kind in {"technique", "recipe"}:
+                available_quantity = 1
             else:
                 available_quantity = max(int(row.get("quantity") or 0), 0)
             if available_quantity <= 0:
@@ -4878,7 +5047,7 @@ def attach_official_recycle_quotes(bundle: dict[str, Any]) -> dict[str, Any]:
     )
     bundle["official_recycle"] = {
         "shop_name": OFFICIAL_RECYCLE_NAME,
-        "description": "官方会按物品品阶和属性统一估价，品质越高、属性越强，回收价越高，但仍会压低于官方售价。",
+        "description": "万宝归炉会按物品品阶和属性统一折价，法宝、丹药、符箓、材料、功法与配方都可归炉成灵石。",
         "items": entries,
     }
     return bundle
@@ -5692,6 +5861,8 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         item["bound_quantity"] = bound_quantity
         talismans.append(row)
 
+    materials = list_user_materials(tg)
+
     titles = []
     current_title_id = int(profile_data.get("current_title_id") or 0)
     for row in list_user_titles(tg):
@@ -5866,7 +6037,9 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         "artifacts": artifacts,
         "pills": pills,
         "talismans": talismans,
+        "materials": materials,
         "techniques": techniques,
+        "recipes": list_user_recipes(tg, enabled_only=False),
         "technique_owned_count": len(techniques),
         "technique_total_count": len(list_techniques(enabled_only=True)),
         "titles": titles,
@@ -8104,8 +8277,8 @@ def recycle_item_to_official_shop(
     item_ref_id: int,
     quantity: int = 1,
 ) -> dict[str, Any]:
-    profile = _require_alive_profile_obj(tg, "官方回收")
-    assert_currency_operation_allowed(tg, "官方回收", profile=profile)
+    profile = _require_alive_profile_obj(tg, OFFICIAL_RECYCLE_NAME)
+    assert_currency_operation_allowed(tg, OFFICIAL_RECYCLE_NAME, profile=profile)
 
     normalized_kind = str(item_kind or "").strip()
     requested_quantity = max(int(quantity or 0), 1)
@@ -8122,16 +8295,22 @@ def recycle_item_to_official_shop(
         None,
     )
     insufficient_messages = {
-        "artifact": "可回收的法宝数量不足，已绑定或已装备的法宝无法回收。",
-        "pill": "背包里的丹药数量不足，无法完成回收。",
-        "talisman": "可回收的符箓数量不足，已绑定的符箓无法回收。",
-        "material": "背包里的材料数量不足，无法完成回收。",
+        "artifact": "可归炉的法宝数量不足，已绑定或已装备的法宝无法归炉。",
+        "pill": "背包里的丹药数量不足，无法完成归炉。",
+        "talisman": "可归炉的符箓数量不足，已绑定的符箓无法归炉。",
+        "material": "背包里的材料数量不足，无法完成归炉。",
+        "technique": "未掌握该功法，无法归炉。",
+        "recipe": "未掌握该配方，无法归炉。",
     }
     if quote is None:
-        raise ValueError(insufficient_messages.get(normalized_kind, "当前没有可回收的该类物品。"))
+        raise ValueError(insufficient_messages.get(normalized_kind, "当前没有可归炉的该类物品。"))
+    if normalized_kind == "technique" and requested_quantity != 1:
+        raise ValueError("功法每次只能归炉一部。")
+    if normalized_kind == "recipe" and requested_quantity != 1:
+        raise ValueError("配方每次只能归炉一张。")
     available_quantity = max(int(quote.get("available_quantity") or 0), 0)
     if available_quantity < requested_quantity:
-        raise ValueError(insufficient_messages.get(normalized_kind, "当前没有足够的可回收物品。"))
+        raise ValueError(insufficient_messages.get(normalized_kind, "当前没有足够的可归炉物品。"))
 
     if normalized_kind == "artifact":
         if not use_user_artifact_listing_stock(tg, item_ref_id, requested_quantity):
@@ -8145,20 +8324,30 @@ def recycle_item_to_official_shop(
     elif normalized_kind == "material":
         if not use_user_material_listing_stock(tg, item_ref_id, requested_quantity):
             raise ValueError(insufficient_messages["material"])
+    elif normalized_kind == "technique":
+        if requested_quantity != 1:
+            raise ValueError("功法每次只能归炉一部。")
+        if not revoke_technique_from_user(tg, item_ref_id):
+            raise ValueError(insufficient_messages["technique"])
+    elif normalized_kind == "recipe":
+        if requested_quantity != 1:
+            raise ValueError("配方每次只能归炉一张。")
+        if not revoke_recipe_from_user(tg, item_ref_id):
+            raise ValueError(insufficient_messages["recipe"])
     else:
-        raise ValueError("当前物品类型暂不支持官方回收。")
+        raise ValueError("当前物品类型暂不支持万宝归炉。")
 
     unit_price = max(int(quote.get("unit_price_stone") or 0), 0)
     total_price = unit_price * requested_quantity
     if total_price <= 0:
-        raise ValueError("该物品当前无法回收。")
+        raise ValueError("该物品当前无法归炉。")
 
     with Session() as session:
         stone_result = apply_spiritual_stone_delta(
             session,
             tg,
             total_price,
-            action_text="官方回收",
+            action_text=OFFICIAL_RECYCLE_NAME,
             enforce_currency_lock=True,
             allow_dead=False,
             apply_tribute=True,

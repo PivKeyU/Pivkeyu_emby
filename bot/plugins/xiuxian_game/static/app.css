@@ -27,10 +27,13 @@
 
 * {
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
 }
 
 html {
   color-scheme: dark;
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
@@ -117,9 +120,9 @@ p {
 
 h1 {
   font-family: "IBM Plex Serif", "Source Serif 4", Georgia, serif;
-  font-size: clamp(34px, 8vw, 58px);
+  font-size: 36px;
   line-height: 0.94;
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
 }
 
 h2 {
@@ -195,10 +198,16 @@ h3 {
 }
 
 .fold-toolbar {
+  position: sticky;
+  top: max(8px, env(safe-area-inset-top));
+  z-index: 18;
   padding: 10px 14px;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  background: rgba(26, 29, 36, 0.94);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 
 .fold-toolbar-head {
@@ -220,8 +229,18 @@ h3 {
 
 .fold-shortcuts {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
+  margin: 0 -4px;
+  padding: 0 4px 2px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+
+.fold-shortcuts::-webkit-scrollbar {
+  display: none;
 }
 
 .fold-shortcut {
@@ -235,6 +254,7 @@ h3 {
   box-shadow: none;
   font-size: 12px;
   white-space: nowrap;
+  scroll-snap-align: start;
 }
 
 .fold-shortcut.is-active {
@@ -292,12 +312,23 @@ h3 {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-height: 64px;
   padding: 16px 18px;
   list-style: none;
   cursor: pointer;
   background: rgba(16, 185, 129, 0.05); /* Jade tint */
   border-bottom: 1px solid transparent;
   transition: background 0.2s ease;
+}
+
+.fold-summary > div,
+.mini-fold-summary > h3 {
+  min-width: 0;
+}
+
+.fold-summary h2,
+.mini-fold-summary h3 {
+  overflow-wrap: anywhere;
 }
 .fold-summary:hover {
   background: rgba(16, 185, 129, 0.1);
@@ -310,7 +341,7 @@ h3 {
 .fold-summary::after {
   content: "展开";
   flex: 0 0 auto;
-  min-width: 44px;
+  min-width: 52px;
   text-align: right;
   font-size: 12px;
   font-weight: 700;
@@ -332,6 +363,8 @@ h3 {
   padding: 0 18px 18px;
   display: grid;
   gap: 14px;
+  content-visibility: auto;
+  contain-intrinsic-size: 720px;
 }
 
 .mini-fold {
@@ -347,6 +380,7 @@ h3 {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-height: 54px;
   padding: 14px 16px;
   cursor: pointer;
   list-style: none;
@@ -375,6 +409,18 @@ h3 {
   padding: 0 16px 16px;
 }
 
+.recycle-quote-list {
+  gap: 12px;
+}
+
+.recycle-quote-group {
+  border-radius: var(--radius-md);
+}
+
+.recycle-quote-group-body {
+  padding-top: 0;
+}
+
 .board-grid {
   align-items: start;
 }
@@ -395,6 +441,7 @@ h3 {
 
 .profile-item,
 .stack-item {
+  min-width: 0;
   padding: 14px;
   border-radius: var(--radius-md);
   background: var(--surface-strong);
@@ -415,6 +462,7 @@ h3 {
   margin-top: 10px;
   font-size: 18px;
   line-height: 1.15;
+  overflow-wrap: anywhere;
 }
 
 .stack-item-head,
@@ -529,7 +577,7 @@ h3 {
   font-size: 30px;
   line-height: 0.95;
   font-weight: 900;
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
   color: #1a1007;
 }
 
@@ -899,11 +947,14 @@ button {
   border: 1px solid var(--line);
   padding: 11px 13px;
   font: inherit;
+  font-size: 16px;
+  line-height: 1.35;
 }
 
 input,
 select,
 textarea {
+  min-height: 48px;
   background: var(--surface-strong);
   border-color: var(--line-strong);
   color: var(--ink);
@@ -921,6 +972,8 @@ textarea {
 }
 
 button {
+  min-height: 48px;
+  touch-action: manipulation;
   cursor: pointer;
   border: 0;
   color: #fff;
@@ -1024,7 +1077,7 @@ button.is-blocked:not(:disabled) {
 
 .bottom-nav a {
   flex: 0 0 auto;
-  min-width: 102px;
+  min-width: 96px;
   text-decoration: none;
   color: var(--ink);
   background: var(--surface-strong);
@@ -1034,6 +1087,26 @@ button.is-blocked:not(:disabled) {
 .bottom-nav a.is-active {
   color: #fff;
   background: linear-gradient(135deg, var(--accent-strong), var(--accent));
+}
+
+@media (hover: none) {
+  button:hover {
+    background: linear-gradient(135deg, var(--accent-strong), var(--warm));
+  }
+
+  button.ghost:hover {
+    background: var(--surface-soft);
+  }
+
+  .fold-summary:hover {
+    background: rgba(16, 185, 129, 0.05);
+  }
+
+  button:active,
+  .fold-shortcut:active,
+  .bottom-nav a:active {
+    transform: translateY(1px);
+  }
 }
 
 .toast-stack {
@@ -1145,6 +1218,15 @@ button.is-blocked:not(:disabled) {
 }
 
 @media (min-width: 820px) {
+  h1 {
+    font-size: 58px;
+  }
+
+  .fold-shortcuts {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+
   .hero-panel {
     grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
     align-items: start;
@@ -1208,6 +1290,118 @@ button.is-blocked:not(:disabled) {
   .official-shop-price {
     justify-self: end;
     text-align: right;
+  }
+}
+
+@media (max-width: 640px) {
+  body {
+    padding-bottom: calc(108px + env(safe-area-inset-bottom));
+  }
+
+  .app-shell {
+    width: min(100vw, calc(100vw - 10px));
+    padding-top: 8px;
+  }
+
+  .hero-panel {
+    padding: 12px;
+  }
+
+  .summary-tip {
+    max-width: 18ch;
+    font-size: 11px;
+  }
+
+  .fold-summary,
+  .mini-fold-summary {
+    align-items: flex-start;
+  }
+
+  .fold-body {
+    padding: 0 12px 14px;
+  }
+
+  .profile-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .profile-item {
+    padding: 12px;
+  }
+
+  .profile-item strong {
+    font-size: 16px;
+  }
+
+  .stack-item-head,
+  .inline-actions,
+  .inline-action-buttons {
+    align-items: stretch;
+  }
+
+  .inline-actions > button,
+  .inline-action-buttons > button,
+  .stack-item-head > button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .stack-item-head > .badge,
+  .stack-item-head > .tag {
+    justify-content: flex-start;
+  }
+
+  .wiki-filter-row,
+  .tab-row,
+  .item-tags {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .wiki-filter-row::-webkit-scrollbar,
+  .tab-row::-webkit-scrollbar,
+  .item-tags::-webkit-scrollbar {
+    display: none;
+  }
+
+  .wiki-filter-row > button,
+  .rank-tab,
+  .tag,
+  .badge {
+    flex: 0 0 auto;
+  }
+
+  .bottom-nav {
+    left: 8px;
+    right: 8px;
+    bottom: max(8px, env(safe-area-inset-bottom));
+    padding: 8px;
+    border-radius: 18px;
+  }
+
+  .bottom-nav a {
+    min-width: 88px;
+    min-height: 44px;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .fab-container {
+    right: 12px;
+    bottom: calc(max(12px, env(safe-area-inset-bottom)) + 72px);
+  }
+
+  .modal-layer {
+    align-items: end;
+    padding: 12px;
+  }
+
+  .modal-card {
+    width: min(100%, 520px);
+    max-height: min(82dvh, 720px);
+    border-radius: 22px 22px 16px 16px;
   }
 }
 

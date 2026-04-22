@@ -12,10 +12,11 @@ const state = {
   wikiBundleRequested: false,
   deferredBundleLoading: false,
   deferredBundleLoaded: false,
+  deferredBundlePromise: null,
   retreatTimingTimer: null,
   wikiFilter: "all",
   wikiSearchQuery: "",
-  leaderboard: { kind: "stone", page: 1, totalPages: 1 },
+  leaderboard: { kind: "stone", page: 1, totalPages: 1, loaded: false },
   shopNameEditing: false,
   giftTarget: null,
   giftSearchQuery: "",
@@ -620,6 +621,15 @@ function renderWikiArea() {
   const featuredRoot = document.querySelector("#wiki-featured-list");
   const resultRoot = document.querySelector("#wiki-result-list");
   const filterButtons = Array.from(document.querySelectorAll("[data-wiki-filter]"));
+  const wikiCard = document.querySelector("#wiki-card");
+
+  if (wikiCard && !wikiCard.open && !state.wikiSearchQuery) {
+    if (countsNode) countsNode.textContent = state.wikiBundle ? "已缓存，展开后检索" : "展开后加载";
+    if (hintNode) hintNode.textContent = "展开后可检索玩法教程、材料来源、法宝、丹药、符箓、功法、称号、成就与配方。";
+    if (featuredRoot) featuredRoot.innerHTML = "";
+    if (resultRoot) resultRoot.innerHTML = "";
+    return;
+  }
   const bundle = state.wikiBundle || hydrateWikiBundleFromCache();
 
   filterButtons.forEach((button) => {
@@ -725,7 +735,7 @@ function officialShopName(bundle = state.profileBundle) {
 
 function officialRecycleName(bundle = state.profileBundle) {
   const raw = bundle?.official_recycle?.shop_name;
-  return String(raw || "").trim() || "官方回收";
+  return String(raw || "").trim() || "万宝归炉";
 }
 
 function currentDuelLockReason(bundle = state.profileBundle) {
@@ -798,10 +808,40 @@ function takePendingBundleCandidate() {
 }
 
 function deferUiWork(callback) {
-  window.requestAnimationFrame(() => {
-    callback();
-  });
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(callback, { timeout: 900 });
+    return;
+  }
+  window.setTimeout(callback, 16);
 }
+
+const DEFERRED_SECTION_IDS = new Set([
+  "inventory-card",
+  "technique-card",
+  "official-shop-card",
+  "official-recycle-card",
+  "market-card",
+  "auction-card",
+  "sect-card",
+  "task-card",
+  "craft-card",
+  "explore-card",
+  "journal-card",
+  "gift-card",
+  "title-card",
+  "furnace-card",
+  "mentorship-card",
+  "commission-card",
+  "farm-card",
+  "marriage-card",
+  "fishing-card",
+  "gambling-card",
+]);
+
+const LAZY_SECTION_IDS = [
+  ...DEFERRED_SECTION_IDS,
+  "leaderboard-card",
+];
 
 function renderGiftTargetSelection() {
   const root = document.querySelector("#gift-target-selected");
@@ -1255,6 +1295,7 @@ function renderBottomNav(items = []) {
     }
     nav.appendChild(link);
   }
+  nav.querySelector(".is-active")?.scrollIntoView({ inline: "center", block: "nearest" });
 }
 
 function visibleFoldCards() {
@@ -1271,6 +1312,143 @@ function jumpToFoldCard(cardId) {
   card.open = true;
   card.scrollIntoView({ behavior: "smooth", block: "start" });
   syncFoldToolbar();
+}
+
+function lazyCardCanRender(cardId, { force = false } = {}) {
+  const card = document.getElementById(cardId);
+  if (!card || card.classList.contains("hidden")) return false;
+  return force || card.open;
+}
+
+function setLazyCardLoading(cardId, message = "正在加载该模块...") {
+  const card = document.getElementById(cardId);
+  const root = card?.querySelector(".fold-body .stack-list");
+  if (!root || root.children.length) return;
+  root.innerHTML = `<article class="stack-item"><strong>${escapeHtml(message)}</strong><p>请稍候。</p></article>`;
+}
+
+function lazyRenderMetrics(bundle = state.profileBundle) {
+  const retreating = Boolean(bundle?.capabilities?.is_in_retreat);
+  const equippedArtifacts = bundle?.equipped_artifacts || [];
+  const equipLimit = bundle?.settings?.artifact_equip_limit || bundle?.capabilities?.artifact_equip_limit || 1;
+  return { retreating, equippedArtifacts, equipLimit };
+}
+
+function ensureLeaderboardLoaded() {
+  if (state.leaderboard.loaded) return Promise.resolve(state.leaderboard);
+  setLazyCardLoading("leaderboard-card", "正在加载排行榜...");
+  return refreshLeaderboard(state.leaderboard.kind || "stone", state.leaderboard.page || 1).catch((error) => {
+    const message = normalizeError(error, "加载排行榜失败。");
+    setStatus(message, "error");
+    throw error;
+  });
+}
+
+function renderLazyFoldCard(cardId, { force = false } = {}) {
+  if (!lazyCardCanRender(cardId, { force })) return false;
+  if (cardId === "leaderboard-card") {
+    ensureLeaderboardLoaded().catch(() => null);
+    return true;
+  }
+  if (DEFERRED_SECTION_IDS.has(cardId) && !state.deferredBundleLoaded) {
+    setLazyCardLoading(cardId);
+    loadDeferredBundle({ silent: true })
+      .then(() => renderLazyFoldCard(cardId, { force: true }))
+      .catch(() => null);
+    return true;
+  }
+  const bundle = state.profileBundle;
+  if (!bundle) return false;
+  const { retreating, equippedArtifacts, equipLimit } = lazyRenderMetrics(bundle);
+  switch (cardId) {
+    case "inventory-card":
+      renderArtifactList(bundle.artifacts || [], retreating, equipLimit, equippedArtifacts.length);
+      renderTalismanList(bundle.talismans || [], retreating);
+      renderPillList(bundle.pills || [], retreating);
+      return true;
+    case "technique-card":
+      renderTechniqueArea(bundle);
+      return true;
+    case "official-shop-card":
+      renderOfficialShop(bundle.official_shop || [], retreating);
+      return true;
+    case "official-recycle-card":
+      renderOfficialRecyclePanel(bundle, retreating);
+      return true;
+    case "market-card":
+      renderPersonalShop(bundle.personal_shop || []);
+      renderCommunityShop(bundle.community_shop || [], retreating);
+      renderInventorySelect();
+      return true;
+    case "auction-card":
+      renderAuctionInventorySelect();
+      renderPersonalAuctions(bundle.personal_auctions || []);
+      renderCommunityAuctions(bundle.community_auctions || []);
+      return true;
+    case "sect-card":
+      renderSectArea(bundle);
+      return true;
+    case "task-card":
+      renderTaskArea(bundle);
+      return true;
+    case "craft-card":
+      renderCraftArea(bundle);
+      return true;
+    case "explore-card":
+      renderExploreArea(bundle);
+      return true;
+    case "journal-card":
+      renderJournalArea(bundle);
+      return true;
+    case "title-card":
+      renderTitleAchievementArea(bundle);
+      return true;
+    case "furnace-card":
+      renderFurnaceArea(bundle);
+      return true;
+    case "mentorship-card":
+      renderMentorshipArea(bundle);
+      return true;
+    case "commission-card":
+      renderCommissionArea(bundle);
+      return true;
+    case "farm-card":
+      renderFarmArea(bundle);
+      return true;
+    case "marriage-card":
+      renderMarriageArea(bundle);
+      return true;
+    case "fishing-card":
+      renderFishingArea(bundle);
+      return true;
+    case "gambling-card": {
+      renderGamblingArea(bundle);
+      const gambling = bundle?.gambling || {};
+      const duelLockReason = currentDuelLockReason(bundle);
+      const poolBlockedReason = Number(gambling.pool_size || 0) > 0 ? "" : "当前赌坊奖池尚未配置。";
+      const disabledReason = duelLockReason || poolBlockedReason;
+      ["#gambling-exchange-count", "#gambling-open-count"].forEach((selector) => {
+        setDisabled(document.querySelector(selector), Boolean(disabledReason), disabledReason);
+      });
+      setDisabled(document.querySelector("#gambling-exchange-form button[type='submit']"), Boolean(disabledReason), disabledReason);
+      setDisabled(document.querySelector("#gambling-open-form button[type='submit']"), Boolean(disabledReason), disabledReason);
+      return true;
+    }
+    case "gift-card":
+      renderItemGiftInventorySelect(bundle);
+      syncGiftPanelState(bundle);
+      return true;
+    default:
+      return false;
+  }
+}
+
+function renderOpenLazyFoldCards() {
+  LAZY_SECTION_IDS.forEach((cardId) => renderLazyFoldCard(cardId));
+}
+
+function queueOpenLazyFoldCards() {
+  deferUiWork(renderOpenLazyFoldCards);
 }
 
 function syncFoldToolbar() {
@@ -1306,6 +1484,7 @@ function syncFoldToolbar() {
       button.dataset.foldTarget = card.id;
       shortcuts.appendChild(button);
     }
+    shortcuts.querySelector(".is-active")?.scrollIntoView({ inline: "center", block: "nearest" });
   }
 }
 
@@ -1314,6 +1493,21 @@ function toggleFoldCards(open) {
     card.open = open;
   });
   syncFoldToolbar();
+}
+
+function isNarrowViewport() {
+  return window.matchMedia?.("(max-width: 720px)")?.matches ?? window.innerWidth <= 720;
+}
+
+function scrollElementIntoComfortableView(element, options = {}) {
+  if (!element || !isNarrowViewport()) return;
+  window.setTimeout(() => {
+    element.scrollIntoView({
+      behavior: options.behavior || "smooth",
+      block: options.block || "start",
+      inline: "nearest",
+    });
+  }, options.delay ?? 80);
 }
 
 function setupFoldToolbar() {
@@ -1329,9 +1523,36 @@ function setupFoldToolbar() {
   }
 
   document.querySelectorAll(".fold-card").forEach((card) => {
-    card.addEventListener("toggle", syncFoldToolbar);
+    card.addEventListener("toggle", () => {
+      syncFoldToolbar();
+      if (card.open) {
+        scrollElementIntoComfortableView(card.querySelector(".fold-summary") || card, { block: "nearest", delay: 40 });
+        renderLazyFoldCard(card.id, { force: true });
+      }
+    });
   });
   syncFoldToolbar();
+}
+
+function setupMobileInteractionPolish() {
+  document.addEventListener("focusin", (event) => {
+    const field = event.target?.closest?.("input, textarea, select");
+    if (!field || field.closest(".modal-card")) return;
+    if (field.matches("input[type='number']")) field.setAttribute("inputmode", "numeric");
+    if (field.matches("input[type='search']")) field.setAttribute("enterkeyhint", "search");
+    if (field.matches("input[type='url']")) field.setAttribute("inputmode", "url");
+    scrollElementIntoComfortableView(field, { block: "center", delay: 220 });
+  });
+
+  document.querySelectorAll("input[type='number']").forEach((input) => {
+    input.setAttribute("inputmode", "numeric");
+  });
+  document.querySelectorAll("input[type='search']").forEach((input) => {
+    input.setAttribute("enterkeyhint", "search");
+  });
+  document.querySelectorAll("input[type='url']").forEach((input) => {
+    input.setAttribute("inputmode", "url");
+  });
 }
 
 function ensureSectionState(selector, visible, openWhenVisible = false) {
@@ -1404,6 +1625,41 @@ function findOfficialRecycleQuote(kind, itemRefId, bundle = state.profileBundle)
   ) || null;
 }
 
+const OFFICIAL_RECYCLE_KIND_ORDER = ["artifact", "talisman", "pill", "material", "technique", "recipe"];
+
+function officialRecycleKindRank(kind) {
+  const index = OFFICIAL_RECYCLE_KIND_ORDER.indexOf(String(kind || ""));
+  return index >= 0 ? index : OFFICIAL_RECYCLE_KIND_ORDER.length;
+}
+
+function officialRecycleSearchText(quote = {}) {
+  return [
+    quote.item_name,
+    quote.item_kind_label,
+    quote.item_kind,
+    quote.quality_label,
+    quote.quote_note,
+    quote.unit_price_stone,
+  ].map((value) => String(value || "").toLowerCase()).join(" ");
+}
+
+function officialRecycleQuoteCardHtml(quote, blockedReason) {
+  return `
+    <div class="stack-item-head">
+      <strong>${escapeHtml(quote.item_name)}</strong>
+      <span class="badge badge--normal">${escapeHtml(quote.unit_price_stone)} 灵石/件</span>
+    </div>
+    <div class="item-tags">
+      ${qualityBadgeHtml(quote.quality_label || "凡品", quote.quality_color, "tag")}
+      <span class="tag">${escapeHtml(quote.item_kind_label || quote.item_kind)}</span>
+      <span class="tag">可归炉 ${escapeHtml(quote.available_quantity || 0)}</span>
+    </div>
+    <p>当前整包归炉最多到账 ${escapeHtml(quote.max_total_price_stone || 0)} 灵石。</p>
+    <p class="muted">${escapeHtml(quote.quote_note || "")}</p>
+    ${blockedReason ? `<p class="reason-text">${escapeHtml(blockedReason)}</p>` : ""}
+  `;
+}
+
 function populateOfficialRecycleInventorySelect() {
   const select = document.querySelector("#official-recycle-item-ref");
   if (!select) return;
@@ -1412,13 +1668,13 @@ function populateOfficialRecycleInventorySelect() {
   const rows = officialRecycleItems().filter((row) => String(row.item_kind || "") === String(kind) && Number(row.available_quantity || 0) > 0);
   select.innerHTML = "";
   if (!rows.length) {
-    select.innerHTML = `<option value="">暂无可回收物品</option>`;
+    select.innerHTML = `<option value="">暂无可归炉物品</option>`;
     return;
   }
   rows.forEach((row) => {
     const option = document.createElement("option");
     option.value = row.item_ref_id;
-    option.textContent = `${row.item_name} · 可回收 ${row.available_quantity} · ${row.unit_price_stone} 灵石/件`;
+    option.textContent = `${row.item_name} · 可归炉 ${row.available_quantity} · ${row.unit_price_stone} 灵石/件`;
     select.appendChild(option);
   });
   if ([...select.options].some((option) => String(option.value) === String(previousValue))) {
@@ -1437,9 +1693,9 @@ function updateOfficialRecycleQuotePreview(bundle = state.profileBundle) {
   if (!quote) {
     quantityInput.max = "1";
     if (Number(quantityInput.value || 0) < 1) quantityInput.value = "1";
-    preview.value = officialRecycleItems(bundle).length ? "请选择可回收物品" : "暂无可回收物品";
+    preview.value = officialRecycleItems(bundle).length ? "请选择可归炉物品" : "暂无可归炉物品";
     if (hint) {
-      hint.textContent = String(bundle?.official_recycle?.description || "官方会按物品品阶与属性自动折价回收。");
+      hint.textContent = String(bundle?.official_recycle?.description || "万宝归炉会按物品品阶与属性自动折价。");
     }
     return;
   }
@@ -1451,9 +1707,9 @@ function updateOfficialRecycleQuotePreview(bundle = state.profileBundle) {
   quantityInput.max = String(Math.max(availableQuantity, 1));
   quantityInput.value = String(quantity);
   const totalPrice = Math.max(Number(quote.unit_price_stone || 0), 0) * quantity;
-  preview.value = `单价 ${quote.unit_price_stone || 0} 灵石，当前可回收 ${availableQuantity} 件，本次到账 ${totalPrice} 灵石`;
+  preview.value = `单价 ${quote.unit_price_stone || 0} 灵石，当前可归炉 ${availableQuantity} 件，本次到账 ${totalPrice} 灵石`;
   if (hint) {
-    hint.textContent = String(quote.quote_note || bundle?.official_recycle?.description || "官方会按物品品阶与属性自动折价回收。");
+    hint.textContent = String(quote.quote_note || bundle?.official_recycle?.description || "万宝归炉会按物品品阶与属性自动折价。");
   }
 }
 
@@ -1985,34 +2241,67 @@ function renderOfficialRecyclePanel(bundle, retreating) {
   const duelLockReason = currentDuelLockReason(bundle);
   const blockedReason = duelLockReason;
   if (!quotes.length) {
-    root.innerHTML = `<article class="stack-item"><strong>${escapeHtml(officialRecycleName(bundle))}暂无可回收物品</strong><p>未绑定且可交易的法宝、符箓，以及背包内丹药材料会显示在这里。</p></article>`;
-    if (preview) preview.value = "暂无可回收物品";
+    root.innerHTML = `<article class="stack-item"><strong>${escapeHtml(officialRecycleName(bundle))}暂无可归炉物品</strong><p>未绑定且可交易的法宝、符箓、丹药、材料，以及已掌握的功法和配方会显示在这里。</p></article>`;
+    if (preview) preview.value = "暂无可归炉物品";
     if (hint) {
-      hint.textContent = String(bundle?.official_recycle?.description || "官方会按物品品阶与属性自动折价回收。");
+      hint.textContent = String(bundle?.official_recycle?.description || "万宝归炉会按物品品阶与属性自动折价。");
     }
     populateOfficialRecycleInventorySelect();
     updateOfficialRecycleQuotePreview(bundle);
     return;
   }
 
-  for (const quote of quotes) {
-    const card = document.createElement("article");
-    card.className = "stack-item";
-    card.innerHTML = `
-      <div class="stack-item-head">
-        <strong>${escapeHtml(quote.item_name)}</strong>
-        <span class="badge badge--normal">${escapeHtml(quote.unit_price_stone)} 灵石/件</span>
-      </div>
-      <div class="item-tags">
-        ${qualityBadgeHtml(quote.quality_label || "凡品", quote.quality_color, "tag")}
-        <span class="tag">${escapeHtml(quote.item_kind_label || quote.item_kind)}</span>
-        <span class="tag">可回收 ${escapeHtml(quote.available_quantity || 0)}</span>
-      </div>
-      <p>当前整包回收最多到账 ${escapeHtml(quote.max_total_price_stone || 0)} 灵石。</p>
-      <p class="muted">${escapeHtml(quote.quote_note || "")}</p>
-      ${blockedReason ? `<p class="reason-text">${escapeHtml(blockedReason)}</p>` : ""}
-    `;
-    root.appendChild(card);
+  const query = String(document.querySelector("#official-recycle-search")?.value || "").trim().toLowerCase();
+  const visibleQuotes = query
+    ? quotes.filter((quote) => officialRecycleSearchText(quote).includes(query))
+    : quotes;
+  if (!visibleQuotes.length) {
+    root.innerHTML = `<article class="stack-item"><strong>没有匹配的归炉报价</strong><p>可按物品名称、类型、品阶或报价说明搜索。</p></article>`;
+    populateOfficialRecycleInventorySelect();
+    updateOfficialRecycleQuotePreview(bundle);
+    return;
+  }
+
+  const groups = new Map();
+  for (const quote of visibleQuotes) {
+    const key = String(quote.item_kind || "unknown");
+    if (!groups.has(key)) {
+      groups.set(key, {
+        label: quote.item_kind_label || quote.item_kind || "物品",
+        items: [],
+      });
+    }
+    groups.get(key).items.push(quote);
+  }
+
+  [...groups.entries()]
+    .sort(([kindA, groupA], [kindB, groupB]) => {
+      const rankDelta = officialRecycleKindRank(kindA) - officialRecycleKindRank(kindB);
+      return rankDelta || String(groupA.label || "").localeCompare(String(groupB.label || ""), "zh-Hans-CN");
+    })
+    .forEach(([kind, group]) => {
+      const section = document.createElement("details");
+      section.className = "mini-fold recycle-quote-group";
+      section.open = true;
+      section.innerHTML = `
+        <summary class="mini-fold-summary">
+          <h3>${escapeHtml(group.label || kind)}</h3>
+          <span class="summary-tip">${escapeHtml(group.items.length)} 项报价</span>
+        </summary>
+        <div class="mini-fold-body recycle-quote-group-body"></div>
+      `;
+      const body = section.querySelector(".recycle-quote-group-body");
+      group.items.forEach((quote) => {
+        const card = document.createElement("article");
+        card.className = "stack-item";
+        card.innerHTML = officialRecycleQuoteCardHtml(quote, blockedReason);
+        body.appendChild(card);
+      });
+      root.appendChild(section);
+    });
+
+  if (hint) {
+    hint.textContent = String(bundle?.official_recycle?.description || "万宝归炉会按物品品阶与属性自动折价。");
   }
 
   populateOfficialRecycleInventorySelect();
@@ -2703,7 +2992,8 @@ function renderLeaderboard(result) {
   state.leaderboard = {
     kind: result.kind,
     page: result.page,
-    totalPages: result.total_pages
+    totalPages: result.total_pages,
+    loaded: true
   };
 
   document.querySelectorAll(".rank-tab").forEach((button) => {
@@ -2914,7 +3204,8 @@ function renderLeaderboard(result) {
   state.leaderboard = {
     kind: result.kind,
     page: result.page,
-    totalPages: result.total_pages
+    totalPages: result.total_pages,
+    loaded: true
   };
 
   document.querySelectorAll(".rank-tab").forEach((button) => {
@@ -2968,12 +3259,7 @@ function applyProfileBundle(bundle, { deferSecondary = true } = {}) {
     if (state.bundleRenderToken !== renderToken || state.profileBundle !== bundle) {
       return;
     }
-    renderSectArea(bundle);
-    renderTaskArea(bundle);
-    renderTechniqueArea(bundle);
-    renderCraftArea(bundle);
-    renderExploreArea(bundle);
-    renderJournalArea(bundle);
+    renderOpenLazyFoldCards();
   };
 
   if (deferSecondary) {
@@ -3021,31 +3307,36 @@ function mergeBundleData(baseBundle, patchBundle) {
 }
 
 async function loadDeferredBundle({ silent = false } = {}) {
-  if (state.deferredBundleLoaded || state.deferredBundleLoading) return state.profileBundle;
+  if (state.deferredBundleLoaded) return state.profileBundle;
+  if (state.deferredBundlePromise) return state.deferredBundlePromise;
   state.deferredBundleLoading = true;
-  try {
+  state.deferredBundlePromise = (async () => {
     const deferred = await postJson("/plugins/xiuxian/api/bootstrap/deferred");
     state.profileBundle = mergeBundleData(state.profileBundle, deferred);
     state.deferredBundleLoaded = true;
     applyProfileBundle(state.profileBundle);
     return state.profileBundle;
-  } catch (error) {
-    if (!silent) throw error;
-    return state.profileBundle;
-  } finally {
-    state.deferredBundleLoading = false;
-  }
+  })()
+    .catch((error) => {
+      if (!silent) throw error;
+      return state.profileBundle;
+    })
+    .finally(() => {
+      state.deferredBundleLoading = false;
+      state.deferredBundlePromise = null;
+    });
+  return state.deferredBundlePromise;
 }
 
 function scheduleDeferredBootstrapWork() {
   const runner = () => {
     loadDeferredBundle({ silent: true }).catch(() => null);
   };
-  if (typeof window.requestIdleCallback === "function") {
-    window.requestIdleCallback(runner, { timeout: 800 });
+  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  if (connection?.saveData || /2g/i.test(String(connection?.effectiveType || ""))) {
     return;
   }
-  window.setTimeout(runner, 120);
+  window.setTimeout(() => deferUiWork(runner), 2400);
 }
 
 async function refreshBundle({ background = false } = {}) {
@@ -3060,6 +3351,7 @@ async function refreshBundle({ background = false } = {}) {
   const runner = async () => {
     if (!state.profileBundle) {
       state.deferredBundleLoaded = false;
+      state.deferredBundlePromise = null;
       const payload = await postJson("/plugins/xiuxian/api/bootstrap");
       renderBottomNav(payload.bottom_nav || []);
       applyProfileBundle(payload.profile_bundle);
@@ -3067,6 +3359,7 @@ async function refreshBundle({ background = false } = {}) {
       return state.profileBundle;
     }
     state.deferredBundleLoaded = false;
+    state.deferredBundlePromise = null;
     const deferred = await postJson("/plugins/xiuxian/api/bootstrap/deferred");
     state.profileBundle = mergeBundleData(state.profileBundle, deferred);
     state.deferredBundleLoaded = true;
@@ -3098,18 +3391,16 @@ async function bootstrap() {
   tg.setHeaderColor("#eef4ff");
   tg.setBackgroundColor("#eef4ff");
 
-  hydrateWikiBundleFromCache();
   renderWikiArea();
   state.deferredBundleLoaded = false;
+  state.deferredBundlePromise = null;
   const payload = await postJson("/plugins/xiuxian/api/bootstrap");
   renderBottomNav(payload.bottom_nav || []);
   applyProfileBundle(payload.profile_bundle);
   scheduleDeferredBootstrapWork();
   if (payload.initial_leaderboard) {
     renderLeaderboard(payload.initial_leaderboard);
-    return;
   }
-  await refreshLeaderboard("stone", 1);
 }
 
 document.querySelector("#enter-path").addEventListener("click", async (event) => {
@@ -3345,6 +3636,9 @@ document.querySelector("#official-recycle-kind")?.addEventListener("change", () 
 });
 document.querySelector("#official-recycle-item-ref")?.addEventListener("change", () => updateOfficialRecycleQuotePreview());
 document.querySelector("#official-recycle-quantity")?.addEventListener("input", () => updateOfficialRecycleQuotePreview());
+document.querySelector("#official-recycle-search")?.addEventListener("input", () => {
+  renderOfficialRecyclePanel(state.profileBundle, false);
+});
 ["#official-recycle-jump-from-shop", "#official-recycle-jump-from-market"].forEach((selector) => {
   document.querySelector(selector)?.addEventListener("click", () => jumpToFoldCard("official-recycle-card"));
 });
@@ -3409,22 +3703,22 @@ document.querySelector("#official-recycle-form")?.addEventListener("submit", asy
   event.preventDefault();
   const button = event.currentTarget.querySelector("button[type='submit']");
   try {
-    const payload = await runButtonAction(button, "回收中…", () => postJson("/plugins/xiuxian/api/recycle/official", {
+    const payload = await runButtonAction(button, "归炉中…", () => postJson("/plugins/xiuxian/api/recycle/official", {
       item_kind: document.querySelector("#official-recycle-kind")?.value || "artifact",
       item_ref_id: Number(document.querySelector("#official-recycle-item-ref")?.value || 0),
       quantity: Number(document.querySelector("#official-recycle-quantity")?.value || 1),
     }));
     const result = payload?.result || {};
-    const message = `已回收 ${result.item_name || "物品"} x${Number(result.quantity || 0)}，到账 ${Number(result.total_price_stone || 0)} 灵石。`;
+    const message = `已归炉 ${result.item_name || "物品"} x${Number(result.quantity || 0)}，到账 ${Number(result.total_price_stone || 0)} 灵石。`;
     if (payload?.bundle) {
       applyProfileBundle(payload.bundle);
     } else {
       await refreshBundle();
     }
     setStatus(message, "success");
-    await popup("回收成功", message);
+    await popup("归炉成功", message);
   } catch (error) {
-    const message = normalizeError(error, "提交官网回收失败。");
+    const message = normalizeError(error, "提交万宝归炉失败。");
     setStatus(message, "error");
     await popup("操作失败", message, "error");
   }
@@ -5428,18 +5722,7 @@ renderProfile = function renderProfileRedesigned(bundle) {
     auctionDurationDisplay.value = `${Number(settings.auction_duration_minutes || 60)} 分钟`;
   }
 
-  renderArtifactList(bundle.artifacts || [], retreating, equipLimit, equippedArtifacts.length);
-  renderTalismanList(bundle.talismans || [], retreating);
-  renderPillList(bundle.pills || [], retreating);
-  renderOfficialShop(bundle.official_shop || [], retreating);
-  renderOfficialRecyclePanel(bundle, retreating);
-  renderPersonalShop(bundle.personal_shop || []);
-  renderCommunityShop(bundle.community_shop || [], retreating);
-  renderInventorySelect();
-  renderAuctionInventorySelect();
-  renderPersonalAuctions(bundle.personal_auctions || []);
-  renderCommunityAuctions(bundle.community_auctions || []);
-  renderJournalArea(bundle);
+  queueOpenLazyFoldCards();
   syncAdminEntry(bundle);
   syncUserTaskComposer();
 };
@@ -5885,7 +6168,7 @@ renderProfile = function renderProfileWithTitles(bundle) {
       + `<article class="profile-item"><span>成就解锁</span><strong>${escapeHtml(bundle.achievement_unlocked_count || 0)} / ${escapeHtml(bundle.achievement_total_count || 0)}</strong></article>`
     );
   }
-  renderTitleAchievementArea(bundle);
+  renderLazyFoldCard("title-card");
   syncFoldToolbar();
 };
 
@@ -6236,9 +6519,9 @@ renderProfile = function renderProfileWithCommissionBoard(bundle) {
     syncFoldToolbar();
     return;
   }
-  renderFurnaceArea(bundle);
-  renderMentorshipArea(bundle);
-  renderCommissionArea(bundle);
+  renderLazyFoldCard("furnace-card");
+  renderLazyFoldCard("mentorship-card");
+  renderLazyFoldCard("commission-card");
   syncFoldToolbar();
 };
 
@@ -6478,7 +6761,7 @@ renderProfile = function renderProfileWithFarm(bundle) {
     syncFoldToolbar();
     return;
   }
-  renderFarmArea(bundle);
+  renderLazyFoldCard("farm-card");
   syncFoldToolbar();
 };
 
@@ -6494,7 +6777,7 @@ renderProfile = function renderProfileWithMarriage(bundle) {
     return;
   }
 
-  renderMarriageArea(bundle);
+  renderLazyFoldCard("marriage-card");
   const profileGrid = document.querySelector("#profile-grid");
   if (profileGrid) {
     profileGrid.insertAdjacentHTML(
@@ -6709,7 +6992,7 @@ renderProfile = function renderProfileWithFishing(bundle) {
     syncFoldToolbar();
     return;
   }
-  renderFishingArea(bundle);
+  renderLazyFoldCard("fishing-card");
   syncFoldToolbar();
 };
 
@@ -6833,16 +7116,7 @@ renderProfile = function renderProfileWithGambling(bundle) {
     return;
   }
 
-  renderGamblingArea(bundle);
-  const gambling = bundle?.gambling || {};
-  const duelLockReason = currentDuelLockReason(bundle);
-  const poolBlockedReason = Number(gambling.pool_size || 0) > 0 ? "" : "当前赌坊奖池尚未配置。";
-  const disabledReason = duelLockReason || poolBlockedReason;
-  ["#gambling-exchange-count", "#gambling-open-count"].forEach((selector) => {
-    setDisabled(document.querySelector(selector), Boolean(disabledReason), disabledReason);
-  });
-  setDisabled(document.querySelector("#gambling-exchange-form button[type='submit']"), Boolean(disabledReason), disabledReason);
-  setDisabled(document.querySelector("#gambling-open-form button[type='submit']"), Boolean(disabledReason), disabledReason);
+  renderLazyFoldCard("gambling-card");
   syncFoldToolbar();
 };
 
@@ -7019,7 +7293,9 @@ document.addEventListener("click", async (event) => {
 
 document.querySelector("#wiki-card")?.addEventListener("toggle", (event) => {
   if (!event.currentTarget?.open) return;
-  ensureWikiBundle().catch(() => null);
+  ensureWikiBundle()
+    .then(() => renderWikiArea())
+    .catch(() => null);
 });
 
 document.querySelector("#wiki-search")?.addEventListener("input", (event) => {
@@ -7049,6 +7325,7 @@ document.querySelector("#wiki-result-list")?.addEventListener("click", async (ev
 });
 
 setupFoldToolbar();
+setupMobileInteractionPolish();
 
 bootstrap().catch(async (error) => {
   const message = normalizeError(error, "修仙面板初始化失败。");
