@@ -2,7 +2,7 @@
 基本的sql操作
 """
 import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 from bot.func_helper import redis_cache
 from bot.sql_helper import Base, Session
@@ -14,6 +14,7 @@ from bot import LOGGER
 EMBY_CACHE_TTL = max(int(os.getenv("PIVKEYU_REDIS_EMBY_TTL", "300") or 300), 1)
 EMBY_CACHE_MISS_TTL = max(int(os.getenv("PIVKEYU_REDIS_EMBY_MISS_TTL", "60") or 60), 1)
 _CACHE_ABSENT = object()
+SHANGHAI_TZ = timezone(timedelta(hours=8))
 
 
 
@@ -86,6 +87,14 @@ def _deserialize_emby_row(payload: dict) -> Emby:
         if normalized.get(field) is not None:
             normalized[field] = int(normalized[field])
     return Emby(**normalized)
+
+
+def _to_shanghai_date(value: datetime | None):
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.date()
+    return value.astimezone(SHANGHAI_TZ).date()
 
 
 def _normalize_lookup_candidates(query) -> tuple[int | None, str | None]:
@@ -438,6 +447,103 @@ def sql_update_emby(condition, **kwargs):
         except Exception as e:
             LOGGER.error(e)
             return False
+
+
+def sql_try_daily_checkin(tg: int | str, reward: int, checkin_at: datetime | None = None) -> dict:
+    """
+    Atomically settle a daily check-in to prevent concurrent repeated sign-ins.
+
+    Returns a dict with:
+    - ok: whether the DB operation itself succeeded
+    - exists: whether the target user exists
+    - checked_in: whether this call granted the reward
+    - already_checked: whether the user had already checked in today
+    - balance: latest balance after settlement / current balance if already checked in
+    - checkin_at: latest stored check-in datetime
+    """
+    try:
+        numeric_tg = int(tg)
+    except (TypeError, ValueError):
+        return {
+            "ok": False,
+            "exists": False,
+            "checked_in": False,
+            "already_checked": False,
+            "balance": 0,
+            "reward": 0,
+            "checkin_at": None,
+        }
+
+    raw_settled_at = checkin_at or datetime.now(SHANGHAI_TZ)
+    if raw_settled_at.tzinfo is not None:
+        settled_at = raw_settled_at.astimezone(SHANGHAI_TZ).replace(tzinfo=None)
+    else:
+        settled_at = raw_settled_at
+    today = settled_at.date()
+    day_start = settled_at.replace(hour=0, minute=0, second=0, microsecond=0)
+    normalized_reward = max(int(reward or 0), 0)
+
+    with Session() as session:
+        try:
+            updated = (
+                session.query(Emby)
+                .filter(Emby.tg == numeric_tg)
+                .filter(or_(Emby.ch.is_(None), Emby.ch < day_start))
+                .update(
+                    {
+                        Emby.iv: func.coalesce(Emby.iv, 0) + normalized_reward,
+                        Emby.ch: settled_at,
+                    },
+                    synchronize_session=False,
+                )
+            )
+            session.commit()
+            latest = session.query(Emby).filter(Emby.tg == numeric_tg).first()
+            _invalidate_emby_payload({"tg": numeric_tg})
+            if latest is not None:
+                _invalidate_emby_payload(_serialize_emby_row(latest))
+            if latest is None:
+                return {
+                    "ok": True,
+                    "exists": False,
+                    "checked_in": False,
+                    "already_checked": False,
+                    "balance": 0,
+                    "reward": 0,
+                    "checkin_at": None,
+                }
+            if updated > 0:
+                return {
+                    "ok": True,
+                    "exists": True,
+                    "checked_in": True,
+                    "already_checked": False,
+                    "balance": int(latest.iv or 0),
+                    "reward": normalized_reward,
+                    "checkin_at": latest.ch,
+                }
+            last_checkin_date = _to_shanghai_date(latest.ch)
+            return {
+                "ok": True,
+                "exists": True,
+                "checked_in": False,
+                "already_checked": bool(last_checkin_date is not None and last_checkin_date >= today),
+                "balance": int(latest.iv or 0),
+                "reward": 0,
+                "checkin_at": latest.ch,
+            }
+        except Exception as exc:
+            LOGGER.error(f"每日签到结算失败: tg={numeric_tg}, error={exc}")
+            session.rollback()
+            return {
+                "ok": False,
+                "exists": True,
+                "checked_in": False,
+                "already_checked": False,
+                "balance": 0,
+                "reward": 0,
+                "checkin_at": None,
+            }
 
 
 def sql_invalidate_emby_cache(tg: int | str) -> bool:
