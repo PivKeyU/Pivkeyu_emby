@@ -119,6 +119,7 @@ REALM_STAGE_RULES = {
         breakthrough_base_rate,
     ) in REALM_STAGE_RULE_ROWS
 }
+REALM_LAYER_THRESHOLD_GROWTH_RATE = 0.05
 IMMORTAL_REBASE_START_STAGE = "人仙"
 IMMORTAL_REBASE_START_INDEX = REALM_ORDER.index(IMMORTAL_REBASE_START_STAGE)
 IMMORTAL_REBASE_SOURCE_STAGES = REALM_ORDER[IMMORTAL_REBASE_START_INDEX:]
@@ -753,7 +754,10 @@ def get_realm_stage_rule(stage: str | None) -> dict[str, int]:
 def calculate_realm_threshold(stage: str | None, layer: int | str | None) -> int:
     rule = get_realm_stage_rule(stage)
     current_layer = normalize_realm_layer(layer)
-    return int(rule["threshold_base"]) + (current_layer - 1) * int(rule["threshold_step"])
+    linear_threshold = int(rule["threshold_base"]) + (current_layer - 1) * int(rule["threshold_step"])
+    layer_growth = max(current_layer - 1, 0)
+    growth_multiplier = 1 + layer_growth * REALM_LAYER_THRESHOLD_GROWTH_RATE
+    return max(int(round(linear_threshold * growth_multiplier)), linear_threshold)
 
 
 def calculate_legacy_realm_threshold(stage: str | None, layer: int | str | None) -> int:

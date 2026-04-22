@@ -1299,18 +1299,67 @@ def _build_event_summary_text(chat_id: int) -> str:
     return "\n".join(lines)
 
 
+def _message_text_content(message: Any) -> str:
+    return str(getattr(message, "text", None) or getattr(message, "caption", None) or "").strip()
+
+
+def _message_id_value(message: Any) -> int:
+    return int(getattr(message, "id", None) or getattr(message, "message_id", None) or 0)
+
+
+def _is_event_summary_message(message: Any) -> bool:
+    return "修仙汇总" in _message_text_content(message)
+
+
+async def _get_pinned_chat_message(chat_id: int) -> Any | None:
+    resolved_chat_id = int(chat_id or 0)
+    if not resolved_chat_id:
+        return None
+    try:
+        chat = await bot.get_chat(resolved_chat_id)
+    except Exception as exc:
+        LOGGER.warning(f"xiuxian event summary get chat failed chat={resolved_chat_id}: {exc}")
+        return None
+    return getattr(chat, "pinned_message", None)
+
+
+async def _bound_existing_event_summary_message(chat_id: int) -> int:
+    resolved_chat_id = int(chat_id or 0)
+    if not resolved_chat_id:
+        return 0
+    pinned_message = await _get_pinned_chat_message(resolved_chat_id)
+    if pinned_message is None or not _is_event_summary_message(pinned_message):
+        return 0
+    message_id = _message_id_value(pinned_message)
+    if message_id <= 0:
+        return 0
+    EVENT_SUMMARY_MESSAGES[resolved_chat_id] = message_id
+    EVENT_SUMMARY_PINNED_MESSAGES[resolved_chat_id] = message_id
+    return message_id
+
+
 async def _pin_event_summary_message(chat_id: int, message_id: int) -> None:
     if not chat_id or not message_id:
         return
+    resolved_chat_id = int(chat_id)
+    resolved_message_id = int(message_id)
+    current_pinned_message = await _get_pinned_chat_message(resolved_chat_id)
+    current_pinned_id = _message_id_value(current_pinned_message)
+    if current_pinned_id > 0 and _is_event_summary_message(current_pinned_message):
+        EVENT_SUMMARY_PINNED_MESSAGES[resolved_chat_id] = current_pinned_id
+        if current_pinned_id == resolved_message_id:
+            return
+
+    if current_pinned_id > 0 and current_pinned_id != resolved_message_id:
+        try:
+            await bot.unpin_all_chat_messages(chat_id=resolved_chat_id)
+        except Exception as exc:
+            LOGGER.warning(f"xiuxian event summary unpin-all failed chat={resolved_chat_id}: {exc}")
     try:
-        await bot.unpin_all_chat_messages(chat_id=chat_id)
+        await bot.pin_chat_message(chat_id=resolved_chat_id, message_id=resolved_message_id, disable_notification=True)
+        EVENT_SUMMARY_PINNED_MESSAGES[resolved_chat_id] = resolved_message_id
     except Exception as exc:
-        LOGGER.warning(f"xiuxian event summary unpin-all failed chat={chat_id}: {exc}")
-    try:
-        await bot.pin_chat_message(chat_id=chat_id, message_id=message_id, disable_notification=True)
-        EVENT_SUMMARY_PINNED_MESSAGES[int(chat_id)] = int(message_id)
-    except Exception as exc:
-        LOGGER.warning(f"xiuxian event summary pin failed chat={chat_id} message={message_id}: {exc}")
+        LOGGER.warning(f"xiuxian event summary pin failed chat={resolved_chat_id} message={resolved_message_id}: {exc}")
 
 
 async def _refresh_event_summary_for_chat(chat_id: int) -> None:
@@ -1319,6 +1368,8 @@ async def _refresh_event_summary_for_chat(chat_id: int) -> None:
         return
     text = _build_event_summary_text(resolved_chat_id)
     message_id = int(EVENT_SUMMARY_MESSAGES.get(resolved_chat_id) or 0)
+    if message_id <= 0:
+        message_id = await _bound_existing_event_summary_message(resolved_chat_id)
     if message_id > 0:
         if EVENT_SUMMARY_LAST_TEXTS.get(resolved_chat_id) == text:
             if int(EVENT_SUMMARY_PINNED_MESSAGES.get(resolved_chat_id) or 0) != message_id:
