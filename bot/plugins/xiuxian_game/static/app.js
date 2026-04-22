@@ -1613,10 +1613,19 @@ function scrollElementIntoComfortableView(element, options = {}) {
 }
 
 function setupFoldToolbar() {
-  document.querySelector("[data-fold-open-all]")?.addEventListener("click", () => toggleFoldCards(true));
-  document.querySelector("[data-fold-close-all]")?.addEventListener("click", () => toggleFoldCards(false));
+  const openAllButton = document.querySelector("[data-fold-open-all]");
+  if (openAllButton && !openAllButton.dataset.foldToolbarBound) {
+    openAllButton.dataset.foldToolbarBound = "1";
+    openAllButton.addEventListener("click", () => toggleFoldCards(true));
+  }
+  const closeAllButton = document.querySelector("[data-fold-close-all]");
+  if (closeAllButton && !closeAllButton.dataset.foldToolbarBound) {
+    closeAllButton.dataset.foldToolbarBound = "1";
+    closeAllButton.addEventListener("click", () => toggleFoldCards(false));
+  }
   const shortcuts = document.querySelector("#fold-shortcuts");
-  if (shortcuts) {
+  if (shortcuts && !shortcuts.dataset.foldToolbarBound) {
+    shortcuts.dataset.foldToolbarBound = "1";
     shortcuts.addEventListener("click", (event) => {
       const button = event.target.closest("[data-fold-target]");
       if (!button) return;
@@ -1625,10 +1634,11 @@ function setupFoldToolbar() {
   }
 
   document.querySelectorAll(".fold-card").forEach((card) => {
+    if (card.dataset.foldToolbarBound) return;
+    card.dataset.foldToolbarBound = "1";
     card.addEventListener("toggle", () => {
       syncFoldToolbar();
       if (card.open) {
-        scrollElementIntoComfortableView(card.querySelector(".fold-summary") || card, { block: "nearest", delay: 40 });
         renderLazyFoldCard(card.id, { force: true });
       }
     });
