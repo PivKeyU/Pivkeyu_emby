@@ -251,7 +251,7 @@ ROOT_VARIANT_FACTOR_BONUS = 0.01
 PERSONAL_SHOP_NAME = "游仙小铺"
 OFFICIAL_RECYCLE_NAME = "万宝归炉"
 IMMORTAL_STONE_NAME = "仙界奇石"
-GAMBLING_SUPPORTED_ITEM_KINDS = {"artifact", "pill", "talisman", "material"}
+GAMBLING_SUPPORTED_ITEM_KINDS = {"artifact", "pill", "talisman", "material", "recipe", "technique"}
 RECYCLABLE_ITEM_KINDS = {"artifact", "pill", "talisman", "material", "technique", "recipe"}
 STARTER_TECHNIQUE_NAME = "长青诀"
 STARTER_TITLE_NAME = "初入仙途"
@@ -8920,6 +8920,7 @@ def build_gambling_bundle(tg: int, bundle: dict[str, Any] | None = None) -> dict
     fortune_value = int(effective_stats.get("fortune", profile.get("fortune", FORTUNE_BASELINE)) or FORTUNE_BASELINE)
     quality_rules = _normalize_gambling_quality_weight_rules(settings.get("gambling_quality_weight_rules"))
     raw_pool = _configured_gambling_pool(settings)
+    empty_chance = _gambling_empty_chance(fortune_value)
     enabled_pool = []
     total_effective_weight = 0.0
     for entry in raw_pool:
@@ -8932,7 +8933,9 @@ def build_gambling_bundle(tg: int, bundle: dict[str, Any] | None = None) -> dict
         if _reward_pool_entry_enabled(entry, "gambling") and int(entry.get("item_ref_id") or 0) > 0 and weight > 0:
             enabled_pool.append(payload)
     for entry in enabled_pool:
-        chance = (float(entry.get("effective_weight") or 0.0) / total_effective_weight * 100.0) if total_effective_weight > 0 else 0.0
+        chance = (
+            float(entry.get("effective_weight") or 0.0) / total_effective_weight * 100.0 * max(1.0 - empty_chance, 0.0)
+        ) if total_effective_weight > 0 else 0.0
         entry["chance_percent"] = round(chance, 3)
     enabled_pool.sort(
         key=lambda item: (
@@ -8963,6 +8966,7 @@ def build_gambling_bundle(tg: int, bundle: dict[str, Any] | None = None) -> dict
             1,
         ),
         "fortune_value": fortune_value,
+        "empty_chance_percent": round(empty_chance * 100.0, 2),
         "fortune_hint": _gambling_fortune_hint(fortune_value, settings),
         "quality_weight_rules": quality_rules,
         "pool_preview": enabled_pool,
@@ -9049,6 +9053,7 @@ def open_immortal_stones(tg: int, count: int) -> dict[str, Any]:
         )
         or FORTUNE_BASELINE
     )
+    empty_chance = _gambling_empty_chance(fortune_value)
     reward_pool = [
         entry
         for entry in _configured_gambling_pool(settings)
@@ -9072,6 +9077,7 @@ def open_immortal_stones(tg: int, count: int) -> dict[str, Any]:
     )
 
     results: list[dict[str, Any]] = []
+    empty_count = 0
     with Session() as session:
         artifact_meta_map: dict[int, XiuxianArtifact] = {}
         selected_unique_artifact_ids: set[int] = set()
@@ -9133,7 +9139,11 @@ def open_immortal_stones(tg: int, count: int) -> dict[str, Any]:
         for _ in range(amount):
             available_entries = [entry for entry in weighted_pool if _reward_entry_available(entry)]
             if not available_entries:
-                raise ValueError("当前奖池中可领取的奖励不足，请联系主人调整配置。")
+                empty_count += 1
+                continue
+            if random.random() < empty_chance:
+                empty_count += 1
+                continue
             chosen_entry = random.choices(
                 available_entries,
                 weights=[float(entry["effective_weight"]) for entry in available_entries],
@@ -9162,21 +9172,25 @@ def open_immortal_stones(tg: int, count: int) -> dict[str, Any]:
             if row.quantity <= 0:
                 session.delete(row)
         for entry in drawn_entries:
-            quantity = random.randint(
+            item_kind = str(entry.get("item_kind") or "")
+            quantity = 1 if item_kind in {"recipe", "technique"} else random.randint(
                 max(int(entry.get("quantity_min") or 1), 1),
                 max(int(entry.get("quantity_max") or entry.get("quantity_min") or 1), max(int(entry.get("quantity_min") or 1), 1)),
             )
-            reward_payload = _grant_gambling_reward_in_session(
-                session,
-                int(tg),
-                str(entry.get("item_kind") or ""),
-                int(entry.get("item_ref_id") or 0),
-                quantity,
-            )
-            actual_quantity = max(int((reward_payload or {}).get("quantity") or quantity), 0)
+            reward_payload = None
+            actual_quantity = max(int(quantity or 0), 0)
+            if item_kind not in {"recipe", "technique"}:
+                reward_payload = _grant_gambling_reward_in_session(
+                    session,
+                    int(tg),
+                    item_kind,
+                    int(entry.get("item_ref_id") or 0),
+                    quantity,
+                )
+                actual_quantity = max(int((reward_payload or {}).get("quantity") or quantity), 0)
             results.append(
                 {
-                    "item_kind": entry.get("item_kind"),
+                    "item_kind": item_kind,
                     "item_kind_label": entry.get("item_kind_label"),
                     "item_ref_id": entry.get("item_ref_id"),
                     "item_name": entry.get("item_name"),
@@ -9186,9 +9200,25 @@ def open_immortal_stones(tg: int, count: int) -> dict[str, Any]:
                     "quantity": actual_quantity,
                     "broadcasted": int(entry.get("quality_level") or 0) >= broadcast_level,
                     "reward": reward_payload,
+                    "_post_commit": {
+                        "item_kind": item_kind,
+                        "item_ref_id": int(entry.get("item_ref_id") or 0),
+                        "quantity": quantity,
+                    } if item_kind in {"recipe", "technique"} else None,
                 }
             )
         session.commit()
+
+    for row in results:
+        post_commit = row.pop("_post_commit", None)
+        if not isinstance(post_commit, dict):
+            continue
+        row["reward"] = _grant_gambling_reward_after_commit(
+            int(tg),
+            str(post_commit.get("item_kind") or ""),
+            int(post_commit.get("item_ref_id") or 0),
+            int(post_commit.get("quantity") or 1),
+        )
 
     summary = _format_gambling_reward_summary(results)
     summary_text = "、".join(
@@ -9197,11 +9227,15 @@ def open_immortal_stones(tg: int, count: int) -> dict[str, Any]:
     )
     if len(summary) > 8:
         summary_text += f" 等 {len(summary)} 项"
+    if not summary_text:
+        summary_text = "空手而归"
+    if empty_count > 0:
+        summary_text = f"{summary_text}（轮空 {empty_count} 次）" if results else f"空手而归 {empty_count} 次"
     create_journal(
         int(tg),
         "gambling",
         "开启仙界奇石",
-        f"开启了 {amount} 枚{IMMORTAL_STONE_NAME}，获得：{summary_text or '未知奖励'}。",
+        f"开启了 {amount} 枚{IMMORTAL_STONE_NAME}，获得：{summary_text}。",
     )
     remaining_quantity = next(
         (
@@ -9216,6 +9250,8 @@ def open_immortal_stones(tg: int, count: int) -> dict[str, Any]:
         "remaining_immortal_stone": remaining_quantity,
         "fortune_value": fortune_value,
         "fortune_hint": _gambling_fortune_hint(fortune_value, settings),
+        "empty_count": empty_count,
+        "empty_chance_percent": round(empty_chance * 100.0, 2),
         "broadcast_quality_level": broadcast_level,
         "results": results,
         "summary": summary,
@@ -9578,7 +9614,171 @@ def _immortal_stone_material() -> dict[str, Any]:
 def _item_quality_level(kind: str, item: dict[str, Any]) -> int:
     if kind == "material":
         return int(item.get("quality_level") or 1)
+    if kind == "recipe":
+        result_kind = str(item.get("result_kind") or "").strip()
+        result_ref_id = int(item.get("result_ref_id") or 0)
+        if result_kind and result_ref_id > 0:
+            result_item = _get_item_payload(result_kind, result_ref_id)
+            if isinstance(result_item, dict):
+                return _item_quality_level(result_kind, result_item)
+        return 1
+    if item.get("rarity_level") is not None:
+        return max(int(item.get("rarity_level") or 1), 1)
     return int(get_quality_meta(item.get("rarity")).get("level") or 1)
+
+
+def _gambling_reward_invalid_reason(kind: str, item: dict[str, Any] | None) -> str:
+    normalized_kind = str(kind or "").strip()
+    if item is None:
+        return "未找到对应物品"
+    if normalized_kind == "artifact" and bool(item.get("unique_item")):
+        return "唯一法宝不能进入共享奖池"
+    if normalized_kind == "pill" and str(item.get("pill_type") or "").strip() == "foundation":
+        return "破境丹不能进入共享奖池"
+    if normalized_kind == "material" and str(item.get("name") or "").strip() == IMMORTAL_STONE_NAME:
+        return "仙界奇石不能作为自身奖池奖励"
+    if normalized_kind == "recipe":
+        result_kind = str(item.get("result_kind") or "").strip()
+        result_ref_id = int(item.get("result_ref_id") or 0)
+        result_item = _get_item_payload(result_kind, result_ref_id) if result_kind and result_ref_id > 0 else None
+        if result_kind == "pill" and str((result_item or {}).get("pill_type") or "").strip() == "foundation":
+            return "破境丹丹方不能进入共享奖池"
+    return ""
+
+
+def _reward_pool_quantity_range(kind: str, quality_level: int) -> tuple[int, int]:
+    level = max(int(quality_level or 1), 1)
+    normalized_kind = str(kind or "").strip()
+    if normalized_kind == "material":
+        if level <= 1:
+            return 2, 4
+        if level == 2:
+            return 1, 3
+        if level <= 4:
+            return 1, 2
+        return 1, 1
+    if normalized_kind == "pill" and level <= 2:
+        return 1, 2
+    return 1, 1
+
+
+def _reward_pool_default_weight(kind: str, quality_level: int, channel: str) -> float:
+    level = max(min(int(quality_level or 1), 7), 1)
+    quality_base = {
+        1: 96.0,
+        2: 52.0,
+        3: 24.0,
+        4: 10.0,
+        5: 3.5,
+        6: 1.0,
+        7: 0.22,
+    }
+    factor_map = {
+        "gambling": {
+            "material": 1.0,
+            "pill": 0.72,
+            "talisman": 0.5,
+            "artifact": 0.28,
+            "recipe": 0.15,
+            "technique": 0.11,
+        },
+        "fishing": {
+            "material": 1.0,
+            "pill": 0.58,
+            "talisman": 0.34,
+            "artifact": 0.16,
+            "recipe": 0.08,
+            "technique": 0.06,
+        },
+    }
+    normalized_channel = "fishing" if str(channel or "").strip() == "fishing" else "gambling"
+    normalized_kind = str(kind or "").strip()
+    return round(quality_base.get(level, 1.0) * factor_map[normalized_channel].get(normalized_kind, 0.25), 3)
+
+
+def _dynamic_gambling_reward_catalog() -> list[dict[str, Any]]:
+    catalog: list[dict[str, Any]] = []
+    sources = {
+        "material": list_materials(enabled_only=True),
+        "artifact": list_artifacts(enabled_only=True),
+        "pill": list_pills(enabled_only=True),
+        "talisman": list_talismans(enabled_only=True),
+        "recipe": list_recipes(enabled_only=True),
+        "technique": list_techniques(enabled_only=True),
+    }
+    kind_order = {kind: index for index, kind in enumerate(["material", "artifact", "pill", "talisman", "recipe", "technique"])}
+    for kind, rows in sources.items():
+        for item in rows:
+            invalid_reason = _gambling_reward_invalid_reason(kind, item)
+            if invalid_reason:
+                continue
+            quality_level = max(_item_quality_level(kind, item), 1)
+            quality = get_quality_meta(quality_level)
+            quantity_min, quantity_max = _reward_pool_quantity_range(kind, quality_level)
+            catalog.append(
+                {
+                    "item_kind": kind,
+                    "item_kind_label": ITEM_KIND_LABELS.get(kind, kind),
+                    "item_ref_id": int(item.get("id") or 0),
+                    "item_name": str(item.get("name") or "").strip(),
+                    "quality_level": int(quality["level"]),
+                    "quality_label": str(quality["label"]),
+                    "quality_color": str(quality["color"]),
+                    "quantity_min": quantity_min,
+                    "quantity_max": quantity_max,
+                    "base_weight": _reward_pool_default_weight(kind, quality_level, "gambling"),
+                    "gambling_weight": _reward_pool_default_weight(kind, quality_level, "gambling"),
+                    "fishing_weight": _reward_pool_default_weight(kind, quality_level, "fishing"),
+                    "enabled": True,
+                    "gambling_enabled": True,
+                    "fishing_enabled": True,
+                    "invalid_reason": "",
+                }
+            )
+    catalog.sort(
+        key=lambda item: (
+            kind_order.get(str(item.get("item_kind") or "").strip(), 99),
+            int(item.get("quality_level") or 0),
+            str(item.get("item_name") or ""),
+            int(item.get("item_ref_id") or 0),
+        )
+    )
+    return catalog
+
+
+def _merge_catalog_gambling_reward_pool(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    catalog = _dynamic_gambling_reward_catalog()
+    if not catalog:
+        return entries
+    saved_map = {
+        (str(entry.get("item_kind") or "").strip(), int(entry.get("item_ref_id") or 0)): entry
+        for entry in entries
+        if int(entry.get("item_ref_id") or 0) > 0 and not str(entry.get("invalid_reason") or "").strip()
+    }
+    merged: list[dict[str, Any]] = []
+    for row in catalog:
+        current = saved_map.get((str(row.get("item_kind") or "").strip(), int(row.get("item_ref_id") or 0)), {})
+        quantity_min = max(int(current.get("quantity_min") or row.get("quantity_min") or 1), 1)
+        quantity_max = max(int(current.get("quantity_max") or row.get("quantity_max") or quantity_min), quantity_min)
+        if str(row.get("item_kind") or "").strip() in {"recipe", "technique"}:
+            quantity_min = 1
+            quantity_max = 1
+        gambling_weight = max(float(current.get("gambling_weight", current.get("base_weight", row.get("gambling_weight") or 0.0)) or 0.0), 0.0)
+        fishing_weight = max(float(current.get("fishing_weight", current.get("base_weight", row.get("fishing_weight") or 0.0)) or 0.0), 0.0)
+        merged.append(
+            {
+                **row,
+                "quantity_min": quantity_min,
+                "quantity_max": quantity_max,
+                "base_weight": gambling_weight,
+                "gambling_weight": gambling_weight,
+                "fishing_weight": fishing_weight,
+                "enabled": bool(current.get("enabled", row.get("enabled", True))),
+                "gambling_enabled": bool(current.get("gambling_enabled", current.get("enabled", row.get("gambling_enabled", True)))),
+                "fishing_enabled": bool(current.get("fishing_enabled", current.get("enabled", row.get("fishing_enabled", True)))),
+            }
+        )
+    return merged
 
 
 def _resolve_gambling_reward_item(
@@ -9598,6 +9798,8 @@ def _resolve_gambling_reward_item(
         "pill": list_pills(enabled_only=True),
         "talisman": list_talismans(enabled_only=True),
         "material": list_materials(enabled_only=True),
+        "recipe": list_recipes(enabled_only=True),
+        "technique": list_techniques(enabled_only=True),
     }.get(kind, [])
     row = None
     if ref_id:
@@ -9684,14 +9886,18 @@ def _normalize_gambling_reward_pool(raw: Any) -> list[dict[str, Any]]:
             invalid_reason = "不支持的物品类型"
         elif resolved is None:
             invalid_reason = "未找到对应物品"
-        elif str((resolved or {}).get("item_name") or "").strip() == IMMORTAL_STONE_NAME:
-            invalid_reason = "仙界奇石不能作为自身奖池奖励"
+        else:
+            invalid_reason = _gambling_reward_invalid_reason(item_kind, (resolved or {}).get("item"))
+        if invalid_reason:
             resolved = None
 
         quality_level = int((resolved or {}).get("quality_level") or get_quality_meta(payload.get("quality_level")).get("level") or 1)
         quality = get_quality_meta(quality_level)
         quantity_min = max(_coerce_int(payload.get("quantity_min"), 1, 1), 1)
         quantity_max = max(_coerce_int(payload.get("quantity_max"), quantity_min, quantity_min), quantity_min)
+        if item_kind in {"recipe", "technique"}:
+            quantity_min = 1
+            quantity_max = 1
         legacy_weight = max(float(payload.get("base_weight", 1.0) or 0.0), 0.0)
         legacy_enabled = bool(payload.get("enabled", True))
         gambling_weight = max(float(payload.get("gambling_weight", legacy_weight) or 0.0), 0.0)
@@ -9723,7 +9929,7 @@ def _normalize_gambling_reward_pool(raw: Any) -> list[dict[str, Any]]:
 
 def _configured_gambling_pool(settings: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     current = settings or get_xiuxian_settings()
-    return _normalize_gambling_reward_pool(current.get("gambling_reward_pool"))
+    return _merge_catalog_gambling_reward_pool(_normalize_gambling_reward_pool(current.get("gambling_reward_pool")))
 
 
 def _reward_pool_entry_enabled(entry: dict[str, Any], channel: str) -> bool:
@@ -9760,8 +9966,13 @@ def _gambling_entry_effective_weight(entry: dict[str, Any], fortune_value: int |
         0,
     )
     rare_steps = max(quality_level - 1, 0)
-    fortune_multiplier = 1.0 + min((fortune_gap / fortune_divisor) * rare_steps * (bonus_percent / 100.0), 5.0)
+    fortune_multiplier = 1.0 + min((fortune_gap / fortune_divisor) * rare_steps * (bonus_percent / 100.0) * 0.35, 1.4)
     return base_weight * quality_multiplier * fortune_multiplier
+
+
+def _gambling_empty_chance(fortune_value: int | float) -> float:
+    fortune_gap = max(float(fortune_value or 0.0) - float(FORTUNE_BASELINE), 0.0)
+    return max(min(0.32 - min(fortune_gap / 140.0, 0.14), 0.42), 0.12)
 
 
 def _gambling_fortune_hint(fortune_value: int | float, settings: dict[str, Any]) -> str:
@@ -9779,8 +9990,9 @@ def _gambling_fortune_hint(fortune_value: int | float, settings: dict[str, Any])
         ),
         0,
     )
-    top_bonus = min((fortune_gap / divisor) * 6 * bonus_percent, 500)
-    return f"当前机缘可为高品阶奖励额外提供约 {round(top_bonus, 1)}% 权重加成。"
+    top_bonus = min((fortune_gap / divisor) * 6 * bonus_percent * 0.35, 140)
+    empty_reduction = (0.32 - _gambling_empty_chance(fortune_value)) * 100
+    return f"当前机缘最多可为高品阶奖励额外提供约 {round(top_bonus, 1)}% 权重加成，并降低约 {round(empty_reduction, 1)}% 轮空率。"
 
 
 def _grant_gambling_reward_in_session(
@@ -9850,7 +10062,27 @@ def _grant_gambling_reward_in_session(
         row.quantity = int(row.quantity or 0) + amount
         row.updated_at = utcnow()
         return {"material": serialize_material(get_material(int(item_ref_id))), "quantity": amount}
-    raise ValueError("当前奖池仅支持法宝、丹药、符箓和材料。")
+    raise ValueError("当前奖池仅支持实物奖励在事务内发放。")
+
+
+def _grant_gambling_reward_after_commit(
+    tg: int,
+    item_kind: str,
+    item_ref_id: int,
+    quantity: int,
+) -> dict[str, Any]:
+    amount = max(int(quantity or 0), 1)
+    if item_kind == "recipe":
+        return grant_recipe_to_user(int(tg), int(item_ref_id), source="gambling", obtained_note="仙界奇石所得")
+    if item_kind == "technique":
+        return grant_technique_to_user(
+            int(tg),
+            int(item_ref_id),
+            source="gambling",
+            obtained_note="仙界奇石所得",
+            auto_equip_if_empty=True,
+        )
+    return grant_item_to_user(int(tg), item_kind, int(item_ref_id), amount)
 
 
 def _format_gambling_reward_summary(results: list[dict[str, Any]]) -> list[dict[str, Any]]:

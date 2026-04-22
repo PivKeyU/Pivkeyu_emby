@@ -1331,6 +1331,17 @@ def _quality_from_item(kind: str, item: dict[str, Any] | None) -> int:
     return 1
 
 
+EXPLORATION_QUALITY_WEIGHT_MULTIPLIERS = {
+    1: 1.0,
+    2: 0.62,
+    3: 0.32,
+    4: 0.14,
+    5: 0.055,
+    6: 0.018,
+    7: 0.005,
+}
+
+
 def _exploration_drop_weight_rules() -> dict[str, int]:
     defaults = DEFAULT_SETTINGS["exploration_drop_weight_rules"]
     raw = get_xiuxian_settings().get("exploration_drop_weight_rules", defaults)
@@ -1349,6 +1360,17 @@ def _exploration_drop_weight_rules() -> dict[str, int]:
         "high_quality_fortune_divisor": pick("high_quality_fortune_divisor", 1),
         "high_quality_root_level_start": pick("high_quality_root_level_start", 0),
     }
+
+
+def _exploration_empty_chance(max_quality: int, fortune: int, divine_sense: int, root_quality_level: int) -> float:
+    base = 0.12 + max(int(max_quality or 1) - 1, 0) * 0.04
+    reduction = min(
+        max(int(fortune or 0) - 10, 0) / 220.0
+        + max(int(divine_sense or 0) - 10, 0) / 260.0
+        + max(int(root_quality_level or 1) - 1, 0) * 0.01,
+        0.14,
+    )
+    return max(min(base - reduction, 0.46), 0.08)
 
 
 def create_recipe_with_ingredients(
@@ -1825,7 +1847,7 @@ def _recipe_like_bonus_item(kind: str | None, ref_id: int | None) -> bool:
 
 def _build_exploration_outcome(
     scene: dict[str, Any],
-    chosen_drop: dict[str, Any],
+    chosen_drop: dict[str, Any] | None,
     fortune: int,
     divine_sense: int,
 ) -> dict[str, Any]:
@@ -1858,7 +1880,7 @@ def _build_exploration_outcome(
     parts = []
     if event.get("name"):
         parts.append(str(event.get("name")))
-    if chosen_drop.get("event_text"):
+    if chosen_drop and chosen_drop.get("event_text"):
         parts.append(str(chosen_drop.get("event_text")))
     if event.get("description"):
         parts.append(str(event.get("description")))
@@ -1867,6 +1889,7 @@ def _build_exploration_outcome(
         "stone_bonus": stone_bonus,
         "stone_loss": stone_loss,
         "bonus_reward": bonus_reward,
+        "empty_handed": chosen_drop is None,
         "event_text": "，".join([part for part in parts if part]).strip("，"),
     }
 
@@ -2129,23 +2152,42 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
     fortune = int(profile.get("fortune") or 0)
     root_quality_level = int(profile.get("root_quality_level") or 1)
     weight_rules = _exploration_drop_weight_rules()
-    weighted = []
+    weighted_rows: list[tuple[dict[str, Any], float]] = []
+    max_quality = 1
     for drop in drops:
         item_payload = _get_item_payload(str(drop.get("reward_kind") or ""), int(drop.get("reward_ref_id") or 0)) if drop.get("reward_ref_id") else None
         reward_quality = _quality_from_item(str(drop.get("reward_kind") or ""), item_payload)
-        extra_weight = 0
+        max_quality = max(max_quality, reward_quality)
+        quality_multiplier = EXPLORATION_QUALITY_WEIGHT_MULTIPLIERS.get(max(min(reward_quality, 7), 1), EXPLORATION_QUALITY_WEIGHT_MULTIPLIERS[1])
+        bonus_multiplier = 1.0
         if str(drop.get("reward_kind") or "") == "material":
-            extra_weight += max(divine_sense - 10, 0) // int(weight_rules["material_divine_sense_divisor"])
-        if reward_quality >= int(weight_rules["high_quality_threshold"]):
-            extra_weight += (
-                max(fortune - 10, 0) // int(weight_rules["high_quality_fortune_divisor"])
-                + max(root_quality_level - int(weight_rules["high_quality_root_level_start"]), 0)
+            bonus_multiplier += min(
+                max(divine_sense - 10, 0) / max(int(weight_rules["material_divine_sense_divisor"]), 1) * 0.03,
+                0.45,
             )
-        weighted.extend([drop] * max(int(drop.get("weight") or 1) + extra_weight, 1))
-    chosen = random.choice(weighted)
-    quantity = random.randint(int(chosen.get("quantity_min") or 1), int(chosen.get("quantity_max") or chosen.get("quantity_min") or 1))
+        if reward_quality >= int(weight_rules["high_quality_threshold"]):
+            bonus_multiplier += min(
+                max(fortune - 10, 0) / max(int(weight_rules["high_quality_fortune_divisor"]), 1) * 0.025
+                + max(root_quality_level - int(weight_rules["high_quality_root_level_start"]), 0) * 0.05,
+                0.55,
+            )
+        effective_weight = max(float(drop.get("weight") or 1), 1.0) * quality_multiplier * bonus_multiplier
+        if effective_weight > 0:
+            weighted_rows.append((drop, effective_weight))
+    empty_chance = _exploration_empty_chance(max_quality, fortune, divine_sense, root_quality_level)
+    chosen = None
+    if weighted_rows and random.random() >= empty_chance:
+        chosen = random.choices(
+            [row[0] for row in weighted_rows],
+            weights=[row[1] for row in weighted_rows],
+            k=1,
+        )[0]
+    quantity = random.randint(int(chosen.get("quantity_min") or 1), int(chosen.get("quantity_max") or chosen.get("quantity_min") or 1)) if chosen else 0
     outcome = _build_exploration_outcome(scene, chosen, fortune, divine_sense)
-    event_text = outcome.get("event_text") or chosen.get("event_text") or ""
+    outcome["empty_chance_percent"] = round(empty_chance * 100.0, 2)
+    event_text = outcome.get("event_text") or (chosen.get("event_text") if chosen else "") or ""
+    if not chosen and not event_text:
+        event_text = "你在秘境中搜寻良久，最终空手而归。"
     with Session() as session:
         exploration = XiuxianExploration(
             tg=tg,
@@ -2153,10 +2195,10 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
             started_at=utcnow(),
             end_at=utcnow() + timedelta(minutes=duration),
             claimed=False,
-            reward_kind=chosen.get("reward_kind"),
-            reward_ref_id=chosen.get("reward_ref_id"),
+            reward_kind=chosen.get("reward_kind") if chosen else None,
+            reward_ref_id=chosen.get("reward_ref_id") if chosen else None,
             reward_quantity=quantity,
-            stone_reward=int(chosen.get("stone_reward", 0) or 0),
+            stone_reward=int(chosen.get("stone_reward", 0) or 0) if chosen else 0,
             event_text=event_text or None,
             outcome_payload=outcome,
         )

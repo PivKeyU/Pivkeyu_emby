@@ -17,11 +17,15 @@ from bot.sql_helper.sql_xiuxian import (
     grant_artifact_to_user,
     grant_material_to_user,
     grant_pill_to_user,
+    grant_recipe_to_user,
     grant_talisman_to_user,
+    grant_technique_to_user,
     list_artifacts,
     list_materials,
     list_pills,
+    list_recipes,
     list_talismans,
+    list_techniques,
     realm_index,
 )
 
@@ -37,7 +41,7 @@ FISHING_SPOTS: dict[str, dict[str, Any]] = {
         "quality_min": 1,
         "quality_max": 3,
         "tier_weights": {1: 620, 2: 220, 3: 60},
-        "kind_weights": {"material": 1.0, "pill": 0.32, "talisman": 0.12},
+        "kind_weights": {"material": 1.0, "pill": 0.32, "talisman": 0.12, "recipe": 0.03, "technique": 0.02},
         "fortune_scale": 0.35,
     },
     "moon_lake": {
@@ -50,7 +54,7 @@ FISHING_SPOTS: dict[str, dict[str, Any]] = {
         "quality_min": 1,
         "quality_max": 4,
         "tier_weights": {1: 420, 2: 250, 3: 110, 4: 28},
-        "kind_weights": {"material": 0.88, "pill": 0.45, "talisman": 0.24},
+        "kind_weights": {"material": 0.88, "pill": 0.45, "talisman": 0.24, "recipe": 0.05, "technique": 0.03},
         "fortune_scale": 0.48,
     },
     "lava_pool": {
@@ -63,7 +67,7 @@ FISHING_SPOTS: dict[str, dict[str, Any]] = {
         "quality_min": 2,
         "quality_max": 5,
         "tier_weights": {2: 360, 3: 190, 4: 72, 5: 18},
-        "kind_weights": {"material": 0.72, "pill": 0.56, "talisman": 0.18, "artifact": 0.14},
+        "kind_weights": {"material": 0.72, "pill": 0.56, "talisman": 0.18, "artifact": 0.14, "recipe": 0.07, "technique": 0.05},
         "fortune_scale": 0.62,
     },
     "star_sea": {
@@ -76,7 +80,7 @@ FISHING_SPOTS: dict[str, dict[str, Any]] = {
         "quality_min": 3,
         "quality_max": 7,
         "tier_weights": {3: 290, 4: 170, 5: 70, 6: 16, 7: 3},
-        "kind_weights": {"material": 0.65, "pill": 0.42, "talisman": 0.28, "artifact": 0.18},
+        "kind_weights": {"material": 0.65, "pill": 0.42, "talisman": 0.28, "artifact": 0.18, "recipe": 0.1, "technique": 0.08},
         "fortune_scale": 0.82,
     },
 }
@@ -126,6 +130,18 @@ def _grant_item_by_kind(tg: int, kind: str, ref_id: int, quantity: int) -> None:
         return
     if kind == "material":
         grant_material_to_user(tg, ref_id, quantity)
+        return
+    if kind == "recipe":
+        grant_recipe_to_user(tg, ref_id, source="fishing", obtained_note="垂钓所得")
+        return
+    if kind == "technique":
+        grant_technique_to_user(
+            tg,
+            ref_id,
+            source="fishing",
+            obtained_note="垂钓所得",
+            auto_equip_if_empty=True,
+        )
         return
     raise ValueError("不支持的钓获物类型")
 
@@ -179,6 +195,11 @@ def _item_quality_level(kind: str, item: dict[str, Any] | None) -> int:
         return 1
     if kind == "material":
         return max(int(item.get("quality_level") or 1), 1)
+    if kind == "recipe":
+        result_kind = str(item.get("result_kind") or "").strip()
+        result_ref_id = int(item.get("result_ref_id") or 0)
+        service = _legacy_service()
+        return _item_quality_level(result_kind, service._get_item_payload(result_kind, result_ref_id))
     return max(int(item.get("rarity_level") or item.get("quality_level") or 1), 1)
 
 
@@ -187,11 +208,15 @@ def _build_item_lookups() -> dict[str, dict[int, dict[str, Any]]]:
     pills = {int(item["id"]): item for item in list_pills(enabled_only=True) if int(item.get("id") or 0) > 0}
     talismans = {int(item["id"]): item for item in list_talismans(enabled_only=True) if int(item.get("id") or 0) > 0}
     artifacts = {int(item["id"]): item for item in list_artifacts(enabled_only=True) if int(item.get("id") or 0) > 0}
+    recipes = {int(item["id"]): item for item in list_recipes(enabled_only=True) if int(item.get("id") or 0) > 0}
+    techniques = {int(item["id"]): item for item in list_techniques(enabled_only=True) if int(item.get("id") or 0) > 0}
     return {
         "material": materials,
         "pill": pills,
         "talisman": talismans,
         "artifact": artifacts,
+        "recipe": recipes,
+        "technique": techniques,
     }
 
 
@@ -208,7 +233,7 @@ def _build_fishing_candidates(
             continue
         kind = str(entry.get("item_kind") or "").strip()
         ref_id = int(entry.get("item_ref_id") or 0)
-        if kind not in {"material", "pill", "talisman", "artifact"} or ref_id <= 0:
+        if kind not in {"material", "pill", "talisman", "artifact", "recipe", "technique"} or ref_id <= 0:
             continue
         item = (item_lookups.get(kind) or {}).get(ref_id)
         if not item:
@@ -255,7 +280,7 @@ def _tier_weights_for_spot(spot: dict[str, Any], fortune: int, tiers: set[int], 
     quality_rules = service._normalize_fishing_quality_weight_rules(current_settings.get("fishing_quality_weight_rules"))
     available_tiers = sorted(tiers)
     median_tier = available_tiers[len(available_tiers) // 2]
-    luck_delta = max(min((int(fortune or 0) - 12) / 20.0, 1.8), -0.35)
+    luck_delta = max(min((int(fortune or 0) - 12) / 22.0, 0.9), -0.22)
     fortune_scale = max(float(spot.get("fortune_scale") or 0), 0.0)
     rows: list[dict[str, Any]] = []
     for tier in available_tiers:
@@ -264,7 +289,7 @@ def _tier_weights_for_spot(spot: dict[str, Any], fortune: int, tiers: set[int], 
             continue
         shift = int(tier) - int(median_tier)
         multiplier = 1.0 + shift * luck_delta * fortune_scale
-        multiplier = max(min(multiplier, 3.4), 0.25)
+        multiplier = max(min(multiplier, 1.9), 0.3)
         quality_multiplier = max(
             float((quality_rules.get(_quality_meta(tier)["label"]) or {}).get("weight_multiplier", 1.0) or 0.0),
             0.0,
@@ -274,6 +299,14 @@ def _tier_weights_for_spot(spot: dict[str, Any], fortune: int, tiers: set[int], 
             continue
         rows.append({"quality_level": tier, "weight": total_weight})
     return rows
+
+
+def _fishing_empty_chance(spot: dict[str, Any], fortune: int) -> float:
+    quality_max = max(int(spot.get("quality_max") or 1), 1)
+    fortune_gap = max(int(fortune or 0) - 12, 0)
+    base = 0.18 + max(quality_max - 1, 0) * 0.035
+    reduction = min(fortune_gap / 120.0, 0.16)
+    return max(min(base - reduction, 0.42), 0.08)
 
 
 def _kind_weights_for_tier(spot: dict[str, Any], tier_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -295,7 +328,7 @@ def _preview_rewards(candidates: list[dict[str, Any]], limit: int = PREVIEW_REWA
     rows: list[dict[str, Any]] = []
     seen_names: set[str] = set()
     preferred: list[dict[str, Any]] = []
-    for kind in ("artifact", "talisman", "pill", "material"):
+    for kind in ("artifact", "technique", "recipe", "talisman", "pill", "material"):
         kind_rows = [row for row in candidates if row.get("kind") == kind]
         kind_rows.sort(key=lambda item: (-int(item.get("quality_level") or 0), str(item.get("name") or "")))
         if kind_rows:
@@ -360,6 +393,7 @@ def _build_spot_bundle(spot: dict[str, Any], profile: XiuxianProfile, candidates
         "available": bool(available and candidates),
         "available_reason": available_reason if candidates else "当前没有可从该钓场钓出的物品",
         "candidate_count": len(candidates),
+        "empty_chance_percent": round(_fishing_empty_chance(spot, int(profile.fortune or 0)) * 100.0, 1),
         "reward_preview": _preview_rewards(candidates),
         "odds_preview": odds_preview,
     }
@@ -383,7 +417,7 @@ def build_fishing_bundle(tg: int) -> dict[str, Any]:
         "spots": spots,
         "current_fortune": max(int(profile.fortune or 0), 0),
         "available_spot_count": sum(1 for spot in spots if spot.get("available")),
-        "note": "垂钓与仙界奇石共用同一套奖励池，但会额外压低高品阶权重；破境丹与丹方仅能在对应秘境中获取。",
+        "note": "垂钓与仙界奇石共用同一套奖励池，但会额外压低高品阶权重，并且存在空竿；共享奖池会自动排除破境丹、破境丹丹方、唯一法宝与仙界奇石本体。",
     }
 
 
@@ -397,6 +431,10 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
     full_bundle = _legacy_service().serialize_full_profile(tg)
     effective_stats = full_bundle.get("effective_stats") or {}
     effective_fortune = max(int(effective_stats.get("fortune") or full_bundle.get("profile", {}).get("fortune") or 0), 0)
+    empty_chance = _fishing_empty_chance(spot, effective_fortune)
+    chosen = None
+    chosen_kind = ""
+    cast_cost_stone = max(int(spot.get("cast_cost_stone") or 0), 0)
 
     with Session() as session:
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(tg)).with_for_update().first()
@@ -411,24 +449,24 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
         if not candidates:
             raise ValueError("该钓场当前没有可钓取的奖励")
 
-        tier_pick = _weighted_choice(
-            _tier_weights_for_spot(spot, effective_fortune, {int(row.get("quality_level") or 0) for row in candidates}, settings),
-            weight_key="weight",
-        )
-        if not tier_pick:
-            raise ValueError("当前无法计算钓鱼概率")
-        chosen_tier = int(tier_pick.get("quality_level") or 1)
-        tier_candidates = [row for row in candidates if int(row.get("quality_level") or 0) == chosen_tier]
-        kind_pick = _weighted_choice(_kind_weights_for_tier(spot, tier_candidates), weight_key="weight")
-        if not kind_pick:
-            raise ValueError("当前钓场没有可用的奖励种类")
-        chosen_kind = str(kind_pick.get("kind") or "")
-        kind_candidates = [row for row in tier_candidates if str(row.get("kind") or "") == chosen_kind]
-        chosen = _weighted_choice(kind_candidates, weight_key="fishing_weight")
-        if not chosen:
-            raise ValueError("当前钓场没有可用的奖励物品")
+        if random.random() >= empty_chance:
+            tier_pick = _weighted_choice(
+                _tier_weights_for_spot(spot, effective_fortune, {int(row.get("quality_level") or 0) for row in candidates}, settings),
+                weight_key="weight",
+            )
+            if not tier_pick:
+                raise ValueError("当前无法计算钓鱼概率")
+            chosen_tier = int(tier_pick.get("quality_level") or 1)
+            tier_candidates = [row for row in candidates if int(row.get("quality_level") or 0) == chosen_tier]
+            kind_pick = _weighted_choice(_kind_weights_for_tier(spot, tier_candidates), weight_key="weight")
+            if not kind_pick:
+                raise ValueError("当前钓场没有可用的奖励种类")
+            chosen_kind = str(kind_pick.get("kind") or "")
+            kind_candidates = [row for row in tier_candidates if str(row.get("kind") or "") == chosen_kind]
+            chosen = _weighted_choice(kind_candidates, weight_key="fishing_weight")
+            if not chosen:
+                raise ValueError("当前钓场没有可用的奖励物品")
 
-        cast_cost_stone = max(int(spot.get("cast_cost_stone") or 0), 0)
         if cast_cost_stone > 0:
             apply_spiritual_stone_delta(
                 session,
@@ -438,6 +476,31 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
                 apply_tribute=False,
             )
         session.commit()
+
+    if chosen is None:
+        message = f"你在 {spot['name']} 抛竿许久，水面只剩回荡的灵波，最终空手而归。"
+        create_journal(
+            tg,
+            "fishing",
+            "灵河垂钓",
+            f"在 {spot['name']} 空竿而归，本次轮空。",
+        )
+        return {
+            "spot_key": spot["key"],
+            "spot_name": spot["name"],
+            "cast_cost_stone": cast_cost_stone,
+            "fortune_used": effective_fortune,
+            "reward_kind": None,
+            "reward_kind_label": "",
+            "reward_item": None,
+            "quantity": 0,
+            "quality_level": 0,
+            "quality_label": "",
+            "quality_color": "",
+            "message": message,
+            "empty_handed": True,
+            "empty_chance_percent": round(empty_chance * 100.0, 2),
+        }
 
     quantity = random.randint(int(chosen.get("quantity_min") or 1), int(chosen.get("quantity_max") or 1))
     try:
@@ -490,4 +553,6 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
         "quality_label": quality["label"],
         "quality_color": quality["color"],
         "message": message,
+        "empty_handed": False,
+        "empty_chance_percent": round(empty_chance * 100.0, 2),
     }

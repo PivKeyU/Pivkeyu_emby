@@ -240,10 +240,10 @@ DEFAULT_ROOT_QUALITY_VALUE_RULES = {
     "变异灵根": {"cultivation_rate": 1.3, "breakthrough_bonus": 9, "combat_factor": 1.04},
 }
 DEFAULT_EXPLORATION_DROP_WEIGHT_RULES = {
-    "material_divine_sense_divisor": 5,
+    "material_divine_sense_divisor": 7,
     "high_quality_threshold": 4,
-    "high_quality_fortune_divisor": 5,
-    "high_quality_root_level_start": 3,
+    "high_quality_fortune_divisor": 8,
+    "high_quality_root_level_start": 4,
 }
 DEFAULT_ITEM_QUALITY_VALUE_RULES = {
     "凡品": {"artifact_multiplier": 1.0, "pill_multiplier": 1.0, "talisman_multiplier": 1.0},
@@ -262,21 +262,21 @@ DEFAULT_ACTIVITY_STAT_GROWTH_RULES = {
 }
 DEFAULT_GAMBLING_QUALITY_WEIGHT_RULES = {
     "凡品": {"weight_multiplier": 1.0},
-    "下品": {"weight_multiplier": 0.72},
-    "中品": {"weight_multiplier": 0.44},
-    "上品": {"weight_multiplier": 0.22},
-    "极品": {"weight_multiplier": 0.1},
-    "仙品": {"weight_multiplier": 0.04},
-    "先天至宝": {"weight_multiplier": 0.015},
+    "下品": {"weight_multiplier": 0.52},
+    "中品": {"weight_multiplier": 0.24},
+    "上品": {"weight_multiplier": 0.09},
+    "极品": {"weight_multiplier": 0.028},
+    "仙品": {"weight_multiplier": 0.007},
+    "先天至宝": {"weight_multiplier": 0.0015},
 }
 DEFAULT_FISHING_QUALITY_WEIGHT_RULES = {
     "凡品": {"weight_multiplier": 1.0},
-    "下品": {"weight_multiplier": 0.6},
-    "中品": {"weight_multiplier": 0.28},
-    "上品": {"weight_multiplier": 0.12},
-    "极品": {"weight_multiplier": 0.045},
-    "仙品": {"weight_multiplier": 0.012},
-    "先天至宝": {"weight_multiplier": 0.003},
+    "下品": {"weight_multiplier": 0.38},
+    "中品": {"weight_multiplier": 0.14},
+    "上品": {"weight_multiplier": 0.042},
+    "极品": {"weight_multiplier": 0.011},
+    "仙品": {"weight_multiplier": 0.0024},
+    "先天至宝": {"weight_multiplier": 0.0004},
 }
 
 

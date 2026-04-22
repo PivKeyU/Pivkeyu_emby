@@ -4,6 +4,16 @@ const DEFAULT_BACK_PATH = "/admin";
 
 const REALM_OPTIONS = ["炼气", "筑基", "金丹", "元婴", "化神", "炼虚", "合体", "大乘", "渡劫", "人仙", "地仙", "天仙", "金仙", "大罗金仙", "仙君", "仙王", "仙尊", "仙帝"];
 const QUALITY_OPTIONS = ["凡品", "下品", "中品", "上品", "极品", "仙品", "先天至宝"];
+const IMMORTAL_STONE_NAME = "仙界奇石";
+const QUALITY_COLOR_MAP = {
+  凡品: "#9ca3af",
+  下品: "#34d399",
+  中品: "#38bdf8",
+  上品: "#818cf8",
+  极品: "#f59e0b",
+  仙品: "#f97316",
+  先天至宝: "#f43f5e",
+};
 const PILL_TYPES = [
   { value: "foundation", label: "突破加成", effect: "突破助力值" },
   { value: "clear_poison", label: "解毒", effect: "减少丹毒值" },
@@ -171,10 +181,10 @@ const DROP_WEIGHT_RULE_FIELDS = [
   { key: "high_quality_root_level_start", label: "高品质灵根起算等级", tip: "灵根等级高于该值后，额外权重开始生效。" },
 ];
 const DEFAULT_DROP_WEIGHT_RULES = {
-  material_divine_sense_divisor: 5,
+  material_divine_sense_divisor: 7,
   high_quality_threshold: 4,
-  high_quality_fortune_divisor: 5,
-  high_quality_root_level_start: 3,
+  high_quality_fortune_divisor: 8,
+  high_quality_root_level_start: 4,
 };
 const ACTIVITY_GROWTH_FIELDS = [
   { key: "practice", label: "吐纳修炼", tip: "每日吐纳结束后的微幅成长。" },
@@ -193,24 +203,26 @@ const GAMBLING_ITEM_KIND_OPTIONS = [
   { value: "artifact", label: "法宝" },
   { value: "pill", label: "丹药" },
   { value: "talisman", label: "符箓" },
+  { value: "recipe", label: "丹方" },
+  { value: "technique", label: "功法" },
 ];
 const DEFAULT_GAMBLING_QUALITY_RULES = {
   凡品: { weight_multiplier: 1.0 },
-  下品: { weight_multiplier: 0.72 },
-  中品: { weight_multiplier: 0.44 },
-  上品: { weight_multiplier: 0.22 },
-  极品: { weight_multiplier: 0.1 },
-  仙品: { weight_multiplier: 0.04 },
-  先天至宝: { weight_multiplier: 0.015 },
+  下品: { weight_multiplier: 0.52 },
+  中品: { weight_multiplier: 0.24 },
+  上品: { weight_multiplier: 0.09 },
+  极品: { weight_multiplier: 0.028 },
+  仙品: { weight_multiplier: 0.007 },
+  先天至宝: { weight_multiplier: 0.0015 },
 };
 const DEFAULT_FISHING_QUALITY_RULES = {
   凡品: { weight_multiplier: 1.0 },
-  下品: { weight_multiplier: 0.6 },
-  中品: { weight_multiplier: 0.28 },
-  上品: { weight_multiplier: 0.12 },
-  极品: { weight_multiplier: 0.045 },
-  仙品: { weight_multiplier: 0.012 },
-  先天至宝: { weight_multiplier: 0.003 },
+  下品: { weight_multiplier: 0.38 },
+  中品: { weight_multiplier: 0.14 },
+  上品: { weight_multiplier: 0.042 },
+  极品: { weight_multiplier: 0.011 },
+  仙品: { weight_multiplier: 0.0024 },
+  先天至宝: { weight_multiplier: 0.0004 },
 };
 const PLAYER_STRING_FIELDS = new Set([
   "realm_stage",
@@ -1396,66 +1408,377 @@ function addSceneDropRow(data = {}) {
   rows.appendChild(wrapper);
 }
 
-function addGamblingPoolRow(data = {}) {
-  const rows = $("setting-gambling-pool-rows");
-  if (!rows) return;
-  const itemKind = String(data.item_kind || "material");
-  const gamblingWeight = data.gambling_weight ?? data.base_weight ?? 1;
-  const fishingWeight = data.fishing_weight ?? data.base_weight ?? 1;
-  const gamblingEnabled = data.gambling_enabled ?? data.enabled ?? true;
-  const fishingEnabled = data.fishing_enabled ?? data.enabled ?? true;
-  const wrapper = createBuilderRow(`
-    <div class="builder-grid builder-grid--wide">
-      <label>奖励类型
-        <select data-gambling-kind>
-          ${GAMBLING_ITEM_KIND_OPTIONS.map((item) => `<option value="${item.value}" ${itemKind === item.value ? "selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}
-        </select>
-      </label>
-      <label>物品搜索
-        <input data-gambling-search type="search" value="${escapeHtml(data.item_name || "")}" placeholder="输入名称或 ID 过滤物品">
-      </label>
-      <label>奖励物品
-        <select data-gambling-ref></select>
-      </label>
-      <label>最小数量
-        <input data-gambling-min type="number" min="1" value="${escapeHtml(data.quantity_min || 1)}">
-      </label>
-      <label>最大数量
-        <input data-gambling-max type="number" min="1" value="${escapeHtml(data.quantity_max || data.quantity_min || 1)}">
-      </label>
-      <label>奇石权重
-        <input data-gambling-weight type="number" min="0" step="0.01" value="${escapeHtml(gamblingWeight)}">
-      </label>
-      <label>钓鱼权重
-        <input data-fishing-weight type="number" min="0" step="0.01" value="${escapeHtml(fishingWeight)}">
-      </label>
-      <label class="inline-check">
-        <input data-gambling-enabled type="checkbox" ${gamblingEnabled === false ? "" : "checked"}>
-        进入奇石奖池
-      </label>
-      <label class="inline-check">
-        <input data-fishing-enabled type="checkbox" ${fishingEnabled === false ? "" : "checked"}>
-        进入钓鱼奖池
-      </label>
-    </div>
-    <div class="builder-chip-line">
-      <span class="builder-chip">共享同一物品池</span>
-      <span class="builder-chip">奇石 / 钓鱼独立权重</span>
-      <span class="builder-chip">保存后即时生效</span>
-    </div>
-  `);
-  const kindNode = wrapper.querySelector("[data-gambling-kind]");
-  const searchNode = wrapper.querySelector("[data-gambling-search]");
-  const refNode = wrapper.querySelector("[data-gambling-ref]");
-  const sync = (selected = null) => {
-    const rowsForKind = itemRows(kindNode.value || "material", searchNode?.value || "");
-    setOptions(refNode, rowsForKind, selected ?? data.item_ref_id ?? "", "请选择物品");
-    refNode.disabled = !rowsForKind.length;
+function rewardPoolKindLabel(kind) {
+  return GAMBLING_ITEM_KIND_OPTIONS.find((item) => item.value === String(kind || "").trim())?.label || String(kind || "").trim() || "奖项";
+}
+
+function rewardPoolKindOrder(kind) {
+  const index = GAMBLING_ITEM_KIND_OPTIONS.findIndex((item) => item.value === String(kind || "").trim());
+  return index === -1 ? GAMBLING_ITEM_KIND_OPTIONS.length : index;
+}
+
+function rewardPoolEntryKey(kind, refId) {
+  return `${String(kind || "").trim()}:${Number(refId || 0) || 0}`;
+}
+
+function qualityMetaFromLevel(level, color = "") {
+  const normalized = Math.max(Math.min(Number(level || 1) || 1, QUALITY_OPTIONS.length), 1);
+  const label = QUALITY_OPTIONS[normalized - 1] || QUALITY_OPTIONS[0];
+  return {
+    level: normalized,
+    label,
+    color: color || QUALITY_COLOR_MAP[label] || QUALITY_COLOR_MAP[QUALITY_OPTIONS[0]],
   };
-  kindNode.addEventListener("change", () => sync(""));
-  searchNode?.addEventListener("input", () => sync(refNode?.value || ""));
-  sync(data.item_ref_id ? String(data.item_ref_id) : "");
-  rows.appendChild(wrapper);
+}
+
+function resolveCatalogItem(kind, refId) {
+  const normalizedKind = String(kind || "").trim();
+  const catalogKey = normalizedKind === "artifact"
+    ? "artifacts"
+    : normalizedKind === "pill"
+      ? "pills"
+      : normalizedKind === "talisman"
+        ? "talismans"
+        : normalizedKind === "material"
+          ? "materials"
+          : normalizedKind === "recipe"
+            ? "recipes"
+            : normalizedKind === "technique"
+              ? "techniques"
+              : "";
+  if (!catalogKey) return null;
+  const rows = state.bundle?.[catalogKey] || [];
+  return rows.find((row) => Number((row?.material || row)?.id || 0) === Number(refId || 0))?.material
+    || rows.find((row) => Number(row?.id || 0) === Number(refId || 0))
+    || null;
+}
+
+function resolveRecipeResultItem(recipe) {
+  if (!recipe) return { kind: "", item: null };
+  const resultKind = String(recipe.result_kind || "").trim();
+  const resultRefId = Number(recipe.result_ref_id || 0);
+  if (!resultKind || resultRefId <= 0) return { kind: resultKind, item: null };
+  return { kind: resultKind, item: resolveCatalogItem(resultKind, resultRefId) };
+}
+
+function rewardPoolQualityMeta(kind, item) {
+  const normalizedKind = String(kind || "").trim();
+  if (!item) return qualityMetaFromLevel(1);
+  if (normalizedKind === "material") {
+    return qualityMetaFromLevel(item.quality_level, item.quality_color);
+  }
+  if (normalizedKind === "recipe") {
+    const result = resolveRecipeResultItem(item);
+    return rewardPoolQualityMeta(result.kind, result.item);
+  }
+  return qualityMetaFromLevel(item.rarity_level || item.quality_level || QUALITY_OPTIONS.indexOf(item.rarity) + 1 || 1, item.quality_color);
+}
+
+function rewardPoolSearchText(kind, item, qualityLabel) {
+  const result = String(kind || "").trim() === "recipe" ? resolveRecipeResultItem(item) : { kind: "", item: null };
+  return [
+    item?.id,
+    item?.name,
+    rewardPoolKindLabel(kind),
+    qualityLabel,
+    item?.recipe_kind_label,
+    item?.technique_type_label,
+    result.item?.name,
+    rewardPoolKindLabel(result.kind),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function rewardPoolItemAllowed(kind, item) {
+  const normalizedKind = String(kind || "").trim();
+  if (!item || Number(item.id || 0) <= 0 || item.enabled === false) return false;
+  if (normalizedKind === "artifact") return !Boolean(item.unique_item);
+  if (normalizedKind === "pill") return String(item.pill_type || "").trim() !== "foundation";
+  if (normalizedKind === "material") return String(item.name || "").trim() !== IMMORTAL_STONE_NAME;
+  if (normalizedKind === "recipe") {
+    const result = resolveRecipeResultItem(item);
+    return !(result.kind === "pill" && String(result.item?.pill_type || "").trim() === "foundation");
+  }
+  return true;
+}
+
+function defaultRewardPoolQuantityRange(kind, qualityLevel) {
+  const level = Math.max(Number(qualityLevel || 1) || 1, 1);
+  const normalizedKind = String(kind || "").trim();
+  if (normalizedKind === "material") {
+    if (level <= 1) return { min: 2, max: 4 };
+    if (level === 2) return { min: 1, max: 3 };
+    if (level <= 4) return { min: 1, max: 2 };
+    return { min: 1, max: 1 };
+  }
+  if (normalizedKind === "pill" && level <= 2) {
+    return { min: 1, max: 2 };
+  }
+  return { min: 1, max: 1 };
+}
+
+function defaultRewardPoolWeight(kind, qualityLevel, channel) {
+  const normalizedKind = String(kind || "").trim();
+  const level = Math.max(Math.min(Number(qualityLevel || 1) || 1, QUALITY_OPTIONS.length), 1);
+  const qualityBase = [0, 96, 52, 24, 10, 3.5, 1.0, 0.22][level] || 1;
+  const kindFactor = channel === "fishing"
+    ? { material: 1.0, pill: 0.58, talisman: 0.34, artifact: 0.16, recipe: 0.08, technique: 0.06 }
+    : { material: 1.0, pill: 0.72, talisman: 0.5, artifact: 0.28, recipe: 0.15, technique: 0.11 };
+  return Number((qualityBase * (kindFactor[normalizedKind] || 0.25)).toFixed(3));
+}
+
+function buildGamblingRewardPoolCatalog() {
+  const bundle = state.bundle || {};
+  const sources = [
+    ["material", bundle.materials || []],
+    ["artifact", bundle.artifacts || []],
+    ["pill", bundle.pills || []],
+    ["talisman", bundle.talismans || []],
+    ["recipe", bundle.recipes || []],
+    ["technique", bundle.techniques || []],
+  ];
+  const rows = [];
+  sources.forEach(([kind, items]) => {
+    (items || []).forEach((rawItem) => {
+      const item = rawItem?.material || rawItem;
+      if (!rewardPoolItemAllowed(kind, item)) return;
+      const quality = rewardPoolQualityMeta(kind, item);
+      const quantity = defaultRewardPoolQuantityRange(kind, quality.level);
+      rows.push({
+        item_kind: kind,
+        item_kind_label: rewardPoolKindLabel(kind),
+        item_ref_id: Number(item.id || 0),
+        item_name: String(item.name || "").trim(),
+        quality_level: quality.level,
+        quality_label: quality.label,
+        quality_color: item.quality_color || quality.color,
+        quantity_min: quantity.min,
+        quantity_max: quantity.max,
+        base_weight: defaultRewardPoolWeight(kind, quality.level, "gambling"),
+        gambling_weight: defaultRewardPoolWeight(kind, quality.level, "gambling"),
+        fishing_weight: defaultRewardPoolWeight(kind, quality.level, "fishing"),
+        enabled: true,
+        gambling_enabled: true,
+        fishing_enabled: true,
+        search_text: rewardPoolSearchText(kind, item, quality.label),
+      });
+    });
+  });
+  rows.sort((left, right) => (
+    rewardPoolKindOrder(left.item_kind) - rewardPoolKindOrder(right.item_kind)
+    || Number(left.quality_level || 0) - Number(right.quality_level || 0)
+    || String(left.item_name || "").localeCompare(String(right.item_name || ""), "zh-Hans-CN")
+    || Number(left.item_ref_id || 0) - Number(right.item_ref_id || 0)
+  ));
+  return rows;
+}
+
+function mergeGamblingRewardPoolRows(settings = {}) {
+  const savedRows = Array.isArray(settings.gambling_reward_pool) ? settings.gambling_reward_pool : [];
+  const catalogRows = buildGamblingRewardPoolCatalog();
+  if (!catalogRows.length) return [];
+  const savedMap = new Map(
+    savedRows
+      .filter((row) => row && Number(row.item_ref_id || 0) > 0)
+      .map((row) => [rewardPoolEntryKey(row.item_kind, row.item_ref_id), row])
+  );
+  return catalogRows.map((row) => {
+    const saved = savedMap.get(rewardPoolEntryKey(row.item_kind, row.item_ref_id)) || {};
+    const quantityMin = Math.max(Number(saved.quantity_min ?? row.quantity_min ?? 1), 1);
+    const quantityMax = Math.max(Number(saved.quantity_max ?? row.quantity_max ?? quantityMin), quantityMin);
+    const gamblingWeight = Number(saved.gambling_weight ?? saved.base_weight ?? row.gambling_weight ?? 0);
+    const fishingWeight = Number(saved.fishing_weight ?? saved.base_weight ?? row.fishing_weight ?? 0);
+    return {
+      ...row,
+      quantity_min: ["recipe", "technique"].includes(row.item_kind) ? 1 : quantityMin,
+      quantity_max: ["recipe", "technique"].includes(row.item_kind) ? 1 : quantityMax,
+      base_weight: gamblingWeight,
+      gambling_weight: gamblingWeight,
+      fishing_weight: fishingWeight,
+      enabled: saved.enabled ?? row.enabled,
+      gambling_enabled: saved.gambling_enabled ?? saved.enabled ?? row.gambling_enabled,
+      fishing_enabled: saved.fishing_enabled ?? saved.enabled ?? row.fishing_enabled,
+    };
+  });
+}
+
+function rewardPoolQuantityLabel(minValue, maxValue) {
+  return Number(minValue || 1) === Number(maxValue || 1)
+    ? `x${Math.max(Number(minValue || 1), 1)}`
+    : `${Math.max(Number(minValue || 1), 1)}-${Math.max(Number(maxValue || 1), Math.max(Number(minValue || 1), 1))}`;
+}
+
+function rewardPoolWeightLabel(value) {
+  const numeric = Number(value || 0);
+  return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function syncGamblingRewardPoolRowSummary(row) {
+  if (!row) return;
+  const quantityMin = Math.max(Number(row.querySelector("[data-gambling-min]")?.value || 1), 1);
+  const quantityMax = Math.max(Number(row.querySelector("[data-gambling-max]")?.value || quantityMin), quantityMin);
+  const gamblingWeight = Math.max(Number(row.querySelector("[data-gambling-weight]")?.value || 0), 0);
+  const fishingWeight = Math.max(Number(row.querySelector("[data-fishing-weight]")?.value || 0), 0);
+  const gamblingEnabled = Boolean(row.querySelector("[data-gambling-enabled]")?.checked);
+  const fishingEnabled = Boolean(row.querySelector("[data-fishing-enabled]")?.checked);
+  const title = row.querySelector("[data-reward-title]");
+  const subtitle = row.querySelector("[data-reward-subtitle]");
+  const meta = row.querySelector("[data-reward-meta]");
+  const gamblingFlag = row.querySelector("[data-gambling-flag]");
+  const fishingFlag = row.querySelector("[data-fishing-flag]");
+  if (title) title.textContent = row.dataset.itemName || "未命名奖项";
+  if (subtitle) subtitle.textContent = `ID ${row.dataset.itemRefId} · ${row.dataset.itemKindLabel} · ${row.dataset.qualityLabel}`;
+  if (meta) meta.textContent = `数量 ${rewardPoolQuantityLabel(quantityMin, quantityMax)} · 奇石权重 ${rewardPoolWeightLabel(gamblingWeight)} · 钓鱼权重 ${rewardPoolWeightLabel(fishingWeight)}`;
+  if (gamblingFlag) {
+    gamblingFlag.textContent = gamblingEnabled ? "奇石已启用" : "奇石已关闭";
+    gamblingFlag.classList.toggle("is-enabled", gamblingEnabled);
+    gamblingFlag.classList.toggle("is-disabled", !gamblingEnabled);
+  }
+  if (fishingFlag) {
+    fishingFlag.textContent = fishingEnabled ? "钓鱼已启用" : "钓鱼已关闭";
+    fishingFlag.classList.toggle("is-enabled", fishingEnabled);
+    fishingFlag.classList.toggle("is-disabled", !fishingEnabled);
+  }
+}
+
+function createGamblingRewardPoolRow(data = {}) {
+  const itemKind = String(data.item_kind || "material");
+  const fixedQuantity = itemKind === "recipe" || itemKind === "technique";
+  const wrapper = document.createElement("details");
+  wrapper.className = "builder-row reward-pool-row";
+  wrapper.dataset.itemKey = rewardPoolEntryKey(itemKind, data.item_ref_id);
+  wrapper.dataset.itemKind = itemKind;
+  wrapper.dataset.itemKindLabel = data.item_kind_label || rewardPoolKindLabel(itemKind);
+  wrapper.dataset.itemRefId = String(Number(data.item_ref_id || 0) || 0);
+  wrapper.dataset.itemName = String(data.item_name || "").trim();
+  wrapper.dataset.qualityLabel = String(data.quality_label || qualityMetaFromLevel(data.quality_level).label);
+  wrapper.dataset.searchText = String(data.search_text || `${data.item_name || ""} ${data.item_ref_id || ""} ${data.item_kind_label || ""} ${data.quality_label || ""}`).toLowerCase();
+  wrapper.innerHTML = `
+    <summary>
+      <div class="reward-pool-summary-head">
+        <div>
+          <strong data-reward-title>${escapeHtml(data.item_name || "未命名奖项")}</strong>
+          <div class="reward-pool-summary-subtitle" data-reward-subtitle></div>
+        </div>
+        <div class="reward-pool-status">
+          ${qualityBadgeHtml(data.quality_label || "凡品", data.quality_color || qualityMetaFromLevel(data.quality_level).color)}
+          <span class="reward-pool-flag" data-gambling-flag></span>
+          <span class="reward-pool-flag" data-fishing-flag></span>
+        </div>
+      </div>
+      <div class="reward-pool-summary-meta" data-reward-meta></div>
+    </summary>
+    <div class="reward-pool-body">
+      <div class="reward-pool-grid reward-pool-grid--wide">
+        <label>奖项名称
+          <input type="text" value="${escapeHtml(data.item_name || "")}" disabled>
+        </label>
+        <label>奖项类别
+          <input type="text" value="${escapeHtml(data.item_kind_label || rewardPoolKindLabel(itemKind))}" disabled>
+        </label>
+        <label>奖项 ID
+          <input type="text" value="${escapeHtml(data.item_ref_id || 0)}" disabled>
+        </label>
+        <label>最小数量
+          <input data-gambling-min type="number" min="1" value="${escapeHtml(data.quantity_min || 1)}" ${fixedQuantity ? "disabled" : ""}>
+        </label>
+        <label>最大数量
+          <input data-gambling-max type="number" min="1" value="${escapeHtml(data.quantity_max || data.quantity_min || 1)}" ${fixedQuantity ? "disabled" : ""}>
+        </label>
+        <label>奇石权重
+          <input data-gambling-weight type="number" min="0" step="0.01" value="${escapeHtml(data.gambling_weight ?? data.base_weight ?? 0)}">
+        </label>
+        <label>钓鱼权重
+          <input data-fishing-weight type="number" min="0" step="0.01" value="${escapeHtml(data.fishing_weight ?? data.base_weight ?? 0)}">
+        </label>
+        <label class="inline-check">
+          <input data-gambling-enabled type="checkbox" ${(data.gambling_enabled ?? data.enabled ?? true) ? "checked" : ""}>
+          进入奇石奖池
+        </label>
+        <label class="inline-check">
+          <input data-fishing-enabled type="checkbox" ${(data.fishing_enabled ?? data.enabled ?? true) ? "checked" : ""}>
+          进入钓鱼奖池
+        </label>
+      </div>
+      <div class="builder-chip-line">
+        <span class="builder-chip">共享全奖池</span>
+        <span class="builder-chip">奇石 / 钓鱼独立权重</span>
+        ${fixedQuantity ? '<span class="builder-chip">功法 / 丹方固定单次 1 份</span>' : '<span class="builder-chip">数量区间可单独调整</span>'}
+      </div>
+    </div>
+  `;
+  const quantityMinNode = wrapper.querySelector("[data-gambling-min]");
+  const quantityMaxNode = wrapper.querySelector("[data-gambling-max]");
+  const refreshSummary = () => {
+    if (fixedQuantity) {
+      if (quantityMinNode) quantityMinNode.value = "1";
+      if (quantityMaxNode) quantityMaxNode.value = "1";
+    } else {
+      const quantityMin = Math.max(Number(quantityMinNode?.value || 1), 1);
+      const quantityMax = Math.max(Number(quantityMaxNode?.value || quantityMin), quantityMin);
+      if (quantityMinNode) quantityMinNode.value = String(quantityMin);
+      if (quantityMaxNode) quantityMaxNode.value = String(quantityMax);
+    }
+    syncGamblingRewardPoolRowSummary(wrapper);
+    updateGamblingRewardPoolSummary();
+  };
+  wrapper.querySelectorAll("input").forEach((node) => node.addEventListener("input", refreshSummary));
+  wrapper.querySelectorAll('input[type="checkbox"]').forEach((node) => node.addEventListener("change", refreshSummary));
+  refreshSummary();
+  return wrapper;
+}
+
+function updateGamblingRewardPoolSummary() {
+  const summary = $("setting-gambling-pool-summary");
+  if (!summary) return;
+  const rows = [...document.querySelectorAll("#setting-gambling-pool-rows .reward-pool-row")];
+  const visibleRows = rows.filter((row) => !row.classList.contains("is-hidden-setting-match"));
+  const gamblingEnabled = rows.filter((row) => row.querySelector("[data-gambling-enabled]")?.checked).length;
+  const fishingEnabled = rows.filter((row) => row.querySelector("[data-fishing-enabled]")?.checked).length;
+  if (!rows.length) {
+    summary.innerHTML = `<span>当前没有可管理的共享奖项。</span><span class="muted">请先初始化修仙物品数据。</span>`;
+    return;
+  }
+  summary.innerHTML = `
+    <span>共 ${rows.length} 项奖池奖项，当前显示 ${visibleRows.length} 项。</span>
+    <span class="muted">奇石启用 ${gamblingEnabled} 项 · 钓鱼启用 ${fishingEnabled} 项</span>
+  `;
+}
+
+function applyGamblingRewardPoolSearchFilter() {
+  const query = normalizeSettingSearchQuery($("setting-gambling-pool-search")?.value || "");
+  document.querySelectorAll("#setting-gambling-pool-rows .reward-pool-row").forEach((row) => {
+    const matched = !query || String(row.dataset.searchText || "").includes(query);
+    row.classList.toggle("is-hidden-setting-match", !matched);
+    if (query && matched) row.open = true;
+  });
+  updateGamblingRewardPoolSummary();
+}
+
+function toggleGamblingRewardPoolRows(expanded) {
+  document.querySelectorAll("#setting-gambling-pool-rows .reward-pool-row").forEach((row) => {
+    if (!row.classList.contains("is-hidden-setting-match")) row.open = Boolean(expanded);
+  });
+}
+
+function bindGamblingRewardPoolTools() {
+  const search = $("setting-gambling-pool-search");
+  const expand = $("setting-gambling-pool-expand");
+  const collapse = $("setting-gambling-pool-collapse");
+  if (search && search.dataset.bound !== "1") {
+    search.dataset.bound = "1";
+    search.addEventListener("input", applyGamblingRewardPoolSearchFilter);
+  }
+  if (expand && expand.dataset.bound !== "1") {
+    expand.dataset.bound = "1";
+    expand.addEventListener("click", () => toggleGamblingRewardPoolRows(true));
+  }
+  if (collapse && collapse.dataset.bound !== "1") {
+    collapse.dataset.bound = "1";
+    collapse.addEventListener("click", () => toggleGamblingRewardPoolRows(false));
+  }
 }
 
 function ensureSettingRuleRows() {
@@ -1664,17 +1987,18 @@ function collectFishingQualityRules() {
 }
 
 function collectGamblingRewardPool() {
-  return [...document.querySelectorAll("#setting-gambling-pool-rows .builder-row")]
+  return [...document.querySelectorAll("#setting-gambling-pool-rows .reward-pool-row")]
     .map((row) => {
       const quantityMin = Math.max(Number(row.querySelector("[data-gambling-min]")?.value || 1), 1);
       const quantityMax = Math.max(Number(row.querySelector("[data-gambling-max]")?.value || 1), quantityMin);
       const gamblingWeight = Number(row.querySelector("[data-gambling-weight]")?.value || 0);
       const fishingWeight = Number(row.querySelector("[data-fishing-weight]")?.value || 0);
       return {
-        item_kind: row.querySelector("[data-gambling-kind]")?.value || "material",
-        item_ref_id: Number(row.querySelector("[data-gambling-ref]")?.value || 0) || null,
-        quantity_min: quantityMin,
-        quantity_max: quantityMax,
+        item_kind: row.dataset.itemKind || "material",
+        item_name: row.dataset.itemName || "",
+        item_ref_id: Number(row.dataset.itemRefId || 0) || null,
+        quantity_min: ["recipe", "technique"].includes(row.dataset.itemKind || "") ? 1 : quantityMin,
+        quantity_max: ["recipe", "technique"].includes(row.dataset.itemKind || "") ? 1 : quantityMax,
         base_weight: gamblingWeight,
         gambling_weight: gamblingWeight,
         fishing_weight: fishingWeight,
@@ -1762,13 +2086,15 @@ function applyFishingQualityRules(settings = {}) {
 function applyGamblingRewardPool(settings = {}) {
   const root = $("setting-gambling-pool-rows");
   if (!root) return;
+  bindGamblingRewardPoolTools();
   root.innerHTML = "";
-  const rows = Array.isArray(settings.gambling_reward_pool) ? settings.gambling_reward_pool : [];
+  const rows = mergeGamblingRewardPoolRows(settings);
   if (!rows.length) {
-    addGamblingPoolRow();
+    updateGamblingRewardPoolSummary();
     return;
   }
-  rows.forEach((row) => addGamblingPoolRow(row));
+  rows.forEach((row) => root.appendChild(createGamblingRewardPoolRow(row)));
+  applyGamblingRewardPoolSearchFilter();
 }
 
 function applyArenaStageRules(settings = {}) {
@@ -2000,11 +2326,6 @@ function syncSelects() {
   document.querySelectorAll("#scene-event-rows .builder-row").forEach((row) => {
     const kind = row.querySelector("[data-scene-bonus-kind]")?.value || "";
     setOptions(row.querySelector("[data-scene-bonus-ref]"), itemRows(kind || "material"), row.querySelector("[data-scene-bonus-ref]")?.value, "无");
-  });
-  document.querySelectorAll("#setting-gambling-pool-rows .builder-row").forEach((row) => {
-    const kind = row.querySelector("[data-gambling-kind]")?.value || "material";
-    const keyword = row.querySelector("[data-gambling-search]")?.value || "";
-    setOptions(row.querySelector("[data-gambling-ref]"), itemRows(kind, keyword), row.querySelector("[data-gambling-ref]")?.value, "请选择物品");
   });
   syncGrantUserMatches();
 }
@@ -2310,8 +2631,6 @@ function bindEvents() {
   $("recipe-ingredient-add")?.addEventListener("click", () => addRecipeIngredientRow());
   $("scene-event-add")?.addEventListener("click", () => addSceneEventRow());
   $("scene-drop-add")?.addEventListener("click", () => addSceneDropRow());
-  $("setting-gambling-pool-add")?.addEventListener("click", () => addGamblingPoolRow());
-
   $("token-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     state.token = $("admin-token").value.trim();
@@ -3994,7 +4313,6 @@ ROLE_PRESETS.forEach(([role_key, role_name]) => addSectRoleRow({ role_key, role_
 addRecipeIngredientRow();
 addSceneEventRow();
 addSceneDropRow();
-addGamblingPoolRow();
 ensureSettingRuleRows();
 bindEvents();
 bindAttributeAwareSubmitters();

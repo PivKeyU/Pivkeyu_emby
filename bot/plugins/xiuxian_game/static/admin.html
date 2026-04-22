@@ -281,12 +281,20 @@
             <div class="builder-section wide-field">
               <div class="builder-head">
                 <strong>奇石 / 钓鱼共享奖池</strong>
-                <span class="summary-tip">支持法宝、丹药、符箓、材料；可分别控制奇石与垂钓是否掉落、以及各自权重。</span>
+                <span class="summary-tip">自动纳入除破境丹、破境丹丹方、唯一法宝与仙界奇石本体外的全部奖项，并支持按名称、ID、类别、品质筛选。</span>
               </div>
-              <div class="inline-action-buttons">
-                <button id="setting-gambling-pool-add" type="button" class="secondary">新增奖池物品</button>
+              <div class="reward-pool-toolbar">
+                <label class="reward-pool-search">
+                  奖项搜索
+                  <input id="setting-gambling-pool-search" type="search" placeholder="搜索名称、ID、类别、品质">
+                </label>
+                <div class="inline-action-buttons reward-pool-actions">
+                  <button id="setting-gambling-pool-expand" type="button" class="secondary">展开全部</button>
+                  <button id="setting-gambling-pool-collapse" type="button" class="ghost">收起全部</button>
+                </div>
               </div>
-              <div id="setting-gambling-pool-rows" class="builder-list"></div>
+              <div id="setting-gambling-pool-summary" class="compact-hint reward-pool-summary"></div>
+              <div id="setting-gambling-pool-rows" class="builder-list reward-pool-list"></div>
             </div>
           </section>
 
