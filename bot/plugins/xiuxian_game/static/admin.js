@@ -2350,12 +2350,12 @@ function applySettings(settings = {}) {
   $("setting-message-auto-delete").value = settings.message_auto_delete_seconds ?? 180;
   $("setting-unbind-cost").value = settings.equipment_unbind_cost ?? 100;
   $("setting-broadcast").value = settings.shop_broadcast_cost ?? 20;
-  $("setting-shop-notice-group").value = settings.shop_notice_group_id ?? 0;
+  $("setting-shop-notice-group").value = settings.shop_notice_group_id ? String(settings.shop_notice_group_id) : "";
   $("setting-shop-name").value = settings.official_shop_name ?? "官方商店";
   $("setting-auction-fee").value = settings.auction_fee_percent ?? 5;
   $("setting-auction-duration").value = settings.auction_duration_minutes ?? 60;
-  $("setting-auction-notice-group").value = settings.auction_notice_group_id ?? 0;
-  $("setting-arena-notice-group").value = settings.arena_notice_group_id ?? 0;
+  $("setting-auction-notice-group").value = settings.auction_notice_group_id ? String(settings.auction_notice_group_id) : "";
+  $("setting-arena-notice-group").value = settings.arena_notice_group_id ? String(settings.arena_notice_group_id) : "";
   $("setting-event-summary-interval").value = settings.event_summary_interval_minutes ?? 10;
   $("setting-task-publish-cost").value = settings.task_publish_cost ?? 20;
   $("setting-user-task-daily-limit").value = settings.user_task_daily_limit ?? 3;
@@ -2640,50 +2640,56 @@ function bindEvents() {
 
   $("settings-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/settings", {
-      coin_stone_exchange_enabled: $("setting-exchange-enabled").checked,
-      coin_exchange_rate: Number($("setting-rate").value || 100),
-      exchange_fee_percent: Number($("setting-fee").value || 1),
-      min_coin_exchange: Number($("setting-min").value || 1),
-      message_auto_delete_seconds: Number($("setting-message-auto-delete").value || 0),
-      shop_broadcast_cost: Number($("setting-broadcast").value || 20),
-      shop_notice_group_id: Number($("setting-shop-notice-group").value || 0),
-      official_shop_name: $("setting-shop-name").value.trim(),
-      auction_fee_percent: Number($("setting-auction-fee").value || 0),
-      auction_duration_minutes: Number($("setting-auction-duration").value || 60),
-      auction_notice_group_id: Number($("setting-auction-notice-group").value || 0),
-      arena_notice_group_id: Number($("setting-arena-notice-group").value || 0),
-      event_summary_interval_minutes: Number($("setting-event-summary-interval").value || 0),
-      task_publish_cost: Number($("setting-task-publish-cost").value || 0),
-      user_task_daily_limit: Number($("setting-user-task-daily-limit").value || 0),
-      allow_user_task_publish: $("setting-allow-user-task-publish").checked,
-      allow_non_admin_image_upload: $("setting-user-upload").checked,
-      chat_cultivation_chance: Number($("setting-chat-chance").value || 6),
-      chat_cultivation_min_gain: Number($("setting-chat-min").value || 1),
-      chat_cultivation_max_gain: Number($("setting-chat-max").value || 2),
-      robbery_daily_limit: Number($("setting-robbery-limit").value || 3),
-      robbery_max_steal: Number($("setting-robbery-max").value || 180),
-      seclusion_cultivation_efficiency_percent: Number($("setting-seclusion-efficiency").value || 60),
-      gambling_exchange_cost_stone: Number($("setting-gambling-exchange-cost").value || 120),
-      gambling_exchange_max_count: Number($("setting-gambling-exchange-max").value || 20),
-      gambling_open_max_count: Number($("setting-gambling-open-max").value || 100),
-      gambling_broadcast_quality_level: Number($("setting-gambling-broadcast-quality").value || 5),
-      gambling_fortune_divisor: Number($("setting-gambling-fortune-divisor").value || 6),
-      gambling_fortune_bonus_per_quality_percent: Number($("setting-gambling-fortune-bonus").value || 8),
-      root_quality_value_rules: collectRootQualityRules(),
-      item_quality_value_rules: collectItemQualityRules(),
-      exploration_drop_weight_rules: collectDropWeightRules(),
-      activity_stat_growth_rules: collectActivityGrowthRules(),
-      gambling_quality_weight_rules: collectGamblingQualityRules(),
-      fishing_quality_weight_rules: collectFishingQualityRules(),
-      gambling_reward_pool: collectGamblingRewardPool(),
-    }), "保存成功", "基础规则已更新。", {
-      refresh: "none",
-      afterSuccess: (settings) => {
-        applyAdminSettingsUpdate(settings || {});
-        adminStatus("基础规则已更新。", "success");
-      },
-    });
+    try {
+      await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/settings", {
+        coin_stone_exchange_enabled: $("setting-exchange-enabled").checked,
+        coin_exchange_rate: Number($("setting-rate").value || 100),
+        exchange_fee_percent: Number($("setting-fee").value || 1),
+        min_coin_exchange: Number($("setting-min").value || 1),
+        message_auto_delete_seconds: Number($("setting-message-auto-delete").value || 0),
+        shop_broadcast_cost: Number($("setting-broadcast").value || 20),
+        shop_notice_group_id: $("setting-shop-notice-group").value.trim(),
+        official_shop_name: $("setting-shop-name").value.trim(),
+        auction_fee_percent: Number($("setting-auction-fee").value || 0),
+        auction_duration_minutes: Number($("setting-auction-duration").value || 60),
+        auction_notice_group_id: $("setting-auction-notice-group").value.trim(),
+        arena_notice_group_id: $("setting-arena-notice-group").value.trim(),
+        event_summary_interval_minutes: Number($("setting-event-summary-interval").value || 0),
+        task_publish_cost: Number($("setting-task-publish-cost").value || 0),
+        user_task_daily_limit: Number($("setting-user-task-daily-limit").value || 0),
+        allow_user_task_publish: $("setting-allow-user-task-publish").checked,
+        allow_non_admin_image_upload: $("setting-user-upload").checked,
+        chat_cultivation_chance: Number($("setting-chat-chance").value || 6),
+        chat_cultivation_min_gain: Number($("setting-chat-min").value || 1),
+        chat_cultivation_max_gain: Number($("setting-chat-max").value || 2),
+        robbery_daily_limit: Number($("setting-robbery-limit").value || 3),
+        robbery_max_steal: Number($("setting-robbery-max").value || 180),
+        seclusion_cultivation_efficiency_percent: Number($("setting-seclusion-efficiency").value || 60),
+        gambling_exchange_cost_stone: Number($("setting-gambling-exchange-cost").value || 120),
+        gambling_exchange_max_count: Number($("setting-gambling-exchange-max").value || 20),
+        gambling_open_max_count: Number($("setting-gambling-open-max").value || 100),
+        gambling_broadcast_quality_level: Number($("setting-gambling-broadcast-quality").value || 5),
+        gambling_fortune_divisor: Number($("setting-gambling-fortune-divisor").value || 6),
+        gambling_fortune_bonus_per_quality_percent: Number($("setting-gambling-fortune-bonus").value || 8),
+        root_quality_value_rules: collectRootQualityRules(),
+        item_quality_value_rules: collectItemQualityRules(),
+        exploration_drop_weight_rules: collectDropWeightRules(),
+        activity_stat_growth_rules: collectActivityGrowthRules(),
+        gambling_quality_weight_rules: collectGamblingQualityRules(),
+        fishing_quality_weight_rules: collectFishingQualityRules(),
+        gambling_reward_pool: collectGamblingRewardPool(),
+      }), "保存成功", "基础规则已更新。", {
+        refresh: "none",
+        afterSuccess: (settings) => {
+          applyAdminSettingsUpdate(settings || {});
+          adminStatus("基础规则已更新。", "success");
+        },
+      });
+    } catch (error) {
+      const message = String(error?.message || error || "基础规则保存失败");
+      adminStatus(message, "error");
+      await popup("保存失败", message, "error");
+    }
   });
 
   $("setting-shop-name")?.addEventListener("input", (event) => {

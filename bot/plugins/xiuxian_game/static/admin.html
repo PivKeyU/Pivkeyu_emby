@@ -125,17 +125,18 @@
                 <input id="setting-auction-duration" type="number" min="1" max="10080" value="60">
               </label>
               <label>
-                小铺通知群 ID
-                <input id="setting-shop-notice-group" type="number" placeholder="-100xxxxxxxxxx">
+                小铺通知群地址 / ID
+                <input id="setting-shop-notice-group" type="text" placeholder="支持 -100xxxxxxxxxx、@groupname、t.me/groupname">
               </label>
               <label>
-                拍卖通知群 ID
-                <input id="setting-auction-notice-group" type="number" placeholder="-100xxxxxxxxxx">
+                拍卖通知群地址 / ID
+                <input id="setting-auction-notice-group" type="text" placeholder="支持 -100xxxxxxxxxx、@groupname、t.me/groupname">
               </label>
               <label>
-                擂台通知群 ID
-                <input id="setting-arena-notice-group" type="number" placeholder="-100xxxxxxxxxx">
+                擂台通知群地址 / ID
+                <input id="setting-arena-notice-group" type="text" placeholder="支持 -100xxxxxxxxxx、@groupname、t.me/groupname">
               </label>
+              <p class="muted wide-field">通知群支持填写群 ID、公开群 `@username`、`t.me/群地址`，也支持 `t.me/c/...` 消息链接；留空表示关闭。</p>
               <label>
                 事件汇总间隔（分钟，0 关闭）
                 <input id="setting-event-summary-interval" type="number" min="0" max="1440" value="10">

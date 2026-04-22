@@ -922,6 +922,66 @@ def _notice_group_chat_id(scope: str, fallback_chat_id: int | None = None) -> in
     return _main_group_chat_id()
 
 
+def _parse_notice_group_reference(value: Any) -> tuple[str | None, int]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None, 0
+    if re.fullmatch(r"-?\d+", raw):
+        return None, int(raw)
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{4,}", raw):
+        return raw, 0
+    if raw.startswith("@"):
+        username = raw[1:].strip()
+        if not username:
+            raise HTTPException(status_code=400, detail="群聊地址不能为空，请填写群 ID、@username 或 t.me 地址。")
+        return username, 0
+
+    candidate = raw
+    if re.match(r"^(?:t\.me|telegram\.me|www\.t\.me|www\.telegram\.me)/", raw, flags=re.IGNORECASE):
+        candidate = f"https://{raw}"
+    parsed = urlsplit(candidate)
+    host = str(parsed.netloc or "").strip().lower().split(":", 1)[0]
+    if host not in {"t.me", "www.t.me", "telegram.me", "www.telegram.me"}:
+        raise HTTPException(status_code=400, detail="群聊地址格式不正确，请填写群 ID、@username 或公开 t.me 地址。")
+    parts = [part for part in str(parsed.path or "").split("/") if part]
+    if not parts:
+        raise HTTPException(status_code=400, detail="群聊地址格式不正确，请填写群 ID、@username 或公开 t.me 地址。")
+    first = str(parts[0] or "").strip()
+    if first.startswith("+") or first == "joinchat":
+        raise HTTPException(status_code=400, detail="暂不支持邀请链接，请填写群 ID、@username 或公开 t.me 地址。")
+    if first == "c":
+        if len(parts) < 2 or not re.fullmatch(r"\d+", parts[1]):
+            raise HTTPException(status_code=400, detail="群聊地址格式不正确，请填写群 ID、@username 或公开 t.me 地址。")
+        return None, int(f"-100{parts[1]}")
+    username = first.lstrip("@").strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="群聊地址格式不正确，请填写群 ID、@username 或公开 t.me 地址。")
+    return username, 0
+
+
+async def _resolve_notice_group_setting_value(value: Any) -> int:
+    username, chat_id = _parse_notice_group_reference(value)
+    if chat_id:
+        return chat_id
+    if not username:
+        return 0
+    try:
+        chat = await bot.get_chat(f"@{username}")
+    except Exception as exc:
+        LOGGER.warning(f"xiuxian resolve notice group failed value={value!r}: {exc}")
+        raise HTTPException(status_code=400, detail="无法识别这个群聊地址，请确认机器人已加入该群且地址可访问。")
+    if getattr(chat, "type", None) not in {enums.ChatType.GROUP, enums.ChatType.SUPERGROUP, enums.ChatType.CHANNEL}:
+        raise HTTPException(status_code=400, detail="这里只能填写群组或频道地址。")
+    return int(getattr(chat, "id", 0) or 0)
+
+
+async def _resolve_notice_group_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
+    for key in ("shop_notice_group_id", "auction_notice_group_id", "arena_notice_group_id"):
+        if key in patch:
+            patch[key] = await _resolve_notice_group_setting_value(patch.get(key))
+    return patch
+
+
 def _event_summary_interval_minutes(settings: dict[str, Any] | None = None) -> int:
     source = settings if isinstance(settings, dict) else get_xiuxian_settings()
     try:
@@ -5195,6 +5255,7 @@ def register_web(app) -> None:
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
         patch = {key: value for key, value in payload.model_dump().items() if value is not None}
+        patch = await _resolve_notice_group_settings_patch(patch)
         return {"code": 200, "data": update_xiuxian_settings(patch)}
 
     @admin_router.post("/error-logs")

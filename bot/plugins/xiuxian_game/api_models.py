@@ -322,11 +322,11 @@ class AdminSettingPayload(BaseModel):
     message_auto_delete_seconds: int | None = None
     equipment_unbind_cost: int | None = None
     shop_broadcast_cost: int | None = None
-    shop_notice_group_id: int | None = None
+    shop_notice_group_id: int | str | None = None
     official_shop_name: str | None = None
     auction_fee_percent: int | None = None
     auction_duration_minutes: int | None = None
-    auction_notice_group_id: int | None = None
+    auction_notice_group_id: int | str | None = None
     allow_user_task_publish: bool | None = None
     task_publish_cost: int | None = None
     user_task_daily_limit: int | None = None
@@ -344,7 +344,7 @@ class AdminSettingPayload(BaseModel):
     gambling_broadcast_quality_level: int | None = None
     gambling_fortune_divisor: int | None = None
     gambling_fortune_bonus_per_quality_percent: int | None = None
-    arena_notice_group_id: int | None = None
+    arena_notice_group_id: int | str | None = None
     arena_stage_rules: list[ArenaStageRulePayload] | None = None
     event_summary_interval_minutes: int | None = None
     slave_tribute_percent: int | None = None
