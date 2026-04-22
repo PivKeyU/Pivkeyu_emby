@@ -14,6 +14,8 @@ from bot.sql_helper.sql_xiuxian import (
     get_xiuxian_settings,
 )
 
+STONE_TO_COIN_FEE_FREE_LIMIT = 500
+
 
 def get_emby_balance(tg: int) -> int:
     user = sql_get_emby(tg)
@@ -48,6 +50,7 @@ def get_exchange_settings() -> dict:
         "fee_percent": max(int(settings.get("exchange_fee_percent", 1) or 0), 0),
         "min_coin_exchange": min_coin_exchange,
         "stone_to_coin_min_stone": max(rate, min_coin_exchange),
+        "stone_to_coin_fee_free_limit": STONE_TO_COIN_FEE_FREE_LIMIT,
     }
 
 
@@ -80,7 +83,8 @@ def preview_stone_to_coin(stone_amount: int) -> dict:
     settings = get_exchange_settings()
     gross_coin = floor(max(int(stone_amount or 0), 0) / settings["rate"])
     spent_stone = gross_coin * settings["rate"]
-    fee = _fee_amount(gross_coin, settings["fee_percent"])
+    fee_free_limit = max(int(settings.get("stone_to_coin_fee_free_limit") or 0), 0)
+    fee = 0 if spent_stone <= fee_free_limit else _fee_amount(gross_coin, settings["fee_percent"])
     net_coin = max(gross_coin - fee, 0)
     return {
         "direction": "stone_to_coin",
@@ -88,6 +92,7 @@ def preview_stone_to_coin(stone_amount: int) -> dict:
         "spent_stone": spent_stone,
         "fee": fee,
         "net": net_coin,
+        "fee_free_applied": spent_stone > 0 and spent_stone <= fee_free_limit,
         "settings": settings,
     }
 
@@ -194,7 +199,8 @@ def convert_stone_to_coin(tg: int, stone_amount: int) -> dict:
         "灵石兑换碎片",
         (
             f"消耗 {int(preview['spent_stone'])} 灵石，兑换 {int(preview['gross'])} 片刻碎片，"
-            f"手续费 {int(preview['fee'])} 片刻碎片，实得 {int(preview['net'])} 片刻碎片。"
+            f"{'本次免手续费，' if preview.get('fee_free_applied') else '手续费 %s 片刻碎片，' % int(preview['fee'])}"
+            f"实得 {int(preview['net'])} 片刻碎片。"
             f"当前灵石 {shared_stone_balance}，片刻碎片 {new_coin_balance}。"
         ),
     )
@@ -206,5 +212,6 @@ def convert_stone_to_coin(tg: int, stone_amount: int) -> dict:
         "stone_balance": stone_balance,
         "shared_stone_balance": shared_stone_balance,
         "fee": preview["fee"],
+        "fee_free_applied": bool(preview.get("fee_free_applied")),
         "rate": preview["settings"]["rate"],
     }

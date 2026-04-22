@@ -1346,6 +1346,83 @@ function jumpToFoldCard(cardId) {
   syncFoldToolbar();
 }
 
+function candidatePageScrollTargets() {
+  const targets = [];
+  const pushTarget = (target) => {
+    if (!target || targets.includes(target)) return;
+    targets.push(target);
+  };
+  pushTarget(document.scrollingElement);
+  pushTarget(document.documentElement);
+  pushTarget(document.body);
+  pushTarget(document.querySelector(".app-shell"));
+  return targets;
+}
+
+function effectivePageScrollTargets() {
+  return candidatePageScrollTargets().filter((target) => {
+    if (!target) return false;
+    if (target === document.body || target === document.documentElement || target === document.scrollingElement) {
+      const scrollHeight = Math.max(
+        Number(document.documentElement?.scrollHeight || 0),
+        Number(document.body?.scrollHeight || 0),
+        Number(target.scrollHeight || 0)
+      );
+      const clientHeight = Math.max(
+        Number(window.innerHeight || 0),
+        Number(document.documentElement?.clientHeight || 0),
+        Number(target.clientHeight || 0)
+      );
+      return scrollHeight > clientHeight;
+    }
+    return Number(target.scrollHeight || 0) > Number(target.clientHeight || 0);
+  });
+}
+
+function currentPageScrollTop() {
+  const tops = candidatePageScrollTargets().map((target) => Number(target?.scrollTop || 0));
+  tops.push(Number(window.scrollY || 0));
+  return Math.max(...tops, 0);
+}
+
+function scrollPageToTop({ behavior = "smooth" } = {}) {
+  const resolvedBehavior = behavior === "instant" ? "auto" : behavior;
+  window.scrollTo({ top: 0, behavior: resolvedBehavior });
+  effectivePageScrollTargets().forEach((target) => {
+    if (!target) return;
+    if (typeof target.scrollTo === "function") {
+      target.scrollTo({ top: 0, behavior: resolvedBehavior });
+      return;
+    }
+    target.scrollTop = 0;
+  });
+  if (behavior === "instant") {
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }
+}
+
+let pageAutoTopTimer = null;
+
+function queuePageAutoTop(delay = 80) {
+  if (pageAutoTopTimer) {
+    window.clearTimeout(pageAutoTopTimer);
+  }
+  pageAutoTopTimer = window.setTimeout(() => {
+    scrollPageToTop({ behavior: "smooth" });
+    pageAutoTopTimer = null;
+  }, delay);
+}
+
+function watchPageScroll(listener) {
+  const seen = new Set();
+  [window, ...candidatePageScrollTargets()].forEach((target) => {
+    if (!target || seen.has(target) || typeof target.addEventListener !== "function") return;
+    seen.add(target);
+    target.addEventListener("scroll", listener, { passive: true });
+  });
+}
+
 function lazyCardCanRender(cardId, { force = false } = {}) {
   const card = document.getElementById(cardId);
   if (!card || card.classList.contains("hidden")) return false;
@@ -3328,7 +3405,8 @@ function exchangeHintText(settings = {}) {
   const fee = settings.fee_percent ?? settings.exchange_fee_percent ?? 1;
   const minExchange = settings.min_coin_exchange ?? 1;
   const effectiveMin = settings.stone_to_coin_min_stone ?? Math.max(rate, minExchange);
-  return `当前比例：1 片刻碎片 = ${rate} 灵石，反向即 ${rate} 灵石 = 1 片刻碎片；手续费 ${fee}%，灵石兑换碎片至少按 ${effectiveMin} 灵石结算，不足 ${rate} 灵石一份的零头会保留。`;
+  const feeFreeLimit = settings.stone_to_coin_fee_free_limit ?? 500;
+  return `当前比例：1 片刻碎片 = ${rate} 灵石，反向即 ${rate} 灵石 = 1 片刻碎片；碎片兑换灵石手续费 ${fee}%，灵石兑换碎片在 ${feeFreeLimit} 灵石及以下免手续费，超过后按 ${fee}% 结算，至少按 ${effectiveMin} 灵石结算，不足 ${rate} 灵石一份的零头会保留。`;
 }
 
 function mergeBundleData(baseBundle, patchBundle) {
@@ -3605,7 +3683,12 @@ document.querySelector("#stone-to-coin-form").addEventListener("submit", async (
       direction: "stone_to_coin",
       amount: Number(document.querySelector("#stone-to-coin-amount").value || 0)
     }));
-    const message = `消耗 ${payload.spent_stone} 灵石，获得 ${payload.received_coin} 片刻碎片。`;
+    const feeText = payload.fee_free_applied
+      ? "，本次免手续费"
+      : Number(payload.fee || 0) > 0
+        ? `，手续费 ${payload.fee} 片刻碎片`
+        : "";
+    const message = `消耗 ${payload.spent_stone} 灵石，获得 ${payload.received_coin} 片刻碎片${feeText}。`;
     setStatus(`兑换成功：${message}`, "success");
     await popup("兑换成功", message);
     await refreshBundle();
@@ -5559,6 +5642,7 @@ popup = async function popupRefined(title, message, tone = "success") {
   document.body.classList.add("is-modal-open");
   layer.scrollTop = 0;
   messageNode.scrollTop = 0;
+  queuePageAutoTop();
   if (popupAutoCloseTimer) {
     window.clearTimeout(popupAutoCloseTimer);
   }
@@ -7496,14 +7580,16 @@ function renderGroupedCards(root, cardsHtmlArray, groupingFn) {
 // --- Back to Top FAB ---
 const fabToTop = document.querySelector("#fab-totop");
 if (fabToTop) {
-  window.addEventListener("scroll", () => {
-    if (window.scrollY > 300) {
+  const syncFabToTop = () => {
+    if (currentPageScrollTop() > 300) {
       fabToTop.classList.remove("hidden");
     } else {
       fabToTop.classList.add("hidden");
     }
-  }, { passive: true });
+  };
+  watchPageScroll(syncFabToTop);
+  syncFabToTop();
   fabToTop.addEventListener("click", () => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    scrollPageToTop({ behavior: "smooth" });
   });
 }
