@@ -12,7 +12,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from bot import LOGGER, api as api_config, bot, group, owner
+from bot import LOGGER, api as api_config, bot, config, group, owner
+from bot.plugins import list_miniapp_plugins
 from bot.sql_helper.sql_emby import sql_get_emby
 from bot.sql_helper.sql_shop import (
     create_shop_item,
@@ -277,6 +278,7 @@ def _serialize_shop_bundle(user_id: int | None = None, *, include_orders: bool =
         "meta": {
             "plugin_name": PLUGIN_MANIFEST.get("name"),
             "version": PLUGIN_MANIFEST.get("version"),
+            "bottom_nav": _build_bottom_nav(),
         },
         "settings": get_shop_settings(),
         "items": list_shop_items(enabled_only=True),
@@ -289,6 +291,34 @@ def _serialize_shop_bundle(user_id: int | None = None, *, include_orders: bool =
         },
     }
     return payload
+
+
+def _build_bottom_nav() -> list[dict[str, str]]:
+    items = [
+        {
+            "id": "home",
+            "label": "主页",
+            "path": "/miniapp",
+            "icon": "🏠",
+        }
+    ]
+
+    for plugin in list_miniapp_plugins():
+        if not plugin.get("enabled") or not plugin.get("loaded") or not plugin.get("web_registered"):
+            continue
+        plugin_visible = bool(config.plugin_nav.get(plugin["id"], plugin.get("bottom_nav_default", False)))
+        if not plugin.get("miniapp_path") or not plugin_visible:
+            continue
+        items.append(
+            {
+                "id": plugin["id"],
+                "label": plugin.get("miniapp_label") or plugin["name"],
+                "path": plugin["miniapp_path"],
+                "icon": plugin.get("miniapp_icon") or "◇",
+            }
+        )
+
+    return items
 
 
 def register_web(app) -> None:

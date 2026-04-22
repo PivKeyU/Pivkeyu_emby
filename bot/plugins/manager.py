@@ -165,6 +165,7 @@ class PluginRecord:
             "miniapp_icon": self.miniapp_icon,
             "bottom_nav_default": self.bottom_nav_default,
             "loaded": self.loaded,
+            "web_registered": self.web_registered,
             "error": self.error,
         }
 

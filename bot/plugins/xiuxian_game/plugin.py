@@ -14,7 +14,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pyrogram import enums, filters
 from pyrogram.enums import ChatMemberStatus
@@ -877,7 +877,7 @@ def _build_bottom_nav() -> list[dict[str, str]]:
     ]
 
     for plugin in list_miniapp_plugins():
-        if not plugin.get("enabled"):
+        if not plugin.get("enabled") or not plugin.get("loaded") or not plugin.get("web_registered"):
             continue
         plugin_visible = bool(config.plugin_nav.get(plugin["id"], plugin.get("bottom_nav_default", False)))
         if not plugin.get("miniapp_path") or not plugin_visible:
@@ -4462,6 +4462,10 @@ def register_web(app) -> None:
                 "Expires": "0",
             },
         )
+
+    @user_router.get("/", include_in_schema=False)
+    async def xiuxian_root_page():
+        return RedirectResponse(url="/plugins/xiuxian/app", status_code=302)
 
     @user_router.get("/app")
     async def xiuxian_app_page():

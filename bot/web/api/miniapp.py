@@ -79,7 +79,11 @@ async def bootstrap(payload: MiniAppInitRequest):
         run_in_threadpool(list_miniapp_plugins),
     )
     is_admin = is_admin_user_id(telegram_user["id"])
-    plugins = [plugin for plugin in plugins if plugin.get("enabled")]
+    plugins = [
+        plugin
+        for plugin in plugins
+        if plugin.get("enabled") and plugin.get("loaded") and plugin.get("web_registered")
+    ]
     bottom_nav = [
         {
             "id": "home",

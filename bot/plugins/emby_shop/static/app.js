@@ -168,9 +168,9 @@ function applyBundle(bundle) {
 function renderBottomNav() {
   const nav = document.querySelector("#bottom-nav");
   if (!nav) return;
-  const items = [
+  const configuredItems = Array.isArray(state.bundle?.meta?.bottom_nav) ? state.bundle.meta.bottom_nav : [];
+  const items = configuredItems.length ? configuredItems : [
     { label: "主页", path: "/miniapp", icon: "🏠" },
-    { label: "修仙", path: "/plugins/xiuxian/app", icon: "🏔️" },
     { label: "商店", path: "/plugins/shop/app", icon: "🛒" }
   ];
   const currentPath = window.location.pathname;

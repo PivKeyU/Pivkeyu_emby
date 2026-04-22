@@ -17,7 +17,7 @@ from starlette.middleware.cors import CORSMiddleware
 from bot import LOGGER, api as config_api
 from bot.func_helper.redis_cache import get_status as get_redis_status
 from bot.func_helper.telegram_webapp import configure_chat_menu_button
-from bot.plugins import register_web_plugins
+from bot.plugins import load_plugins, register_web_plugins
 
 from .api import admin_api_route, auth_api_route, emby_api_route, miniapp_api_route, user_api_route
 
@@ -36,6 +36,7 @@ class Web:
         self.app.include_router(auth_api_route)
         self.app.include_router(admin_api_route)
         self.app.include_router(miniapp_api_route)
+        load_plugins()
         register_web_plugins(self.app)
 
         if STATIC_DIR.exists():
