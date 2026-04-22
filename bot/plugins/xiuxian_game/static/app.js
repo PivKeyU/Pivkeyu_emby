@@ -1280,6 +1280,28 @@ function profileRootText(profile) {
   return `${profile.root_type} · ${profile.root_primary || "无属性"} · ${profile.root_relation || "待定"}`;
 }
 
+let bottomNavResizeObserver = null;
+
+function syncBottomNavLayout() {
+  const nav = document.querySelector("#bottom-nav");
+  const height = nav && !nav.classList.contains("hidden") && nav.childElementCount
+    ? Math.ceil(nav.getBoundingClientRect().height)
+    : 0;
+  document.documentElement.style.setProperty("--bottom-nav-height", `${height}px`);
+}
+
+function setupBottomNavLayout() {
+  const nav = document.querySelector("#bottom-nav");
+  if (!nav) return;
+  if ("ResizeObserver" in window && !bottomNavResizeObserver) {
+    bottomNavResizeObserver = new ResizeObserver(() => syncBottomNavLayout());
+    bottomNavResizeObserver.observe(nav);
+  }
+  window.addEventListener("resize", syncBottomNavLayout, { passive: true });
+  window.addEventListener("orientationchange", syncBottomNavLayout, { passive: true });
+  syncBottomNavLayout();
+}
+
 function renderBottomNav(items = []) {
   const nav = document.querySelector("#bottom-nav");
   if (!nav) return;
@@ -1289,13 +1311,23 @@ function renderBottomNav(items = []) {
   for (const item of items || []) {
     const link = document.createElement("a");
     link.href = item.path;
-    link.textContent = `${item.icon || ""} ${item.label}`.trim();
+    link.title = item.label || "";
+    const icon = document.createElement("span");
+    icon.className = "bottom-nav-icon";
+    icon.textContent = String(item.icon || "").trim();
+    const label = document.createElement("span");
+    label.className = "bottom-nav-label";
+    label.textContent = item.label || "未命名";
+    if (icon.textContent) {
+      link.appendChild(icon);
+    }
+    link.appendChild(label);
     if (item.path === currentPath) {
       link.classList.add("is-active");
     }
     nav.appendChild(link);
   }
-  nav.querySelector(".is-active")?.scrollIntoView({ inline: "center", block: "nearest" });
+  syncBottomNavLayout();
 }
 
 function visibleFoldCards() {
@@ -7331,6 +7363,7 @@ document.querySelector("#wiki-result-list")?.addEventListener("click", async (ev
 
 setupFoldToolbar();
 setupMobileInteractionPolish();
+setupBottomNavLayout();
 
 bootstrap().catch(async (error) => {
   const message = normalizeError(error, "修仙面板初始化失败。");

@@ -20,6 +20,7 @@
   --radius-xl: 16px;
   --radius-lg: 12px;
   --radius-md: 8px;
+  --bottom-nav-height: 0px;
   --shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
   --shadow-strong: 0 8px 32px rgba(204, 167, 114, 0.15);
   font-family: "Noto Serif SC", "Source Han Serif SC", "STZhongsong", serif;
@@ -36,6 +37,7 @@ html {
   -webkit-text-size-adjust: 100%;
   max-width: 100%;
   overflow-x: hidden;
+  overflow-y: auto;
 }
 
 body {
@@ -43,11 +45,13 @@ body {
   min-height: 100vh;
   min-height: 100dvh;
   max-width: 100%;
-  padding-bottom: calc(92px + env(safe-area-inset-bottom));
+  padding-bottom: calc(var(--bottom-nav-height) + 20px + env(safe-area-inset-bottom));
   color: var(--ink);
   background: var(--bg-top);
   overflow-x: hidden;
-  overscroll-behavior-y: contain;
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 body.is-modal-open {
@@ -1111,39 +1115,49 @@ button.is-blocked:not(:disabled) {
   max-width: calc(100% - 24px);
   bottom: max(12px, env(safe-area-inset-bottom));
   z-index: 24;
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(82px, 1fr));
   gap: 8px;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  scroll-snap-type: x proximity;
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: 22px;
   background: rgba(20, 23, 29, 0.94);
   box-shadow: 0 20px 48px rgba(0, 0, 0, 0.42);
   backdrop-filter: blur(20px);
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-}
-
-.bottom-nav::-webkit-scrollbar {
-  display: none;
+  touch-action: pan-y;
 }
 
 .bottom-nav a {
-  flex: 0 0 auto;
-  min-width: 96px;
-  white-space: nowrap;
-  scroll-snap-align: start;
+  width: 100%;
+  min-width: 0;
+  min-height: 54px;
+  padding: 8px 10px;
+  border-radius: 16px;
+  flex-direction: column;
+  gap: 4px;
+  text-align: center;
   text-decoration: none;
   color: var(--ink);
   background: var(--surface-strong);
   border: 1px solid var(--line-strong);
+  white-space: normal;
+  line-height: 1.2;
 }
 
 .bottom-nav a.is-active {
   color: #fff;
   background: linear-gradient(135deg, var(--accent-strong), var(--accent));
+}
+
+.bottom-nav-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.bottom-nav-label {
+  display: block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 @media (hover: none) {
@@ -1352,7 +1366,7 @@ button.is-blocked:not(:disabled) {
 
 @media (max-width: 640px) {
   body {
-    padding-bottom: calc(100px + env(safe-area-inset-bottom));
+    padding-bottom: calc(var(--bottom-nav-height) + 16px + env(safe-area-inset-bottom));
   }
 
   .app-shell {
@@ -1453,20 +1467,21 @@ button.is-blocked:not(:disabled) {
     right: 8px;
     max-width: calc(100% - 16px);
     bottom: max(8px, env(safe-area-inset-bottom));
+    grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
     padding: 8px;
     border-radius: 18px;
   }
 
   .bottom-nav a {
-    min-width: 88px;
-    min-height: 44px;
-    padding: 8px 10px;
-    font-size: 12px;
+    min-width: 0;
+    min-height: 48px;
+    padding: 8px 6px;
+    font-size: 11px;
   }
 
   .fab-container {
     right: 12px;
-    bottom: calc(max(12px, env(safe-area-inset-bottom)) + 72px);
+    bottom: calc(max(12px, env(safe-area-inset-bottom)) + var(--bottom-nav-height) + 12px);
   }
 
   .modal-layer {
@@ -1483,7 +1498,7 @@ button.is-blocked:not(:disabled) {
 
 @media (max-width: 420px) {
   body {
-    padding-bottom: calc(94px + env(safe-area-inset-bottom));
+    padding-bottom: calc(var(--bottom-nav-height) + 14px + env(safe-area-inset-bottom));
   }
 
   .app-shell {
@@ -1521,9 +1536,12 @@ button.is-blocked:not(:disabled) {
   }
 
   .bottom-nav a {
-    min-width: 76px;
     min-height: 42px;
-    padding: 7px 9px;
+    padding: 7px 5px;
+  }
+
+  .bottom-nav-icon {
+    font-size: 14px;
   }
 }
 
@@ -1545,7 +1563,7 @@ button.is-blocked:not(:disabled) {
 .fab-container {
   position: fixed;
   right: 16px;
-  bottom: calc(max(16px, env(safe-area-inset-bottom)) + 60px);
+  bottom: calc(max(16px, env(safe-area-inset-bottom)) + var(--bottom-nav-height) + 16px);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1595,7 +1613,7 @@ button.is-blocked:not(:disabled) {
 
 @media (max-height: 520px) and (orientation: landscape) {
   body {
-    padding-bottom: calc(58px + env(safe-area-inset-bottom));
+    padding-bottom: calc(var(--bottom-nav-height) + 10px + env(safe-area-inset-bottom));
   }
 
   .app-shell {
@@ -1674,20 +1692,25 @@ button.is-blocked:not(:disabled) {
     right: 8px;
     max-width: calc(100% - 16px);
     bottom: max(6px, env(safe-area-inset-bottom));
+    grid-template-columns: repeat(auto-fit, minmax(68px, 1fr));
     gap: 6px;
     padding: 6px;
     border-radius: 16px;
   }
 
   .bottom-nav a {
-    min-width: 78px;
     min-height: 36px;
-    font-size: 11px;
+    padding: 6px 5px;
+    font-size: 10px;
+  }
+
+  .bottom-nav-icon {
+    font-size: 13px;
   }
 
   .fab-container {
     right: 10px;
-    bottom: calc(max(8px, env(safe-area-inset-bottom)) + 48px);
+    bottom: calc(max(8px, env(safe-area-inset-bottom)) + var(--bottom-nav-height) + 8px);
     gap: 8px;
   }
 
