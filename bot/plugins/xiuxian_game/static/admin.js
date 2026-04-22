@@ -2118,7 +2118,7 @@ function applyArenaStageRules(settings = {}) {
           <input type="number" min="10" max="10080" data-arena-stage="${escapeHtml(stage)}" data-arena-rule="duration_minutes" value="${escapeHtml(current.duration_minutes ?? fallbackDuration)}">
         </label>
         <label>
-          落幕修为奖励
+          单场修为上限
           <input type="number" min="0" max="1000000000000" data-arena-stage="${escapeHtml(stage)}" data-arena-rule="reward_cultivation" value="${escapeHtml(current.reward_cultivation ?? 0)}">
         </label>
       </div>

@@ -2118,7 +2118,6 @@ def _arena_keyboard(arena: dict[str, Any]) -> InlineKeyboardMarkup | None:
 def _arena_group_text(arena: dict[str, Any]) -> str:
     arena = arena or {}
     arena_stage = str(arena.get("realm_stage") or "炼气").strip() or "炼气"
-    reward_cultivation = int(arena.get("reward_cultivation") or 0)
     champion_tg = int(arena.get("champion_tg") or 0)
     champion_name = str(arena.get("champion_display_name") or "").strip() or f"TG {champion_tg}"
     settings = get_xiuxian_settings()
@@ -2158,7 +2157,7 @@ def _arena_group_text(arena: dict[str, Any]) -> str:
             f"📣 开擂者：{_md_escape(opener_name)}",
             f"🛡️ 守擂成功：`{defense_count}` ｜ 🔁 易主次数：`{change_count}` ｜ ⚔️ 总挑战：`{challenge_count}`",
             f"⏳ 状态：{_md_escape(status_label)} ｜ 剩余：`{_arena_remaining_text(arena)}`",
-            f"🎁 落幕奖励：`+{reward_cultivation}` 修为",
+            "🎁 实战修为：每场攻擂后即时结算，奖励会随胜负与对手强度浮动",
             (
                 f"🎫 手续费：开擂 `{arena_open_fee_stone}` 灵石 ｜ 攻擂 `{arena_challenge_fee_stone}` 灵石"
                 if arena_open_fee_stone > 0 or arena_challenge_fee_stone > 0
@@ -2236,11 +2235,8 @@ async def _finalize_arena_flow(result: dict[str, Any] | None) -> None:
             f"🏟️ 境界：`{_md_escape(arena.get('realm_stage') or '炼气')}`",
             f"👑 最终擂主：{_md_escape(result.get('champion_name') or arena.get('champion_display_name') or '未知擂主')}",
             f"🛡️ 守擂成功：`{int(result.get('defense_success_count') or 0)}` ｜ ⚔️ 总挑战：`{int(result.get('challenge_count') or 0)}`",
-            f"🌿 奖励：`+{int(result.get('cultivation_reward') or 0)}` 修为",
+            "🌿 实战修为已在每场攻擂后即时结算，本次落幕不再追加固定大额修为",
         ]
-        upgraded_layers = list(result.get("upgraded_layers") or [])
-        if upgraded_layers:
-            lines.append(f"📈 擂主本次直升至 `{int(upgraded_layers[-1] or 0)}` 层")
         await _send_message(bot, chat_id, "\n".join(lines), parse_mode=RICH_TEXT_MODE, persistent=True)
     elif chat_id and outcome == "finished_no_reward":
         await _send_message(
@@ -3707,7 +3703,7 @@ def register_bot(bot_instance) -> None:
                 end_text = end_at.strftime("%m-%d %H:%M") if end_at else str(arena_payload.get("end_at") or "未知")
                 success_lines = [
                     f"{arena_payload.get('realm_stage') or '炼气'}擂台已开启，持续约 {int(arena_payload.get('duration_minutes') or 0)} 分钟。",
-                    f"你已登上首任擂主之位，结算时刻约为 {end_text}，落幕奖励修为 +{int(arena_payload.get('reward_cultivation') or 0)}。",
+                    f"你已登上首任擂主之位，结算时刻约为 {end_text}，修为改为每场攻擂后即时结算，不再在落幕时一次性发大量修为。",
                 ]
                 if int(opened.get("open_fee_stone") or 0) > 0:
                     success_lines.append(f"本次已扣除 {int(opened.get('open_fee_stone') or 0)} 灵石开擂手续费。")
@@ -4053,12 +4049,14 @@ def register_bot(bot_instance) -> None:
         await _notify_achievement_unlocks(result.get("achievement_unlocks"))
         fee_notice = int(result.get("challenge_fee_stone") or 0)
         fee_prefix = f"已扣 {fee_notice} 灵石攻擂手续费，" if fee_notice > 0 else ""
+        challenger_cultivation_reward = int(result.get("challenger_cultivation_reward") or 0)
+        reward_suffix = f"，你本场获得 {challenger_cultivation_reward} 修为" if challenger_cultivation_reward > 0 else ""
 
         if str(result.get("result") or "") == "forfeit":
             return await callAnswer(call, f"{fee_prefix}旧擂主已失去守擂资格，你已直接接掌擂台。")
         if bool(result.get("champion_changed")):
-            return await callAnswer(call, f"{fee_prefix}攻擂成功，你已成为新擂主。")
-        return await callAnswer(call, f"{fee_prefix}守擂者胜，擂主未易。")
+            return await callAnswer(call, f"{fee_prefix}攻擂成功，你已成为新擂主{reward_suffix}。")
+        return await callAnswer(call, f"{fee_prefix}守擂者胜，擂主未易{reward_suffix}。")
 
     @bot_instance.on_message(filters.text & filters.group & ~filters.regex(r"^[\\/!\\.，。]"))
     async def xiuxian_group_quiz_answer(_, msg):

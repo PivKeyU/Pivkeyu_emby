@@ -49,6 +49,7 @@ from bot.sql_helper.sql_xiuxian import (
     assert_profile_alive,
     bind_user_artifact,
     bind_user_talisman,
+    calculate_arena_cultivation_cap,
     calculate_realm_threshold,
     clear_all_xiuxian_user_data,
     cancel_auction_item,
@@ -8430,7 +8431,7 @@ def _default_arena_stage_rule_map() -> dict[str, dict[str, int]]:
             stage,
             {
                 "duration_minutes": 120,
-                "reward_cultivation": max(int(calculate_realm_threshold(stage, 1) or 0), 0),
+                "reward_cultivation": calculate_arena_cultivation_cap(stage),
             },
         )
     return rules
@@ -8447,16 +8448,17 @@ def _normalize_arena_stage_rules(raw: Any) -> list[dict[str, int | str]]:
             if stage not in REALM_ORDER or stage in normalized_map:
                 continue
             default_rule = defaults.get(stage) or defaults[FIRST_REALM_STAGE]
+            legacy_reward = max(int(cultivation_threshold(stage, 1) or 0), 0)
+            normalized_reward = max(_coerce_int(entry.get("reward_cultivation"), int(default_rule["reward_cultivation"]), 0), 0)
+            if normalized_reward == legacy_reward:
+                normalized_reward = int(default_rule["reward_cultivation"])
             normalized_map[stage] = {
                 "realm_stage": stage,
                 "duration_minutes": min(
                     max(_coerce_int(entry.get("duration_minutes"), int(default_rule["duration_minutes"]), 10), 10),
                     7 * 24 * 60,
                 ),
-                "reward_cultivation": min(
-                    max(_coerce_int(entry.get("reward_cultivation"), int(default_rule["reward_cultivation"]), 0), 0),
-                    10**12,
-                ),
+                "reward_cultivation": min(normalized_reward, 10**12),
             }
     rows: list[dict[str, int | str]] = []
     for stage in REALM_ORDER:
@@ -12721,18 +12723,23 @@ def _arena_challenge_fee_stone(settings: dict[str, Any] | None = None) -> int:
 def _arena_stage_rule(stage: str | None, settings: dict[str, Any] | None = None) -> dict[str, Any]:
     source = settings or get_xiuxian_settings()
     target_stage = normalize_realm_stage(stage or FIRST_REALM_STAGE)
+    legacy_default_reward = max(int(cultivation_threshold(target_stage, 1) or 0), 0)
+    default_reward = calculate_arena_cultivation_cap(target_stage)
     for row in list(source.get("arena_stage_rules") or []):
         if normalize_realm_stage((row or {}).get("realm_stage")) != target_stage:
             continue
+        configured_reward = max(int((row or {}).get("reward_cultivation") or 0), 0)
+        if configured_reward == legacy_default_reward:
+            configured_reward = default_reward
         return {
             "realm_stage": target_stage,
             "duration_minutes": _arena_duration_minutes(int((row or {}).get("duration_minutes") or ARENA_DEFAULT_DURATION_MINUTES)),
-            "reward_cultivation": max(int((row or {}).get("reward_cultivation") or 0), 0),
+            "reward_cultivation": configured_reward,
         }
     return {
         "realm_stage": target_stage,
         "duration_minutes": _arena_duration_minutes(ARENA_DEFAULT_DURATION_MINUTES),
-        "reward_cultivation": max(int(calculate_realm_threshold(target_stage, 1) or 0), 0),
+        "reward_cultivation": default_reward,
     }
 
 
@@ -12752,8 +12759,48 @@ def _assert_arena_realm_match(profile: XiuxianProfile, arena_stage: str, *, acti
 def _arena_reward_values(profile: XiuxianProfile, arena: XiuxianArena) -> dict[str, int]:
     return {
         "stone_reward": 0,
-        "cultivation_reward": max(int(arena.reward_cultivation or 0), 0),
+        "cultivation_reward": 0,
         "fortune": 0,
+    }
+
+
+def _arena_duel_reward_cap(stage: str, arena: XiuxianArena | dict[str, Any] | None) -> int:
+    if isinstance(arena, dict):
+        configured_reward = max(int(arena.get("reward_cultivation") or 0), 0)
+    else:
+        configured_reward = max(int(getattr(arena, "reward_cultivation", 0) or 0), 0)
+    legacy_default_reward = max(int(cultivation_threshold(stage, 1) or 0), 0)
+    if configured_reward == legacy_default_reward:
+        return calculate_arena_cultivation_cap(stage)
+    return configured_reward
+
+
+def _arena_duel_cultivation_rewards(stage: str, arena: XiuxianArena | dict[str, Any], duel_result: dict[str, Any]) -> dict[str, int]:
+    target_stage = normalize_realm_stage(stage or FIRST_REALM_STAGE)
+    threshold = max(int(cultivation_threshold(target_stage, 1) or 0), 1)
+    reward_cap = _arena_duel_reward_cap(target_stage, arena)
+    if reward_cap <= 0:
+        return {
+            "winner_reward": 0,
+            "loser_reward": 0,
+            "reward_cap": 0,
+        }
+    challenger_rate = min(max(float(duel_result.get("challenger_rate") or 0.5), 0.01), 0.99)
+    winner_tg = int(duel_result.get("winner_tg") or 0)
+    challenger_tg = int(((duel_result.get("challenger") or {}).get("profile") or {}).get("tg") or 0)
+    winner_rate = challenger_rate if winner_tg == challenger_tg else 1 - challenger_rate
+    intensity_factor = max(0.0, 1.0 - abs(challenger_rate - 0.5) * 2)
+    underdog_factor = max(0.5 - winner_rate, 0.0) * 2
+
+    # 单场奖励控制在当前境界单层需求的极小比例内，避免擂台打一场就直升多层。
+    winner_gain = max(int(round(threshold * (0.015 + intensity_factor * 0.007 + underdog_factor * 0.006))), 8)
+    loser_gain = max(int(round(threshold * (0.006 + intensity_factor * 0.003))), 3)
+    winner_gain = min(winner_gain, reward_cap)
+    loser_gain = min(loser_gain, max(reward_cap // 2, 1))
+    return {
+        "winner_reward": max(winner_gain, 0),
+        "loser_reward": max(loser_gain, 0),
+        "reward_cap": max(reward_cap, 0),
     }
 
 
@@ -12927,7 +12974,7 @@ def open_group_arena_for_user(
         "arena",
         "开设擂台",
         (
-            f"在群 {chat_id} 开设一座 {arena_stage} 擂台，持续 {duration} 分钟，落幕奖励修为 +{reward_cultivation}。"
+            f"在群 {chat_id} 开设一座 {arena_stage} 擂台，持续 {duration} 分钟，实战修为改为每场攻擂后即时结算。"
             + (f" 支付 {open_fee_stone} 灵石开擂手续费。" if open_fee_stone > 0 else "")
         ),
     )
@@ -13088,6 +13135,8 @@ def challenge_group_arena_for_user(
     loser_name = _duel_display_name(loser_profile)
     champion_changed = winner_tg == actor_tg
     summary = f"{winner_name} 在擂台斗法中击败 {loser_name}。{duel_result.get('summary') or ''}".strip()
+    winner_cultivation_reward = 0
+    loser_cultivation_reward = 0
 
     with Session() as session:
         arena = (
@@ -13099,6 +13148,17 @@ def challenge_group_arena_for_user(
         if arena is None:
             raise ValueError("擂台记录丢失，无法回写结果。")
         now = utcnow()
+        battle_rewards = _arena_duel_cultivation_rewards(arena_stage, arena, duel_result)
+        winner_cultivation_reward = int(battle_rewards.get("winner_reward") or 0)
+        loser_cultivation_reward = int(battle_rewards.get("loser_reward") or 0)
+        winner_row = session.query(XiuxianProfile).filter(XiuxianProfile.tg == winner_tg).with_for_update().first()
+        loser_row = session.query(XiuxianProfile).filter(XiuxianProfile.tg == loser_tg).with_for_update().first()
+        if winner_row is not None and winner_cultivation_reward > 0:
+            _settle_profile_cultivation(winner_row, winner_cultivation_reward)
+            winner_row.updated_at = now
+        if loser_row is not None and loser_cultivation_reward > 0:
+            _settle_profile_cultivation(loser_row, loser_cultivation_reward)
+            loser_row.updated_at = now
         arena.challenge_count = max(int(arena.challenge_count or 0), 0) + 1
         if champion_changed:
             arena.champion_change_count = max(int(arena.champion_change_count or 0), 0) + 1
@@ -13110,6 +13170,8 @@ def challenge_group_arena_for_user(
         arena.last_winner_display_name = winner_name
         arena.last_loser_tg = loser_tg
         arena.last_loser_display_name = loser_name
+        if winner_cultivation_reward > 0 or loser_cultivation_reward > 0:
+            summary = f"{summary} 本场修为：{winner_name} +{winner_cultivation_reward}，{loser_name} +{loser_cultivation_reward}。".strip()
         arena.latest_result_summary = summary
         arena.battle_in_progress = False
         arena.current_challenger_tg = None
@@ -13118,8 +13180,18 @@ def challenge_group_arena_for_user(
         session.commit()
         arena_payload = serialize_arena(arena)
 
-    create_journal(winner_tg, "arena", "擂台胜出", f"在擂台斗法中击败 {loser_name}。")
-    create_journal(loser_tg, "arena", "擂台落败", f"在擂台斗法中败给 {winner_name}。")
+    create_journal(
+        winner_tg,
+        "arena",
+        "擂台胜出",
+        f"在擂台斗法中击败 {loser_name}，并通过实战收获 {winner_cultivation_reward} 修为。",
+    )
+    create_journal(
+        loser_tg,
+        "arena",
+        "擂台落败",
+        f"在擂台斗法中败给 {winner_name}，但仍从实战中收获 {loser_cultivation_reward} 修为。",
+    )
 
     achievement_unlocks = list(duel_result.get("achievement_unlocks") or [])
     if champion_changed:
@@ -13136,6 +13208,10 @@ def challenge_group_arena_for_user(
         "summary": summary,
         "ended": bool(arena_payload and arena_payload.get("ended")),
         "challenge_fee_stone": challenge_fee_stone,
+        "winner_cultivation_reward": winner_cultivation_reward,
+        "loser_cultivation_reward": loser_cultivation_reward,
+        "challenger_cultivation_reward": winner_cultivation_reward if winner_tg == actor_tg else loser_cultivation_reward,
+        "defender_cultivation_reward": loser_cultivation_reward if winner_tg == actor_tg else winner_cultivation_reward,
     }
 
 
@@ -13192,7 +13268,7 @@ def finalize_group_arena(arena_id: int, *, force: bool = False) -> dict[str, Any
         champion.updated_at = now
         arena.latest_result_summary = (
             f"{_profile_display_label(champion, '擂主')} 守到擂台落幕，"
-            f"收下 {reward['cultivation_reward']} 修为奖励。"
+            f"本期擂台的实战修为已在攻擂过程中完成结算。"
         )
         session.commit()
         arena_payload = serialize_arena(arena)
@@ -13203,7 +13279,7 @@ def finalize_group_arena(arena_id: int, *, force: bool = False) -> dict[str, Any
         champion_tg,
         "arena",
         "擂台结算",
-        f"擂台落幕，作为最终擂主收下 {reward['cultivation_reward']} 修为。",
+        "擂台落幕，本期实战修为已在每场攻擂后即时结算，本次未再追加固定大额修为。",
     )
     achievement_unlocks = record_arena_metrics(champion_tg, final_win=1)
     return {

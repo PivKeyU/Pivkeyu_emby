@@ -393,13 +393,20 @@ DEPRECATED_XIUXIAN_SETTING_KEYS = {
 }
 
 
+def calculate_arena_cultivation_cap(stage: str | None) -> int:
+    normalized = str(stage or "").strip()
+    if normalized not in REALM_STAGE_RULES:
+        normalized = REALM_ORDER[0]
+    threshold_base = int((REALM_STAGE_RULES.get(normalized) or REALM_STAGE_RULES[REALM_ORDER[0]])["threshold_base"])
+    return max(int(round(threshold_base * 0.05)), 15)
+
+
 def _default_arena_stage_rule(stage: str, index: int) -> dict[str, Any]:
-    threshold_base = int((REALM_STAGE_RULES.get(stage) or REALM_STAGE_RULES[REALM_ORDER[0]])["threshold_base"])
     duration_minutes = 60 if index < 2 else 90 if index < 5 else 120 if index < 9 else 180
     return {
         "realm_stage": stage,
         "duration_minutes": duration_minutes,
-        "reward_cultivation": threshold_base,
+        "reward_cultivation": calculate_arena_cultivation_cap(stage),
     }
 
 
@@ -422,11 +429,15 @@ def _merge_default_arena_stage_rules(raw: Any) -> list[dict[str, Any]]:
         if stage is None or stage in seen:
             continue
         default_rule = _default_arena_stage_rule(stage, REALM_ORDER.index(stage))
+        legacy_reward = int(get_realm_stage_rule(stage)["threshold_base"])
+        reward_cultivation = max(int(entry.get("reward_cultivation", default_rule["reward_cultivation"]) or 0), 0)
+        if reward_cultivation == legacy_reward:
+            reward_cultivation = int(default_rule["reward_cultivation"])
         normalized.append(
             {
                 "realm_stage": stage,
                 "duration_minutes": max(int(entry.get("duration_minutes", default_rule["duration_minutes"]) or default_rule["duration_minutes"]), 1),
-                "reward_cultivation": max(int(entry.get("reward_cultivation", default_rule["reward_cultivation"]) or 0), 0),
+                "reward_cultivation": reward_cultivation,
             }
         )
         seen.add(stage)
@@ -749,7 +760,6 @@ def normalize_realm_layer(layer: int | str | None, default: int = 1) -> int:
 def get_realm_stage_rule(stage: str | None) -> dict[str, int]:
     normalized = normalize_realm_stage(stage)
     return REALM_STAGE_RULES.get(normalized, REALM_STAGE_RULES[REALM_ORDER[0]])
-
 
 def calculate_realm_threshold(stage: str | None, layer: int | str | None) -> int:
     rule = get_realm_stage_rule(stage)
