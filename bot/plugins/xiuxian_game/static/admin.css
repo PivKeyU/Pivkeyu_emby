@@ -26,6 +26,7 @@ html {
   color-scheme: dark;
   max-width: 100%;
   overflow-x: hidden;
+  overflow-y: auto;
   -webkit-text-size-adjust: 100%;
 }
 
@@ -39,7 +40,9 @@ body {
     radial-gradient(circle at top center, rgba(204, 167, 114, 0.16), transparent 26%),
     linear-gradient(180deg, var(--bg-1) 0%, var(--bg-2) 100%);
   overflow-x: hidden;
-  overscroll-behavior-y: contain;
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 body::before {

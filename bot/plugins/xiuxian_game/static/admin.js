@@ -530,6 +530,28 @@ function adminSectionCount(key) {
   return null;
 }
 
+function adminStickyOffset() {
+  const isWideViewport = window.matchMedia?.("(min-width: 760px)")?.matches ?? window.innerWidth >= 760;
+  if (!isWideViewport) {
+    return 16;
+  }
+  const deck = $("admin-control-deck");
+  if (!deck) {
+    return 16;
+  }
+  const style = window.getComputedStyle(deck);
+  const stickyTop = Number.parseFloat(style.top || "0") || 0;
+  const deckHeight = Math.ceil(deck.getBoundingClientRect().height || deck.offsetHeight || 0);
+  return Math.max(deckHeight + stickyTop + 12, 16);
+}
+
+function scrollAdminTargetIntoView(target, { behavior = "smooth", extraOffset = 0 } = {}) {
+  if (!target) return;
+  const rect = target.getBoundingClientRect();
+  const top = Math.max(window.scrollY + rect.top - adminStickyOffset() - extraOffset, 0);
+  window.scrollTo({ top, behavior });
+}
+
 function ensureAdminNavigator() {
   if (document.querySelector("#admin-control-deck")) return;
   const shell = document.querySelector(".admin-shell");
@@ -638,8 +660,10 @@ function focusAdminSection(key) {
   document.querySelectorAll("[data-admin-section]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.adminSection === key);
   });
-  target.card.scrollIntoView({ behavior: "smooth", block: "start" });
-  pulseTarget(target.card);
+  window.requestAnimationFrame(() => {
+    scrollAdminTargetIntoView(target.card);
+    pulseTarget(target.card);
+  });
 }
 
 function pulseTarget(node) {
@@ -685,7 +709,7 @@ function revealPlayerEditor(smooth = true) {
   focusAdminSection("players");
   panel.classList.remove("hidden");
   window.requestAnimationFrame(() => {
-    panel.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" });
+    scrollAdminTargetIntoView(panel, { behavior: smooth ? "smooth" : "auto" });
     pulseTarget(panel);
   });
 }
@@ -2609,7 +2633,7 @@ function bindEvents() {
           return;
         }
         loadArtifactForm(item);
-        $("artifact-form")?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+        scrollAdminTargetIntoView($("artifact-form"));
       }
       return;
     }
@@ -3978,6 +4002,7 @@ hydrateAdminForms();
 if ($("title-form")) {
   $("title-form").noValidate = true;
 }
+window.scrollAdminTargetIntoView = scrollAdminTargetIntoView;
 window.setAdminInputValue = setAdminInputValue;
 window.normalizeAdminUrlValue = normalizeAdminUrlValue;
 renderAdminNavigator();

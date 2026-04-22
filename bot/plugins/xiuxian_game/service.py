@@ -5000,6 +5000,15 @@ def build_official_recycle_quote(
     }
 
 
+def _official_recycle_source_payload(row: dict[str, Any], item_key: str) -> dict[str, Any]:
+    nested_payload = row.get(item_key)
+    if isinstance(nested_payload, dict):
+        return dict(nested_payload)
+    if int(row.get("id") or 0) > 0 and str(row.get("name") or "").strip():
+        return dict(row)
+    return {}
+
+
 def attach_official_recycle_quotes(bundle: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(bundle, dict):
         return bundle
@@ -5016,8 +5025,8 @@ def attach_official_recycle_quotes(bundle: dict[str, Any]) -> dict[str, Any]:
         for row in bundle.get(source_key) or []:
             if not isinstance(row, dict):
                 continue
-            item_payload = row.get(item_key) or {}
-            if not isinstance(item_payload, dict):
+            item_payload = _official_recycle_source_payload(row, item_key)
+            if not item_payload:
                 continue
             if "tradeable_quantity" in row and row.get("tradeable_quantity") is not None:
                 available_quantity = max(int(row.get("tradeable_quantity") or 0), 0)

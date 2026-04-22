@@ -106,7 +106,11 @@
     if (!form) return;
     const card = form.closest(".fold-card");
     if (card) card.open = true;
-    form.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (typeof window.scrollAdminTargetIntoView === "function") {
+      window.scrollAdminTargetIntoView(form);
+    } else {
+      form.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
     pulseTarget(form);
   }
 
