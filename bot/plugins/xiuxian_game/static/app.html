@@ -4,6 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>修仙面板</title>
+  <link rel="preconnect" href="https://telegram.org" crossorigin>
+  <link rel="preload" href="https://telegram.org/js/telegram-web-app.js" as="script" crossorigin>
+  <link rel="preload" href="/plugins/xiuxian/static/app.css" as="style">
+  <link rel="preload" href="/plugins/xiuxian/static/app.js" as="script">
   <link rel="stylesheet" href="/plugins/xiuxian/static/app.css">
 </head>
 <body>
@@ -221,6 +225,7 @@
             <button id="retreat-start-btn" type="button">开始闭关</button>
             <button id="retreat-finish-btn" type="button" class="ghost">出关结算</button>
           </div>
+          <p id="retreat-time-hint" class="section-copy">开始闭关后，这里会显示本次闭关开始时间、预计出关时间和剩余时长。</p>
           <article class="stack-item">
             <div class="stack-item-head">
               <strong>入世 / 避世</strong>
@@ -1137,7 +1142,7 @@
 
   <nav id="bottom-nav" class="bottom-nav"></nav>
 
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
   <script defer src="/plugins/xiuxian/static/app.js"></script>
 </body>
 </html>

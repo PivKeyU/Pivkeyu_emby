@@ -535,6 +535,28 @@ async def _admin_player_bundle_payload(tg: int) -> dict[str, Any]:
     return bundle
 
 
+async def _admin_player_search_payload(
+    query: str | None = None,
+    *,
+    page: int = 1,
+    page_size: int = 10,
+) -> dict[str, Any]:
+    result = search_xiuxian_players(query=query or None, page=page, page_size=page_size)
+    items = result.get("items") or []
+    identities = await asyncio.gather(
+        *(_refresh_profile_identity_from_telegram(int(item["tg"])) for item in items),
+        return_exceptions=True,
+    )
+    result["items"] = [
+        _merge_profile_identity(
+            item,
+            None if isinstance(identity, Exception) else identity,
+        )
+        for item, identity in zip(items, identities)
+    ]
+    return result
+
+
 def _verify_user_from_init_data(init_data: str) -> dict[str, Any]:
     verified = verify_init_data(init_data)
     user = verified["user"]
@@ -1001,6 +1023,15 @@ def _bootstrap_core_bundle(tg: int) -> dict[str, Any]:
 
 def _deferred_bundle_sections(tg: int) -> dict[str, Any]:
     return build_deferred_profile_sections(tg, **_bundle_runtime_flags(tg))
+
+
+def _with_full_bundle(tg: int, payload: Any, *, field: str = "result") -> dict[str, Any]:
+    if isinstance(payload, dict):
+        data = dict(payload)
+    else:
+        data = {field: payload}
+    data["bundle"] = _full_bundle(tg)
+    return data
 
 
 def _message_auto_delete_seconds() -> int:
@@ -1704,6 +1735,9 @@ def _arena_group_text(arena: dict[str, Any]) -> str:
     arena = arena or {}
     champion_tg = int(arena.get("champion_tg") or 0)
     champion_name = str(arena.get("champion_display_name") or "").strip() or f"TG {champion_tg}"
+    settings = get_xiuxian_settings()
+    arena_open_fee_stone = max(int(settings.get("arena_open_fee_stone", DEFAULT_SETTINGS.get("arena_open_fee_stone", 0)) or 0), 0)
+    arena_challenge_fee_stone = max(int(settings.get("arena_challenge_fee_stone", DEFAULT_SETTINGS.get("arena_challenge_fee_stone", 0)) or 0), 0)
     profile = {}
     bundle = {}
     if champion_tg > 0:
@@ -1737,6 +1771,11 @@ def _arena_group_text(arena: dict[str, Any]) -> str:
             f"📣 开擂者：{_md_escape(opener_name)}",
             f"🛡️ 守擂成功：`{defense_count}` ｜ 🔁 易主次数：`{change_count}` ｜ ⚔️ 总挑战：`{challenge_count}`",
             f"⏳ 状态：{_md_escape(status_label)} ｜ 剩余：`{_arena_remaining_text(arena)}`",
+            (
+                f"🎫 手续费：开擂 `{arena_open_fee_stone}` 灵石 ｜ 攻擂 `{arena_challenge_fee_stone}` 灵石"
+                if arena_open_fee_stone > 0 or arena_challenge_fee_stone > 0
+                else "🎫 手续费：当前未收取开擂 / 攻擂手续费"
+            ),
             f"🕰️ 结算时刻：`{end_text}`",
             (f"📝 最新战报：{_md_escape(latest_summary)}" if latest_summary else "📝 最新战报：尚无人攻擂，擂主正在静候群雄。"),
             footer,
@@ -1808,12 +1847,9 @@ async def _finalize_arena_flow(result: dict[str, Any] | None) -> None:
             "🏁 **擂台落幕**",
             f"👑 最终擂主：{_md_escape(result.get('champion_name') or arena.get('champion_display_name') or '未知擂主')}",
             f"🛡️ 守擂成功：`{int(result.get('defense_success_count') or 0)}` ｜ ⚔️ 总挑战：`{int(result.get('challenge_count') or 0)}`",
-            f"💎 奖励：`{int(result.get('stone_reward') or 0)}` 灵石 ｜ `+{int(result.get('cultivation_reward') or 0)}` 修为",
+            f"💎 奖励：`{int(result.get('stone_reward') or 0)}` 灵石",
             f"🍀 本次结算参考机缘：`{int(result.get('fortune_used') or 0)}`",
         ]
-        upgraded_layers = list(result.get("upgraded_layers") or [])
-        if upgraded_layers:
-            lines.append("📈 层数提升：" + "、".join(f"{layer}层" for layer in upgraded_layers))
         await _send_message(bot, chat_id, "\n".join(lines), parse_mode=RICH_TEXT_MODE, persistent=True)
     elif chat_id and outcome == "finished_no_reward":
         await _send_message(
@@ -3246,7 +3282,12 @@ def register_bot(bot_instance) -> None:
                     arena_payload, pin_warning = await _push_arena_to_group(arena_payload)
                 except Exception:
                     try:
-                        cancel_group_arena(int(arena_payload.get("id") or 0), owner_tg=actor.id, reason="擂台消息推送失败，已自动撤销。")
+                        cancel_group_arena(
+                            int(arena_payload.get("id") or 0),
+                            owner_tg=actor.id,
+                            reason="擂台消息推送失败，已自动撤销。",
+                            refund_open_fee_stone=int(opened.get("open_fee_stone") or 0),
+                        )
                     except Exception as rollback_exc:
                         LOGGER.warning(f"xiuxian arena rollback failed arena={arena_payload.get('id')}: {rollback_exc}")
                     raise
@@ -3257,6 +3298,8 @@ def register_bot(bot_instance) -> None:
                     f"群擂台已开启，持续约 {int(arena_payload.get('duration_minutes') or duration_minutes)} 分钟。",
                     f"你已登上首任擂主之位，结算时刻约为 {end_text}。",
                 ]
+                if int(opened.get("open_fee_stone") or 0) > 0:
+                    success_lines.append(f"本次已扣除 {int(opened.get('open_fee_stone') or 0)} 灵石开擂手续费。")
                 if pin_warning:
                     success_lines.append(pin_warning)
                 await _reply_text(msg, "\n".join(success_lines), quote=True)
@@ -3564,12 +3607,14 @@ def register_bot(bot_instance) -> None:
             await _refresh_arena_group_message(arena)
 
         await _notify_achievement_unlocks(result.get("achievement_unlocks"))
+        fee_notice = int(result.get("challenge_fee_stone") or 0)
+        fee_prefix = f"已扣 {fee_notice} 灵石攻擂手续费，" if fee_notice > 0 else ""
 
         if str(result.get("result") or "") == "forfeit":
-            return await callAnswer(call, "旧擂主已失去守擂资格，你已直接接掌擂台。")
+            return await callAnswer(call, f"{fee_prefix}旧擂主已失去守擂资格，你已直接接掌擂台。")
         if bool(result.get("champion_changed")):
-            return await callAnswer(call, "攻擂成功，你已成为新擂主。")
-        return await callAnswer(call, "守擂者胜，擂主未易。")
+            return await callAnswer(call, f"{fee_prefix}攻擂成功，你已成为新擂主。")
+        return await callAnswer(call, f"{fee_prefix}守擂者胜，擂主未易。")
 
     @bot_instance.on_message(filters.text & filters.group & ~filters.regex(r"^[\\/!\\.，。]"))
     async def xiuxian_group_quiz_answer(_, msg):
@@ -4132,73 +4177,73 @@ def register_web(app) -> None:
     async def xiuxian_train_api(payload: InitDataPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = practice_for_user(telegram_user["id"])
-        return {"code": 200, "data": result}
+        return {"code": 200, "data": _with_full_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/commission/claim")
     async def xiuxian_commission_claim_api(payload: CommissionClaimPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = claim_spirit_stone_commission(telegram_user["id"], payload.commission_key)
-        return {"code": 200, "data": result}
+        return {"code": 200, "data": _with_full_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/breakthrough")
     async def xiuxian_breakthrough_api(payload: BreakthroughPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = breakthrough_for_user(telegram_user["id"], use_pill=payload.use_pill)
-        return {"code": 200, "data": result}
+        return {"code": 200, "data": _with_full_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/pill/use")
     async def xiuxian_use_pill_api(payload: ConsumePillPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = consume_pill_for_user(telegram_user["id"], payload.pill_id, quantity=payload.quantity)
-        return {"code": 200, "data": result}
+        return {"code": 200, "data": _with_full_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/artifact/equip")
     async def xiuxian_equip_api(payload: EquipArtifactPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = equip_artifact_for_user(telegram_user["id"], payload.artifact_id)
-        return {"code": 200, "data": result}
+        return {"code": 200, "data": _with_full_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/artifact/bind")
     async def xiuxian_bind_artifact_api(payload: ArtifactBindingPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = bind_artifact_for_user(telegram_user["id"], payload.artifact_id)
-        return {"code": 200, "data": result}
+        return {"code": 200, "data": _with_full_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/artifact/unbind")
     async def xiuxian_unbind_artifact_api(payload: ArtifactBindingPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = unbind_artifact_for_user(telegram_user["id"], payload.artifact_id)
-        return {"code": 200, "data": result}
+        return {"code": 200, "data": _with_full_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/talisman/activate")
     async def xiuxian_activate_talisman_api(payload: ActivateTalismanPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = activate_talisman_for_user(telegram_user["id"], payload.talisman_id)
-        return {"code": 200, "data": result}
+        return {"code": 200, "data": _with_full_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/talisman/bind")
     async def xiuxian_bind_talisman_api(payload: TalismanBindingPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = bind_talisman_for_user(telegram_user["id"], payload.talisman_id)
-        return {"code": 200, "data": result}
+        return {"code": 200, "data": _with_full_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/talisman/unbind")
     async def xiuxian_unbind_talisman_api(payload: TalismanBindingPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = unbind_talisman_for_user(telegram_user["id"], payload.talisman_id)
-        return {"code": 200, "data": result}
+        return {"code": 200, "data": _with_full_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/technique/activate")
     async def xiuxian_activate_technique_api(payload: ActivateTechniquePayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = activate_technique_for_user(telegram_user["id"], payload.technique_id)
-        return {"code": 200, "data": result}
+        return {"code": 200, "data": _with_full_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/title/equip")
     async def xiuxian_equip_title_api(payload: TitleEquipPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = set_current_title_for_user(telegram_user["id"], payload.title_id)
-        return {"code": 200, "data": result}
+        return {"code": 200, "data": _with_full_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/title/group-sync")
     async def xiuxian_sync_title_to_group_api(payload: TitleGroupSyncPayload):
@@ -4225,24 +4270,27 @@ def register_web(app) -> None:
             ) from exc
         return {
             "code": 200,
-            "data": {
-                "chat_id": chat_id,
-                "title": sync_title,
-                "profile": bundle,
-            },
+            "data": _with_full_bundle(
+                telegram_user["id"],
+                {
+                    "chat_id": chat_id,
+                    "title": sync_title,
+                    "profile": bundle,
+                },
+            ),
         }
 
     @user_router.post("/api/retreat/start")
     async def xiuxian_retreat_start_api(payload: RetreatPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = start_retreat_for_user(telegram_user["id"], payload.hours)
-        return {"code": 200, "data": result}
+        return {"code": 200, "data": _with_full_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/retreat/finish")
     async def xiuxian_retreat_finish_api(payload: InitDataPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = finish_retreat_for_user(telegram_user["id"])
-        return {"code": 200, "data": result}
+        return {"code": 200, "data": _with_full_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/social-mode")
     async def xiuxian_social_mode_api(payload: SocialModePayload):
@@ -4340,7 +4388,7 @@ def register_web(app) -> None:
             result = convert_stone_to_emby_coin(telegram_user["id"], payload.amount)
         else:
             raise HTTPException(status_code=400, detail="Unsupported exchange direction")
-        return {"code": 200, "data": result}
+        return {"code": 200, "data": _with_full_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/gambling/exchange")
     async def xiuxian_gambling_exchange_api(payload: GamblingExchangePayload):
@@ -4441,7 +4489,7 @@ def register_web(app) -> None:
     @user_router.post("/api/recipe/craft")
     async def xiuxian_craft_recipe_api(payload: CraftPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
-        result = craft_recipe_for_user(telegram_user["id"], payload.recipe_id)
+        result = craft_recipe_for_user(telegram_user["id"], payload.recipe_id, payload.quantity)
         await _maybe_broadcast_craft(telegram_user["id"], result)
         await _notify_achievement_unlocks(result.get("achievement_unlocks"))
         return {"code": 200, "data": {"result": result, "bundle": _full_bundle(telegram_user["id"])}}
@@ -4542,7 +4590,7 @@ def register_web(app) -> None:
                 LOGGER.warning(f"修仙坊市全群播报发送失败: {exc}")
 
         _remember_journal(telegram_user["id"], "shop", "上架商品", f"上架了【{result['listing']['item_name']}】")
-        return {"code": 200, "data": result}
+        return {"code": 200, "data": _with_full_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/auction/personal")
     async def xiuxian_personal_auction_api(payload: PersonalAuctionPayload):
@@ -4612,7 +4660,7 @@ def register_web(app) -> None:
                 )
             except Exception as exc:
                 LOGGER.warning(f"xiuxian seller notify failed: {exc}")
-        return {"code": 200, "data": result}
+        return {"code": 200, "data": _with_full_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/recycle/official")
     async def xiuxian_official_recycle_api(payload: OfficialRecyclePayload):
@@ -4691,6 +4739,11 @@ def register_web(app) -> None:
                 "talismans": list_talismans(),
                 "techniques": list_techniques(),
                 "official_shop": list_shop_items(official_only=True, include_disabled=True),
+                "player_search": await _admin_player_search_payload(
+                    payload.player_query,
+                    page=max(int(payload.player_page or 1), 1),
+                    page_size=max(int(payload.player_page_size or 10), 1),
+                ),
                 **world,
             },
         }
@@ -5246,19 +5299,7 @@ def register_web(app) -> None:
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
-        result = search_xiuxian_players(query=q or None, page=page, page_size=page_size)
-        items = result.get("items") or []
-        identities = await asyncio.gather(
-            *(_refresh_profile_identity_from_telegram(int(item["tg"])) for item in items),
-            return_exceptions=True,
-        )
-        result["items"] = [
-            _merge_profile_identity(
-                item,
-                None if isinstance(identity, Exception) else identity,
-            )
-            for item, identity in zip(items, identities)
-        ]
+        result = await _admin_player_search_payload(q or None, page=page, page_size=page_size)
         return {"code": 200, "data": result}
 
     @admin_router.post("/system/reset-player-data")

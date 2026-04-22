@@ -174,6 +174,7 @@ class TaskCancelPayload(InitDataPayload):
 
 class CraftPayload(InitDataPayload):
     recipe_id: int
+    quantity: int = 1
 
 
 class RecipeFragmentSynthesisPayload(InitDataPayload):
@@ -247,6 +248,9 @@ class UserTaskPayload(InitDataPayload):
 class AdminBootstrapPayload(BaseModel):
     token: str | None = None
     init_data: str | None = None
+    player_query: str | None = None
+    player_page: int = 1
+    player_page_size: int = 10
 
 
 class RootQualityRulePayload(BaseModel):
@@ -287,6 +291,10 @@ class GamblingRewardPoolEntryPayload(BaseModel):
     quantity_max: int = 1
     base_weight: float = 1.0
     enabled: bool = True
+    gambling_weight: float | None = None
+    fishing_weight: float | None = None
+    gambling_enabled: bool | None = None
+    fishing_enabled: bool | None = None
 
 
 class AdminSettingPayload(BaseModel):
@@ -302,6 +310,8 @@ class AdminSettingPayload(BaseModel):
     duel_bet_amount_options: list[int] | None = None
     duel_invite_timeout_seconds: int | None = None
     duel_winner_steal_percent: int | None = None
+    arena_open_fee_stone: int | None = None
+    arena_challenge_fee_stone: int | None = None
     artifact_plunder_chance: int | None = None
     message_auto_delete_seconds: int | None = None
     equipment_unbind_cost: int | None = None
@@ -344,6 +354,7 @@ class AdminSettingPayload(BaseModel):
     item_quality_value_rules: dict[str, ItemQualityValueRulePayload] | None = None
     activity_stat_growth_rules: dict[str, ActivityStatGrowthRulePayload] | None = None
     gambling_quality_weight_rules: dict[str, GamblingQualityWeightRulePayload] | None = None
+    fishing_quality_weight_rules: dict[str, GamblingQualityWeightRulePayload] | None = None
     gambling_reward_pool: list[GamblingRewardPoolEntryPayload] | None = None
     immortal_touch_infusion_layers: int | None = None
 

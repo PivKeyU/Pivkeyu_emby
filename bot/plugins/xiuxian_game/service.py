@@ -5275,8 +5275,8 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         reason = _pill_usage_reason(profile_data, item)
         usable = not reason
         batch_usable = _pill_supports_batch_use(item)
-        row["pill"]["usable"] = usable and not retreating
-        row["pill"]["unusable_reason"] = "闭关期间无法使用丹药" if usable and retreating else reason
+        row["pill"]["usable"] = usable
+        row["pill"]["unusable_reason"] = reason
         row["pill"]["batch_usable"] = batch_usable
         row["pill"]["batch_use_max"] = max(int(row.get("quantity") or 0), 0) if batch_usable else 1
         row["pill"]["batch_use_note"] = _pill_batch_use_note(item)
@@ -7722,8 +7722,6 @@ def recycle_item_to_official_shop(
     quantity: int = 1,
 ) -> dict[str, Any]:
     profile = _require_alive_profile_obj(tg, "官方回收")
-    if _is_retreating(profile):
-        raise ValueError("闭关期间无法进行官方回收。")
     assert_currency_operation_allowed(tg, "官方回收", profile=profile)
 
     normalized_kind = str(item_kind or "").strip()
@@ -7974,6 +7972,24 @@ def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
             ),
             1800,
         )
+    if "arena_open_fee_stone" in patch and patch["arena_open_fee_stone"] is not None:
+        patch["arena_open_fee_stone"] = min(
+            _coerce_int(
+                patch["arena_open_fee_stone"],
+                DEFAULT_SETTINGS["arena_open_fee_stone"],
+                0,
+            ),
+            1000000,
+        )
+    if "arena_challenge_fee_stone" in patch and patch["arena_challenge_fee_stone"] is not None:
+        patch["arena_challenge_fee_stone"] = min(
+            _coerce_int(
+                patch["arena_challenge_fee_stone"],
+                DEFAULT_SETTINGS["arena_challenge_fee_stone"],
+                0,
+            ),
+            1000000,
+        )
     if "slave_tribute_percent" in patch and patch["slave_tribute_percent"] is not None:
         patch["slave_tribute_percent"] = min(
             _coerce_int(
@@ -8180,11 +8196,18 @@ def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
         )
     if "gambling_quality_weight_rules" in patch:
         patch["gambling_quality_weight_rules"] = _normalize_gambling_quality_weight_rules(patch["gambling_quality_weight_rules"])
+    if "fishing_quality_weight_rules" in patch:
+        patch["fishing_quality_weight_rules"] = _normalize_fishing_quality_weight_rules(patch["fishing_quality_weight_rules"])
     source_gambling_pool = patch.get("gambling_reward_pool", current_settings.get("gambling_reward_pool"))
     if isinstance(source_gambling_pool, list):
         normalized_gambling_pool = _normalize_gambling_reward_pool(source_gambling_pool)
         should_persist_pool = "gambling_reward_pool" in patch or any(
-            not int((entry or {}).get("item_ref_id") or 0) or not int((entry or {}).get("quality_level") or 0)
+            not int((entry or {}).get("item_ref_id") or 0)
+            or not int((entry or {}).get("quality_level") or 0)
+            or "gambling_weight" not in (entry or {})
+            or "fishing_weight" not in (entry or {})
+            or "gambling_enabled" not in (entry or {})
+            or "fishing_enabled" not in (entry or {})
             for entry in source_gambling_pool
             if isinstance(entry, dict)
         )
@@ -8234,7 +8257,7 @@ def build_gambling_bundle(tg: int, bundle: dict[str, Any] | None = None) -> dict
             "effective_weight": round(weight, 6),
         }
         total_effective_weight += weight
-        if bool(entry.get("enabled")) and int(entry.get("item_ref_id") or 0) > 0 and weight > 0:
+        if _reward_pool_entry_enabled(entry, "gambling") and int(entry.get("item_ref_id") or 0) > 0 and weight > 0:
             enabled_pool.append(payload)
     for entry in enabled_pool:
         chance = (float(entry.get("effective_weight") or 0.0) / total_effective_weight * 100.0) if total_effective_weight > 0 else 0.0
@@ -8291,7 +8314,6 @@ def exchange_immortal_stones(tg: int, count: int) -> dict[str, Any]:
     immortal_stone = _immortal_stone_material()
     material_id = int(immortal_stone.get("id") or 0)
 
-    ensure_not_in_retreat(tg)
     with Session() as session:
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(tg)).with_for_update().first()
         if profile is None or not profile.consented:
@@ -8358,7 +8380,7 @@ def open_immortal_stones(tg: int, count: int) -> dict[str, Any]:
     reward_pool = [
         entry
         for entry in _configured_gambling_pool(settings)
-        if bool(entry.get("enabled")) and int(entry.get("item_ref_id") or 0) > 0
+        if _reward_pool_entry_enabled(entry, "gambling") and int(entry.get("item_ref_id") or 0) > 0
     ]
     weighted_pool = [
         {
@@ -8377,7 +8399,6 @@ def open_immortal_stones(tg: int, count: int) -> dict[str, Any]:
         1,
     )
 
-    ensure_not_in_retreat(int(tg))
     results: list[dict[str, Any]] = []
     with Session() as session:
         artifact_meta_map: dict[int, XiuxianArtifact] = {}
@@ -8952,6 +8973,31 @@ def _normalize_gambling_quality_weight_rules(raw: Any) -> dict[str, dict[str, fl
     return result
 
 
+def _default_fishing_quality_weight_rules() -> dict[str, dict[str, float]]:
+    defaults = DEFAULT_SETTINGS.get("fishing_quality_weight_rules") or {}
+    result: dict[str, dict[str, float]] = {}
+    for quality_label, payload in defaults.items():
+        result[str(quality_label)] = {
+            "weight_multiplier": max(float((payload or {}).get("weight_multiplier", 1.0) or 0.0), 0.0),
+        }
+    return result
+
+
+def _normalize_fishing_quality_weight_rules(raw: Any) -> dict[str, dict[str, float]]:
+    defaults = _default_fishing_quality_weight_rules()
+    rows = raw if isinstance(raw, dict) else {}
+    result: dict[str, dict[str, float]] = {}
+    for quality_label in defaults:
+        payload = rows.get(quality_label) if isinstance(rows.get(quality_label), dict) else {}
+        result[quality_label] = {
+            "weight_multiplier": max(
+                float(payload.get("weight_multiplier", defaults[quality_label]["weight_multiplier"]) or 0.0),
+                0.0,
+            ),
+        }
+    return result
+
+
 def _normalize_gambling_reward_pool(raw: Any) -> list[dict[str, Any]]:
     entries = raw if isinstance(raw, list) else []
     normalized: list[dict[str, Any]] = []
@@ -8974,6 +9020,12 @@ def _normalize_gambling_reward_pool(raw: Any) -> list[dict[str, Any]]:
         quality = get_quality_meta(quality_level)
         quantity_min = max(_coerce_int(payload.get("quantity_min"), 1, 1), 1)
         quantity_max = max(_coerce_int(payload.get("quantity_max"), quantity_min, quantity_min), quantity_min)
+        legacy_weight = max(float(payload.get("base_weight", 1.0) or 0.0), 0.0)
+        legacy_enabled = bool(payload.get("enabled", True))
+        gambling_weight = max(float(payload.get("gambling_weight", legacy_weight) or 0.0), 0.0)
+        fishing_weight = max(float(payload.get("fishing_weight", legacy_weight) or 0.0), 0.0)
+        gambling_enabled = bool(payload.get("gambling_enabled", legacy_enabled))
+        fishing_enabled = bool(payload.get("fishing_enabled", legacy_enabled))
         normalized.append(
             {
                 "item_kind": item_kind if item_kind in GAMBLING_SUPPORTED_ITEM_KINDS else "material",
@@ -8985,8 +9037,12 @@ def _normalize_gambling_reward_pool(raw: Any) -> list[dict[str, Any]]:
                 "quality_color": str(quality["color"]),
                 "quantity_min": quantity_min,
                 "quantity_max": quantity_max,
-                "base_weight": max(float(payload.get("base_weight", 1.0) or 0.0), 0.0),
-                "enabled": bool(payload.get("enabled", True)) and not invalid_reason,
+                "base_weight": gambling_weight,
+                "enabled": gambling_enabled and not invalid_reason,
+                "gambling_weight": gambling_weight,
+                "fishing_weight": fishing_weight,
+                "gambling_enabled": gambling_enabled and not invalid_reason,
+                "fishing_enabled": fishing_enabled and not invalid_reason,
                 "invalid_reason": invalid_reason,
             }
         )
@@ -8998,13 +9054,24 @@ def _configured_gambling_pool(settings: dict[str, Any] | None = None) -> list[di
     return _normalize_gambling_reward_pool(current.get("gambling_reward_pool"))
 
 
+def _reward_pool_entry_enabled(entry: dict[str, Any], channel: str) -> bool:
+    key = f"{channel}_enabled"
+    return bool(entry.get(key, entry.get("enabled", True)))
+
+
+def _reward_pool_entry_weight(entry: dict[str, Any], channel: str) -> float:
+    if channel == "gambling":
+        return max(float(entry.get("gambling_weight", entry.get("base_weight") or 0.0) or 0.0), 0.0)
+    return max(float(entry.get("fishing_weight", entry.get("base_weight") or 0.0) or 0.0), 0.0)
+
+
 def _gambling_entry_effective_weight(entry: dict[str, Any], fortune_value: int | float, settings: dict[str, Any]) -> float:
-    if not bool(entry.get("enabled")):
+    if not _reward_pool_entry_enabled(entry, "gambling"):
         return 0.0
     quality_label = str(entry.get("quality_label") or get_quality_meta(entry.get("quality_level")).get("label") or "凡品")
     quality_level = int(entry.get("quality_level") or get_quality_meta(quality_label).get("level") or 1)
     quality_rules = _normalize_gambling_quality_weight_rules(settings.get("gambling_quality_weight_rules"))
-    base_weight = max(float(entry.get("base_weight") or 0.0), 0.0)
+    base_weight = _reward_pool_entry_weight(entry, "gambling")
     quality_multiplier = max(float((quality_rules.get(quality_label) or {}).get("weight_multiplier", 1.0) or 0.0), 0.0)
     if base_weight <= 0 or quality_multiplier <= 0:
         return 0.0
@@ -10211,8 +10278,6 @@ def consume_pill_for_user(tg: int, pill_id: int, quantity: int = 1) -> dict[str,
             raise ValueError("你还没有踏入仙途。")
         assert_profile_alive(profile, "服用丹药")
         _assert_gender_ready(profile, "服用丹药")
-        if _is_retreating(profile):
-            raise ValueError("闭关期间无法服用丹药。")
 
         profile_data = serialize_profile(profile) or {}
         usage_reason = _pill_usage_reason(profile_data, pill_data)
@@ -11723,6 +11788,16 @@ def _arena_duration_minutes(raw: int | None) -> int:
     return min(max(int(raw or ARENA_DEFAULT_DURATION_MINUTES), ARENA_MIN_DURATION_MINUTES), ARENA_MAX_DURATION_MINUTES)
 
 
+def _arena_open_fee_stone(settings: dict[str, Any] | None = None) -> int:
+    source = settings or get_xiuxian_settings()
+    return max(int(source.get("arena_open_fee_stone", DEFAULT_SETTINGS.get("arena_open_fee_stone", 0)) or 0), 0)
+
+
+def _arena_challenge_fee_stone(settings: dict[str, Any] | None = None) -> int:
+    source = settings or get_xiuxian_settings()
+    return max(int(source.get("arena_challenge_fee_stone", DEFAULT_SETTINGS.get("arena_challenge_fee_stone", 0)) or 0), 0)
+
+
 def _arena_reward_values(profile: XiuxianProfile, arena: XiuxianArena) -> dict[str, int]:
     stage = normalize_realm_stage(profile.realm_stage or FIRST_REALM_STAGE)
     layer = max(int(profile.realm_layer or 1), 1)
@@ -11738,23 +11813,12 @@ def _arena_reward_values(profile: XiuxianProfile, arena: XiuxianArena) -> dict[s
             threshold // 48 + stage_rank * 12 + fortune * 4 + defense_count * 18 + challenge_count * 8,
         ),
     )
-    cultivation_reward = max(
-        36,
-        min(
-            max(threshold // 4, 180),
-            threshold // 12
-            + stage_rank * 18
-            + fortune * 6
-            + defense_count * max(threshold // 240, 4)
-            + challenge_count * max(threshold // 360, 3),
-        ),
-    )
     return {
         "threshold": threshold,
         "stage_rank": stage_rank,
         "fortune": fortune,
         "stone_reward": stone_reward,
-        "cultivation_reward": cultivation_reward,
+        "cultivation_reward": 0,
     }
 
 
@@ -11801,7 +11865,13 @@ def patch_group_arena(arena_id: int, **fields) -> dict[str, Any] | None:
         return serialize_arena(row)
 
 
-def cancel_group_arena(arena_id: int, *, owner_tg: int | None = None, reason: str = "") -> dict[str, Any] | None:
+def cancel_group_arena(
+    arena_id: int,
+    *,
+    owner_tg: int | None = None,
+    reason: str = "",
+    refund_open_fee_stone: int = 0,
+) -> dict[str, Any] | None:
     with Session() as session:
         row = (
             session.query(XiuxianArena)
@@ -11821,10 +11891,26 @@ def cancel_group_arena(arena_id: int, *, owner_tg: int | None = None, reason: st
         row.current_challenger_display_name = None
         row.completed_at = utcnow()
         row.updated_at = row.completed_at
+        refunded_stone = 0
+        refund_amount = max(int(refund_open_fee_stone or 0), 0)
+        if refund_amount > 0 and int(row.owner_tg or 0) > 0:
+            apply_spiritual_stone_delta(
+                session,
+                int(row.owner_tg),
+                refund_amount,
+                action_text="擂台开设手续费退回",
+                allow_dead=True,
+                apply_tribute=False,
+            )
+            refunded_stone = refund_amount
         if reason:
             row.latest_result_summary = str(reason).strip()
         session.commit()
-        return {"result": "cancelled", "arena": serialize_arena(row)}
+        return {
+            "result": "cancelled",
+            "arena": serialize_arena(row),
+            "refund_open_fee_stone": refunded_stone,
+        }
 
 
 def open_group_arena_for_user(
@@ -11839,6 +11925,8 @@ def open_group_arena_for_user(
     if actor_tg <= 0 or chat_id == 0:
         raise ValueError("擂台参数无效。")
     duration = _arena_duration_minutes(duration_minutes)
+    settings = get_xiuxian_settings()
+    open_fee_stone = _arena_open_fee_stone(settings)
 
     with Session() as session:
         active = (
@@ -11856,6 +11944,15 @@ def open_group_arena_for_user(
         assert_currency_operation_allowed(actor_tg, "开设擂台", session=session, profile=profile)
         if is_profile_secluded(profile):
             raise ValueError("你当前处于避世状态，无法开设擂台。")
+        if open_fee_stone > 0:
+            apply_spiritual_stone_delta(
+                session,
+                actor_tg,
+                -open_fee_stone,
+                action_text="开设擂台手续费",
+                allow_dead=False,
+                apply_tribute=False,
+            )
         display_name = str(champion_display_name or "").strip() or _profile_display_label(profile, f"TG {actor_tg}")
         now = utcnow()
         row = XiuxianArena(
@@ -11876,9 +11973,21 @@ def open_group_arena_for_user(
         session.refresh(row)
         arena = serialize_arena(row)
 
-    create_journal(actor_tg, "arena", "开设擂台", f"在群 {chat_id} 开设一座持续 {duration} 分钟的擂台。")
+    create_journal(
+        actor_tg,
+        "arena",
+        "开设擂台",
+        (
+            f"在群 {chat_id} 开设一座持续 {duration} 分钟的擂台。"
+            + (f" 支付 {open_fee_stone} 灵石开擂手续费。" if open_fee_stone > 0 else "")
+        ),
+    )
     achievement_unlocks = record_arena_metrics(actor_tg, opened=1, crowned=1)
-    return {"arena": arena, "achievement_unlocks": achievement_unlocks}
+    return {
+        "arena": arena,
+        "achievement_unlocks": achievement_unlocks,
+        "open_fee_stone": open_fee_stone,
+    }
 
 
 def challenge_group_arena_for_user(
@@ -11897,6 +12006,8 @@ def challenge_group_arena_for_user(
     champion_display_name = ""
     current_summary = ""
     forfeit = False
+    settings = get_xiuxian_settings()
+    challenge_fee_stone = _arena_challenge_fee_stone(settings)
 
     with Session() as session:
         arena = (
@@ -11922,6 +12033,15 @@ def challenge_group_arena_for_user(
         assert_currency_operation_allowed(actor_tg, "攻擂", session=session, profile=challenger)
         if is_profile_secluded(challenger):
             raise ValueError("你当前处于避世状态，无法攻擂。")
+        if challenge_fee_stone > 0:
+            apply_spiritual_stone_delta(
+                session,
+                actor_tg,
+                -challenge_fee_stone,
+                action_text="攻擂手续费",
+                allow_dead=False,
+                apply_tribute=False,
+            )
 
         if not challenger_name:
             challenger_name = _profile_display_label(challenger, f"TG {actor_tg}")
@@ -11971,6 +12091,7 @@ def challenge_group_arena_for_user(
             "champion_changed": True,
             "achievement_unlocks": achievement_unlocks,
             "summary": current_summary,
+            "challenge_fee_stone": challenge_fee_stone,
         }
 
     duel_result = None
@@ -11993,7 +12114,16 @@ def challenge_group_arena_for_user(
                 arena.current_challenger_tg = None
                 arena.current_challenger_display_name = None
                 arena.updated_at = utcnow()
-                session.commit()
+            if challenge_fee_stone > 0:
+                apply_spiritual_stone_delta(
+                    session,
+                    actor_tg,
+                    challenge_fee_stone,
+                    action_text="攻擂手续费退回",
+                    allow_dead=True,
+                    apply_tribute=False,
+                )
+            session.commit()
         raise
 
     winner_tg = int(duel_result.get("winner_tg") or 0)
@@ -12053,6 +12183,7 @@ def challenge_group_arena_for_user(
         "achievement_unlocks": achievement_unlocks,
         "summary": summary,
         "ended": bool(arena_payload and arena_payload.get("ended")),
+        "challenge_fee_stone": challenge_fee_stone,
     }
 
 
@@ -12110,30 +12241,27 @@ def finalize_group_arena(arena_id: int, *, force: bool = False) -> dict[str, Any
                 allow_dead=False,
                 apply_tribute=False,
             )
-        layer, cultivation, upgraded_layers, remaining = apply_cultivation_gain(
-            normalize_realm_stage(champion.realm_stage or FIRST_REALM_STAGE),
-            int(champion.realm_layer or 1),
-            int(champion.cultivation or 0),
-            reward["cultivation_reward"],
-        )
-        champion.realm_layer = layer
-        champion.cultivation = cultivation
+        stage = normalize_realm_stage(champion.realm_stage or FIRST_REALM_STAGE)
+        layer = max(int(champion.realm_layer or 1), 1)
+        cultivation = max(int(champion.cultivation or 0), 0)
+        threshold = cultivation_threshold(stage, layer)
+        upgraded_layers: list[int] = []
+        remaining = max(threshold - min(cultivation, threshold), 0)
         champion.updated_at = now
         arena.latest_result_summary = (
             f"{_profile_display_label(champion, '擂主')} 守到擂台落幕，"
-            f"收下 {reward['stone_reward']} 灵石与 {reward['cultivation_reward']} 修为奖励。"
+            f"收下 {reward['stone_reward']} 灵石奖励。"
         )
         session.commit()
         arena_payload = serialize_arena(arena)
         champion_name = _profile_display_label(champion, "擂主")
         champion_tg = int(champion.tg or 0)
-        stage = normalize_realm_stage(champion.realm_stage or FIRST_REALM_STAGE)
 
     create_journal(
         champion_tg,
         "arena",
         "擂台结算",
-        f"擂台落幕，作为最终擂主收下 {reward['stone_reward']} 灵石、{reward['cultivation_reward']} 修为。",
+        f"擂台落幕，作为最终擂主收下 {reward['stone_reward']} 灵石。",
     )
     achievement_unlocks = record_arena_metrics(champion_tg, final_win=1)
     return {
@@ -12146,7 +12274,7 @@ def finalize_group_arena(arena_id: int, *, force: bool = False) -> dict[str, Any
         "defense_success_count": max(int(arena_payload.get("defense_success_count") or 0), 0),
         "challenge_count": max(int(arena_payload.get("challenge_count") or 0), 0),
         "stone_reward": reward["stone_reward"],
-        "cultivation_reward": reward["cultivation_reward"],
+        "cultivation_reward": 0,
         "fortune_used": reward["fortune"],
         "upgraded_layers": upgraded_layers,
         "remaining": remaining,

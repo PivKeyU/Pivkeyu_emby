@@ -27,8 +27,8 @@ def build_recipe_fragment_synthesis_catalog(tg: int) -> list[dict[str, Any]]:
     return _legacy_world_service().build_recipe_fragment_synthesis_catalog(tg)
 
 
-def craft_recipe_for_user(tg: int, recipe_id: int) -> dict[str, Any]:
-    return _legacy_world_service().craft_recipe_for_user(tg, recipe_id)
+def craft_recipe_for_user(tg: int, recipe_id: int, quantity: int = 1) -> dict[str, Any]:
+    return _legacy_world_service().craft_recipe_for_user(tg, recipe_id, quantity)
 
 
 def synthesize_recipe_fragment_for_user(tg: int, recipe_id: int) -> dict[str, Any]:

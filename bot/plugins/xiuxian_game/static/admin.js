@@ -57,6 +57,7 @@ const state = {
     page: 1,
     pageSize: PLAYER_SEARCH_PAGE_SIZE,
     total: 0,
+    items: [],
   },
   grantForm: {
     userOptions: [],
@@ -201,6 +202,15 @@ const DEFAULT_GAMBLING_QUALITY_RULES = {
   极品: { weight_multiplier: 0.1 },
   仙品: { weight_multiplier: 0.04 },
   先天至宝: { weight_multiplier: 0.015 },
+};
+const DEFAULT_FISHING_QUALITY_RULES = {
+  凡品: { weight_multiplier: 1.0 },
+  下品: { weight_multiplier: 0.6 },
+  中品: { weight_multiplier: 0.28 },
+  上品: { weight_multiplier: 0.12 },
+  极品: { weight_multiplier: 0.045 },
+  仙品: { weight_multiplier: 0.012 },
+  先天至宝: { weight_multiplier: 0.003 },
 };
 const PLAYER_STRING_FIELDS = new Set([
   "realm_stage",
@@ -1366,37 +1376,60 @@ function addGamblingPoolRow(data = {}) {
   const rows = $("setting-gambling-pool-rows");
   if (!rows) return;
   const itemKind = String(data.item_kind || "material");
+  const gamblingWeight = data.gambling_weight ?? data.base_weight ?? 1;
+  const fishingWeight = data.fishing_weight ?? data.base_weight ?? 1;
+  const gamblingEnabled = data.gambling_enabled ?? data.enabled ?? true;
+  const fishingEnabled = data.fishing_enabled ?? data.enabled ?? true;
   const wrapper = createBuilderRow(`
-    <label>奖励类型
-      <select data-gambling-kind>
-        ${GAMBLING_ITEM_KIND_OPTIONS.map((item) => `<option value="${item.value}" ${itemKind === item.value ? "selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}
-      </select>
-    </label>
-    <label>奖励物品
-      <select data-gambling-ref></select>
-    </label>
-    <label>最小数量
-      <input data-gambling-min type="number" min="1" value="${escapeHtml(data.quantity_min || 1)}">
-    </label>
-    <label>最大数量
-      <input data-gambling-max type="number" min="1" value="${escapeHtml(data.quantity_max || data.quantity_min || 1)}">
-    </label>
-    <label>基础权重
-      <input data-gambling-weight type="number" min="0" step="0.01" value="${escapeHtml(data.base_weight ?? 1)}">
-    </label>
-    <label class="inline-check">
-      <input data-gambling-enabled type="checkbox" ${data.enabled === false ? "" : "checked"}>
-      参与抽取
-    </label>
+    <div class="builder-grid builder-grid--wide">
+      <label>奖励类型
+        <select data-gambling-kind>
+          ${GAMBLING_ITEM_KIND_OPTIONS.map((item) => `<option value="${item.value}" ${itemKind === item.value ? "selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}
+        </select>
+      </label>
+      <label>物品搜索
+        <input data-gambling-search type="search" value="${escapeHtml(data.item_name || "")}" placeholder="输入名称或 ID 过滤物品">
+      </label>
+      <label>奖励物品
+        <select data-gambling-ref></select>
+      </label>
+      <label>最小数量
+        <input data-gambling-min type="number" min="1" value="${escapeHtml(data.quantity_min || 1)}">
+      </label>
+      <label>最大数量
+        <input data-gambling-max type="number" min="1" value="${escapeHtml(data.quantity_max || data.quantity_min || 1)}">
+      </label>
+      <label>奇石权重
+        <input data-gambling-weight type="number" min="0" step="0.01" value="${escapeHtml(gamblingWeight)}">
+      </label>
+      <label>钓鱼权重
+        <input data-fishing-weight type="number" min="0" step="0.01" value="${escapeHtml(fishingWeight)}">
+      </label>
+      <label class="inline-check">
+        <input data-gambling-enabled type="checkbox" ${gamblingEnabled === false ? "" : "checked"}>
+        进入奇石奖池
+      </label>
+      <label class="inline-check">
+        <input data-fishing-enabled type="checkbox" ${fishingEnabled === false ? "" : "checked"}>
+        进入钓鱼奖池
+      </label>
+    </div>
+    <div class="builder-chip-line">
+      <span class="builder-chip">共享同一物品池</span>
+      <span class="builder-chip">奇石 / 钓鱼独立权重</span>
+      <span class="builder-chip">保存后即时生效</span>
+    </div>
   `);
   const kindNode = wrapper.querySelector("[data-gambling-kind]");
+  const searchNode = wrapper.querySelector("[data-gambling-search]");
   const refNode = wrapper.querySelector("[data-gambling-ref]");
   const sync = (selected = null) => {
-    const rowsForKind = itemRows(kindNode.value || "material");
+    const rowsForKind = itemRows(kindNode.value || "material", searchNode?.value || "");
     setOptions(refNode, rowsForKind, selected ?? data.item_ref_id ?? "", "请选择物品");
     refNode.disabled = !rowsForKind.length;
   };
   kindNode.addEventListener("change", () => sync(""));
+  searchNode?.addEventListener("input", () => sync(refNode?.value || ""));
   sync(data.item_ref_id ? String(data.item_ref_id) : "");
   rows.appendChild(wrapper);
 }
@@ -1518,6 +1551,26 @@ function ensureSettingRuleRows() {
     });
     gamblingQualityRows.dataset.ready = "1";
   }
+
+  const fishingQualityRows = $("setting-fishing-quality-rows");
+  if (fishingQualityRows && fishingQualityRows.dataset.ready !== "1") {
+    fishingQualityRows.innerHTML = "";
+    ITEM_QUALITY_RULES.forEach(({ key, label }) => {
+      const row = document.createElement("div");
+      row.className = "builder-row";
+      row.innerHTML = `
+        <label>品阶
+          <input type="text" value="${escapeHtml(label)}" disabled>
+        </label>
+        <label>权重倍率
+          <input data-fishing-quality="${escapeHtml(key)}" data-fishing-rule="weight_multiplier" type="number" min="0" step="0.001" value="${escapeHtml(DEFAULT_FISHING_QUALITY_RULES[key].weight_multiplier)}">
+        </label>
+        <p class="muted">该倍率只作用于垂钓，不影响仙界奇石的抽取权重。</p>
+      `;
+      fishingQualityRows.appendChild(row);
+    });
+    fishingQualityRows.dataset.ready = "1";
+  }
 }
 
 function collectRootQualityRules() {
@@ -1576,21 +1629,37 @@ function collectGamblingQualityRules() {
   }, {});
 }
 
+function collectFishingQualityRules() {
+  ensureSettingRuleRows();
+  return ITEM_QUALITY_RULES.reduce((result, { key }) => {
+    result[key] = {
+      weight_multiplier: Number(document.querySelector(`[data-fishing-quality="${key}"][data-fishing-rule="weight_multiplier"]`)?.value || DEFAULT_FISHING_QUALITY_RULES[key].weight_multiplier),
+    };
+    return result;
+  }, {});
+}
+
 function collectGamblingRewardPool() {
   return [...document.querySelectorAll("#setting-gambling-pool-rows .builder-row")]
     .map((row) => {
       const quantityMin = Math.max(Number(row.querySelector("[data-gambling-min]")?.value || 1), 1);
       const quantityMax = Math.max(Number(row.querySelector("[data-gambling-max]")?.value || 1), quantityMin);
+      const gamblingWeight = Number(row.querySelector("[data-gambling-weight]")?.value || 0);
+      const fishingWeight = Number(row.querySelector("[data-fishing-weight]")?.value || 0);
       return {
         item_kind: row.querySelector("[data-gambling-kind]")?.value || "material",
         item_ref_id: Number(row.querySelector("[data-gambling-ref]")?.value || 0) || null,
         quantity_min: quantityMin,
         quantity_max: quantityMax,
-        base_weight: Number(row.querySelector("[data-gambling-weight]")?.value || 0),
+        base_weight: gamblingWeight,
+        gambling_weight: gamblingWeight,
+        fishing_weight: fishingWeight,
         enabled: Boolean(row.querySelector("[data-gambling-enabled]")?.checked),
+        gambling_enabled: Boolean(row.querySelector("[data-gambling-enabled]")?.checked),
+        fishing_enabled: Boolean(row.querySelector("[data-fishing-enabled]")?.checked),
       };
     })
-    .filter((row) => row.item_ref_id && row.base_weight >= 0);
+    .filter((row) => row.item_ref_id && row.gambling_weight >= 0 && row.fishing_weight >= 0);
 }
 
 function applyRootQualityRules(settings = {}) {
@@ -1653,6 +1722,16 @@ function applyGamblingQualityRules(settings = {}) {
     const current = rules[key] || DEFAULT_GAMBLING_QUALITY_RULES[key];
     const node = document.querySelector(`[data-gambling-quality="${key}"][data-gambling-rule="weight_multiplier"]`);
     if (node) node.value = current.weight_multiplier ?? DEFAULT_GAMBLING_QUALITY_RULES[key].weight_multiplier;
+  });
+}
+
+function applyFishingQualityRules(settings = {}) {
+  ensureSettingRuleRows();
+  const rules = settings.fishing_quality_weight_rules || DEFAULT_FISHING_QUALITY_RULES;
+  ITEM_QUALITY_RULES.forEach(({ key }) => {
+    const current = rules[key] || DEFAULT_FISHING_QUALITY_RULES[key];
+    const node = document.querySelector(`[data-fishing-quality="${key}"][data-fishing-rule="weight_multiplier"]`);
+    if (node) node.value = current.weight_multiplier ?? DEFAULT_FISHING_QUALITY_RULES[key].weight_multiplier;
   });
 }
 
@@ -1858,7 +1937,8 @@ function syncSelects() {
   });
   document.querySelectorAll("#setting-gambling-pool-rows .builder-row").forEach((row) => {
     const kind = row.querySelector("[data-gambling-kind]")?.value || "material";
-    setOptions(row.querySelector("[data-gambling-ref]"), itemRows(kind), row.querySelector("[data-gambling-ref]")?.value, "请选择物品");
+    const keyword = row.querySelector("[data-gambling-search]")?.value || "";
+    setOptions(row.querySelector("[data-gambling-ref]"), itemRows(kind, keyword), row.querySelector("[data-gambling-ref]")?.value, "请选择物品");
   });
   syncGrantUserMatches();
 }
@@ -1875,6 +1955,8 @@ function applySettings(settings = {}) {
   $("setting-duel-bet-max").value = settings.duel_bet_max_amount ?? 100;
   $("setting-duel-bet-options").value = formatIntegerListInput(settings.duel_bet_amount_options ?? [10, 50, 100]);
   $("setting-duel-invite-timeout").value = settings.duel_invite_timeout_seconds ?? 90;
+  $("setting-arena-open-fee").value = settings.arena_open_fee_stone ?? 0;
+  $("setting-arena-challenge-fee").value = settings.arena_challenge_fee_stone ?? 0;
   $("setting-duel-steal").value = settings.duel_winner_steal_percent ?? 25;
   $("setting-artifact-plunder").value = settings.artifact_plunder_chance ?? 20;
   $("setting-message-auto-delete").value = settings.message_auto_delete_seconds ?? 180;
@@ -1888,7 +1970,7 @@ function applySettings(settings = {}) {
   $("setting-allow-user-task-publish").checked = settings.allow_user_task_publish ?? true;
   $("setting-gambling-exchange-cost").value = settings.gambling_exchange_cost_stone ?? 120;
   $("setting-gambling-exchange-max").value = settings.gambling_exchange_max_count ?? 20;
-  $("setting-gambling-open-max").value = settings.gambling_open_max_count ?? 20;
+  $("setting-gambling-open-max").value = settings.gambling_open_max_count ?? 100;
   $("setting-gambling-broadcast-quality").value = settings.gambling_broadcast_quality_level ?? 5;
   $("setting-gambling-fortune-divisor").value = settings.gambling_fortune_divisor ?? 6;
   $("setting-gambling-fortune-bonus").value = settings.gambling_fortune_bonus_per_quality_percent ?? 8;
@@ -1920,6 +2002,7 @@ function applySettings(settings = {}) {
   applyDropWeightRules(settings);
   applyActivityGrowthRules(settings);
   applyGamblingQualityRules(settings);
+  applyFishingQualityRules(settings);
   applyGamblingRewardPool(settings);
 }
 
@@ -1940,7 +2023,14 @@ function renderErrorLogs(rows = []) {
 }
 
 async function bootstrapAdmin(forceToken = false) {
-  const payload = {};
+  const playerQuery = String($("player-search-q")?.value || state.playerSearch?.query || "");
+  const playerPage = Math.max(Number(state.playerSearch?.page || 1), 1);
+  const playerPageSize = Math.max(Number(state.playerSearch?.pageSize || PLAYER_SEARCH_PAGE_SIZE), 1);
+  const payload = {
+    player_query: playerQuery,
+    player_page: playerPage,
+    player_page_size: playerPageSize,
+  };
   if (!forceToken && state.initData) payload.init_data = state.initData;
   else if (state.token) payload.token = state.token;
   else {
@@ -1963,18 +2053,58 @@ async function bootstrapAdmin(forceToken = false) {
   syncPlayerBatchResourceForm();
   renderPlayerBatchResourceSummary();
   renderWorld();
-  await searchPlayers({
-    query: $("player-search-q")?.value || "",
-    page: state.playerSearch?.page || 1,
+  const applied = applyPlayerSearchResult(data.player_search || {}, {
+    query: playerQuery,
+    requestedPage: playerPage,
+    pageSize: playerPageSize,
   });
+  if (applied.needsRefetch) {
+    await searchPlayers({
+      query: playerQuery,
+      page: applied.refetchPage,
+      pageSize: playerPageSize,
+    });
+  }
   renderAdminNavigator();
   adminStatus(`修仙后台已就绪，当前管理数据加载完成。`, "success");
 }
 
-async function submitAndRefresh(handler, successTitle, successMessage) {
-  await handler();
-  await bootstrapAdmin();
-  await popup(successTitle, successMessage);
+function applyAdminSettingsUpdate(settings = {}) {
+  if (!state.bundle) state.bundle = {};
+  state.bundle.settings = settings;
+  applySettings(settings);
+  syncSelects();
+  renderAdminNavigator();
+}
+
+function applyUploadPermissionUpdate(payload = {}) {
+  const tg = Number(payload.tg || 0);
+  if (!tg) return;
+  if (!state.bundle) state.bundle = {};
+  const rows = Array.isArray(state.bundle.upload_permissions) ? state.bundle.upload_permissions.slice() : [];
+  const index = rows.findIndex((row) => Number(row?.tg || 0) === tg);
+  if (payload.granted && !payload.builtin && index === -1) {
+    rows.push({ tg });
+  }
+  if (payload.removed && index >= 0) {
+    rows.splice(index, 1);
+  }
+  rows.sort((left, right) => Number(left?.tg || 0) - Number(right?.tg || 0));
+  state.bundle.upload_permissions = rows;
+  renderTagList("upload-permission-list", rows, (row) => `<span class="tag">TG ${escapeHtml(row.tg)}</span>`);
+  renderAdminNavigator();
+}
+
+async function submitAndRefresh(handler, successTitle, successMessage, { refresh = "bootstrap", afterSuccess = null } = {}) {
+  const result = await handler();
+  if (typeof afterSuccess === "function") {
+    afterSuccess(result);
+  }
+  const refreshPromise = refresh === "bootstrap" ? bootstrapAdmin() : Promise.resolve();
+  const popupPromise = popup(successTitle, successMessage);
+  await refreshPromise;
+  await popupPromise;
+  return result;
 }
 
 function bindEvents() {
@@ -2033,7 +2163,7 @@ function bindEvents() {
       seclusion_cultivation_efficiency_percent: Number($("setting-seclusion-efficiency").value || 60),
       gambling_exchange_cost_stone: Number($("setting-gambling-exchange-cost").value || 120),
       gambling_exchange_max_count: Number($("setting-gambling-exchange-max").value || 20),
-      gambling_open_max_count: Number($("setting-gambling-open-max").value || 20),
+      gambling_open_max_count: Number($("setting-gambling-open-max").value || 100),
       gambling_broadcast_quality_level: Number($("setting-gambling-broadcast-quality").value || 5),
       gambling_fortune_divisor: Number($("setting-gambling-fortune-divisor").value || 6),
       gambling_fortune_bonus_per_quality_percent: Number($("setting-gambling-fortune-bonus").value || 8),
@@ -2042,8 +2172,15 @@ function bindEvents() {
       exploration_drop_weight_rules: collectDropWeightRules(),
       activity_stat_growth_rules: collectActivityGrowthRules(),
       gambling_quality_weight_rules: collectGamblingQualityRules(),
+      fishing_quality_weight_rules: collectFishingQualityRules(),
       gambling_reward_pool: collectGamblingRewardPool(),
-    }), "保存成功", "基础规则已更新。");
+    }), "保存成功", "基础规则已更新。", {
+      refresh: "none",
+      afterSuccess: (settings) => {
+        applyAdminSettingsUpdate(settings || {});
+        adminStatus("基础规则已更新。", "success");
+      },
+    });
   });
 
   $("setting-shop-name")?.addEventListener("input", (event) => {
@@ -2061,6 +2198,8 @@ function bindEvents() {
       duel_bet_max_amount: Number($("setting-duel-bet-max").value || 100),
       duel_bet_amount_options: parseIntegerListInput($("setting-duel-bet-options").value),
       duel_invite_timeout_seconds: Number($("setting-duel-invite-timeout").value || 90),
+      arena_open_fee_stone: Number($("setting-arena-open-fee").value || 0),
+      arena_challenge_fee_stone: Number($("setting-arena-challenge-fee").value || 0),
       duel_winner_steal_percent: Number($("setting-duel-steal").value || 25),
       artifact_plunder_chance: Number($("setting-artifact-plunder").value || 20),
       equipment_unbind_cost: Number($("setting-unbind-cost").value || 0),
@@ -2077,7 +2216,13 @@ function bindEvents() {
       sect_betrayal_stone_percent: Number($("setting-sect-betrayal-percent").value || 10),
       sect_betrayal_stone_min: Number($("setting-sect-betrayal-min").value || 20),
       sect_betrayal_stone_max: Number($("setting-sect-betrayal-max").value || 300),
-    }), "保存成功", "斗法与装备规则已更新。");
+    }), "保存成功", "斗法与装备规则已更新。", {
+      refresh: "none",
+      afterSuccess: (settings) => {
+        applyAdminSettingsUpdate(settings || {});
+        adminStatus("斗法与装备规则已更新。", "success");
+      },
+    });
   });
 
   $("error-log-form")?.addEventListener("submit", async (event) => {
@@ -2390,7 +2535,7 @@ async function submitUploadPermission(grant) {
     ? "/plugins/xiuxian/admin-api/upload-permission/grant"
     : "/plugins/xiuxian/admin-api/upload-permission/revoke";
   const payload = await request("POST", endpoint, { tg });
-  await bootstrapAdmin();
+  applyUploadPermissionUpdate(payload);
   if (grant) {
     const message = payload.builtin
       ? `TG ${tg} 是主人，默认已允许上传图片。`
@@ -2784,6 +2929,68 @@ function bindPlayerSearchResultClicks(container) {
   });
 }
 
+function renderPlayerSearchResults(items = state.playerSearch?.items || []) {
+  const container = $("player-search-results");
+  if (!container) return;
+  if (!items.length) {
+    container.innerHTML = `<article class="stack-item"><strong>未找到角色</strong></article>`;
+    return;
+  }
+  container.innerHTML = items.map((p) => `
+    <article class="stack-item is-clickable${Number(state.selectedPlayerTg || 0) === Number(p.tg) ? " is-selected" : ""}" data-tg="${p.tg}">
+      <div class="stack-item-head">
+        <strong>${escapeHtml(p.display_label || p.display_name || (p.username ? "@" + p.username : "TG " + p.tg))}</strong>
+        <span class="badge">${escapeHtml(p.realm_stage || "炼气")} ${p.realm_layer || 0}层</span>
+      </div>
+      <p>灵石 ${p.spiritual_stone || 0} · 修为 ${p.cultivation || 0} · 片刻碎片 ${p.emby_account?.iv ?? 0}</p>
+      <p>${escapeHtml(p.emby_account?.name || "未绑定 Emby")} · ${escapeHtml(p.emby_account?.embyid || "无 Emby ID")}</p>
+    </article>
+  `).join("");
+  bindPlayerSearchResultClicks(container);
+  highlightSelectedPlayerResult();
+}
+
+function applyPlayerSearchResult(data, { query = "", requestedPage = 1, pageSize = PLAYER_SEARCH_PAGE_SIZE } = {}) {
+  const total = Math.max(Number(data?.total || 0), 0);
+  const safePageSize = Math.max(Number(data?.page_size || pageSize), 1);
+  const totalPages = Math.max(Math.ceil(total / safePageSize), 1);
+  if (total > 0 && requestedPage > totalPages) {
+    return { needsRefetch: true, refetchPage: totalPages };
+  }
+  const items = Array.isArray(data?.items) ? data.items : [];
+  state.playerSearch = {
+    query,
+    page: Math.max(Number(data?.page || requestedPage), 1),
+    pageSize: safePageSize,
+    total,
+    items,
+  };
+  renderPlayerSearchSummary(items);
+  renderPlayerSearchPagination();
+  renderPlayerSearchResults(items);
+  return { needsRefetch: false, items };
+}
+
+function syncPlayerSearchItemFromDetail(detail = {}) {
+  const profile = detail?.profile || detail;
+  const tg = Number(profile?.tg || 0);
+  if (!tg) return;
+  const items = Array.isArray(state.playerSearch?.items) ? state.playerSearch.items.slice() : [];
+  const index = items.findIndex((item) => Number(item?.tg || 0) === tg);
+  if (index < 0) return;
+  items[index] = {
+    ...items[index],
+    ...profile,
+    emby_account: detail?.emby_account || profile?.emby_account || items[index]?.emby_account || null,
+  };
+  state.playerSearch = {
+    ...(state.playerSearch || {}),
+    items,
+  };
+  renderPlayerSearchSummary(items);
+  renderPlayerSearchResults(items);
+}
+
 function renderPlayerInventory(detail = {}) {
   const root = $("player-inventory-list");
   if (!root) return;
@@ -2991,6 +3198,7 @@ function applyPlayerDetail(data, { reveal = true, smooth = true } = {}) {
   renderPlayerTitles(detail);
   renderPlayerTechniques(detail);
   renderPlayerRecipes(detail);
+  syncPlayerSearchItemFromDetail(detail);
   syncPlayerResourceForms();
   highlightSelectedPlayerResult();
   if (reveal) revealPlayerEditor(smooth);
@@ -3011,37 +3219,11 @@ async function searchPlayers(options = {}) {
     container.innerHTML = `<article class="stack-item"><strong>正在加载角色...</strong></article>`;
   }
   const data = await request("GET", `/plugins/xiuxian/admin-api/players?q=${encodeURIComponent(query)}&page=${requestedPage}&page_size=${pageSize}`);
-  const total = Number(data?.total || 0);
-  const totalPages = Math.max(Math.ceil(total / Math.max(Number(data?.page_size || pageSize), 1)), 1);
-  if (total > 0 && requestedPage > totalPages) {
-    return searchPlayers({ query, page: totalPages, pageSize });
+  const applied = applyPlayerSearchResult(data, { query, requestedPage, pageSize });
+  if (applied.needsRefetch) {
+    return searchPlayers({ query, page: applied.refetchPage, pageSize });
   }
-  state.playerSearch = {
-    query,
-    page: Math.max(Number(data?.page || requestedPage), 1),
-    pageSize: Math.max(Number(data?.page_size || pageSize), 1),
-    total,
-  };
-  const items = data?.items || [];
-  renderPlayerSearchSummary(items);
-  renderPlayerSearchPagination();
-  if (!container) return;
-  if (!items.length) {
-    container.innerHTML = `<article class="stack-item"><strong>未找到角色</strong></article>`;
-    return;
-  }
-  container.innerHTML = items.map((p) => `
-    <article class="stack-item is-clickable${Number(state.selectedPlayerTg || 0) === Number(p.tg) ? " is-selected" : ""}" data-tg="${p.tg}">
-      <div class="stack-item-head">
-        <strong>${escapeHtml(p.display_label || p.display_name || (p.username ? "@" + p.username : "TG " + p.tg))}</strong>
-        <span class="badge">${escapeHtml(p.realm_stage || "炼气")} ${p.realm_layer || 0}层</span>
-      </div>
-      <p>灵石 ${p.spiritual_stone || 0} · 修为 ${p.cultivation || 0} · 片刻碎片 ${p.emby_account?.iv ?? 0}</p>
-      <p>${escapeHtml(p.emby_account?.name || "未绑定 Emby")} · ${escapeHtml(p.emby_account?.embyid || "无 Emby ID")}</p>
-    </article>
-  `).join("");
-  bindPlayerSearchResultClicks(container);
-  highlightSelectedPlayerResult();
+  return applied.items || [];
 }
 
 async function openPlayerEdit(tg) {
@@ -3065,10 +3247,6 @@ async function submitPlayerEdit(e) {
     const detail = await request("PATCH", `/plugins/xiuxian/admin-api/players/${tg}`, payload);
     applyPlayerDetail(detail, { reveal: false, smooth: false });
     await popup("操作成功", "角色属性已保存", "success");
-    await searchPlayers({
-      query: $("player-search-q")?.value || "",
-      page: state.playerSearch?.page || 1,
-    });
     highlightSelectedPlayerResult();
     revealPlayerEditor(false);
   } catch (err) {

@@ -3,9 +3,16 @@ const tg = window.Telegram?.WebApp;
 const state = {
   initData: tg?.initData || "",
   profileBundle: null,
+  pendingBundleCandidate: null,
+  bundleRefreshPromise: null,
+  bundleRenderToken: 0,
   wikiBundle: null,
+  wikiBundleLoading: false,
+  wikiBundlePromise: null,
+  wikiBundleRequested: false,
   deferredBundleLoading: false,
   deferredBundleLoaded: false,
+  retreatTimingTimer: null,
   wikiFilter: "all",
   wikiSearchQuery: "",
   leaderboard: { kind: "stone", page: 1, totalPages: 1 },
@@ -24,6 +31,7 @@ const state = {
   marriageSearchTimer: null,
 };
 
+const WIKI_BUNDLE_CACHE_KEY = "xiuxian_wiki_bundle_v2";
 const REALM_ORDER = ["炼气", "筑基", "金丹", "元婴", "化神", "炼虚", "合体", "大乘", "渡劫", "人仙", "地仙", "天仙", "金仙", "大罗金仙", "仙君", "仙王", "仙尊", "仙帝"];
 
 function escapeHtml(value) {
@@ -263,6 +271,7 @@ async function postJson(path, body = {}) {
   if (!response.ok || payload.code !== 200) {
     throw new Error(payload.detail || payload.message || "请求失败");
   }
+  rememberBundleCandidate(payload.data);
   return payload.data;
 }
 
@@ -342,6 +351,45 @@ function formatDate(value) {
   if (!value) return "未开始";
   const date = parseShanghaiDate(value);
   return date ? date.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }) : "未知";
+}
+
+function retreatRemainingSeconds(profile = {}) {
+  const endAt = parseShanghaiDate(profile?.retreat_end_at);
+  if (!endAt) return 0;
+  return Math.max(Math.ceil((endAt.getTime() - Date.now()) / 1000), 0);
+}
+
+function retreatTimingText(bundle = state.profileBundle) {
+  const profile = bundle?.profile || {};
+  const retreating = Boolean(bundle?.capabilities?.is_in_retreat);
+  if (!retreating || !profile.retreat_started_at || !profile.retreat_end_at) {
+    return "开始闭关后，这里会显示本次闭关开始时间、预计出关时间和剩余时长。";
+  }
+  const startText = formatDate(profile.retreat_started_at);
+  const endText = formatDate(profile.retreat_end_at);
+  const remainingSeconds = retreatRemainingSeconds(profile);
+  if (remainingSeconds <= 0) {
+    return `本次闭关开始于 ${startText}，原定 ${endText} 出关，现在可以直接出关结算。`;
+  }
+  return `本次闭关开始于 ${startText}，预计 ${endText} 出关，剩余 ${formatCountdownSeconds(remainingSeconds)}。`;
+}
+
+function renderRetreatTimingHint(bundle = state.profileBundle) {
+  const hint = document.querySelector("#retreat-time-hint");
+  if (!hint) return;
+  hint.textContent = retreatTimingText(bundle);
+}
+
+function syncRetreatTimingTicker(bundle = state.profileBundle) {
+  if (state.retreatTimingTimer) {
+    window.clearInterval(state.retreatTimingTimer);
+    state.retreatTimingTimer = null;
+  }
+  renderRetreatTimingHint(bundle);
+  if (!bundle?.capabilities?.is_in_retreat) return;
+  state.retreatTimingTimer = window.setInterval(() => {
+    renderRetreatTimingHint(state.profileBundle);
+  }, 30000);
 }
 
 function normalizeWikiSearchQuery(value) {
@@ -508,6 +556,44 @@ function renderWikiCards(root, entries, { emptyTitle, emptyText } = {}) {
   }).join("");
 }
 
+function readSessionStorage(key) {
+  try {
+    return window.sessionStorage.getItem(key);
+  } catch (error) {
+    return null;
+  }
+}
+
+function writeSessionStorage(key, value) {
+  try {
+    if (value == null) {
+      window.sessionStorage.removeItem(key);
+      return;
+    }
+    window.sessionStorage.setItem(key, value);
+  } catch (error) {
+    // Ignore storage quota and unavailable storage errors.
+  }
+}
+
+function hydrateWikiBundleFromCache() {
+  if (state.wikiBundle) return state.wikiBundle;
+  const raw = readSessionStorage(WIKI_BUNDLE_CACHE_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      writeSessionStorage(WIKI_BUNDLE_CACHE_KEY, null);
+      return null;
+    }
+    state.wikiBundle = parsed;
+    return parsed;
+  } catch (error) {
+    writeSessionStorage(WIKI_BUNDLE_CACHE_KEY, null);
+    return null;
+  }
+}
+
 function currentWikiEntries() {
   const bundle = state.wikiBundle;
   const filter = state.wikiFilter || "all";
@@ -534,16 +620,23 @@ function renderWikiArea() {
   const featuredRoot = document.querySelector("#wiki-featured-list");
   const resultRoot = document.querySelector("#wiki-result-list");
   const filterButtons = Array.from(document.querySelectorAll("[data-wiki-filter]"));
-  const bundle = state.wikiBundle;
+  const bundle = state.wikiBundle || hydrateWikiBundleFromCache();
 
   filterButtons.forEach((button) => {
     button.classList.toggle("is-active", (button.dataset.wikiFilter || "all") === (state.wikiFilter || "all"));
   });
 
   if (!bundle) {
-    if (countsNode) countsNode.textContent = "正在整理词条...";
-    if (hintNode) hintNode.textContent = "可搜索玩法教程、材料来源、法宝、丹药、符箓、功法、称号、成就与配方获取方式，也可按入门、探索、炼制、战斗、任务、社交、宗门筛选。";
-    renderWikiCards(featuredRoot, [], { emptyTitle: "Wiki 加载中", emptyText: "正在整理新手手册与掉落词条，请稍候。" });
+    if (state.wikiBundleLoading) {
+      if (countsNode) countsNode.textContent = "正在整理词条...";
+      if (hintNode) hintNode.textContent = "首次打开时才会拉取 Wiki 词条，当前正在加载玩法教程与掉落来源。";
+      renderWikiCards(featuredRoot, [], { emptyTitle: "Wiki 加载中", emptyText: "正在整理新手手册与掉落词条，请稍候。" });
+      renderWikiCards(resultRoot, [], { emptyTitle: "等待检索", emptyText: "Wiki 正在加载，完成后可立即搜索玩法和物品来源。" });
+      return;
+    }
+    if (countsNode) countsNode.textContent = "展开或搜索后加载";
+    if (hintNode) hintNode.textContent = "可搜索玩法教程、材料来源、法宝、丹药、符箓、功法、称号、成就与配方获取方式。为减少首页加载时间，Wiki 改为按需加载。";
+    renderWikiCards(featuredRoot, [], { emptyTitle: "按需加载 Wiki", emptyText: "展开本模块或输入关键词后，再拉取玩法手册与掉落词条。" });
     renderWikiCards(resultRoot, [], { emptyTitle: "等待检索", emptyText: "输入关键词后，可快速定位玩法和物品来源。" });
     return;
   }
@@ -582,11 +675,37 @@ async function openWikiEntry(entryId) {
   await popup(wikiCardTitle(entry) || entry.title || "修仙 Wiki", lines.join("\n\n"), "success");
 }
 
-async function refreshWikiBundle() {
-  const bundle = await postJson("/plugins/xiuxian/api/wiki");
-  state.wikiBundle = bundle;
+async function refreshWikiBundle({ force = false } = {}) {
+  if (!force && state.wikiBundle) {
+    renderWikiArea();
+    return state.wikiBundle;
+  }
+  if (state.wikiBundlePromise) {
+    return state.wikiBundlePromise;
+  }
+  state.wikiBundleLoading = true;
   renderWikiArea();
-  return bundle;
+  state.wikiBundlePromise = postJson("/plugins/xiuxian/api/wiki")
+    .then((bundle) => {
+      state.wikiBundle = bundle;
+      writeSessionStorage(WIKI_BUNDLE_CACHE_KEY, JSON.stringify(bundle));
+      return bundle;
+    })
+    .finally(() => {
+      state.wikiBundleLoading = false;
+      state.wikiBundlePromise = null;
+      renderWikiArea();
+    });
+  return state.wikiBundlePromise;
+}
+
+function ensureWikiBundle() {
+  hydrateWikiBundleFromCache();
+  if (state.wikiBundleRequested && (state.wikiBundle || state.wikiBundlePromise)) {
+    return state.wikiBundlePromise || Promise.resolve(state.wikiBundle);
+  }
+  state.wikiBundleRequested = true;
+  return refreshWikiBundle({ force: true });
 }
 
 function formatRemainingDuration(totalSeconds) {
@@ -644,6 +763,44 @@ function setSelectOptions(select, options = [], selectedValue = "") {
 
 function currentGiftTarget() {
   return state.giftTarget && Number(state.giftTarget.tg || 0) > 0 ? state.giftTarget : null;
+}
+
+function looksLikeProfileBundle(value) {
+  return Boolean(
+    value
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && value.profile
+    && value.settings
+    && value.capabilities
+  );
+}
+
+function extractBundleCandidate(payload) {
+  if (looksLikeProfileBundle(payload)) return payload;
+  if (looksLikeProfileBundle(payload?.bundle)) return payload.bundle;
+  if (looksLikeProfileBundle(payload?.profile)) return payload.profile;
+  return null;
+}
+
+function rememberBundleCandidate(payload) {
+  const candidate = extractBundleCandidate(payload);
+  if (candidate) {
+    state.pendingBundleCandidate = candidate;
+  }
+  return candidate;
+}
+
+function takePendingBundleCandidate() {
+  const candidate = state.pendingBundleCandidate;
+  state.pendingBundleCandidate = null;
+  return candidate;
+}
+
+function deferUiWork(callback) {
+  window.requestAnimationFrame(() => {
+    callback();
+  });
 }
 
 function renderGiftTargetSelection() {
@@ -1715,8 +1872,8 @@ function renderPillList(items, retreating) {
   for (const row of items) {
     const item = row.pill;
     const effects = item.resolved_effects || {};
-    const disabled = !item.usable || retreating;
-    const reason = item.usable ? "" : fallbackReason(item.unusable_reason, retreating ? "闭关期间无法服用丹药" : "当前条件不满足，暂时无法服用");
+    const disabled = !item.usable;
+    const reason = item.usable ? "" : fallbackReason(item.unusable_reason, "当前条件不满足，暂时无法服用");
 
     const card = document.createElement("article");
     card.className = "stack-item";
@@ -1821,7 +1978,7 @@ function renderOfficialRecyclePanel(bundle, retreating) {
   const quotes = officialRecycleItems(bundle);
   root.innerHTML = "";
   const duelLockReason = currentDuelLockReason(bundle);
-  const blockedReason = retreating ? "闭关期间无法回收。" : duelLockReason;
+  const blockedReason = duelLockReason;
   if (!quotes.length) {
     root.innerHTML = `<article class="stack-item"><strong>${escapeHtml(officialRecycleName(bundle))}暂无可回收物品</strong><p>未绑定且可交易的法宝、符箓，以及背包内丹药材料会显示在这里。</p></article>`;
     if (preview) preview.value = "暂无可回收物品";
@@ -2196,7 +2353,7 @@ function renderCraftArea(bundle) {
       </div>
       <p>产出：${escapeHtml(recipe.result_item?.name || "成品")} × ${escapeHtml(recipe.result_quantity)}</p>
       <p>材料：${escapeHtml(ingredients || "未配置")}</p>
-      <p>基础成功率：${escapeHtml(recipe.base_success_rate)}%</p>
+      <p>当前成功率：${escapeHtml(formatPercentText(recipe.current_success_rate, String(recipe.base_success_rate || 0)))}%</p>
       <button type="button" data-recipe-id="${recipe.id}">开始炼制</button>
     `;
     recipeRoot.appendChild(card);
@@ -2789,18 +2946,36 @@ function renderLeaderboard(result) {
   document.querySelector("#rank-next").disabled = result.page >= result.total_pages;
 }
 
-function applyProfileBundle(bundle) {
+function applyProfileBundle(bundle, { deferSecondary = true } = {}) {
   if (!bundle) return;
+  state.profileBundle = bundle;
+  state.pendingBundleCandidate = null;
+  const renderToken = (state.bundleRenderToken || 0) + 1;
+  state.bundleRenderToken = renderToken;
   renderWikiArea();
   renderProfile(bundle);
-  renderSectArea(bundle);
-  renderTaskArea(bundle);
-  renderTechniqueArea(bundle);
-  renderCraftArea(bundle);
-  renderExploreArea(bundle);
-  renderJournalArea(bundle);
+  syncRetreatTimingTicker(bundle);
   syncGiftPanelState(bundle);
   renderRedEnvelopeClaims(state.lastRedEnvelopeClaims || []);
+  syncAdminEntry(bundle);
+
+  const renderSecondary = () => {
+    if (state.bundleRenderToken !== renderToken || state.profileBundle !== bundle) {
+      return;
+    }
+    renderSectArea(bundle);
+    renderTaskArea(bundle);
+    renderTechniqueArea(bundle);
+    renderCraftArea(bundle);
+    renderExploreArea(bundle);
+    renderJournalArea(bundle);
+  };
+
+  if (deferSecondary) {
+    deferUiWork(renderSecondary);
+  } else {
+    renderSecondary();
+  }
 
   state.shopNameEditing = false;
   applyShopNameState(bundle?.profile?.shop_name || "游仙小铺");
@@ -2855,9 +3030,6 @@ async function loadDeferredBundle({ silent = false } = {}) {
 function scheduleDeferredBootstrapWork() {
   const runner = () => {
     loadDeferredBundle({ silent: true }).catch(() => null);
-    if (!state.wikiBundle) {
-      refreshWikiBundle().catch(() => null);
-    }
   };
   if (typeof window.requestIdleCallback === "function") {
     window.requestIdleCallback(runner, { timeout: 800 });
@@ -2866,13 +3038,38 @@ function scheduleDeferredBootstrapWork() {
   window.setTimeout(runner, 120);
 }
 
-async function refreshBundle() {
-  state.deferredBundleLoaded = false;
-  const payload = await postJson("/plugins/xiuxian/api/bootstrap");
-  renderBottomNav(payload.bottom_nav || []);
-  applyProfileBundle(payload.profile_bundle);
-  scheduleDeferredBootstrapWork();
-  return state.profileBundle;
+async function refreshBundle({ background = false } = {}) {
+  const pendingBundle = takePendingBundleCandidate();
+  if (pendingBundle) {
+    applyProfileBundle(pendingBundle);
+    return pendingBundle;
+  }
+  if (state.bundleRefreshPromise) {
+    return state.bundleRefreshPromise;
+  }
+  const runner = async () => {
+    if (!state.profileBundle) {
+      state.deferredBundleLoaded = false;
+      const payload = await postJson("/plugins/xiuxian/api/bootstrap");
+      renderBottomNav(payload.bottom_nav || []);
+      applyProfileBundle(payload.profile_bundle);
+      scheduleDeferredBootstrapWork();
+      return state.profileBundle;
+    }
+    state.deferredBundleLoaded = false;
+    const deferred = await postJson("/plugins/xiuxian/api/bootstrap/deferred");
+    state.profileBundle = mergeBundleData(state.profileBundle, deferred);
+    state.deferredBundleLoaded = true;
+    applyProfileBundle(state.profileBundle);
+    return state.profileBundle;
+  };
+  state.bundleRefreshPromise = runner().finally(() => {
+    state.bundleRefreshPromise = null;
+  });
+  if (background) {
+    state.bundleRefreshPromise.catch(() => null);
+  }
+  return state.bundleRefreshPromise;
 }
 
 async function refreshLeaderboard(kind = state.leaderboard.kind, page = state.leaderboard.page) {
@@ -2891,6 +3088,7 @@ async function bootstrap() {
   tg.setHeaderColor("#eef4ff");
   tg.setBackgroundColor("#eef4ff");
 
+  hydrateWikiBundleFromCache();
   renderWikiArea();
   state.deferredBundleLoaded = false;
   const payload = await postJson("/plugins/xiuxian/api/bootstrap");
@@ -2978,11 +3176,22 @@ document.querySelector("#retreat-start-btn").addEventListener("click", async (ev
     const payload = await runButtonAction(button, "闭关中…", () => postJson("/plugins/xiuxian/api/retreat/start", {
       hours: Number(document.querySelector("#retreat-hours").value || 1)
     }));
-    const efficiencyText = Number(payload.cultivation_efficiency_percent || 100) < 100
-      ? ` 当前避世效率 ${payload.cultivation_efficiency_percent}%（原始 ${payload.estimated_gain_raw || payload.estimated_gain}）。`
-      : "";
-    const message = `预计获得 ${payload.estimated_gain} 修为，预计消耗 ${payload.estimated_cost} 灵石。${efficiencyText}`;
-    setStatus(`闭关已开始：${message}`, "success");
+    const retreatProfile = payload.profile?.profile || {};
+    const lines = [
+      `预计获得 ${payload.estimated_gain} 修为`,
+      `预计消耗 ${payload.estimated_cost} 灵石`,
+    ];
+    if (retreatProfile.retreat_started_at) {
+      lines.push(`开始时间：${formatDate(retreatProfile.retreat_started_at)}`);
+    }
+    if (retreatProfile.retreat_end_at) {
+      lines.push(`预计出关：${formatDate(retreatProfile.retreat_end_at)}`);
+    }
+    if (Number(payload.cultivation_efficiency_percent || 100) < 100) {
+      lines.push(`当前避世效率 ${payload.cultivation_efficiency_percent}%（原始 ${payload.estimated_gain_raw || payload.estimated_gain}）`);
+    }
+    const message = lines.join("\n");
+    setStatus(`闭关已开始，预计 ${retreatProfile.retreat_end_at ? formatDate(retreatProfile.retreat_end_at) : "稍后"} 出关。`, "success");
     await popup("闭关开始", message);
     await refreshBundle();
   } catch (error) {
@@ -3594,18 +3803,30 @@ document.querySelector("#recipe-list")?.addEventListener("click", async (event) 
   const button = event.target.closest("[data-recipe-id]");
   if (!button || button.disabled) return;
   try {
+    const quantityInput = document.querySelector(`[data-recipe-quantity-for="${button.dataset.recipeId}"]`);
+    const quantity = Math.max(Number.parseInt(quantityInput?.value || "1", 10) || 1, 1);
     const payload = await runButtonAction(button, "炼制中…", () => postJson("/plugins/xiuxian/api/recipe/craft", {
-      recipe_id: Number(button.dataset.recipeId)
+      recipe_id: Number(button.dataset.recipeId),
+      quantity,
     }));
     const result = payload.result;
-    const tone = result.success ? "success" : "warning";
-    const message = result.success ? "炼制成功，成品已发放。" : "炼制失败，材料已消耗。";
+    const tone = result.partial_success ? "warning" : result.success ? "success" : "warning";
+    const title = result.partial_success ? "部分炼制成功" : result.success ? "炼制成功" : "炼制失败";
+    const message = result.summary_text || (result.success ? "炼制成功，成品已发放。" : "炼制失败，材料已消耗。");
     setStatus(message, tone);
-    const detailRows = [`${message}`, `成功率 ${result.success_rate}%`];
+    const detailRows = [`${message}`, `当前成功率 ${result.success_rate}%`];
+    if (Number(result.crafted_times || 1) > 1) {
+      detailRows.push(`本次开炉 ${result.crafted_times} 次：成功 ${result.success_count || 0}，失败 ${result.failure_count || 0}`);
+    }
     if (result.result_item?.name) detailRows.push(`目标成品：${result.result_item.name}`);
+    if (Number(result.total_reward_quantity || 0) > 0) detailRows.push(`总产出：${result.total_reward_quantity}`);
     if (result.reward) detailRows.push(`获得：${grantedItemName(result.reward) || "成品已入库"}`);
-    await popup(result.success ? "炼制成功" : "炼制失败", detailRows.join("\n"), tone);
-    await refreshBundle();
+    await popup(title, detailRows.join("\n"), tone);
+    if (payload.bundle) {
+      state.deferredBundleLoaded = true;
+      applyProfileBundle(payload.bundle);
+    }
+    else await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "炼制失败。");
     setStatus(message, "error");
@@ -3628,7 +3849,11 @@ document.querySelector("#recipe-fragment-synthesis-list")?.addEventListener("cli
     const message = `已消耗 ${materialName} × ${requiredQuantity}，成功参悟 ${recipeName}。`;
     setStatus(message, "success");
     await popup("参悟成功", [message, `对应成品：${itemName}`].join("\n"));
-    await refreshBundle();
+    if (payload.bundle) {
+      state.deferredBundleLoaded = true;
+      applyProfileBundle(payload.bundle);
+    }
+    else await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "参悟配方失败。");
     setStatus(message, "error");
@@ -4170,7 +4395,7 @@ renderPillList = function renderPillList(items, retreating) {
   for (const row of items) {
     const item = row.pill;
     const effects = item.resolved_effects || {};
-    const disabled = !item.usable || retreating;
+    const disabled = !item.usable;
     const reason = fallbackReason(item.unusable_reason, "当前无法使用该丹药");
     const card = document.createElement("article");
     card.className = "stack-item";
@@ -4269,6 +4494,12 @@ function inventorySearchValue(selector) {
   return String(document.querySelector(selector)?.value || "").trim().toLowerCase();
 }
 
+function formatPercentText(value, fallback = "0") {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return numeric % 1 === 0 ? String(numeric) : numeric.toFixed(2).replace(/\.?0+$/, "");
+}
+
 function textQueryMatches(query, values = []) {
   if (!query) return true;
   const haystack = values
@@ -4323,6 +4554,55 @@ function rerenderInventoryLists() {
   renderCraftArea(bundle);
 }
 
+function recipeCraftableCount(recipe, bundle) {
+  const inventory = new Map(
+    (bundle?.materials || []).map((row) => [Number(row?.material?.id || 0), Math.max(Number(row?.quantity || 0), 0)])
+  );
+  const ingredients = Array.isArray(recipe?.ingredients) ? recipe.ingredients : [];
+  if (!ingredients.length) return 0;
+  let maxCount = Infinity;
+  for (const ingredient of ingredients) {
+    const materialId = Number(ingredient?.material_id || ingredient?.material?.id || 0);
+    const required = Math.max(Number(ingredient?.quantity || 0), 1);
+    const owned = inventory.get(materialId) || 0;
+    maxCount = Math.min(maxCount, Math.floor(owned / required));
+  }
+  return Number.isFinite(maxCount) ? Math.max(maxCount, 0) : 0;
+}
+
+function recipeResultPreviewTags(recipe, item) {
+  if (!item) return "";
+  const tags = [];
+  const kind = recipe?.result_kind || recipe?.recipe_kind || "";
+  const qualityLabel = item.rarity || item.quality_label || "凡品";
+  tags.push(qualityBadgeHtml(qualityLabel, item.quality_color, "tag"));
+  if (kind === "artifact") {
+    tags.push(`<span class="tag ${item.artifact_type === "support" ? "support" : ""}">${escapeHtml(item.artifact_type_label || artifactTypeLabel(item.artifact_type))}</span>`);
+    tags.push(`<span class="tag">${escapeHtml(item.equip_slot_label || item.equip_slot || "槽位未定")}</span>`);
+    tags.push(`<span class="tag">${escapeHtml(item.artifact_role_label || item.artifact_role || "定位未定")}</span>`);
+  } else if (kind === "pill") {
+    tags.push(`<span class="tag">${escapeHtml(item.pill_type_label || item.pill_type || "丹药")}</span>`);
+    tags.push(`<span class="tag">${escapeHtml(item.effect_value_label || "主效果")} ${escapeHtml(item.effect_value ?? 0)}</span>`);
+    tags.push(`<span class="tag">丹毒 ${escapeHtml(item.poison_delta ?? 0)}</span>`);
+  } else if (kind === "talisman") {
+    tags.push(`<span class="tag">显化 ${escapeHtml(item.effect_uses || 1)} 次</span>`);
+  } else if (kind === "material" && item.quality_feature) {
+    tags.push(`<span class="tag">${escapeHtml(item.quality_feature)}</span>`);
+  }
+  const affixTags = itemAffixTags(item, item.resolved_effects || {});
+  if (affixTags) tags.push(affixTags);
+  return tags.join("");
+}
+
+function recipeResultRequirementText(recipe, item) {
+  if (!item) return "";
+  const kind = recipe?.result_kind || recipe?.recipe_kind || "";
+  if (kind === "artifact" || kind === "pill" || kind === "talisman") {
+    return item.min_realm_stage ? `境界要求：${item.min_realm_stage}${item.min_realm_layer || 1}层` : "境界要求：无限制";
+  }
+  return "";
+}
+
 renderCraftArea = function renderCraftArea(bundle) {
   const materialRoot = document.querySelector("#material-list");
   const recipeRoot = document.querySelector("#recipe-list");
@@ -4372,6 +4652,16 @@ renderCraftArea = function renderCraftArea(bundle) {
     return;
   }
   for (const recipe of filteredRecipes) {
+    const resultItem = recipe.result_item || {};
+    const resultName = resultItem.name || "成品";
+    const craftableCount = recipeCraftableCount(recipe, bundle);
+    const canCraft = craftableCount > 0;
+    const recipeKind = recipe.recipe_kind || recipe.result_kind || "";
+    const batchMax = Math.max(Math.min(craftableCount || 1, 99), 1);
+    const batchDefault = Math.min(batchMax, craftableCount > 0 ? 10 : 1);
+    const previewTags = recipeResultPreviewTags(recipe, resultItem);
+    const previewDescription = resultItem.description || resultItem.quality_description || resultItem.quality_feature || "暂无详细描述";
+    const requirementText = recipeResultRequirementText(recipe, resultItem);
     const ingredientTags = (recipe.ingredients || [])
       .map((item) => {
         const materialName = item.material?.name || "材料";
@@ -4396,6 +4686,32 @@ renderCraftArea = function renderCraftArea(bundle) {
       `;
       })
       .join("");
+    const previewCard = `
+      <article class="recipe-result-preview">
+        <div class="stack-item-head">
+          <strong>成品属性预览</strong>
+          ${qualityBadgeHtml(resultItem.rarity || resultItem.quality_label || "凡品", resultItem.quality_color, "badge badge--normal")}
+        </div>
+        <p>${escapeHtml(previewDescription)}</p>
+        <div class="item-tags">${previewTags || `<span class="tag">暂无额外词条</span>`}</div>
+        ${requirementText ? `<p>${escapeHtml(requirementText)}</p>` : ""}
+      </article>
+    `;
+    const actionArea = recipeKind === "pill"
+      ? `
+        <div class="recipe-craft-controls">
+          <label class="recipe-quantity-field">
+            <span>炼药炉数</span>
+            <input type="number" min="1" max="${escapeHtml(batchMax)}" value="${escapeHtml(batchDefault)}" data-recipe-quantity-for="${recipe.id}" ${canCraft ? "" : "disabled"}>
+            <small>${escapeHtml(canCraft ? `当前材料最多可炼 ${craftableCount} 炉` : "当前材料不足 1 炉")}</small>
+          </label>
+          <button type="button" data-recipe-id="${recipe.id}" ${canCraft ? "" : "disabled"}>${escapeHtml(craftableCount > 1 ? "批量炼药" : "开始炼药")}</button>
+        </div>
+      `
+      : `
+        ${canCraft ? "" : `<p class="reason-text">当前材料不足 1 炉</p>`}
+        <button type="button" data-recipe-id="${recipe.id}" ${canCraft ? "" : "disabled"}>开始炼制</button>
+      `;
     const card = document.createElement("article");
     card.className = "stack-item";
     card.innerHTML = `
@@ -4407,20 +4723,25 @@ renderCraftArea = function renderCraftArea(bundle) {
       <div class="info-grid">
         <article class="info-chip">
           <span>炼成目标</span>
-          <strong>${escapeHtml(recipe.result_item?.name || "成品")} × ${escapeHtml(recipe.result_quantity)}</strong>
+          <strong>${escapeHtml(resultName)} × ${escapeHtml(recipe.result_quantity)}</strong>
         </article>
         <article class="info-chip">
-          <span>基础成功率</span>
-          <strong>${escapeHtml(recipe.base_success_rate)}%</strong>
+          <span>当前成功率</span>
+          <strong>${escapeHtml(formatPercentText(recipe.current_success_rate, String(recipe.base_success_rate || 0)))}%</strong>
         </article>
         <article class="info-chip">
           <span>所需材料数</span>
           <strong>${escapeHtml((recipe.ingredients || []).length)}</strong>
         </article>
+        <article class="info-chip">
+          <span>${escapeHtml(recipeKind === "pill" ? "最多可炼" : "当前可炼")}</span>
+          <strong>${escapeHtml(canCraft ? `${craftableCount} 炉` : "材料不足")}</strong>
+        </article>
       </div>
+      ${previewCard}
       <div class="item-tags">${ingredientTags || `<span class="tag">未配置材料</span>`}</div>
       <div class="recipe-source-list">${sourceCards || `<article class="recipe-source-item"><strong>获取路径待补充</strong><p>当前配方没有记录材料来源。</p></article>`}</div>
-      <button type="button" data-recipe-id="${recipe.id}">开始炼制</button>
+      ${actionArea}
     `;
     recipeRoot.appendChild(card);
   }
@@ -4569,11 +4890,11 @@ renderPillList = function renderPillList(items, retreating) {
   for (const row of rows) {
     const item = row.pill;
     const effects = item.resolved_effects || {};
-    const disabled = !item.usable || retreating;
+    const disabled = !item.usable;
     const batchUsable = Boolean(item.batch_usable) && Number(row.quantity || 0) > 1;
     const batchMax = Math.max(Number(item.batch_use_max || row.quantity || 1), 1);
     const batchNote = Number(row.quantity || 0) > 1 ? String(item.batch_use_note || "").trim() : "";
-    const reason = fallbackReason(item.unusable_reason, retreating ? "闭关期间无法服用丹药" : "当前无法使用该丹药");
+    const reason = fallbackReason(item.unusable_reason, "当前无法使用该丹药");
     const card = document.createElement("article");
     card.className = "stack-item";
     card.innerHTML = `
@@ -4830,12 +5151,17 @@ function showToast(text, tone = "info") {
 }
 
 let popupResolver = null;
+let popupAutoCloseTimer = null;
 
 function closeInlinePopup() {
   const layer = document.querySelector("#modal-layer");
   if (layer) {
     layer.classList.add("hidden");
     layer.setAttribute("aria-hidden", "true");
+  }
+  if (popupAutoCloseTimer) {
+    window.clearTimeout(popupAutoCloseTimer);
+    popupAutoCloseTimer = null;
   }
   document.body.classList.remove("is-modal-open");
   if (popupResolver) {
@@ -4889,9 +5215,12 @@ popup = async function popupRefined(title, message, tone = "success") {
   document.body.classList.add("is-modal-open");
   layer.scrollTop = 0;
   messageNode.scrollTop = 0;
-  return new Promise((resolve) => {
-    popupResolver = resolve;
-  });
+  if (popupAutoCloseTimer) {
+    window.clearTimeout(popupAutoCloseTimer);
+  }
+  popupAutoCloseTimer = window.setTimeout(closeInlinePopup, tone === "error" ? 3200 : 2400);
+  popupResolver = null;
+  return Promise.resolve();
 };
 
 renderProfile = function renderProfileRedesigned(bundle) {
@@ -4907,6 +5236,7 @@ renderProfile = function renderProfileRedesigned(bundle) {
     "#inventory-card",
     "#technique-card",
     "#official-shop-card",
+    "#official-recycle-card",
     "#market-card",
     "#auction-card",
     "#leaderboard-card",
@@ -5031,7 +5361,7 @@ renderProfile = function renderProfileRedesigned(bundle) {
     hints.push(duelLockReason);
   }
   if (retreating) {
-    hints.push("闭关期间无法进行大部分主动操作。");
+    hints.push("闭关期间可继续回收、服丹、钓鱼与奇石操作；若要突破、经营店铺或参与多数交易，请先出关。");
   } else {
     if (!bundle.capabilities?.can_train) hints.push("今日吐纳次数已用完。");
     if (!bundle.capabilities?.can_breakthrough) hints.push("当前还未满足突破条件。");
@@ -5068,10 +5398,10 @@ renderProfile = function renderProfileRedesigned(bundle) {
     .forEach((selector) => setDisabled(document.querySelector(selector), retreating || Boolean(duelLockReason), shopDisabledReason));
   setDisabled(document.querySelector("#shop-name-toggle"), retreating || Boolean(duelLockReason), shopDisabledReason);
   setDisabled(document.querySelector("#personal-shop-form button[type='submit']"), retreating || Boolean(duelLockReason), shopDisabledReason);
-  const officialRecycleDisabledReason = retreating ? "闭关期间无法进行官方回收。" : duelLockReason;
+  const officialRecycleDisabledReason = duelLockReason;
   ["#official-recycle-kind", "#official-recycle-item-ref", "#official-recycle-quantity"]
-    .forEach((selector) => setDisabled(document.querySelector(selector), retreating || Boolean(duelLockReason), officialRecycleDisabledReason));
-  setDisabled(document.querySelector("#official-recycle-form button[type='submit']"), retreating || Boolean(duelLockReason), officialRecycleDisabledReason);
+    .forEach((selector) => setDisabled(document.querySelector(selector), Boolean(duelLockReason), officialRecycleDisabledReason));
+  setDisabled(document.querySelector("#official-recycle-form button[type='submit']"), Boolean(duelLockReason), officialRecycleDisabledReason);
   const auctionDisabledReason = retreating ? "闭关期间无法发起拍卖。" : duelLockReason;
   ["#auction-item-kind", "#auction-item-ref", "#auction-quantity", "#auction-opening-price", "#auction-bid-increment", "#auction-buyout-price"]
     .forEach((selector) => setDisabled(document.querySelector(selector), retreating || Boolean(duelLockReason), auctionDisabledReason));
@@ -6170,6 +6500,7 @@ renderProfile = function renderProfileWithMarriage(bundle) {
       "#inventory-card",
       "#technique-card",
       "#official-shop-card",
+      "#official-recycle-card",
       "#market-card",
       "#auction-card",
       "#leaderboard-card",
@@ -6472,7 +6803,7 @@ function renderGamblingArea(bundle) {
       <p>${escapeHtml(entry.item_kind_label || entry.item_kind || "物品")} · 当前概率 ${escapeHtml(formatChancePercent(entry.chance_percent || 0))}</p>
       <div class="item-tags">
         <span class="tag">掉落数量 ${escapeHtml(gamblingQuantityText(entry))}</span>
-        <span class="tag">基础权重 ${escapeHtml(entry.base_weight || 0)}</span>
+        <span class="tag">奇石权重 ${escapeHtml(entry.gambling_weight ?? entry.base_weight ?? 0)}</span>
         <span class="tag">修正权重 ${escapeHtml(Number(entry.effective_weight || 0).toFixed(3).replace(/\.?0+$/, ""))}</span>
       </div>
     </article>
@@ -6493,10 +6824,9 @@ renderProfile = function renderProfileWithGambling(bundle) {
 
   renderGamblingArea(bundle);
   const gambling = bundle?.gambling || {};
-  const retreating = Boolean(bundle?.capabilities?.is_in_retreat);
   const duelLockReason = currentDuelLockReason(bundle);
   const poolBlockedReason = Number(gambling.pool_size || 0) > 0 ? "" : "当前赌坊奖池尚未配置。";
-  const disabledReason = retreating ? "闭关期间无法进入赌坊。" : (duelLockReason || poolBlockedReason);
+  const disabledReason = duelLockReason || poolBlockedReason;
   ["#gambling-exchange-count", "#gambling-open-count"].forEach((selector) => {
     setDisabled(document.querySelector(selector), Boolean(disabledReason), disabledReason);
   });
@@ -6676,8 +7006,14 @@ document.addEventListener("click", async (event) => {
   }
 });
 
+document.querySelector("#wiki-card")?.addEventListener("toggle", (event) => {
+  if (!event.currentTarget?.open) return;
+  ensureWikiBundle().catch(() => null);
+});
+
 document.querySelector("#wiki-search")?.addEventListener("input", (event) => {
   state.wikiSearchQuery = String(event.target?.value || "").trim();
+  ensureWikiBundle().catch(() => null);
   renderWikiArea();
 });
 
@@ -6685,6 +7021,7 @@ document.querySelector("#wiki-filter-row")?.addEventListener("click", (event) =>
   const button = event.target.closest("[data-wiki-filter]");
   if (!button) return;
   state.wikiFilter = button.dataset.wikiFilter || "all";
+  ensureWikiBundle().catch(() => null);
   renderWikiArea();
 });
 

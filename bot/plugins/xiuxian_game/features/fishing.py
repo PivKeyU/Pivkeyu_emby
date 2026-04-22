@@ -9,7 +9,6 @@ from bot.sql_helper.sql_xiuxian import (
     QUALITY_LEVEL_COLORS,
     QUALITY_LEVEL_LABELS,
     XiuxianProfile,
-    XiuxianUserRecipe,
     apply_spiritual_stone_delta,
     assert_profile_alive,
     create_journal,
@@ -18,12 +17,10 @@ from bot.sql_helper.sql_xiuxian import (
     grant_artifact_to_user,
     grant_material_to_user,
     grant_pill_to_user,
-    grant_recipe_to_user,
     grant_talisman_to_user,
     list_artifacts,
     list_materials,
     list_pills,
-    list_recipes,
     list_talismans,
     realm_index,
 )
@@ -53,7 +50,7 @@ FISHING_SPOTS: dict[str, dict[str, Any]] = {
         "quality_min": 1,
         "quality_max": 4,
         "tier_weights": {1: 420, 2: 250, 3: 110, 4: 28},
-        "kind_weights": {"material": 0.88, "pill": 0.45, "talisman": 0.24, "recipe": 0.08},
+        "kind_weights": {"material": 0.88, "pill": 0.45, "talisman": 0.24},
         "fortune_scale": 0.48,
     },
     "lava_pool": {
@@ -66,7 +63,7 @@ FISHING_SPOTS: dict[str, dict[str, Any]] = {
         "quality_min": 2,
         "quality_max": 5,
         "tier_weights": {2: 360, 3: 190, 4: 72, 5: 18},
-        "kind_weights": {"material": 0.72, "pill": 0.56, "talisman": 0.18, "artifact": 0.14, "recipe": 0.06},
+        "kind_weights": {"material": 0.72, "pill": 0.56, "talisman": 0.18, "artifact": 0.14},
         "fortune_scale": 0.62,
     },
     "star_sea": {
@@ -79,7 +76,7 @@ FISHING_SPOTS: dict[str, dict[str, Any]] = {
         "quality_min": 3,
         "quality_max": 7,
         "tier_weights": {3: 290, 4: 170, 5: 70, 6: 16, 7: 3},
-        "kind_weights": {"material": 0.65, "pill": 0.42, "talisman": 0.28, "artifact": 0.18, "recipe": 0.12},
+        "kind_weights": {"material": 0.65, "pill": 0.42, "talisman": 0.28, "artifact": 0.18},
         "fortune_scale": 0.82,
     },
 }
@@ -93,17 +90,28 @@ def _legacy_service():
     return legacy_service
 
 
+def _shared_reward_pool(settings: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    service = _legacy_service()
+    current_settings = settings or service.get_xiuxian_settings()
+    return service._configured_gambling_pool(current_settings)
+
+
 def _weighted_choice(rows: list[dict[str, Any]], weight_key: str = "weight") -> dict[str, Any] | None:
     if not rows:
         return None
-    total = sum(max(int(item.get(weight_key) or 0), 1) for item in rows)
-    cursor = random.randint(1, max(total, 1))
-    passed = 0
-    for item in rows:
-        passed += max(int(item.get(weight_key) or 0), 1)
+    weighted_rows = [(item, max(float(item.get(weight_key) or 0.0), 0.0)) for item in rows]
+    total = sum(weight for _, weight in weighted_rows)
+    if total <= 0:
+        return None
+    cursor = random.random() * total
+    passed = 0.0
+    for item, weight in weighted_rows:
+        if weight <= 0:
+            continue
+        passed += weight
         if cursor <= passed:
             return item
-    return rows[-1]
+    return weighted_rows[-1][0]
 
 
 def _grant_item_by_kind(tg: int, kind: str, ref_id: int, quantity: int) -> None:
@@ -118,9 +126,6 @@ def _grant_item_by_kind(tg: int, kind: str, ref_id: int, quantity: int) -> None:
         return
     if kind == "material":
         grant_material_to_user(tg, ref_id, quantity)
-        return
-    if kind == "recipe":
-        grant_recipe_to_user(tg, ref_id, source="fishing", obtained_note="垂钓所得")
         return
     raise ValueError("不支持的钓获物类型")
 
@@ -194,57 +199,40 @@ def _build_fishing_candidates(
     item_lookups: dict[str, dict[int, dict[str, Any]]],
     *,
     owned_recipe_ids: set[int] | None = None,
+    settings: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for kind in ("material", "pill", "talisman", "artifact"):
-        for item in item_lookups.get(kind, {}).values():
-            quality_level = _item_quality_level(kind, item)
-            quantity_min, quantity_max = _catch_quantity_range(kind, quality_level)
-            quality = _quality_meta(quality_level)
-            rows.append(
-                {
-                    "kind": kind,
-                    "kind_label": ITEM_KIND_LABELS.get(kind, kind),
-                    "ref_id": int(item.get("id") or 0),
-                    "name": str(item.get("name") or "").strip(),
-                    "item": item,
-                    "quality_level": quality_level,
-                    "quality_label": quality["label"],
-                    "quality_color": quality["color"],
-                    "quantity_min": quantity_min,
-                    "quantity_max": quantity_max,
-                }
-            )
-
-    owned = owned_recipe_ids or set()
-    for recipe in list_recipes(enabled_only=True):
-        recipe_id = int(recipe.get("id") or 0)
-        if recipe_id <= 0 or recipe_id in owned:
+    _ = owned_recipe_ids
+    for entry in _shared_reward_pool(settings):
+        if not bool(entry.get("fishing_enabled", entry.get("enabled", True))):
             continue
-        result_kind = str(recipe.get("result_kind") or "").strip()
-        result_ref_id = int(recipe.get("result_ref_id") or 0)
-        result_item = (item_lookups.get(result_kind) or {}).get(result_ref_id)
-        if not result_item:
+        kind = str(entry.get("item_kind") or "").strip()
+        ref_id = int(entry.get("item_ref_id") or 0)
+        if kind not in {"material", "pill", "talisman", "artifact"} or ref_id <= 0:
             continue
-        quality_level = _item_quality_level(result_kind, result_item)
+        item = (item_lookups.get(kind) or {}).get(ref_id)
+        if not item:
+            continue
+        if kind == "pill" and str(item.get("pill_type") or "").strip() == "foundation":
+            continue
+        quality_level = _item_quality_level(kind, item)
         quality = _quality_meta(quality_level)
-        recipe_payload = dict(recipe)
-        recipe_payload["result_item"] = result_item
         rows.append(
             {
-                "kind": "recipe",
-                "kind_label": ITEM_KIND_LABELS.get("recipe", "配方"),
-                "ref_id": recipe_id,
-                "name": str(recipe.get("name") or "").strip(),
-                "item": recipe_payload,
+                "kind": kind,
+                "kind_label": ITEM_KIND_LABELS.get(kind, kind),
+                "ref_id": ref_id,
+                "name": str(item.get("name") or "").strip(),
+                "item": item,
                 "quality_level": quality_level,
                 "quality_label": quality["label"],
                 "quality_color": quality["color"],
-                "quantity_min": 1,
-                "quantity_max": 1,
+                "quantity_min": max(int(entry.get("quantity_min") or 1), 1),
+                "quantity_max": max(int(entry.get("quantity_max") or entry.get("quantity_min") or 1), max(int(entry.get("quantity_min") or 1), 1)),
+                "fishing_weight": max(float(entry.get("fishing_weight", entry.get("base_weight") or 0.0) or 0.0), 0.0),
             }
         )
-    return [row for row in rows if row.get("ref_id") and row.get("name")]
+    return [row for row in rows if row.get("ref_id") and row.get("name") and float(row.get("fishing_weight") or 0.0) > 0]
 
 
 def _spot_candidates(spot: dict[str, Any], candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -259,9 +247,12 @@ def _spot_candidates(spot: dict[str, Any], candidates: list[dict[str, Any]]) -> 
     ]
 
 
-def _tier_weights_for_spot(spot: dict[str, Any], fortune: int, tiers: set[int]) -> list[dict[str, Any]]:
+def _tier_weights_for_spot(spot: dict[str, Any], fortune: int, tiers: set[int], settings: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     if not tiers:
         return []
+    service = _legacy_service()
+    current_settings = settings or service.get_xiuxian_settings()
+    quality_rules = service._normalize_fishing_quality_weight_rules(current_settings.get("fishing_quality_weight_rules"))
     available_tiers = sorted(tiers)
     median_tier = available_tiers[len(available_tiers) // 2]
     luck_delta = max(min((int(fortune or 0) - 12) / 20.0, 1.8), -0.35)
@@ -274,7 +265,14 @@ def _tier_weights_for_spot(spot: dict[str, Any], fortune: int, tiers: set[int]) 
         shift = int(tier) - int(median_tier)
         multiplier = 1.0 + shift * luck_delta * fortune_scale
         multiplier = max(min(multiplier, 3.4), 0.25)
-        rows.append({"quality_level": tier, "weight": max(int(round(base_weight * multiplier)), 1)})
+        quality_multiplier = max(
+            float((quality_rules.get(_quality_meta(tier)["label"]) or {}).get("weight_multiplier", 1.0) or 0.0),
+            0.0,
+        )
+        total_weight = base_weight * multiplier * quality_multiplier
+        if total_weight <= 0:
+            continue
+        rows.append({"quality_level": tier, "weight": total_weight})
     return rows
 
 
@@ -297,7 +295,7 @@ def _preview_rewards(candidates: list[dict[str, Any]], limit: int = PREVIEW_REWA
     rows: list[dict[str, Any]] = []
     seen_names: set[str] = set()
     preferred: list[dict[str, Any]] = []
-    for kind in ("artifact", "recipe", "talisman", "pill", "material"):
+    for kind in ("artifact", "talisman", "pill", "material"):
         kind_rows = [row for row in candidates if row.get("kind") == kind]
         kind_rows.sort(key=lambda item: (-int(item.get("quality_level") or 0), str(item.get("name") or "")))
         if kind_rows:
@@ -339,11 +337,11 @@ def _build_spot_bundle(spot: dict[str, Any], profile: XiuxianProfile, candidates
         available_reason = f"需达到 {_spot_requirement_text(spot)}"
 
     tier_weights = _tier_weights_for_spot(spot, int(profile.fortune or 0), {int(row.get("quality_level") or 0) for row in candidates})
-    total_weight = sum(max(int(row.get("weight") or 0), 1) for row in tier_weights)
+    total_weight = sum(max(float(row.get("weight") or 0.0), 0.0) for row in tier_weights)
     odds_preview = [
         {
             **_quality_meta(int(row.get("quality_level") or 1)),
-            "chance_percent": round(max(int(row.get("weight") or 0), 1) * 100 / max(total_weight, 1), 1),
+            "chance_percent": round(max(float(row.get("weight") or 0.0), 0.0) * 100 / max(total_weight, 1.0), 1),
         }
         for row in tier_weights
     ]
@@ -369,6 +367,7 @@ def _build_spot_bundle(spot: dict[str, Any], profile: XiuxianProfile, candidates
 
 def build_fishing_bundle(tg: int) -> dict[str, Any]:
     _legacy_service().ensure_seed_data()
+    settings = _legacy_service().get_xiuxian_settings()
     profile = get_profile(tg, create=False)
     if profile is None or not profile.consented:
         return {
@@ -378,24 +377,19 @@ def build_fishing_bundle(tg: int) -> dict[str, Any]:
             "note": "踏入仙途后才能开始垂钓。",
         }
     item_lookups = _build_item_lookups()
-    with Session() as session:
-        owned_recipe_ids = {
-            int(row.recipe_id)
-            for row in session.query(XiuxianUserRecipe).filter(XiuxianUserRecipe.tg == int(tg)).all()
-        }
-    base_candidates = _build_fishing_candidates(item_lookups, owned_recipe_ids=owned_recipe_ids)
+    base_candidates = _build_fishing_candidates(item_lookups, settings=settings)
     spots = [_build_spot_bundle(spot, profile, _spot_candidates(spot, base_candidates)) for spot in FISHING_SPOTS.values()]
     return {
         "spots": spots,
         "current_fortune": max(int(profile.fortune or 0), 0),
         "available_spot_count": sum(1 for spot in spots if spot.get("available")),
-        "note": "高品阶物品基础权重更低；真正抛竿时会按你当前有效机缘重新抬升高品阶命中率。",
+        "note": "垂钓与仙界奇石共用同一套奖励池，但会额外压低高品阶权重；破境丹与丹方仅能在对应秘境中获取。",
     }
 
 
 def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
     _legacy_service().ensure_seed_data()
-    _legacy_service().ensure_not_in_retreat(tg)
+    settings = _legacy_service().get_xiuxian_settings()
     spot = FISHING_SPOTS.get(str(spot_key or "").strip())
     if not spot:
         raise ValueError("钓场不存在")
@@ -412,21 +406,13 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
         if not _meets_realm_requirement(profile, spot.get("min_realm_stage"), int(spot.get("min_realm_layer") or 1)):
             raise ValueError(f"前往 {spot['name']} 需达到 {_spot_requirement_text(spot)}")
 
-        owned_recipe_ids = {
-            int(row.recipe_id)
-            for row in (
-                session.query(XiuxianUserRecipe)
-                .filter(XiuxianUserRecipe.tg == int(tg))
-                .all()
-            )
-        }
-        base_candidates = _build_fishing_candidates(_build_item_lookups(), owned_recipe_ids=owned_recipe_ids)
+        base_candidates = _build_fishing_candidates(_build_item_lookups(), settings=settings)
         candidates = _spot_candidates(spot, base_candidates)
         if not candidates:
             raise ValueError("该钓场当前没有可钓取的奖励")
 
         tier_pick = _weighted_choice(
-            _tier_weights_for_spot(spot, effective_fortune, {int(row.get("quality_level") or 0) for row in candidates}),
+            _tier_weights_for_spot(spot, effective_fortune, {int(row.get("quality_level") or 0) for row in candidates}, settings),
             weight_key="weight",
         )
         if not tier_pick:
@@ -438,7 +424,9 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
             raise ValueError("当前钓场没有可用的奖励种类")
         chosen_kind = str(kind_pick.get("kind") or "")
         kind_candidates = [row for row in tier_candidates if str(row.get("kind") or "") == chosen_kind]
-        chosen = random.choice(kind_candidates)
+        chosen = _weighted_choice(kind_candidates, weight_key="fishing_weight")
+        if not chosen:
+            raise ValueError("当前钓场没有可用的奖励物品")
 
         cast_cost_stone = max(int(spot.get("cast_cost_stone") or 0), 0)
         if cast_cost_stone > 0:
@@ -476,8 +464,6 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
         luck_note = "机缘牵引之下，钓线拽起了更高品阶的宝物。"
     elif quality_level >= 6:
         luck_note = "浪潮深处只浮起一瞬异光，你险些错过这件重宝。"
-    elif chosen_kind == "recipe":
-        luck_note = "古旧残谱被水流卷上岸，竟仍保留着完整传承。"
     message = f"你在 {spot['name']} 抛竿，钓起了 {quality['label']}{kind_label}【{reward_name}】"
     if quantity > 1:
         message += f" ×{quantity}"

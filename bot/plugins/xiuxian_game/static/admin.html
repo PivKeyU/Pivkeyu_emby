@@ -4,6 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>修仙后台</title>
+  <link rel="preconnect" href="https://telegram.org" crossorigin>
+  <link rel="preload" href="https://telegram.org/js/telegram-web-app.js" as="script" crossorigin>
+  <link rel="preload" href="/plugins/xiuxian/static/admin.css" as="style">
+  <link rel="preload" href="/plugins/xiuxian/static/admin.js" as="script">
+  <link rel="preload" href="/plugins/xiuxian/static/admin-advanced.js" as="script">
   <link rel="stylesheet" href="/plugins/xiuxian/static/admin.css">
 </head>
 <body>
@@ -206,8 +211,8 @@
           <section class="setting-panel setting-panel--full">
             <div class="setting-panel-head">
               <div>
-                <strong>赌坊与仙界奇石</strong>
-                <p>配置奇石兑换成本、机缘加成、高品群播阈值与实际奖池。</p>
+                <strong>仙界奇石与垂钓</strong>
+                <p>奇石和垂钓共用一套奖池，可分别调权重、开关与高品压制规则，手机端也能直接改。</p>
               </div>
             </div>
             <div class="setting-panel-grid">
@@ -221,7 +226,7 @@
               </label>
               <label>
                 单次最多开启
-                <input id="setting-gambling-open-max" type="number" min="1" value="20">
+                <input id="setting-gambling-open-max" type="number" min="1" value="100">
               </label>
               <label>
                 赌坊群播阈值
@@ -245,8 +250,15 @@
             </div>
             <div class="builder-section wide-field">
               <div class="builder-head">
-                <strong>赌坊奖池</strong>
-                <span class="summary-tip">支持法宝、丹药、符箓、材料；删除后不会进入抽奖池</span>
+                <strong>垂钓品阶权重修正</strong>
+                <span class="summary-tip">单独压低高品阶垂钓产出，不影响仙界奇石。</span>
+              </div>
+              <div id="setting-fishing-quality-rows" class="builder-list"></div>
+            </div>
+            <div class="builder-section wide-field">
+              <div class="builder-head">
+                <strong>奇石 / 钓鱼共享奖池</strong>
+                <span class="summary-tip">支持法宝、丹药、符箓、材料；可分别控制奇石与垂钓是否掉落、以及各自权重。</span>
               </div>
               <div class="inline-action-buttons">
                 <button id="setting-gambling-pool-add" type="button" class="secondary">新增奖池物品</button>
@@ -292,7 +304,7 @@
           <p class="eyebrow" data-section-key="duel-settings">斗法设定</p>
           <h2>斗法与装备规则</h2>
         </div>
-        <span class="summary-tip">把斗法倒计时、掠夺比例、法宝位和解绑成本独立管理</span>
+        <span class="summary-tip">把斗法倒计时、擂台手续费、掠夺比例、法宝位和解绑成本独立管理</span>
       </summary>
       <div class="fold-body">
         <form id="duel-settings-form" class="grid-form settings-layout">
@@ -300,7 +312,7 @@
             <div class="setting-panel-head">
               <div>
                 <strong>斗法核心参数</strong>
-                <p>影响赌斗节奏、法宝掠夺和装备管理成本。</p>
+                <p>影响赌斗节奏、擂台收费、法宝掠夺和装备管理成本。</p>
               </div>
             </div>
             <div class="setting-panel-grid">
@@ -327,6 +339,14 @@
               <label>
                 邀请自动撤销时限（秒）
                 <input id="setting-duel-invite-timeout" type="number" min="10" max="1800" value="90">
+              </label>
+              <label>
+                开擂手续费（灵石）
+                <input id="setting-arena-open-fee" type="number" min="0" value="0">
+              </label>
+              <label>
+                攻擂手续费（灵石）
+                <input id="setting-arena-challenge-fee" type="number" min="0" value="0">
               </label>
               <label>
                 胜者额外掠夺比例（%）
@@ -1932,8 +1952,8 @@
     </details>
   </main>
 
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="/plugins/xiuxian/static/admin.js"></script>
-  <script src="/plugins/xiuxian/static/admin-advanced.js"></script>
+  <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script defer src="/plugins/xiuxian/static/admin.js"></script>
+  <script defer src="/plugins/xiuxian/static/admin-advanced.js"></script>
 </body>
 </html>

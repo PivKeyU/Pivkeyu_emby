@@ -104,8 +104,9 @@ from bot.sql_helper.sql_xiuxian import (
     upsert_profile,
     utcnow,
 )
-from bot.plugins.xiuxian_game.probability import roll_probability_percent
+from bot.plugins.xiuxian_game.probability import adjust_probability_percent, roll_probability_percent
 from bot.plugins.xiuxian_game.achievement_service import (
+    record_achievement_progress,
     record_craft_metrics,
     record_exploration_metrics,
     record_gift_metrics,
@@ -1425,6 +1426,7 @@ def _material_source_catalog() -> dict[int, list[str]]:
 def build_recipe_catalog(tg: int | None = None) -> list[dict[str, Any]]:
     material_sources = _material_source_catalog()
     rows = []
+    profile = serialize_profile(get_profile(tg, create=False)) if tg is not None else None
     source_rows: list[dict[str, Any]]
     if tg is None:
         source_rows = list_recipes(enabled_only=True)
@@ -1448,6 +1450,9 @@ def build_recipe_catalog(tg: int | None = None) -> list[dict[str, Any]]:
             ingredients.append(ingredient)
         recipe["ingredients"] = ingredients
         recipe["result_item"] = _get_item_payload(recipe["result_kind"], int(recipe["result_ref_id"]))
+        if profile and profile.get("consented"):
+            preview = _recipe_success_preview(recipe, ingredients, profile, recipe["result_item"])
+            recipe["current_success_rate"] = preview["current_success_rate"]
         recipe.setdefault("owned", True)
         rows.append(recipe)
     return rows
@@ -1866,12 +1871,19 @@ def _build_exploration_outcome(
     }
 
 
-def craft_recipe_for_user(tg: int, recipe_id: int) -> dict[str, Any]:
+def craft_recipe_for_user(tg: int, recipe_id: int, quantity: int = 1) -> dict[str, Any]:
     recipe = serialize_recipe(get_recipe(recipe_id))
     if recipe is None or not recipe.get("enabled"):
         raise ValueError("配方不存在")
     if not any(int((row.get("recipe") or {}).get("id") or 0) == int(recipe_id) for row in list_user_recipes(tg, enabled_only=True)):
         raise ValueError("你尚未掌握这张配方，无法开炉炼制")
+    requested_quantity = int(quantity or 1)
+    if requested_quantity <= 0:
+        raise ValueError("炼制数量必须大于 0")
+    if requested_quantity > 99:
+        raise ValueError("单次最多只能连续炼制 99 炉")
+    if str(recipe.get("recipe_kind") or "") != "pill" and requested_quantity > 1:
+        raise ValueError("当前仅丹药配方支持批量炼制")
     profile = serialize_profile(get_profile(tg, create=False))
     if not profile or not profile.get("consented"):
         raise ValueError("你还没有踏入仙途")
@@ -1882,13 +1894,12 @@ def craft_recipe_for_user(tg: int, recipe_id: int) -> dict[str, Any]:
     if result_item is None:
         raise ValueError("该配方的成品配置无效，请联系管理员修复后再炼制")
     inventory_map = {row["material"]["id"]: row for row in list_user_materials(tg)}
-    total_quality = 0
-    total_count = 0
     with Session() as session:
         for item in ingredients:
             material_id = int(item["material_id"])
             owned = inventory_map.get(material_id)
-            if owned is None or int(owned["quantity"] or 0) < int(item["quantity"] or 0):
+            required_quantity = int(item["quantity"] or 0) * requested_quantity
+            if owned is None or int(owned["quantity"] or 0) < required_quantity:
                 raise ValueError(f"材料不足：{item['material']['name']}")
             row = (
                 session.query(XiuxianMaterialInventory)
@@ -1896,64 +1907,163 @@ def craft_recipe_for_user(tg: int, recipe_id: int) -> dict[str, Any]:
                 .with_for_update()
                 .first()
             )
-            if row is None or row.quantity < int(item["quantity"] or 0):
+            if row is None or row.quantity < required_quantity:
                 raise ValueError("材料数量已变更，请重新尝试")
-            row.quantity -= int(item["quantity"] or 0)
+            row.quantity -= required_quantity
             row.updated_at = utcnow()
             if row.quantity <= 0:
                 session.delete(row)
-            total_quality += int(item["material"].get("quality_level", 1) or 1) * int(item["quantity"] or 0)
-            total_count += int(item["quantity"] or 0)
         session.commit()
-    result_quality = _quality_from_item(recipe["result_kind"], result_item)
-    avg_material_quality = total_quality / max(total_count, 1)
+    preview = _recipe_success_preview(
+        recipe,
+        ingredients,
+        profile,
+        result_item,
+    )
+    result_quality = int(preview["result_quality"])
+    fortune = int(preview["fortune"])
+    success_rate = float(preview["raw_success_rate"])
+    rolls: list[int] = []
+    success_count = 0
+    failure_count = 0
+    for _ in range(requested_quantity):
+        success_roll = roll_probability_percent(
+            success_rate,
+            actor_fortune=fortune,
+            actor_weight=0.25,
+            minimum=5,
+            maximum=95,
+        )
+        rolls.append(int(success_roll["roll"]))
+        success_rate = float(success_roll["chance"])
+        if bool(success_roll["success"]):
+            success_count += 1
+        else:
+            failure_count += 1
+    success = success_count > 0
+    total_reward_quantity = success_count * int(recipe["result_quantity"])
+    reward = None
+    if total_reward_quantity > 0:
+        reward = _grant_item_by_kind(tg, recipe["result_kind"], int(recipe["result_ref_id"]), total_reward_quantity)
+        if requested_quantity > 1:
+            create_journal(
+                tg,
+                "craft",
+                "批量炼制成功",
+                f"连续开炉 {requested_quantity} 次，成功 {success_count} 次，炼成【{(result_item or {}).get('name', '成品')}】×{total_reward_quantity}",
+            )
+        else:
+            create_journal(tg, "craft", "炼制成功", f"成功炼制【{(result_item or {}).get('name', '成品')}】")
+    else:
+        if requested_quantity > 1:
+            create_journal(
+                tg,
+                "craft",
+                "批量炼制失败",
+                f"连续开炉 {requested_quantity} 次，尝试炼制【{(result_item or {}).get('name', '成品')}】但全部失败",
+            )
+        else:
+            create_journal(tg, "craft", "炼制失败", f"尝试炼制【{(result_item or {}).get('name', '成品')}】但失败了")
+    ingredient_names = {str((item.get("material") or {}).get("name") or "") for item in ingredients}
+    is_repair_recipe = any("破损" in name or "残片" in name for name in ingredient_names) or "修复" in str(recipe.get("name") or "")
+    if requested_quantity == 1:
+        achievement_unlocks = record_craft_metrics(tg, success=success, repair_success=bool(success and is_repair_recipe))
+    else:
+        increments = {
+            "craft_attempt_count": requested_quantity,
+            "craft_success_count": success_count,
+        }
+        if is_repair_recipe and success_count > 0:
+            increments["repair_success_count"] = success_count
+        achievement_unlocks = record_achievement_progress(tg, increments, source="craft")["unlocks"] if any(
+            int(value or 0) > 0 for value in increments.values()
+        ) else []
+    partial_success = success_count > 0 and failure_count > 0
+    if requested_quantity > 1:
+        if total_reward_quantity > 0:
+            summary_text = (
+                f"连续炼制 {requested_quantity} 炉，成功 {success_count} 炉，失败 {failure_count} 炉，"
+                f"共获得 {(result_item or {}).get('name', '成品')} ×{total_reward_quantity}"
+            )
+        else:
+            summary_text = f"连续炼制 {requested_quantity} 炉，全部失败，材料已消耗"
+    else:
+        summary_text = "炼制成功，成品已发放。" if success else "炼制失败，材料已消耗。"
+    return {
+        "success": success,
+        "all_success": success_count == requested_quantity,
+        "partial_success": partial_success,
+        "roll": rolls[0] if len(rolls) == 1 else None,
+        "rolls": rolls if len(rolls) > 1 else [],
+        "success_rate": success_rate,
+        "current_success_rate": float(preview["current_success_rate"]),
+        "recipe": recipe,
+        "result_item": result_item,
+        "result_quality": result_quality,
+        "reward": reward,
+        "requested_quantity": requested_quantity,
+        "crafted_times": requested_quantity,
+        "success_count": success_count,
+        "failure_count": failure_count,
+        "total_reward_quantity": total_reward_quantity,
+        "summary_text": summary_text,
+        "should_broadcast": bool(success and recipe.get("broadcast_on_success") and result_quality >= int(get_xiuxian_settings().get("high_quality_broadcast_level", DEFAULT_SETTINGS["high_quality_broadcast_level"]) or 4)),
+        "profile": serialize_profile(get_profile(tg, create=False)),
+        "achievement_unlocks": achievement_unlocks,
+    }
+
+
+def _recipe_success_preview(
+    recipe: dict[str, Any],
+    ingredients: list[dict[str, Any]],
+    profile: dict[str, Any],
+    result_item: dict[str, Any] | None = None,
+    *,
+    total_quality: int | None = None,
+    total_count: int | None = None,
+) -> dict[str, Any]:
+    result_payload = result_item or _get_item_payload(str(recipe.get("result_kind") or ""), int(recipe.get("result_ref_id") or 0))
+    result_quality = _quality_from_item(str(recipe.get("result_kind") or ""), result_payload)
+    if total_quality is None or total_count is None:
+        computed_total_quality = 0
+        computed_total_count = 0
+        for item in ingredients or []:
+            quantity = int(item.get("quantity") or 0)
+            material = item.get("material") or {}
+            computed_total_quality += int(material.get("quality_level", 1) or 1) * quantity
+            computed_total_count += quantity
+        total_quality = computed_total_quality
+        total_count = computed_total_count
+    avg_material_quality = float(total_quality or 0) / max(int(total_count or 0), 1)
     sect_effects = get_sect_effects(profile)
     comprehension = int(profile.get("comprehension") or 0)
     fortune = int(profile.get("fortune") or 0)
     root_quality_level = int(profile.get("root_quality_level") or 1)
     quality_bonus = int(avg_material_quality * 4) - result_quality * 6
     attribute_bonus = max(comprehension - 12, 0) // 2 + max(fortune - 10, 0) // 3 + root_quality_level * 2
-    success_rate = (
-        int(recipe["base_success_rate"])
+    raw_success_rate = (
+        int(recipe.get("base_success_rate") or 0)
         + quality_bonus
         + attribute_bonus
         + int(sect_effects.get("cultivation_bonus", 0))
     )
     if str(profile.get("root_quality") or "") == "天灵根":
-        success_rate += 4
+        raw_success_rate += 4
     elif str(profile.get("root_quality") or "") == "变异灵根":
-        success_rate += 3
-    success_rate = max(min(success_rate, 95), 5)
-    success_roll = roll_probability_percent(
-        success_rate,
+        raw_success_rate += 3
+    raw_success_rate = max(min(raw_success_rate, 95), 5)
+    current_success_rate = adjust_probability_percent(
+        raw_success_rate,
         actor_fortune=fortune,
         actor_weight=0.25,
         minimum=5,
         maximum=95,
     )
-    roll = success_roll["roll"]
-    success_rate = success_roll["chance"]
-    success = bool(success_roll["success"])
-    reward = None
-    if success:
-        reward = _grant_item_by_kind(tg, recipe["result_kind"], int(recipe["result_ref_id"]), int(recipe["result_quantity"]))
-        create_journal(tg, "craft", "炼制成功", f"成功炼制【{(result_item or {}).get('name', '成品')}】")
-    else:
-        create_journal(tg, "craft", "炼制失败", f"尝试炼制【{(result_item or {}).get('name', '成品')}】但失败了")
-    ingredient_names = {str((item.get("material") or {}).get("name") or "") for item in ingredients}
-    is_repair_recipe = any("破损" in name or "残片" in name for name in ingredient_names) or "修复" in str(recipe.get("name") or "")
-    achievement_unlocks = record_craft_metrics(tg, success=success, repair_success=bool(success and is_repair_recipe))
     return {
-        "success": success,
-        "roll": roll,
-        "success_rate": success_rate,
-        "recipe": recipe,
-        "result_item": result_item,
         "result_quality": result_quality,
-        "reward": reward,
-        "should_broadcast": bool(success and recipe.get("broadcast_on_success") and result_quality >= int(get_xiuxian_settings().get("high_quality_broadcast_level", DEFAULT_SETTINGS["high_quality_broadcast_level"]) or 4)),
-        "profile": serialize_profile(get_profile(tg, create=False)),
-        "achievement_unlocks": achievement_unlocks,
+        "fortune": fortune,
+        "raw_success_rate": round(float(raw_success_rate), 2),
+        "current_success_rate": round(float(current_success_rate), 2),
     }
 
 

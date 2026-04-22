@@ -440,7 +440,7 @@ def _build_source_catalog(
             _unique_append(source_map, ("material", result_ref_id), f"炼制·{recipe_name}")
 
     for reward in get_xiuxian_settings().get("gambling_reward_pool") or []:
-        if not bool(reward.get("enabled", True)):
+        if not bool(reward.get("gambling_enabled", reward.get("enabled", True))):
             continue
         kind = str(reward.get("item_kind") or "").strip()
         ref_id = _resolve_item_ref_id(
