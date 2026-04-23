@@ -51,6 +51,33 @@ def load_versioned_json(
     return payload
 
 
+def load_multi_versioned_json(
+    *,
+    version_part_groups: tuple[tuple[Any, ...], ...],
+    cache_parts: tuple[Any, ...],
+    ttl: int,
+    loader: Callable[[], Any],
+) -> Any:
+    if not redis_cache.redis_enabled():
+        return loader()
+
+    resolved_cache_parts = list(cache_parts)
+    for parts in version_part_groups:
+        normalized = _normalize_parts(parts)
+        if not normalized:
+            continue
+        resolved_cache_parts.extend(("ver", *normalized, f"v{_version_token(*normalized)}"))
+
+    cache_key = _cache_key(*resolved_cache_parts)
+    cached, payload = redis_cache.get_json(cache_key)
+    if cached:
+        return payload
+
+    payload = loader()
+    redis_cache.set_json(cache_key, payload, ttl)
+    return payload
+
+
 def bump_settings_version() -> int:
     return redis_cache.increment(_version_key("settings"))
 

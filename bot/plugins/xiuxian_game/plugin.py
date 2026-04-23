@@ -210,7 +210,6 @@ from bot.plugins.xiuxian_game.features.marriage import (
 )
 from bot.plugins.xiuxian_game.features.miniapp_bundle import (
     build_bootstrap_core_bundle,
-    build_deferred_profile_sections,
     build_full_profile_bundle,
 )
 from bot.plugins.xiuxian_game.features.pills import consume_pill_for_user
@@ -1121,7 +1120,37 @@ def _bundle_runtime_flags(tg: int) -> dict[str, Any]:
 
 
 def _full_bundle(tg: int) -> dict[str, Any]:
-    return build_full_profile_bundle(tg, **_bundle_runtime_flags(tg))
+    from bot.plugins.xiuxian_game.cache import USER_VIEW_TTL, load_multi_versioned_json
+
+    flags = _bundle_runtime_flags(tg)
+    return load_multi_versioned_json(
+        version_part_groups=(
+            ("profile", tg),
+            ("user-view", tg),
+            ("settings",),
+            ("catalog", "artifacts"),
+            ("catalog", "materials"),
+            ("catalog", "pills"),
+            ("catalog", "recipes"),
+            ("catalog", "scenes"),
+            ("catalog", "sects"),
+            ("catalog", "shop-items"),
+            ("catalog", "talismans"),
+            ("catalog", "techniques"),
+            ("catalog", "titles"),
+        ),
+        cache_parts=(
+            "full-bundle",
+            tg,
+            int(bool(flags.get("can_upload_images"))),
+            str(flags.get("upload_image_reason") or ""),
+            int(bool(flags.get("allow_non_admin_image_upload"))),
+            int(bool(flags.get("is_admin"))),
+            str(flags.get("admin_panel_url") or ""),
+        ),
+        ttl=min(USER_VIEW_TTL, 5),
+        loader=lambda: build_full_profile_bundle(tg, **flags),
+    )
 
 
 def _bootstrap_core_bundle(tg: int) -> dict[str, Any]:
@@ -1135,7 +1164,7 @@ def _bootstrap_core_bundle(tg: int) -> dict[str, Any]:
 
 
 def _deferred_bundle_sections(tg: int) -> dict[str, Any]:
-    return build_deferred_profile_sections(tg, **_bundle_runtime_flags(tg))
+    return _full_bundle(tg)
 
 
 def _with_full_bundle(tg: int, payload: Any, *, field: str = "result") -> dict[str, Any]:

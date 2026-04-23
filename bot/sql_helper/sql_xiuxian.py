@@ -7321,24 +7321,39 @@ def replace_recipe_ingredients(recipe_id: int, ingredients: list[dict[str, Any]]
 
 
 def list_recipe_ingredients(recipe_id: int) -> list[dict[str, Any]]:
-    with Session() as session:
-        rows = (
-            session.query(XiuxianRecipeIngredient, XiuxianMaterial)
-            .join(XiuxianMaterial, XiuxianMaterial.id == XiuxianRecipeIngredient.material_id)
-            .filter(XiuxianRecipeIngredient.recipe_id == recipe_id)
-            .order_by(XiuxianRecipeIngredient.id.asc())
-            .all()
-        )
-        return [
-            {
-                "id": ingredient.id,
-                "recipe_id": ingredient.recipe_id,
-                "material_id": ingredient.material_id,
-                "quantity": ingredient.quantity,
-                "material": serialize_material(material),
-            }
-            for ingredient, material in rows
-        ]
+    recipe_value = int(recipe_id or 0)
+    if recipe_value <= 0:
+        return []
+
+    def _loader() -> list[dict[str, Any]]:
+        with Session() as session:
+            rows = (
+                session.query(XiuxianRecipeIngredient, XiuxianMaterial)
+                .join(XiuxianMaterial, XiuxianMaterial.id == XiuxianRecipeIngredient.material_id)
+                .filter(XiuxianRecipeIngredient.recipe_id == recipe_value)
+                .order_by(XiuxianRecipeIngredient.id.asc())
+                .all()
+            )
+            return [
+                {
+                    "id": ingredient.id,
+                    "recipe_id": ingredient.recipe_id,
+                    "material_id": ingredient.material_id,
+                    "quantity": ingredient.quantity,
+                    "material": serialize_material(material),
+                }
+                for ingredient, material in rows
+            ]
+
+    return xiuxian_cache.load_multi_versioned_json(
+        version_part_groups=(
+            ("catalog", "materials"),
+            ("catalog", "recipes"),
+        ),
+        cache_parts=("catalog", "recipes", "ingredients", recipe_value),
+        ttl=xiuxian_cache.CATALOG_TTL,
+        loader=_loader,
+    )
 
 
 def get_scene(scene_id: int) -> XiuxianScene | None:
@@ -7418,14 +7433,26 @@ def create_scene_drop(**fields) -> dict[str, Any]:
 
 
 def list_scene_drops(scene_id: int) -> list[dict[str, Any]]:
-    with Session() as session:
-        rows = (
-            session.query(XiuxianSceneDrop)
-            .filter(XiuxianSceneDrop.scene_id == scene_id)
-            .order_by(XiuxianSceneDrop.id.asc())
-            .all()
-        )
-        return [serialize_scene_drop(row) for row in rows]
+    scene_value = int(scene_id or 0)
+    if scene_value <= 0:
+        return []
+
+    def _loader() -> list[dict[str, Any]]:
+        with Session() as session:
+            rows = (
+                session.query(XiuxianSceneDrop)
+                .filter(XiuxianSceneDrop.scene_id == scene_value)
+                .order_by(XiuxianSceneDrop.id.asc())
+                .all()
+            )
+            return [serialize_scene_drop(row) for row in rows]
+
+    return xiuxian_cache.load_versioned_json(
+        version_parts=("catalog", "scenes"),
+        cache_parts=("catalog", "scenes", "drops", scene_value),
+        ttl=xiuxian_cache.CATALOG_TTL,
+        loader=_loader,
+    )
 
 
 def get_encounter_template(template_id: int) -> XiuxianEncounterTemplate | None:
