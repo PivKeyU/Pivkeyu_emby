@@ -95,6 +95,16 @@ def _env_int(name: str, default: int, minimum: int = 1) -> int:
         return default
 
 
+def _adaptive_pyrogram_workers() -> int:
+    cpu_count = max(int(os.cpu_count() or 2), 1)
+    return min(max(cpu_count * 4, 8), 32)
+
+
+def _adaptive_pyrogram_transmissions(workers: int) -> int:
+    baseline = max(int(workers or 0), 1) * 2
+    return min(max(baseline, 32), 96)
+
+
 def _validate_telegram_credentials():
     issues = []
 
@@ -209,8 +219,17 @@ from pyromod import Client
 proxy = {} if not config.proxy.scheme else config.proxy.dict()
 session_dir = Path("data/session")
 session_dir.mkdir(parents=True, exist_ok=True)
-pyrogram_workers = _env_int("PIVKEYU_PYROGRAM_WORKERS", 128, 1)
-pyrogram_max_concurrent_transmissions = _env_int("PIVKEYU_PYROGRAM_MAX_CONCURRENT_TRANSMISSIONS", 256, 1)
+pyrogram_workers = _env_int("PIVKEYU_PYROGRAM_WORKERS", _adaptive_pyrogram_workers(), 1)
+pyrogram_max_concurrent_transmissions = _env_int(
+    "PIVKEYU_PYROGRAM_MAX_CONCURRENT_TRANSMISSIONS",
+    _adaptive_pyrogram_transmissions(pyrogram_workers),
+    1,
+)
+LOGGER.info(
+    "Pyrogram 运行参数 workers=%s max_concurrent_transmissions=%s",
+    pyrogram_workers,
+    pyrogram_max_concurrent_transmissions,
+)
 
 bot = Client(bot_name, api_id=owner_api, api_hash=owner_hash, bot_token=bot_token, proxy=proxy,
              workdir=str(session_dir),

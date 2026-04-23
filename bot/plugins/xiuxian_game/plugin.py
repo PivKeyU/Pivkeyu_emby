@@ -9,7 +9,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
@@ -372,6 +372,12 @@ EVENT_SUMMARY_PINNED_MESSAGES: dict[int, int] = {}
 EVENT_SUMMARY_REFRESH_TASK: asyncio.Task | None = None
 EVENT_SUMMARY_LOOP_TASK: asyncio.Task | None = None
 EVENT_SUMMARY_REFRESH_LOCK: asyncio.Lock | None = None
+EVENT_SUMMARY_DIRTY_CHATS: set[int] = set()
+EVENT_SUMMARY_FORCE_FULL_REFRESH = False
+EVENT_SUMMARY_REQUEST_TOKEN = 0
+EVENT_SUMMARY_SNAPSHOT_CACHE: dict[str, Any] | None = None
+EVENT_SUMMARY_SNAPSHOT_CACHE_AT = 0.0
+EVENT_SUMMARY_SNAPSHOT_TTL_SECONDS = 15.0
 COMMAND_DISPATCH_CACHE: dict[tuple[int, int, str], float] = {}
 DUEL_SETTLEMENT_PAGE_SIZE = 10
 STATIC_ASSET_PATTERN = re.compile(r'(/plugins/xiuxian/static/([A-Za-z0-9_.-]+\.(?:css|js)))')
@@ -1274,7 +1280,34 @@ def _sort_active_notice_arenas(rows: list[dict[str, Any]]) -> list[dict[str, Any
     return sorted(rows, key=lambda item: REALM_ORDER.index(item.get("realm_stage")) if item.get("realm_stage") in REALM_ORDER else 999)
 
 
-def _event_summary_snapshot() -> dict[str, Any]:
+def _normalize_event_summary_chat_ids(chat_ids: int | Iterable[int] | None) -> set[int]:
+    if chat_ids is None:
+        return set()
+    source = (chat_ids,) if isinstance(chat_ids, int) else chat_ids
+    normalized: set[int] = set()
+    for chat_id in source:
+        value = int(chat_id or 0)
+        if value:
+            normalized.add(value)
+    return normalized
+
+
+def _invalidate_event_summary_snapshot() -> None:
+    global EVENT_SUMMARY_SNAPSHOT_CACHE, EVENT_SUMMARY_SNAPSHOT_CACHE_AT
+    EVENT_SUMMARY_SNAPSHOT_CACHE = None
+    EVENT_SUMMARY_SNAPSHOT_CACHE_AT = 0.0
+
+
+def _event_summary_snapshot(force_refresh: bool = False) -> dict[str, Any]:
+    global EVENT_SUMMARY_SNAPSHOT_CACHE, EVENT_SUMMARY_SNAPSHOT_CACHE_AT
+    now_monotonic = time.monotonic()
+    if (
+        not force_refresh
+        and EVENT_SUMMARY_SNAPSHOT_CACHE is not None
+        and now_monotonic - EVENT_SUMMARY_SNAPSHOT_CACHE_AT < EVENT_SUMMARY_SNAPSHOT_TTL_SECONDS
+    ):
+        return EVENT_SUMMARY_SNAPSHOT_CACHE
+
     shop_rows_by_chat: dict[int, list[dict[str, Any]]] = defaultdict(list)
     auction_rows_by_chat: dict[int, list[dict[str, Any]]] = defaultdict(list)
     arena_rows_by_chat: dict[int, list[dict[str, Any]]] = defaultdict(list)
@@ -1309,12 +1342,15 @@ def _event_summary_snapshot() -> dict[str, Any]:
             chat_ids.add(chat_id)
             arena_rows_by_chat[chat_id].append(row)
 
-    return {
+    snapshot = {
         "chat_ids": {chat_id for chat_id in chat_ids if chat_id},
         "shops": {chat_id: rows for chat_id, rows in shop_rows_by_chat.items()},
         "auctions": {chat_id: rows for chat_id, rows in auction_rows_by_chat.items()},
         "arenas": {chat_id: _sort_active_notice_arenas(rows) for chat_id, rows in arena_rows_by_chat.items()},
     }
+    EVENT_SUMMARY_SNAPSHOT_CACHE = snapshot
+    EVENT_SUMMARY_SNAPSHOT_CACHE_AT = now_monotonic
+    return snapshot
 
 
 def _active_notice_shop_items(chat_id: int, shop_rows_by_chat: dict[int, list[dict[str, Any]]] | None = None) -> list[dict[str, Any]]:
@@ -1545,13 +1581,21 @@ async def _refresh_event_summary_for_chat(
     await _pin_event_summary_message(resolved_chat_id, int(sent.id))
 
 
-async def _refresh_all_event_summaries() -> None:
+async def _refresh_all_event_summaries(
+    chat_ids: int | Iterable[int] | None = None,
+    *,
+    force_snapshot_refresh: bool = False,
+) -> None:
     async with _event_summary_lock():
-        snapshot = _event_summary_snapshot()
+        snapshot = _event_summary_snapshot(force_refresh=force_snapshot_refresh)
         auction_rows_by_chat = snapshot.get("auctions") or {}
         arena_rows_by_chat = snapshot.get("arenas") or {}
         shop_rows_by_chat = snapshot.get("shops") or {}
-        for chat_id in sorted(_event_summary_target_chat_ids(snapshot)):
+        target_chat_ids = _normalize_event_summary_chat_ids(chat_ids) or _event_summary_target_chat_ids(snapshot)
+        target_chat_ids &= _event_summary_target_chat_ids(snapshot)
+        if not target_chat_ids:
+            return
+        for chat_id in sorted(target_chat_ids):
             try:
                 await _refresh_event_summary_for_chat(
                     chat_id,
@@ -1563,19 +1607,45 @@ async def _refresh_all_event_summaries() -> None:
                 LOGGER.warning(f"xiuxian event summary update failed chat={chat_id}: {exc}")
 
 
-def _queue_event_summary_refresh(delay_seconds: float = 1.5) -> None:
-    global EVENT_SUMMARY_REFRESH_TASK
+def _queue_event_summary_refresh(
+    chat_ids: int | Iterable[int] | None = None,
+    delay_seconds: float = 1.5,
+    invalidate_snapshot: bool = True,
+) -> None:
+    global EVENT_SUMMARY_REFRESH_TASK, EVENT_SUMMARY_FORCE_FULL_REFRESH, EVENT_SUMMARY_REQUEST_TOKEN
     if _event_summary_interval_minutes() <= 0:
         return
+    normalized_chat_ids = _normalize_event_summary_chat_ids(chat_ids)
+    if normalized_chat_ids:
+        EVENT_SUMMARY_DIRTY_CHATS.update(normalized_chat_ids)
+    else:
+        EVENT_SUMMARY_FORCE_FULL_REFRESH = True
+    if invalidate_snapshot:
+        _invalidate_event_summary_snapshot()
+    EVENT_SUMMARY_REQUEST_TOKEN += 1
     existing = EVENT_SUMMARY_REFRESH_TASK
     if existing is not None and not existing.done():
         return
 
     async def runner() -> None:
+        global EVENT_SUMMARY_FORCE_FULL_REFRESH
         try:
-            if delay_seconds > 0:
-                await asyncio.sleep(delay_seconds)
-            await _refresh_all_event_summaries()
+            next_delay = delay_seconds
+            while True:
+                request_token = EVENT_SUMMARY_REQUEST_TOKEN
+                pending_chat_ids = set(EVENT_SUMMARY_DIRTY_CHATS)
+                force_full = EVENT_SUMMARY_FORCE_FULL_REFRESH or not pending_chat_ids
+                if next_delay > 0:
+                    await asyncio.sleep(next_delay)
+                await _refresh_all_event_summaries(None if force_full else pending_chat_ids)
+                if EVENT_SUMMARY_REQUEST_TOKEN == request_token:
+                    if force_full:
+                        EVENT_SUMMARY_FORCE_FULL_REFRESH = False
+                        EVENT_SUMMARY_DIRTY_CHATS.clear()
+                    else:
+                        EVENT_SUMMARY_DIRTY_CHATS.difference_update(pending_chat_ids)
+                    break
+                next_delay = 0.2
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -1954,7 +2024,7 @@ async def _push_shop_notice_to_group(item: dict[str, Any]) -> tuple[dict[str, An
         "notice_group_chat_id": chat_id,
         "notice_group_message_id": sent.id,
     }
-    _queue_event_summary_refresh()
+    _queue_event_summary_refresh(chat_id)
     return updated, None
 
 
@@ -2164,7 +2234,7 @@ async def _finalize_auction_flow(result: dict[str, Any] | None) -> None:
                 )
             except Exception as exc:
                 LOGGER.warning(f"xiuxian auction seller notify failed tg={seller_tg}: {exc}")
-        _queue_event_summary_refresh()
+        _queue_event_summary_refresh(chat_id)
         return
 
     if outcome == "expired" and seller_tg > 0:
@@ -2172,7 +2242,7 @@ async def _finalize_auction_flow(result: dict[str, Any] | None) -> None:
             await _send_message(bot, seller_tg, f"⌛ 你的拍卖【{item_name}】已流拍，拍品已退回背包。", persistent=True)
         except Exception as exc:
             LOGGER.warning(f"xiuxian auction expire notify failed tg={seller_tg}: {exc}")
-    _queue_event_summary_refresh()
+    _queue_event_summary_refresh(chat_id)
 
 
 def _queue_auction_finalize_task(auction: dict[str, Any] | None) -> None:
@@ -2232,7 +2302,7 @@ async def _push_auction_to_group(auction: dict[str, Any]) -> tuple[dict[str, Any
         "group_message_id": sent.id,
     }
     _queue_auction_finalize_task(updated)
-    _queue_event_summary_refresh()
+    _queue_event_summary_refresh(chat_id)
     return updated, None
 
 
@@ -2409,7 +2479,7 @@ async def _finalize_arena_flow(result: dict[str, Any] | None) -> None:
         )
 
     await _notify_achievement_unlocks(result.get("achievement_unlocks"))
-    _queue_event_summary_refresh()
+    _queue_event_summary_refresh(chat_id)
 
 
 def _queue_arena_finalize_task(arena: dict[str, Any] | None) -> None:
@@ -2476,7 +2546,7 @@ async def _push_arena_to_group(arena: dict[str, Any]) -> tuple[dict[str, Any], s
         "group_message_id": sent.id,
     }
     _queue_arena_finalize_task(updated)
-    _queue_event_summary_refresh()
+    _queue_event_summary_refresh(chat_id)
     return updated, None
 
 
@@ -3370,7 +3440,7 @@ def register_bot(bot_instance) -> None:
 
         EVENT_SUMMARY_LOOP_TASK = loop.create_task(refresh_event_summary_loop())
     if not started_event_summary_loop:
-        _queue_event_summary_refresh(0.2)
+        _queue_event_summary_refresh(delay_seconds=0.2)
 
     async def refresh_duel_bet_countdown(pool_id: int, message, bets_close_at: str | None) -> None:
         close_at = _parse_shanghai_datetime(bets_close_at)
@@ -4096,7 +4166,7 @@ def register_bot(bot_instance) -> None:
 
         item = result.get("item") or {}
         await _refresh_shop_notice_message(item)
-        _queue_event_summary_refresh()
+        _queue_event_summary_refresh(int(item.get("notice_group_chat_id") or 0) or None)
         _remember_journal(buyer.id, "shop", "购买商品", f"购买了【{item.get('item_name') or '未知商品'}】")
         seller_tg = int(result.get("seller_tg") or 0)
         if seller_tg > 0 and seller_tg != int(buyer.id):
@@ -4148,7 +4218,7 @@ def register_bot(bot_instance) -> None:
         outcome = str(result.get("result") or "")
         if outcome == "bid":
             await _refresh_auction_group_message(auction)
-            _queue_event_summary_refresh()
+            _queue_event_summary_refresh(int(auction.get("group_chat_id") or 0) or None)
             current_price = int(auction.get("current_display_price_stone") or 0)
             return await callAnswer(call, f"已出价，当前价格 {current_price} 灵石。")
 
@@ -4191,7 +4261,7 @@ def register_bot(bot_instance) -> None:
                 await _finalize_arena_flow(finalized)
         else:
             await _refresh_arena_group_message(arena)
-            _queue_event_summary_refresh()
+            _queue_event_summary_refresh(int(arena.get("group_chat_id") or 0) or None)
 
         await _notify_achievement_unlocks(result.get("achievement_unlocks"))
         fee_notice = int(result.get("challenge_fee_stone") or 0)
@@ -5227,7 +5297,7 @@ def register_web(app) -> None:
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = cancel_personal_shop_item(telegram_user["id"], payload.item_id)
         await _refresh_shop_notice_message((result or {}).get("item") or {})
-        _queue_event_summary_refresh()
+        _queue_event_summary_refresh(int(((result or {}).get("item") or {}).get("notice_group_chat_id") or 0) or None)
         _remember_journal(telegram_user["id"], "shop", "取消上架", f"取消了商品 #{payload.item_id} 的上架")
         return {"code": 200, "data": {"result": result, "bundle": _full_bundle(telegram_user["id"])}}
 
@@ -5236,7 +5306,7 @@ def register_web(app) -> None:
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = purchase_shop_item(telegram_user["id"], payload.item_id, payload.quantity)
         await _refresh_shop_notice_message((result or {}).get("item") or {})
-        _queue_event_summary_refresh()
+        _queue_event_summary_refresh(int((result.get("item") or {}).get("notice_group_chat_id") or 0) or None)
         _remember_journal(telegram_user["id"], "shop", "购买商品", f"购买了【{result['item']['item_name']}】")
         seller_tg = result.get("seller_tg")
         if seller_tg and int(seller_tg) != int(telegram_user["id"]):

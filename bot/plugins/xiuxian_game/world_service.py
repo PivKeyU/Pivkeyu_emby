@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import random
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from bot.sql_helper import Session
@@ -134,6 +136,8 @@ SECT_ENTRY_TECHNIQUES = {
     "灵傀山": "灵傀百炼篇",
     "栖凰山": "栖凰离火录",
 }
+DUEL_BET_PREVIEW_CACHE_TTL_SECONDS = 20.0
+DUEL_BET_PREVIEW_CACHE: dict[int, dict[str, Any]] = {}
 
 
 def _is_active_spouse_pair(session: Session, actor_tg: int, target_tg: int) -> bool:
@@ -2709,8 +2713,7 @@ def place_duel_bet(pool_id: int, tg: int, side: str, amount: int) -> dict[str, A
         apply_spiritual_stone_delta(session, tg, -amount, action_text="下注", allow_dead=False, apply_tribute=False)
         pool.updated_at = utcnow()
         session.commit()
-        challenger_total = sum(int(row.amount or 0) for row in session.query(XiuxianDuelBet).filter(XiuxianDuelBet.pool_id == pool_id, XiuxianDuelBet.side == "challenger").all())
-        defender_total = sum(int(row.amount or 0) for row in session.query(XiuxianDuelBet).filter(XiuxianDuelBet.pool_id == pool_id, XiuxianDuelBet.side == "defender").all())
+        challenger_total, defender_total = _duel_bet_totals(session, pool_id)
     return {"totals": {"challenger": challenger_total, "defender": defender_total}}
 
 
@@ -2775,6 +2778,7 @@ def settle_duel_bet_pool(pool_id: int, winner_tg: int) -> dict[str, Any]:
         losses = [row for row in entries if row.get("result") == "lose"]
         pool.updated_at = utcnow()
         session.commit()
+    _invalidate_duel_bet_preview(pool_id)
     return {
         "pool_id": pool_id,
         "resolved": True,
@@ -2818,6 +2822,7 @@ def cancel_duel_bet_pool(pool_id: int, reason: str = "") -> dict[str, Any]:
         pool.winner_tg = None
         pool.updated_at = utcnow()
         session.commit()
+    _invalidate_duel_bet_preview(pool_id)
     return {
         "pool_id": pool_id,
         "resolved": True,
@@ -2827,27 +2832,76 @@ def cancel_duel_bet_pool(pool_id: int, reason: str = "") -> dict[str, Any]:
     }
 
 
+def _invalidate_duel_bet_preview(pool_id: int) -> None:
+    DUEL_BET_PREVIEW_CACHE.pop(int(pool_id or 0), None)
+
+
+def _duel_bet_totals(session: Session, pool_id: int) -> tuple[int, int]:
+    totals = {"challenger": 0, "defender": 0}
+    rows = (
+        session.query(
+            XiuxianDuelBet.side,
+            func.coalesce(func.sum(XiuxianDuelBet.amount), 0),
+        )
+        .filter(XiuxianDuelBet.pool_id == int(pool_id))
+        .group_by(XiuxianDuelBet.side)
+        .all()
+    )
+    for side, total in rows:
+        if str(side) in totals:
+            totals[str(side)] = int(total or 0)
+    return totals["challenger"], totals["defender"]
+
+
+def _duel_bet_preview(pool: XiuxianDuelBetPool) -> tuple[str, dict[str, Any]]:
+    pool_id = int(pool.id or 0)
+    duel_mode = str(pool.duel_mode or "standard")
+    preview_key = (
+        int(pool.challenger_tg or 0),
+        int(pool.defender_tg or 0),
+        duel_mode,
+        int(pool.stake or 0),
+        bool(pool.resolved),
+    )
+    now_monotonic = time.monotonic()
+    cached = DUEL_BET_PREVIEW_CACHE.get(pool_id)
+    if (
+        cached is not None
+        and cached.get("key") == preview_key
+        and now_monotonic - float(cached.get("at") or 0.0) < DUEL_BET_PREVIEW_CACHE_TTL_SECONDS
+    ):
+        return str(cached.get("matchup_text") or ""), dict(cached.get("bet_settings") or {})
+
+    from bot.plugins.xiuxian_game.service import compute_duel_odds, format_duel_matchup_text
+
+    duel = compute_duel_odds(int(pool.challenger_tg), int(pool.defender_tg), duel_mode=duel_mode)
+    bet_settings = _duel_bet_settings()
+    duel_label = DUEL_MODE_LABELS.get(duel_mode, "斗法")
+    matchup_text = format_duel_matchup_text(
+        duel,
+        stake=int(pool.stake or 0),
+        title=f"🎯 **{duel_label}押注中**" if not pool.resolved else f"🎯 **{duel_label}押注已结束**",
+        duel_mode=duel_mode,
+    )
+    DUEL_BET_PREVIEW_CACHE[pool_id] = {
+        "key": preview_key,
+        "at": now_monotonic,
+        "matchup_text": matchup_text,
+        "bet_settings": bet_settings,
+    }
+    return matchup_text, dict(bet_settings)
+
+
 def format_duel_bet_board(pool_id: int) -> str:
     with Session() as session:
         pool = session.query(XiuxianDuelBetPool).filter(XiuxianDuelBetPool.id == pool_id).first()
         if pool is None:
             return "下注池不存在"
-        bet_settings = _duel_bet_settings()
-        challenger_total = sum(int(row.amount or 0) for row in session.query(XiuxianDuelBet).filter(XiuxianDuelBet.pool_id == pool_id, XiuxianDuelBet.side == "challenger").all())
-        defender_total = sum(int(row.amount or 0) for row in session.query(XiuxianDuelBet).filter(XiuxianDuelBet.pool_id == pool_id, XiuxianDuelBet.side == "defender").all())
+        challenger_total, defender_total = _duel_bet_totals(session, pool_id)
         remaining = max(int((pool.bets_close_at - utcnow()).total_seconds()), 0)
-        from bot.plugins.xiuxian_game.service import compute_duel_odds, format_duel_matchup_text
-
-        duel_mode = str(pool.duel_mode or "standard")
-        duel = compute_duel_odds(int(pool.challenger_tg), int(pool.defender_tg), duel_mode=duel_mode)
-        duel_label = DUEL_MODE_LABELS.get(duel_mode, "斗法")
+        matchup_text, bet_settings = _duel_bet_preview(pool)
         lines = [
-            format_duel_matchup_text(
-                duel,
-                stake=int(pool.stake or 0),
-                title=f"🎯 **{duel_label}押注中**" if not pool.resolved else f"🎯 **{duel_label}押注已结束**",
-                duel_mode=duel_mode,
-            ),
+            matchup_text,
             "",
             "押注情况：",
             f"挑战者池：{challenger_total} 灵石",
