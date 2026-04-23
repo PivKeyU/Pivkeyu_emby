@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from starlette.background import BackgroundTask
 
 from bot import LOGGER, bot, config, save_config
@@ -290,6 +290,28 @@ def _telegram_identity_matches(identity: dict[str, str] | None, keyword: str) ->
     )
 
 
+def _apply_admin_user_keyword_filter(query, keyword: str):
+    normalized = str(keyword or "").strip()
+    if not normalized:
+        return query
+    conditions = [
+        Emby.name.ilike(f"%{normalized}%"),
+        Emby.embyid.ilike(f"%{normalized}%"),
+    ]
+    if normalized.isdigit():
+        conditions.append(Emby.tg == int(normalized))
+    return query.filter(or_(*conditions))
+
+
+async def _search_admin_users_by_telegram_identity(keyword: str, page: int, page_size: int) -> tuple[list[Emby], int]:
+    with Session() as session:
+        all_users = session.query(Emby).order_by(Emby.tg.desc()).all()
+    identity_map = await _fetch_telegram_identity_map([user.tg for user in all_users])
+    matched_users = [user for user in all_users if _telegram_identity_matches(identity_map.get(int(user.tg)), keyword)]
+    start = max(page - 1, 0) * page_size
+    return matched_users[start:start + page_size], len(matched_users)
+
+
 def _resolve_admin_actor_id(request: Request) -> int | None:
     admin_user = getattr(request.state, "admin_user", None) or {}
     admin_id = admin_user.get("id")
@@ -560,43 +582,33 @@ async def list_users(
     page_size: int = Query(default=20, ge=1, le=100),
 ):
     keyword = (q or "").strip()
+    start = (page - 1) * page_size
 
     with Session() as session:
-        query = session.query(Emby).order_by(Emby.tg.desc())
-        all_users = query.all()
-
-    users = all_users
-    total = len(users)
-
-    if keyword:
-        identity_map = await _fetch_telegram_identity_map([user.tg for user in all_users])
-        tg_users = [user for user in all_users if _telegram_identity_matches(identity_map.get(int(user.tg)), keyword)]
-
-        if tg_users:
-            users = tg_users
-            total = len(users)
+        query = session.query(Emby)
+        if keyword:
+            filtered_query = _apply_admin_user_keyword_filter(query, keyword)
+            total = int(filtered_query.count() or 0)
+            page_users = (
+                filtered_query
+                .order_by(Emby.tg.desc())
+                .offset(start)
+                .limit(page_size)
+                .all()
+            )
         else:
-            if keyword.isdigit():
-                users = [user for user in all_users if int(user.tg) == int(keyword)]
-                total = len(users)
-            else:
-                users = []
-                total = 0
+            total = int(query.count() or 0)
+            page_users = (
+                query
+                .order_by(Emby.tg.desc())
+                .offset(start)
+                .limit(page_size)
+                .all()
+            )
 
-            if not users:
-                db_users = [
-                    user for user in all_users
-                    if keyword.lower() in str(user.name or "").lower()
-                    or keyword.lower() in str(user.embyid or "").lower()
-                ]
-                if db_users:
-                    users = db_users
-                    total = len(users)
-            else:
-                total = len(users)
+    if keyword and total == 0:
+        page_users, total = await _search_admin_users_by_telegram_identity(keyword, page, page_size)
 
-    start = (page - 1) * page_size
-    page_users = users[start:start + page_size]
     identity_map = await _fetch_telegram_identity_map([user.tg for user in page_users])
 
     return {

@@ -5,6 +5,7 @@ import json
 import re
 import time
 import traceback
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
@@ -1240,47 +1241,78 @@ async def _edit_message_text(
     return _apply_message_auto_delete(edited, persistent=persistent, seconds=auto_delete_seconds)
 
 
-def _active_notice_shop_items(chat_id: int) -> list[dict[str, Any]]:
-    return [
-        item
-        for item in list_shop_items(official_only=False, include_disabled=False)
-        if int(item.get("notice_group_chat_id") or 0) == int(chat_id) and int(item.get("notice_group_message_id") or 0) > 0
-    ]
-
-
-def _active_notice_auctions(chat_id: int) -> list[dict[str, Any]]:
-    return [
-        item
-        for item in list_auction_items(status="active")
-        if int(item.get("group_chat_id") or 0) == int(chat_id) and int(item.get("group_message_id") or 0) > 0
-    ]
-
-
-def _active_notice_arenas(chat_id: int) -> list[dict[str, Any]]:
-    rows = [
-        item
-        for item in list_group_arenas(status="active")
-        if int(item.get("group_chat_id") or 0) == int(chat_id) and int(item.get("group_message_id") or 0) > 0
-    ]
+def _sort_active_notice_arenas(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda item: REALM_ORDER.index(item.get("realm_stage")) if item.get("realm_stage") in REALM_ORDER else 999)
 
 
-def _event_summary_target_chat_ids() -> set[int]:
+def _event_summary_snapshot() -> dict[str, Any]:
+    shop_rows_by_chat: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    auction_rows_by_chat: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    arena_rows_by_chat: dict[int, list[dict[str, Any]]] = defaultdict(list)
     chat_ids = {int(chat_id) for chat_id in EVENT_SUMMARY_MESSAGES if int(chat_id or 0) != 0}
+
     for scope in ("shop", "auction", "arena"):
         configured = _notice_group_chat_id(scope)
         if configured:
             chat_ids.add(int(configured))
-    for row in list_auction_items(status="active"):
-        if int(row.get("group_chat_id") or 0):
-            chat_ids.add(int(row["group_chat_id"]))
-    for row in list_group_arenas(status="active"):
-        if int(row.get("group_chat_id") or 0):
-            chat_ids.add(int(row["group_chat_id"]))
+
     for row in list_shop_items(official_only=False, include_disabled=False):
-        if int(row.get("notice_group_chat_id") or 0):
-            chat_ids.add(int(row["notice_group_chat_id"]))
-    return {chat_id for chat_id in chat_ids if chat_id}
+        chat_id = int(row.get("notice_group_chat_id") or 0)
+        if chat_id <= 0:
+            continue
+        if int(row.get("notice_group_message_id") or 0) > 0:
+            chat_ids.add(chat_id)
+            shop_rows_by_chat[chat_id].append(row)
+
+    for row in list_auction_items(status="active"):
+        chat_id = int(row.get("group_chat_id") or 0)
+        if chat_id <= 0:
+            continue
+        if int(row.get("group_message_id") or 0) > 0:
+            chat_ids.add(chat_id)
+            auction_rows_by_chat[chat_id].append(row)
+
+    for row in list_group_arenas(status="active"):
+        chat_id = int(row.get("group_chat_id") or 0)
+        if chat_id <= 0:
+            continue
+        if int(row.get("group_message_id") or 0) > 0:
+            chat_ids.add(chat_id)
+            arena_rows_by_chat[chat_id].append(row)
+
+    return {
+        "chat_ids": {chat_id for chat_id in chat_ids if chat_id},
+        "shops": {chat_id: rows for chat_id, rows in shop_rows_by_chat.items()},
+        "auctions": {chat_id: rows for chat_id, rows in auction_rows_by_chat.items()},
+        "arenas": {chat_id: _sort_active_notice_arenas(rows) for chat_id, rows in arena_rows_by_chat.items()},
+    }
+
+
+def _active_notice_shop_items(chat_id: int, shop_rows_by_chat: dict[int, list[dict[str, Any]]] | None = None) -> list[dict[str, Any]]:
+    if shop_rows_by_chat is not None:
+        return shop_rows_by_chat.get(int(chat_id), [])
+    snapshot = _event_summary_snapshot()
+    return snapshot["shops"].get(int(chat_id), [])
+
+
+def _active_notice_auctions(chat_id: int, auction_rows_by_chat: dict[int, list[dict[str, Any]]] | None = None) -> list[dict[str, Any]]:
+    if auction_rows_by_chat is not None:
+        return auction_rows_by_chat.get(int(chat_id), [])
+    snapshot = _event_summary_snapshot()
+    return snapshot["auctions"].get(int(chat_id), [])
+
+
+def _active_notice_arenas(chat_id: int, arena_rows_by_chat: dict[int, list[dict[str, Any]]] | None = None) -> list[dict[str, Any]]:
+    if arena_rows_by_chat is not None:
+        return arena_rows_by_chat.get(int(chat_id), [])
+    snapshot = _event_summary_snapshot()
+    return snapshot["arenas"].get(int(chat_id), [])
+
+
+def _event_summary_target_chat_ids(snapshot: dict[str, Any] | None = None) -> set[int]:
+    if snapshot is None:
+        snapshot = _event_summary_snapshot()
+    return set(snapshot.get("chat_ids") or set())
 
 
 def _event_summary_lock() -> asyncio.Lock:
@@ -1304,10 +1336,16 @@ def _summary_remaining_text(end_at: str | None) -> str:
     return f"剩 {max(minutes, 1)}分"
 
 
-def _build_event_summary_text(chat_id: int) -> str:
-    auctions = _active_notice_auctions(chat_id)
-    arenas = _active_notice_arenas(chat_id)
-    shops = _active_notice_shop_items(chat_id)
+def _build_event_summary_text(
+    chat_id: int,
+    *,
+    auction_rows_by_chat: dict[int, list[dict[str, Any]]] | None = None,
+    arena_rows_by_chat: dict[int, list[dict[str, Any]]] | None = None,
+    shop_rows_by_chat: dict[int, list[dict[str, Any]]] | None = None,
+) -> str:
+    auctions = _active_notice_auctions(chat_id, auction_rows_by_chat)
+    arenas = _active_notice_arenas(chat_id, arena_rows_by_chat)
+    shops = _active_notice_shop_items(chat_id, shop_rows_by_chat)
     lines = [
         "🗂️ **修仙汇总**",
         f"🕰️ 刷新：`{datetime.now(SHANGHAI_TZ).strftime('%m-%d %H:%M')}`",
@@ -1422,11 +1460,22 @@ async def _pin_event_summary_message(chat_id: int, message_id: int) -> None:
         LOGGER.warning(f"xiuxian event summary pin failed chat={resolved_chat_id} message={resolved_message_id}: {exc}")
 
 
-async def _refresh_event_summary_for_chat(chat_id: int) -> None:
+async def _refresh_event_summary_for_chat(
+    chat_id: int,
+    *,
+    auction_rows_by_chat: dict[int, list[dict[str, Any]]] | None = None,
+    arena_rows_by_chat: dict[int, list[dict[str, Any]]] | None = None,
+    shop_rows_by_chat: dict[int, list[dict[str, Any]]] | None = None,
+) -> None:
     resolved_chat_id = int(chat_id or 0)
     if not resolved_chat_id:
         return
-    text = _build_event_summary_text(resolved_chat_id)
+    text = _build_event_summary_text(
+        resolved_chat_id,
+        auction_rows_by_chat=auction_rows_by_chat,
+        arena_rows_by_chat=arena_rows_by_chat,
+        shop_rows_by_chat=shop_rows_by_chat,
+    )
     message_id = int(EVENT_SUMMARY_MESSAGES.get(resolved_chat_id) or 0)
     if message_id <= 0:
         message_id = await _bound_existing_event_summary_message(resolved_chat_id)
@@ -1454,9 +1503,9 @@ async def _refresh_event_summary_for_chat(chat_id: int) -> None:
             EVENT_SUMMARY_PINNED_MESSAGES.pop(resolved_chat_id, None)
     has_active_rows = any(
         (
-            _active_notice_auctions(resolved_chat_id),
-            _active_notice_arenas(resolved_chat_id),
-            _active_notice_shop_items(resolved_chat_id),
+            _active_notice_auctions(resolved_chat_id, auction_rows_by_chat),
+            _active_notice_arenas(resolved_chat_id, arena_rows_by_chat),
+            _active_notice_shop_items(resolved_chat_id, shop_rows_by_chat),
         )
     )
     if not has_active_rows:
@@ -1469,9 +1518,18 @@ async def _refresh_event_summary_for_chat(chat_id: int) -> None:
 
 async def _refresh_all_event_summaries() -> None:
     async with _event_summary_lock():
-        for chat_id in sorted(_event_summary_target_chat_ids()):
+        snapshot = _event_summary_snapshot()
+        auction_rows_by_chat = snapshot.get("auctions") or {}
+        arena_rows_by_chat = snapshot.get("arenas") or {}
+        shop_rows_by_chat = snapshot.get("shops") or {}
+        for chat_id in sorted(_event_summary_target_chat_ids(snapshot)):
             try:
-                await _refresh_event_summary_for_chat(chat_id)
+                await _refresh_event_summary_for_chat(
+                    chat_id,
+                    auction_rows_by_chat=auction_rows_by_chat,
+                    arena_rows_by_chat=arena_rows_by_chat,
+                    shop_rows_by_chat=shop_rows_by_chat,
+                )
             except Exception as exc:
                 LOGGER.warning(f"xiuxian event summary update failed chat={chat_id}: {exc}")
 
