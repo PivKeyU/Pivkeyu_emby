@@ -277,6 +277,16 @@ async function postJson(path, body = {}) {
   return payload.data;
 }
 
+function nextUiFrame() {
+  return new Promise((resolve) => {
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(() => resolve());
+      return;
+    }
+    window.setTimeout(resolve, 16);
+  });
+}
+
 async function uploadImage(path, file, folder) {
   if (!file) {
     throw new Error("请先选择一张图片");
@@ -301,6 +311,7 @@ async function runButtonAction(button, pendingText, handler) {
   button.disabled = true;
   button.textContent = pendingText;
   try {
+    await nextUiFrame();
     return await handler();
   } finally {
     button.disabled = false;
@@ -1766,11 +1777,12 @@ function inventoryRowsByKind(kind, bundle = state.profileBundle) {
   if (kind === "pill") return source.pills || [];
   if (kind === "talisman") return source.talismans || [];
   if (kind === "material") return source.materials || [];
+  if (kind === "technique") return source.techniques || [];
   return [];
 }
 
 function tradeableInventoryRows(kind, bundle = state.profileBundle) {
-  return inventoryRowsByKind(kind, bundle).filter((row) => Number(row.tradeable_quantity ?? row.quantity ?? 0) > 0);
+  return inventoryRowsByKind(kind, bundle).filter((row) => Number(row.tradeable_quantity ?? row.quantity ?? (kind === "technique" ? 1 : 0)) > 0);
 }
 
 function populateTradeableInventorySelect(select, kind, emptyText) {
@@ -1784,15 +1796,36 @@ function populateTradeableInventorySelect(select, kind, emptyText) {
   }
 
   rows.forEach((row) => {
-    const item = row[kind];
+    const item = kind === "technique" ? (row.technique || row) : row[kind];
+    const quantity = Number(row.tradeable_quantity ?? row.quantity ?? 1);
     const option = document.createElement("option");
     option.value = item.id;
-    option.textContent = `${item.name} · 可交易 ${row.tradeable_quantity ?? row.quantity}`;
+    option.textContent = `${item.name} · 可交易 ${quantity}`;
     select.appendChild(option);
   });
 
   if ([...select.options].some((option) => String(option.value) === String(previousValue))) {
     select.value = previousValue;
+  }
+}
+
+function syncAuctionQuantityState() {
+  const kind = document.querySelector("#auction-item-kind")?.value || "artifact";
+  const quantityInput = document.querySelector("#auction-quantity");
+  if (!quantityInput) return;
+  if (kind === "technique") {
+    quantityInput.value = "1";
+    quantityInput.min = "1";
+    quantityInput.max = "1";
+    quantityInput.readOnly = true;
+    quantityInput.title = "功法拍卖数量固定为 1。";
+    return;
+  }
+  quantityInput.min = "1";
+  quantityInput.removeAttribute("max");
+  quantityInput.readOnly = false;
+  if (!quantityInput.disabled) {
+    quantityInput.title = "";
   }
 }
 
@@ -1806,6 +1839,7 @@ function renderAuctionInventorySelect() {
   const select = document.querySelector("#auction-item-ref");
   const kind = document.querySelector("#auction-item-kind")?.value || "artifact";
   populateTradeableInventorySelect(select, kind, "暂无可拍卖物品");
+  syncAuctionQuantityState();
 }
 
 function officialRecycleItems(bundle = state.profileBundle) {
@@ -2998,9 +3032,15 @@ function sceneDisplayMeta(scene, currentStage, currentLayer, currentPower) {
     if (minStage && !realmQualified) warnings.push("当前境界不足，翻车概率会明显提高");
   }
   if (state.item_loss_warning) warnings.push(cleanSceneCopy(state.item_loss_warning));
-  const riskLevel = String(state.risk_level || (realmQualified && powerQualified ? "stable" : "high"));
-  const riskLabel = String(state.risk_label || (realmQualified && powerQualified ? "稳妥" : "高危"));
-  const riskPercent = Number(state.risk_percent ?? state.death_chance ?? 0);
+  const entryRiskLevel = String(state.entry_risk_level || state.risk_level || (realmQualified && powerQualified ? "stable" : "high"));
+  const entryRiskLabel = String(state.entry_risk_label || state.risk_label || (realmQualified && powerQualified ? "稳妥" : "高危"));
+  const entryRiskPercent = Number(state.entry_risk_percent ?? state.risk_percent ?? state.death_chance ?? 0);
+  const eventRiskLevel = String(state.event_risk_level || (entryRiskPercent > 0 ? entryRiskLevel : "stable"));
+  const eventRiskLabel = String(state.event_risk_label || (entryRiskPercent > 0 ? entryRiskLabel : "平稳"));
+  const eventRiskPercent = Number(state.event_risk_percent || 0);
+  const useEventBadge = eventRiskPercent > entryRiskPercent;
+  const riskLevel = useEventBadge ? eventRiskLevel : entryRiskLevel;
+  const riskLabel = useEventBadge ? eventRiskLabel : entryRiskLabel;
   const itemLossRisk = Number(state.item_loss_risk || 0);
   return {
     minStage,
@@ -3012,9 +3052,14 @@ function sceneDisplayMeta(scene, currentStage, currentLayer, currentPower) {
     warnings,
     riskLevel,
     riskLabel,
-    riskPercent,
+    riskPercent: Math.max(entryRiskPercent, eventRiskPercent),
+    entryRiskPercent,
+    eventRiskPercent,
     itemLossRisk,
     requirementSummary: cleanSceneCopy(state.requirement_summary),
+    realmStatusText: cleanSceneCopy(state.realm_status_text),
+    powerStatusText: cleanSceneCopy(state.power_status_text),
+    eventRiskNote: cleanSceneCopy(state.event_risk_note),
     safeNote: cleanSceneCopy(state.safe_note),
   };
 }
@@ -3250,9 +3295,11 @@ function renderExploreArea(bundle) {
     ].filter(Boolean).join("");
     const warningText = meta.warnings.join(" · ");
     const safeText = meta.safeNote || "当前实力已基本覆盖此处风险，可优先刷取所需材料与功法。";
-    const riskText = meta.itemLossRisk > 0
-      ? `风险评级 ${meta.riskLabel}（综合 ${meta.riskPercent}% / 掉宝 ${meta.itemLossRisk}%）`
-      : `风险评级 ${meta.riskLabel}（综合 ${meta.riskPercent}%）`;
+    const riskText = [
+      `门槛压力 ${meta.entryRiskPercent}%`,
+      `事件波动 ${meta.eventRiskPercent}%`,
+      meta.itemLossRisk > 0 ? `掉宝 ${meta.itemLossRisk}%` : "",
+    ].filter(Boolean).join(" · ");
     const card = document.createElement("article");
     card.className = `stack-item scene-card ${meta.qualified ? "is-qualified" : "is-risky"}`;
     card.innerHTML = `
@@ -3264,7 +3311,11 @@ function renderExploreArea(bundle) {
       <div class="info-grid">
         <article class="info-chip">
           <span>战力门槛</span>
-          <strong>${escapeHtml(meta.minPower > 0 ? `${meta.minPower}（当前 ${currentPower}）` : `无限制（当前 ${currentPower}）`)}</strong>
+          <strong>${escapeHtml(meta.minPower > 0 ? `${meta.minPower}` : "无限制")}</strong>
+        </article>
+        <article class="info-chip">
+          <span>当前战力</span>
+          <strong>${escapeHtml(currentPower)}</strong>
         </article>
         <article class="info-chip">
           <span>境界门槛</span>
@@ -3280,6 +3331,9 @@ function renderExploreArea(bundle) {
         </article>
       </div>
       ${meta.requirementSummary ? `<p class="muted">${escapeHtml(`进入要求：${meta.requirementSummary}`)}</p>` : ""}
+      ${meta.realmStatusText ? `<p class="muted">${escapeHtml(meta.realmStatusText)}</p>` : ""}
+      ${meta.powerStatusText ? `<p class="muted">${escapeHtml(meta.powerStatusText)}</p>` : ""}
+      ${meta.eventRiskNote ? `<p class="muted">${escapeHtml(meta.eventRiskNote)}</p>` : ""}
       ${warningText ? `<p class="reason-text">${escapeHtml(warningText)}</p>` : `<p>${escapeHtml(safeText)}</p>`}
       ${rewardSections || `<div class="scene-drop-list"><article class="scene-drop-item"><div class="scene-drop-head"><strong>掉落待补充</strong></div><p>当前秘境尚未配置可展示的奖励。</p></article></div>`}
       <label>探索时长
@@ -4571,9 +4625,12 @@ document.querySelector("#scene-list")?.addEventListener("click", async (event) =
       scene_id: sceneId,
       minutes
     }));
+    if (payload.bundle) {
+      state.deferredBundleLoaded = true;
+      applyProfileBundle(payload.bundle);
+    }
     setStatus("探索已开始。", "success");
-    await popup("探索开始", `已派出角色探索，预计 ${minutes} 分钟后可领取。`);
-    await refreshBundle();
+    await popup("探索开始", `已派出角色探索，预计 ${minutes} 分钟后可领取。`, "success", { autoCloseMs: 3800 });
   } catch (error) {
     const message = normalizeError(error, "开始探索失败。");
     setStatus(message, "error");
@@ -4588,28 +4645,36 @@ document.querySelector("#exploration-active")?.addEventListener("click", async (
     const payload = await runButtonAction(button, "领取中…", () => postJson("/plugins/xiuxian/api/explore/claim", {
       exploration_id: Number(button.dataset.exploreClaim)
     }));
+    if (payload.bundle) {
+      state.deferredBundleLoaded = true;
+      applyProfileBundle(payload.bundle);
+    }
     const result = payload.result || {};
     const death = result.death || {};
     setStatus(death.died ? "探索已结算，秘境中遭逢重创。" : "探索奖励已领取。", death.died ? "warning" : "success");
     const lines = [];
-    if (result.exploration?.event_text) lines.push(result.exploration.event_text);
-    if (result.exploration?.outcome_payload?.risk_note) lines.push(result.exploration.outcome_payload.risk_note);
+    if (result.exploration?.event_text) lines.push(`📜 遭遇：${result.exploration.event_text}`);
+    if (result.exploration?.outcome_payload?.risk_note) lines.push(`⚠️ 风险：${result.exploration.outcome_payload.risk_note}`);
     if (death.died) {
-      if (Array.isArray(death.reasons) && death.reasons.length) lines.push(`阵亡原因：${death.reasons.join("；")}`);
-      if (typeof death.stone_loss === "number") lines.push(`灵石损失 -${death.stone_loss}`);
-      if (typeof death.cultivation_loss === "number") lines.push(`修为损失 -${death.cultivation_loss}`);
+      if (Array.isArray(death.reasons) && death.reasons.length) lines.push(`💥 阵亡原因：${death.reasons.join("；")}`);
+      if (typeof death.stone_loss === "number") lines.push(`💸 灵石损失 -${death.stone_loss}`);
+      if (typeof death.cultivation_loss === "number") lines.push(`🌀 修为损失 -${death.cultivation_loss}`);
       if (Array.isArray(death.artifact_losses) && death.artifact_losses.length) {
-        lines.push(`遗失装备：${death.artifact_losses.map((item) => item.artifact?.name || "未命名法宝").join("、")}`);
+        lines.push(`🧿 遗失装备：${death.artifact_losses.map((item) => item.artifact?.name || "未命名法宝").join("、")}`);
       }
     } else {
-      if (typeof result.stone_delta === "number") lines.push(`灵石变化 ${result.stone_delta >= 0 ? "+" : ""}${result.stone_delta}`);
-      if (result.reward_item) lines.push(`基础掉落：${grantedItemName(result.reward_item) || "已发放"}`);
-      if (result.bonus_reward) lines.push(`奇遇额外：${grantedItemName(result.bonus_reward) || "已发放"}`);
+      if (typeof result.stone_delta === "number") lines.push(`💰 灵石变化 ${result.stone_delta >= 0 ? "+" : ""}${result.stone_delta}`);
+      if (result.reward_item) lines.push(`🎁 基础掉落：${grantedItemName(result.reward_item) || "已发放"}`);
+      if (result.bonus_reward) lines.push(`✨ 奇遇额外：${grantedItemName(result.bonus_reward) || "已发放"}`);
       const growthText = attributeGrowthText(result.attribute_growth || []);
-      if (growthText) lines.push(growthText);
+      if (growthText) lines.push(`📈 ${growthText}`);
     }
-    await popup(death.died ? "探索失败" : "领取成功", lines.join("\n") || "探索奖励已发放到你的背包与档案。", death.died ? "warning" : "success");
-    await refreshBundle();
+    await popup(
+      death.died ? "探索失败" : "领取成功",
+      lines.join("\n") || "探索奖励已发放到你的背包与档案。",
+      death.died ? "warning" : "success",
+      { autoCloseMs: death.died ? 6800 : 5600 },
+    );
   } catch (error) {
     const message = normalizeError(error, "领取探索奖励失败。");
     setStatus(message, "error");
@@ -5888,7 +5953,7 @@ function showToast(text, tone = "info") {
   stack.appendChild(node);
   setTimeout(() => {
     node.remove();
-  }, 2600);
+  }, 3200);
 }
 
 let popupResolver = null;
@@ -5961,8 +6026,12 @@ popup = async function popupRefined(title, message, tone = "success", options = 
   }
   const autoCloseMs = Number.isFinite(Number(options?.autoCloseMs))
     ? Math.max(Number(options.autoCloseMs), 0)
-    : (tone === "error" ? 3200 : 2400);
+    : (tone === "error" ? 4600 : tone === "warning" ? 4200 : 3600);
   popupAutoCloseTimer = autoCloseMs > 0 ? window.setTimeout(closeInlinePopup, autoCloseMs) : null;
+  if (!options?.waitForClose) {
+    popupResolver = null;
+    return;
+  }
   return new Promise((resolve) => {
     popupResolver = resolve;
   });

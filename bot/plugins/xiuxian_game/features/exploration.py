@@ -110,6 +110,68 @@ def _risk_level_label(risk_percent: int) -> tuple[str, str]:
     return "extreme", "九死一生"
 
 
+def _event_risk_label(risk_percent: int) -> tuple[str, str]:
+    if risk_percent <= 0:
+        return "stable", "平稳"
+    if risk_percent <= 15:
+        return "light", "有波动"
+    if risk_percent <= 35:
+        return "medium", "暗藏变数"
+    if risk_percent <= 60:
+        return "high", "险象频发"
+    return "extreme", "凶险难测"
+
+
+def _scene_event_volatility_state(scene: dict[str, Any]) -> dict[str, Any]:
+    events = [item for item in (scene.get("event_pool") or []) if isinstance(item, dict)]
+    if not events:
+        level, label = _event_risk_label(0)
+        return {
+            "event_risk_percent": 0,
+            "event_risk_level": level,
+            "event_risk_label": label,
+            "event_risk_note": "此地事件偏向稳定机缘，额外波动极低。",
+        }
+
+    total_weight = 0
+    risky_weight = 0
+    weighted_average_loss = 0.0
+    peak_loss = 0
+    for event in events:
+        weight = max(int(event.get("weight") or 0), 1)
+        total_weight += weight
+        stone_loss_min = max(int(event.get("stone_loss_min") or 0), 0)
+        stone_loss_max = max(int(event.get("stone_loss_max") or stone_loss_min), stone_loss_min)
+        if stone_loss_max <= 0:
+            continue
+        risky_weight += weight
+        weighted_average_loss += ((stone_loss_min + stone_loss_max) / 2) * weight
+        peak_loss = max(peak_loss, stone_loss_max)
+
+    if total_weight <= 0 or risky_weight <= 0:
+        percent = 0
+    else:
+        risk_ratio = risky_weight / total_weight
+        average_loss = weighted_average_loss / risky_weight
+        percent = int(round(risk_ratio * 56 + min(average_loss / 4, 22) + min(peak_loss / 8, 14)))
+        percent = max(min(percent, 88), 0)
+    level, label = _event_risk_label(percent)
+    if percent <= 0:
+        note = "此地事件偏向稳定机缘，额外波动极低。"
+    elif percent <= 20:
+        note = "进入门槛不高，但仍会夹杂少量波动事件，不建议把它理解成零风险。"
+    elif percent <= 45:
+        note = "秘境内部事件波动明显，探索时最好预留一些灵石缓冲。"
+    else:
+        note = "秘境内部负面事件偏多，即便能进场也不宜连续强刷。"
+    return {
+        "event_risk_percent": percent,
+        "event_risk_level": level,
+        "event_risk_label": label,
+        "event_risk_note": note,
+    }
+
+
 def _grant_item_by_kind(tg: int, kind: str, ref_id: int, quantity: int) -> dict[str, Any]:
     if kind == "artifact":
         return grant_artifact_to_user(tg, ref_id, quantity)
@@ -598,6 +660,7 @@ def _scene_requirement_state(
         risk_score += 8
     risk_percent = max(min(int(round(risk_score)), 95), 0)
     risk_level, risk_label = _risk_level_label(risk_percent)
+    event_volatility = _scene_event_volatility_state(scene)
     item_loss_risk = 0 if risk_percent < 20 else max(min(int(round(risk_percent * 0.55 + max(realm_gap_score - 1, 0) * 4)), 85), 8)
     cultivation_loss_risk = 0 if risk_percent < 10 else min(int(round(risk_percent * 0.42)), 70)
     death_chance = 0 if risk_percent <= 0 else min(max(int(round(risk_percent * 0.82 + (18 if reasons else 0))), 3), 95)
@@ -607,7 +670,30 @@ def _scene_requirement_state(
     if min_power > 0:
         requirement_rows.append(f"战力至少 {min_power}")
     requirement_summary = "；".join(requirement_rows) if requirement_rows else "无硬性门槛"
-    safe_note = "当前境界与战力已能压住此地反噬，适合稳定刷取材料与功法。" if risk_percent <= 5 else ""
+    if min_power <= 0:
+        power_status_text = f"当前战力 {max(int(combat_power or 0), 0)}，此地没有额外战力门槛。"
+    elif power_gap > 0:
+        power_status_text = f"当前战力 {max(int(combat_power or 0), 0)}，距离最低战力门槛还差 {power_gap}。"
+    elif power_surplus > 0:
+        power_ratio_percent = int(round(max(int(combat_power or 0), 0) / max(min_power, 1) * 100))
+        power_status_text = f"当前战力 {max(int(combat_power or 0), 0)}，高出最低门槛 {power_surplus}（约 {power_ratio_percent}%）。"
+    else:
+        power_status_text = f"当前战力 {max(int(combat_power or 0), 0)}，刚好达到最低门槛。"
+    if required_stage_name:
+        if realm_gap_score > 0:
+            realm_status_text = f"当前境界 {current_stage_name}{current_layer}层，尚未达到要求的 {required_stage_name}{required_layer}层。"
+        elif realm_surplus_score > 0:
+            realm_status_text = f"当前境界 {current_stage_name}{current_layer}层，已高于要求的 {required_stage_name}{required_layer}层。"
+        else:
+            realm_status_text = f"当前境界 {current_stage_name}{current_layer}层，刚好达到要求。"
+    else:
+        realm_status_text = f"当前境界 {current_stage_name}{current_layer}层，此地没有额外境界门槛。"
+    if risk_percent <= 5 and int(event_volatility.get("event_risk_percent") or 0) > 0:
+        safe_note = "当前境界与战力足以压住进入门槛，但这不代表零风险，秘境内仍可能触发波动事件。"
+    elif risk_percent <= 5:
+        safe_note = "当前境界与战力已能压住此地门槛，适合稳定刷取材料与功法。"
+    else:
+        safe_note = ""
     item_loss_warning = ""
     if item_loss_risk > 0:
         item_loss_warning = f"若强闯失手，存在掉落未绑定法宝与折损修为的风险。"
@@ -618,10 +704,18 @@ def _scene_requirement_state(
         "combat_power": max(int(combat_power or 0), 0),
         "current_realm_display": f"{current_stage_name}{current_layer}层",
         "requirement_summary": requirement_summary,
+        "realm_status_text": realm_status_text,
         "risk_reasons": reasons,
+        "entry_risk_percent": risk_percent,
+        "entry_risk_level": risk_level,
+        "entry_risk_label": risk_label,
         "risk_percent": risk_percent,
         "risk_level": risk_level,
         "risk_label": risk_label,
+        "event_risk_percent": int(event_volatility.get("event_risk_percent") or 0),
+        "event_risk_level": str(event_volatility.get("event_risk_level") or "stable"),
+        "event_risk_label": str(event_volatility.get("event_risk_label") or "平稳"),
+        "event_risk_note": str(event_volatility.get("event_risk_note") or ""),
         "item_loss_risk": item_loss_risk,
         "cultivation_loss_risk": cultivation_loss_risk,
         "item_loss_warning": item_loss_warning,
@@ -633,6 +727,7 @@ def _scene_requirement_state(
         "power_gap_ratio": round(power_gap_ratio, 4),
         "power_surplus": power_surplus,
         "power_surplus_ratio": round(power_surplus_ratio, 4),
+        "power_status_text": power_status_text,
         "requirements_met": not reasons,
     }
 

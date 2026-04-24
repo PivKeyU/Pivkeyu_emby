@@ -8206,6 +8206,15 @@ def create_personal_auction_listing(
         if not use_user_talisman_listing_stock(tg, item_ref_id, quantity):
             raise ValueError("可交易的符箓数量不足，已绑定的符箓无法拍卖。")
         item_name = talisman.name
+    elif item_kind == "technique":
+        technique = get_technique(item_ref_id)
+        if technique is None or not technique.enabled:
+            raise ValueError("未找到目标功法。")
+        if int(quantity or 0) != 1:
+            raise ValueError("功法拍卖数量固定为 1。")
+        if not revoke_technique_from_user(tg, item_ref_id):
+            raise ValueError("未掌握该功法，无法发起拍卖。")
+        item_name = technique.name
     else:
         raise ValueError("不支持的拍卖物品类型。")
 

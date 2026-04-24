@@ -6038,6 +6038,47 @@ def _grant_auction_item_to_inventory(
     if amount <= 0:
         return
 
+    def _grant_technique_in_session(target_tg: int, technique_id: int) -> None:
+        technique = session.query(XiuxianTechnique).filter(XiuxianTechnique.id == int(technique_id)).first()
+        if technique is None:
+            raise ValueError("technique not found")
+        profile = (
+            session.query(XiuxianProfile)
+            .filter(XiuxianProfile.tg == int(target_tg))
+            .with_for_update()
+            .first()
+        )
+        if profile is None:
+            profile = XiuxianProfile(tg=int(target_tg))
+            session.add(profile)
+            session.flush()
+        row = (
+            session.query(XiuxianUserTechnique)
+            .filter(
+                XiuxianUserTechnique.tg == int(target_tg),
+                XiuxianUserTechnique.technique_id == int(technique_id),
+            )
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            row = XiuxianUserTechnique(
+                tg=int(target_tg),
+                technique_id=int(technique_id),
+                source="auction",
+                obtained_note="拍卖所得",
+            )
+            session.add(row)
+        else:
+            row.source = row.source or "auction"
+            row.obtained_note = row.obtained_note or "拍卖所得"
+            row.updated_at = utcnow()
+        if not profile.current_technique_id:
+            profile.current_technique_id = int(technique_id)
+            profile.updated_at = utcnow()
+        _queue_profile_cache_invalidation(session, int(target_tg))
+        _queue_user_view_cache_invalidation(session, int(target_tg))
+
     if item_kind == "artifact":
         _grant_artifact_inventory_in_session(
             session,
@@ -6099,6 +6140,10 @@ def _grant_auction_item_to_inventory(
             session.add(row)
         row.quantity = int(row.quantity or 0) + amount
         row.updated_at = utcnow()
+        return
+
+    if item_kind == "technique":
+        _grant_technique_in_session(int(tg), int(item_ref_id))
         return
 
     raise ValueError("不支持的拍卖物品类型")
@@ -6244,6 +6289,54 @@ def _settle_auction_row(session: Session, auction: XiuxianAuctionItem) -> dict[s
     winner_tg = int(auction.highest_bidder_tg or 0)
     if winner_tg <= 0:
         raise ValueError("拍卖状态异常，缺少最高出价者")
+    if (
+        str(auction.item_kind or "") == "technique"
+        and session.query(XiuxianUserTechnique)
+        .filter(
+            XiuxianUserTechnique.tg == winner_tg,
+            XiuxianUserTechnique.technique_id == int(auction.item_ref_id or 0),
+        )
+        .first()
+        is not None
+    ):
+        bidder = (
+            session.query(XiuxianProfile)
+            .filter(XiuxianProfile.tg == winner_tg)
+            .with_for_update()
+            .first()
+        )
+        if bidder is not None and current_price > 0:
+            apply_spiritual_stone_delta(
+                session,
+                winner_tg,
+                current_price,
+                action_text="拍卖结算失败返还灵石",
+                allow_dead=True,
+                apply_tribute=False,
+            )
+        _grant_auction_item_to_inventory(
+            session,
+            tg=int(auction.owner_tg),
+            item_kind=str(auction.item_kind or ""),
+            item_ref_id=int(auction.item_ref_id),
+            quantity=int(auction.quantity or 0),
+        )
+        auction.status = "cancelled"
+        auction.winner_tg = None
+        auction.winner_display_name = None
+        auction.final_price_stone = 0
+        auction.seller_income_stone = 0
+        auction.fee_amount_stone = 0
+        auction.highest_bidder_tg = None
+        auction.highest_bidder_display_name = None
+        auction.current_price_stone = 0
+        return {
+            "result": "cancelled",
+            "auction": serialize_auction_item(auction),
+            "winner_tg": None,
+            "winner_display_name": None,
+            "seller_tg": int(auction.owner_tg),
+        }
 
     seller = (
         session.query(XiuxianProfile)
@@ -6397,6 +6490,17 @@ def place_auction_bid(
             raise ValueError("拍卖已经结束")
         if int(auction.owner_tg or 0) == int(bidder_tg):
             raise ValueError("不能给自己发起的拍卖加价")
+        if (
+            str(auction.item_kind or "") == "technique"
+            and session.query(XiuxianUserTechnique)
+            .filter(
+                XiuxianUserTechnique.tg == int(bidder_tg),
+                XiuxianUserTechnique.technique_id == int(auction.item_ref_id or 0),
+            )
+            .first()
+            is not None
+        ):
+            raise ValueError("你已经掌握这门功法，无法重复竞拍。")
 
         current_bidder_tg = int(auction.highest_bidder_tg or 0)
         current_price = max(int(auction.current_price_stone or 0), 0)
