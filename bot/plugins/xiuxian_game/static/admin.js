@@ -3030,18 +3030,30 @@ syncSelects = function syncSelectsEnhanced() {
     { value: "support", label: "辅助法宝" },
   ], $("artifact-type")?.value || "battle", null);
   setOptions($("pill-type"), PILL_TYPES.map((item) => ({ value: item.value, label: item.label })), $("pill-type")?.value || "foundation", null);
+  setOptions(
+    $("admin-task-metric-key"),
+    [{ value: "", label: "请选择计数指标" }, ...((state.bundle?.achievement_metric_presets || []).map((item) => ({ value: item.key, label: item.label || item.key })))],
+    $("admin-task-metric-key")?.value,
+    null,
+  );
   syncAdminTaskFormState();
 };
 
 function syncAdminTaskFormState() {
   const taskType = $("admin-task-type")?.value || "custom";
   const isQuiz = taskType === "quiz";
+  const isMetric = taskType === "metric";
   const title = $("admin-task-title");
   const description = $("admin-task-description");
   const pushGroup = $("admin-task-push-group");
   const maxClaimants = $("admin-task-max-claimants");
   const question = $("admin-task-question");
   const answer = $("admin-task-answer");
+  const requiredKind = $("admin-task-required-kind");
+  const requiredId = $("admin-task-required-id");
+  const requiredQuantity = $("admin-task-required-quantity");
+  const metricKey = $("admin-task-metric-key");
+  const metricTarget = $("admin-task-metric-target");
   if (pushGroup) {
     if (isQuiz) pushGroup.checked = true;
     pushGroup.disabled = isQuiz;
@@ -3054,6 +3066,20 @@ function syncAdminTaskFormState() {
   if (description) description.required = !isQuiz;
   if (question) question.required = isQuiz;
   if (answer) answer.required = isQuiz;
+  [requiredKind, requiredId, requiredQuantity].forEach((element) => {
+    if (!element) return;
+    element.disabled = isQuiz || isMetric;
+  });
+  if (requiredKind && (isQuiz || isMetric)) requiredKind.value = "";
+  if (requiredQuantity && (isQuiz || isMetric)) requiredQuantity.value = "0";
+  if (metricKey) {
+    metricKey.disabled = !isMetric;
+    if (!isMetric) metricKey.value = "";
+  }
+  if (metricTarget) {
+    metricTarget.disabled = !isMetric;
+    if (!isMetric) metricTarget.value = "0";
+  }
 }
 
 function uploadPermissionTarget() {
@@ -3196,9 +3222,13 @@ $("task-admin-form")?.addEventListener("submit", async (event) => {
       required_item_ref_id: Number($("admin-task-required-id").value || 0) || null,
       required_item_quantity: Number($("admin-task-required-quantity").value || 0),
       reward_stone: Number($("admin-task-stone").value || 0),
+      reward_cultivation: Number($("admin-task-cultivation").value || 0),
+      reward_scale_mode: $("admin-task-reward-scale-mode").value || "fixed",
       reward_item_kind: $("admin-task-item-kind").value || null,
       reward_item_ref_id: Number($("admin-task-item-id").value || 0) || null,
       reward_item_quantity: Number($("admin-task-item-quantity").value || 0),
+      requirement_metric_key: $("admin-task-metric-key").value || null,
+      requirement_metric_target: Number($("admin-task-metric-target").value || 0),
       max_claimants: Number($("admin-task-max-claimants").value || 1),
       sect_id: Number($("admin-task-sect-id").value || 0) || null,
       active_in_group: $("admin-task-push-group").checked,
@@ -3310,14 +3340,24 @@ renderWorld = function renderWorldEnhanced() {
 
   renderStack("task-list", (bundle.tasks || []).map((item) => {
     const requiredItemName = item.required_item?.name || item.required_item_kind_label || item.required_item_kind || "无";
-    const requiredText = item.required_item_kind && Number(item.required_item_quantity || 0)
+    const requiredText = item.task_type === "metric"
+      ? `计数要求：${item.metric_label || item.requirement_metric_key || "指标"} × ${item.requirement_metric_target || 0}`
+      : item.required_item_kind && Number(item.required_item_quantity || 0)
       ? `需提交：${requiredItemName} × ${item.required_item_quantity}`
       : "无需提交物品";
+    const rewardParts = [];
+    if (Number(item.reward_stone || 0) > 0) rewardParts.push(`${item.reward_stone} 灵石`);
+    if (Number(item.reward_cultivation || 0) > 0) rewardParts.push(`${item.reward_cultivation} 修为`);
+    if (item.reward_item_kind && Number(item.reward_item_quantity || 0) > 0) {
+      rewardParts.push(`${item.reward_item_quantity} ${item.reward_item?.name || item.reward_item_kind_label || item.reward_item_kind}`);
+    }
+    const rewardText = rewardParts.join(" · ") || "无奖励";
     return `
       <article class="stack-item">
         <div class="stack-item-head"><strong>${escapeHtml(item.title)}</strong><span class="badge badge--normal">${escapeHtml(item.task_scope_label || item.task_scope)}</span></div>
         <p>${escapeHtml(item.task_type_label || item.task_type)} · 领取 ${escapeHtml(item.claimants_count || 0)}/${escapeHtml(item.max_claimants || 1)} · 状态 ${escapeHtml(item.status)}</p>
         <p>${escapeHtml(requiredText)}</p>
+        <p>${escapeHtml(rewardText)}${item.reward_scale_mode === "realm" ? "（按领取者境界缩放）" : ""}</p>
         <div class="inline-action-buttons">${deleteButton("task", item.id)}</div>
       </article>`;
   }).join("") || `<article class="stack-item"><strong>暂无任务</strong></article>`);

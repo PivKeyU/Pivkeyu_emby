@@ -2627,11 +2627,115 @@ function renderCommunityAuctions(items = []) {
 
 function taskRewardText(task) {
   const parts = [];
-  if (task.reward_stone) parts.push(`${task.reward_stone} 灵石`);
+  const rewardStone = Number((task.reward_stone_preview ?? task.reward_stone) || 0);
+  const rewardCultivation = Number((task.reward_cultivation_preview ?? task.reward_cultivation) || 0);
+  if (rewardStone > 0) parts.push(`${rewardStone} 灵石`);
+  if (rewardCultivation > 0) parts.push(`${rewardCultivation} 修为`);
   if (task.reward_item_kind && task.reward_item_quantity) {
-    parts.push(`${task.reward_item_quantity} ${task.reward_item_kind_label || task.reward_item_kind}`);
+    parts.push(`${task.reward_item_quantity} ${task.reward_item?.name || task.reward_item_kind_label || task.reward_item_kind}`);
   }
-  return parts.join(" · ") || "无奖励";
+  const text = parts.join(" · ") || "无奖励";
+  return task.reward_scale_mode === "realm" ? `${text}（按当前境界折算）` : text;
+}
+
+function taskMetricRequirementText(task) {
+  if (task.task_type !== "metric") return "";
+  const metricLabel = task.metric_label || task.requirement_metric_key || "计数指标";
+  const metricTarget = Number((task.metric_target ?? task.requirement_metric_target) || 0);
+  if (metricTarget <= 0) return "";
+  return `${metricLabel} 达到 ${metricTarget} 次`;
+}
+
+function taskMetricProgressText(task) {
+  if (task.task_type !== "metric") return "";
+  const progress = Number(task.metric_progress_value || 0);
+  const target = Number((task.metric_target ?? task.requirement_metric_target) || 0);
+  if (target <= 0) return "";
+  return `当前进度 ${progress}/${target}`;
+}
+
+function taskResultRewardText(reward, task = {}) {
+  const parts = [];
+  if (Number(reward?.reward_stone || 0) > 0) parts.push(`${Number(reward.reward_stone)} 灵石`);
+  if (Number(reward?.reward_cultivation || 0) > 0) parts.push(`${Number(reward.reward_cultivation)} 修为`);
+  if (reward?.reward_item) {
+    const item = reward.reward_item.artifact || reward.reward_item.pill || reward.reward_item.talisman || reward.reward_item.material || {};
+    parts.push(`${Number(reward.reward_item.quantity || 1)} ${item.name || "物品"}`);
+  }
+  return parts.join(" · ") || taskRewardText(task);
+}
+
+function renderUserTaskMetricKeyOptions(bundle = state.profileBundle) {
+  const select = document.querySelector("#task-metric-key");
+  if (!select) return;
+  const previousValue = select.value;
+  const rows = Array.isArray(bundle?.achievement_metric_presets) ? bundle.achievement_metric_presets : [];
+  select.innerHTML = "";
+  if (!rows.length) {
+    select.innerHTML = `<option value="">暂无可用指标</option>`;
+    return;
+  }
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "请选择计数指标";
+  select.appendChild(placeholder);
+  rows.forEach((row) => {
+    const option = document.createElement("option");
+    option.value = row.key;
+    option.textContent = row.label || row.key;
+    select.appendChild(option);
+  });
+  if (rows.some((row) => String(row.key) === String(previousValue))) {
+    select.value = previousValue;
+  }
+}
+
+function sectDonationRows(kind, bundle = state.profileBundle) {
+  if (kind === "artifact") {
+    return (bundle?.artifacts || [])
+      .filter((row) => Number(row.consumable_quantity ?? row.tradeable_quantity ?? 0) > 0)
+      .map((row) => ({ value: row.artifact.id, label: `${row.artifact.name} · 可提交 ${row.consumable_quantity ?? row.tradeable_quantity ?? row.quantity ?? 0}` }));
+  }
+  if (kind === "pill") {
+    return (bundle?.pills || [])
+      .filter((row) => Number(row.quantity || 0) > 0)
+      .map((row) => ({ value: row.pill.id, label: `${row.pill.name} · 库存 ${row.quantity}` }));
+  }
+  if (kind === "talisman") {
+    return (bundle?.talismans || [])
+      .filter((row) => Number(row.consumable_quantity ?? row.tradeable_quantity ?? 0) > 0)
+      .map((row) => ({ value: row.talisman.id, label: `${row.talisman.name} · 可提交 ${row.consumable_quantity ?? row.tradeable_quantity ?? row.quantity ?? 0}` }));
+  }
+  if (kind === "material") {
+    return (bundle?.materials || [])
+      .filter((row) => Number(row.quantity || 0) > 0)
+      .map((row) => ({ value: row.material.id, label: `${row.material.name} · 库存 ${row.quantity}` }));
+  }
+  return [];
+}
+
+function renderSectDonationSelect(bundle = state.profileBundle) {
+  const kind = document.querySelector("#sect-donate-kind")?.value || "material";
+  const select = document.querySelector("#sect-donate-ref");
+  if (!select) return;
+  const previousValue = select.value;
+  const rows = sectDonationRows(kind, bundle);
+  select.innerHTML = "";
+  if (!rows.length) {
+    select.innerHTML = `<option value="">暂无可提交物品</option>`;
+    select.disabled = true;
+    return;
+  }
+  rows.forEach((row) => {
+    const option = document.createElement("option");
+    option.value = row.value;
+    option.textContent = row.label;
+    select.appendChild(option);
+  });
+  select.disabled = false;
+  if (rows.some((row) => String(row.value) === String(previousValue))) {
+    select.value = previousValue;
+  }
 }
 
 function renderSectArea(bundle) {
@@ -2718,6 +2822,7 @@ function renderTaskArea(bundle) {
       ? `当前发布一次任务需要消耗 ${publishCost} 灵石，且必须设置奖励。${limitText}`
       : `发布前请补充清晰信息，且必须设置奖励。${limitText}`);
   }
+  renderUserTaskMetricKeyOptions(bundle);
   renderTaskRequirementSelect();
   const tasks = bundle.tasks || [];
   if (!tasks.length) {
@@ -2728,15 +2833,21 @@ function renderTaskArea(bundle) {
     const claimStatus = task.claim?.status || "";
     const alreadyCompleted = Boolean(task.winner_tg) || claimStatus === "completed";
     const alreadyAccepted = Boolean(task.claimed) && !alreadyCompleted;
+    const isMetric = task.task_type === "metric";
+    const metricClaimable = Boolean(task.metric_claimable);
     const requiresItem = Boolean(task.required_item_kind && Number(task.required_item_quantity || 0) > 0);
-    const disabled = alreadyAccepted || alreadyCompleted || task.task_type === "quiz";
+    const disabled = alreadyCompleted
+      || task.task_type === "quiz"
+      || (alreadyAccepted && (!isMetric || !metricClaimable));
     const requiredItemName = task.required_item?.name || task.required_item_kind_label || task.required_item_kind || "物品";
     const actionLabel = alreadyCompleted
       ? "已完成"
       : alreadyAccepted
-        ? "已接取"
+        ? (isMetric ? (metricClaimable ? "提交进度并领奖" : `进行中 ${task.metric_progress_value || 0}/${task.metric_target || task.requirement_metric_target || 0}`) : "已接取")
         : task.task_type === "quiz"
           ? "请到群内作答"
+          : isMetric
+            ? "接取计数任务"
           : requiresItem
             ? "提交物品并完成"
             : "接取任务";
@@ -2751,6 +2862,7 @@ function renderTaskArea(bundle) {
       <p>${escapeHtml(task.description || "暂无描述")}</p>
       <p>类型：${escapeHtml(task.task_type_label || task.task_type)} · 奖励：${escapeHtml(taskRewardText(task))}</p>
       ${requiresItem ? `<p>提交需求：${escapeHtml(requiredItemName)} × ${escapeHtml(task.required_item_quantity)}</p>` : ""}
+      ${isMetric ? `<p>任务要求：${escapeHtml(taskMetricRequirementText(task))} · ${escapeHtml(taskMetricProgressText(task))}</p>` : ""}
       ${task.question_text ? `<p>题目：${escapeHtml(task.question_text)}</p>` : ""}
       <div class="inline-actions">
         <button type="button" data-task-id="${task.id}" data-task-action="claim" ${disabled ? "disabled" : ""}>${actionLabel}</button>
@@ -4177,6 +4289,63 @@ document.querySelector("#sect-leave-btn")?.addEventListener("click", async (even
   }
 });
 
+document.querySelector("#sect-teach-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form?.querySelector("button[type='submit']");
+  try {
+    const amount = Number(document.querySelector("#sect-teach-amount")?.value || 0);
+    if (amount < 1000) {
+      await popup("表单未完成", "传功点卯至少需要投入 1000 修为。", "error");
+      return;
+    }
+    const payload = await runButtonAction(button, "传功中…", () => postJson("/plugins/xiuxian/api/sect/teach", {
+      cultivation_amount: amount
+    }));
+    const result = payload.result || {};
+    const promotionText = result.promotion?.role?.role_name ? `\n职位晋升：${result.promotion.role.role_name}` : "";
+    const message = `已完成今日传功点卯，投入 ${amount} 修为，获得 ${Number(result.contribution_gain || 0)} 点宗门贡献。${promotionText}`;
+    setStatus(message, "success");
+    await popup("点卯成功", message);
+    await refreshBundle();
+  } catch (error) {
+    const message = normalizeError(error, "宗门传功失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
+});
+
+document.querySelector("#sect-donate-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form?.querySelector("button[type='submit']");
+  try {
+    const itemKind = document.querySelector("#sect-donate-kind")?.value || "";
+    const itemRefId = Number(document.querySelector("#sect-donate-ref")?.value || 0);
+    const quantity = Number(document.querySelector("#sect-donate-quantity")?.value || 0);
+    if (!itemKind || !itemRefId || quantity <= 0) {
+      await popup("表单未完成", "请选择要捐入宗门宝库的物品与数量。", "error");
+      return;
+    }
+    const payload = await runButtonAction(button, "捐赠中…", () => postJson("/plugins/xiuxian/api/sect/donate", {
+      item_kind: itemKind,
+      item_ref_id: itemRefId,
+      quantity
+    }));
+    const result = payload.result || {};
+    const itemName = result.item?.name || "物品";
+    const promotionText = result.promotion?.role?.role_name ? `\n职位晋升：${result.promotion.role.role_name}` : "";
+    const message = `已向宗门宝库提交 ${itemName} × ${quantity}，获得 ${Number(result.contribution_gain || 0)} 点宗门贡献。${promotionText}`;
+    setStatus(message, "success");
+    await popup("捐赠成功", message);
+    await refreshBundle();
+  } catch (error) {
+    const message = normalizeError(error, "捐赠宗门宝库失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
+});
+
 document.querySelector("#task-image-upload")?.addEventListener("click", async (event) => {
   const button = event.currentTarget;
   const fileInput = document.querySelector("#task-image-file");
@@ -4267,13 +4436,24 @@ document.querySelector("#task-list")?.addEventListener("click", async (event) =>
         task_id: Number(button.dataset.taskId)
       }));
       const submitted = payload.result?.submitted_item;
+      const resultTask = payload.result?.task || {};
+      const reward = payload.result?.reward || null;
       if (submitted?.item) {
         const itemName = submitted.item.name || "任务物品";
         const quantity = submitted.quantity || 0;
-        const rewardText = taskRewardText(payload.result?.task || {});
+        const rewardText = taskResultRewardText(reward, resultTask);
         const message = `已提交 ${itemName} × ${quantity}，任务已直接完成。奖励：${rewardText}`;
         setStatus(message, "success");
         await popup("提交完成", message);
+      } else if (resultTask.task_type === "metric" && reward) {
+        const rewardText = taskResultRewardText(reward, resultTask);
+        const message = `计数任务《${resultTask.title || "未命名任务"}》已完成。奖励：${rewardText}`;
+        setStatus(message, "success");
+        await popup("结算成功", message);
+      } else if (resultTask.task_type === "metric") {
+        const message = "计数任务已接取，后续只统计你接取之后新增的完成进度。";
+        setStatus(message, "success");
+        await popup("接取成功", message);
       } else {
         const message = "任务已接取，请按要求完成后再领取奖励。";
         setStatus(message, "success");
@@ -5480,6 +5660,7 @@ function syncAdminEntry(bundle = state.profileBundle) {
 function syncUserTaskComposer() {
   const taskType = document.querySelector("#task-type")?.value || "custom";
   const isQuiz = taskType === "quiz";
+  const isMetric = taskType === "metric";
   const title = document.querySelector("#task-title");
   const description = document.querySelector("#task-description");
   const pushGroup = document.querySelector("#task-push-group");
@@ -5489,6 +5670,9 @@ function syncUserTaskComposer() {
   const requiredKind = document.querySelector("#task-required-kind");
   const requiredRef = document.querySelector("#task-required-ref");
   const requiredQuantity = document.querySelector("#task-required-quantity");
+  const metricKey = document.querySelector("#task-metric-key");
+  const metricTarget = document.querySelector("#task-metric-target");
+  renderUserTaskMetricKeyOptions();
   if (pushGroup) {
     if (isQuiz) pushGroup.checked = true;
     pushGroup.disabled = isQuiz;
@@ -5502,15 +5686,23 @@ function syncUserTaskComposer() {
   if (question) question.required = isQuiz;
   if (answer) answer.required = isQuiz;
   if (requiredKind) {
-    if (isQuiz) requiredKind.value = "";
-    requiredKind.disabled = isQuiz;
+    if (isQuiz || isMetric) requiredKind.value = "";
+    requiredKind.disabled = isQuiz || isMetric;
   }
   if (requiredQuantity) {
-    if (isQuiz) requiredQuantity.value = "0";
-    requiredQuantity.disabled = isQuiz;
+    if (isQuiz || isMetric) requiredQuantity.value = "0";
+    requiredQuantity.disabled = isQuiz || isMetric;
   }
   if (requiredRef) {
-    requiredRef.disabled = isQuiz;
+    requiredRef.disabled = isQuiz || isMetric;
+  }
+  if (metricKey) {
+    if (!isMetric) metricKey.value = "";
+    metricKey.disabled = !isMetric;
+  }
+  if (metricTarget) {
+    if (!isMetric) metricTarget.value = "0";
+    metricTarget.disabled = !isMetric;
   }
   renderTaskRequirementSelect();
 }
@@ -5531,6 +5723,9 @@ function validateUserTaskComposer() {
   const requiredRef = Number(document.querySelector("#task-required-ref")?.value || 0);
   const requiredQuantity = Number(document.querySelector("#task-required-quantity")?.value || 0);
   const rewardStone = Number(document.querySelector("#task-reward-stone")?.value || 0);
+  const rewardCultivation = Number(document.querySelector("#task-reward-cultivation")?.value || 0);
+  const metricKey = document.querySelector("#task-metric-key")?.value || "";
+  const metricTarget = Number(document.querySelector("#task-metric-target")?.value || 0);
 
   if (meaningfulTextLength(title) < 2) {
     return { title: "表单未完成", message: "任务标题至少填写 2 个字。", tone: "error" };
@@ -5542,6 +5737,16 @@ function validateUserTaskComposer() {
     }
     if (!String(answer || "").trim()) {
       return { title: "表单未完成", message: "答题任务必须填写标准答案。", tone: "error" };
+    }
+  } else if (taskType === "metric") {
+    if (meaningfulTextLength(description) < 6) {
+      return { title: "表单未完成", message: "计数任务必须填写至少 6 个字的任务说明。", tone: "error" };
+    }
+    if (!metricKey) {
+      return { title: "表单未完成", message: "请选择计数任务指标。", tone: "error" };
+    }
+    if (metricTarget <= 0) {
+      return { title: "表单未完成", message: "计数任务目标次数必须大于 0。", tone: "error" };
     }
   } else if (meaningfulTextLength(description) < 6) {
     return { title: "表单未完成", message: "普通任务必须填写至少 6 个字的任务说明。", tone: "error" };
@@ -5560,8 +5765,8 @@ function validateUserTaskComposer() {
     }
   }
 
-  if (rewardStone <= 0) {
-    return { title: "表单未完成", message: "悬赏任务必须设置奖励灵石。", tone: "error" };
+  if (rewardStone <= 0 && rewardCultivation <= 0) {
+    return { title: "表单未完成", message: "悬赏任务至少需要设置灵石或修为奖励。", tone: "error" };
   }
 
   return null;
@@ -5569,6 +5774,7 @@ function validateUserTaskComposer() {
 
 document.querySelector("#task-type")?.addEventListener("change", syncUserTaskComposer);
 document.querySelector("#task-required-kind")?.addEventListener("change", renderTaskRequirementSelect);
+document.querySelector("#sect-donate-kind")?.addEventListener("change", () => renderSectDonationSelect(state.profileBundle));
 
 document.querySelector("#open-admin-panel")?.addEventListener("click", () => {
   const button = document.querySelector("#open-admin-panel");
@@ -5607,6 +5813,10 @@ userTaskForm?.addEventListener("submit", async (event) => {
       required_item_ref_id: Number(document.querySelector("#task-required-ref").value || 0) || null,
       required_item_quantity: Number(document.querySelector("#task-required-quantity").value || 0),
       reward_stone: Number(document.querySelector("#task-reward-stone").value || 0),
+      reward_cultivation: Number(document.querySelector("#task-reward-cultivation").value || 0),
+      reward_scale_mode: document.querySelector("#task-reward-scale-mode").value,
+      requirement_metric_key: document.querySelector("#task-metric-key").value || null,
+      requirement_metric_target: Number(document.querySelector("#task-metric-target").value || 0),
       max_claimants: Number(document.querySelector("#task-max-claimants").value || 1),
       active_in_group: document.querySelector("#task-push-group").checked
     }));
@@ -5621,6 +5831,12 @@ userTaskForm?.addEventListener("submit", async (event) => {
     form?.reset?.();
     const rewardStoneInput = document.querySelector("#task-reward-stone");
     if (rewardStoneInput) rewardStoneInput.value = "10";
+    const rewardCultivationInput = document.querySelector("#task-reward-cultivation");
+    if (rewardCultivationInput) rewardCultivationInput.value = "0";
+    const rewardScaleMode = document.querySelector("#task-reward-scale-mode");
+    if (rewardScaleMode) rewardScaleMode.value = "fixed";
+    const metricTargetInput = document.querySelector("#task-metric-target");
+    if (metricTargetInput) metricTargetInput.value = "0";
     syncUserTaskComposer();
     await refreshBundle();
   } catch (error) {
@@ -6617,17 +6833,36 @@ function sectBonusSummary(sect = {}, role = null) {
 renderSectArea = function renderSectAreaEnhanced(bundle) {
   const currentRoot = document.querySelector("#sect-current");
   const listRoot = document.querySelector("#sect-list");
+  const treasuryRoot = document.querySelector("#sect-treasury");
+  const attendanceNote = document.querySelector("#sect-attendance-note");
   const salaryButton = document.querySelector("#sect-salary-btn");
   const leaveButton = document.querySelector("#sect-leave-btn");
-  if (!currentRoot || !listRoot || !salaryButton || !leaveButton) return;
+  const teachButton = document.querySelector("#sect-teach-btn");
+  const donateButton = document.querySelector("#sect-donate-btn");
+  const teachInput = document.querySelector("#sect-teach-amount");
+  const donateKind = document.querySelector("#sect-donate-kind");
+  const donateRef = document.querySelector("#sect-donate-ref");
+  const donateQuantity = document.querySelector("#sect-donate-quantity");
+  if (!currentRoot || !listRoot || !treasuryRoot || !attendanceNote || !salaryButton || !leaveButton) return;
 
   const current = bundle.current_sect;
   const duelLockReason = currentDuelLockReason(bundle);
   leaveButton.textContent = "叛出宗门";
   currentRoot.innerHTML = "";
+  treasuryRoot.innerHTML = "";
+  renderSectDonationSelect(bundle);
+
   if (current) {
     const role = current.current_role || null;
-    const contribution = bundle.profile?.sect_contribution ?? 0;
+    const contribution = Number(bundle.profile?.sect_contribution ?? 0);
+    const attendance = current.attendance || {};
+    const promotionPreview = current.promotion_preview || null;
+    const attendanceText = attendance.done_today
+      ? `今日已通过${attendance.last_method_label || attendance.last_method || "宗门点卯"}完成点卯。`
+      : "今日尚未点卯，可选择传功或捐物完成。";
+    const promotionText = promotionPreview
+      ? `再获 ${promotionPreview.remaining_contribution || 0} 点贡献可晋升为 ${promotionPreview.next_role_name || promotionPreview.next_role_key || "下一职位"}。`
+      : "当前职位已达到自动晋升上限。";
     currentRoot.innerHTML = `
       <article class="stack-item">
         <div class="stack-item-head">
@@ -6640,18 +6875,46 @@ renderSectArea = function renderSectAreaEnhanced(bundle) {
           <span class="tag">成员 ${escapeHtml((current.roster || []).length)}</span>
           <span class="tag">贡献 ${escapeHtml(contribution)}</span>
           <span class="tag">月俸 ${escapeHtml(role?.monthly_salary ?? 0)} 灵石</span>
+          <span class="tag">${escapeHtml(attendance.done_today ? "今日已点卯" : "今日未点卯")}</span>
           ${current.entry_technique_name ? `<span class="tag">入门功法 ${escapeHtml(current.entry_technique_name)}</span>` : ""}
         </div>
         <p>宗门加成：${escapeHtml(sectBonusSummary(current, role))}</p>
+        <p>${escapeHtml(promotionText)}</p>
         ${current.entry_hint ? `<p>${escapeHtml(current.entry_hint)}</p>` : ""}
       </article>
     `;
+    attendanceNote.textContent = `${attendanceText}${attendance.last_at ? ` 上次点卯：${formatDate(attendance.last_at)}。` : ""}`;
+    const attendanceBlockedReason = attendance.done_today
+      ? `今日已通过${attendance.last_method_label || attendance.last_method || "宗门点卯"}完成点卯。`
+      : (duelLockReason || "");
     setDisabled(salaryButton, Boolean(duelLockReason), duelLockReason);
     setDisabled(leaveButton, Boolean(duelLockReason), duelLockReason);
+    [teachButton, teachInput, donateButton, donateKind, donateRef, donateQuantity]
+      .forEach((element) => setDisabled(element, Boolean(attendanceBlockedReason), attendanceBlockedReason));
+    const availableDonationRows = sectDonationRows(donateKind?.value || "material", bundle);
+    if (!attendanceBlockedReason && !availableDonationRows.length) {
+      setDisabled(donateRef, true, "当前背包没有可提交物品");
+      setDisabled(donateButton, true, "当前背包没有可提交物品");
+    }
+
+    const treasuryItems = current.treasury_items || [];
+    treasuryRoot.innerHTML = treasuryItems.length
+      ? treasuryItems.map((row) => `
+        <article class="stack-item">
+          <div class="stack-item-head">
+            <strong>${escapeHtml(row.item_name || row.item?.name || row.item_kind_label || row.item_kind || "物品")}</strong>
+            <span class="badge badge--normal">x${escapeHtml(row.quantity || 0)}</span>
+          </div>
+          <p>${escapeHtml(row.item_kind_label || row.item_kind || "物品")} · ${escapeHtml(row.item?.quality_label || row.item?.rarity || row.item?.quality_feature || "常规物资")}</p>
+        </article>
+      `).join("")
+      : `<article class="stack-item"><strong>宗门宝库暂无物资</strong><p>完成每日捐物点卯后，已提交的物品会展示在这里。</p></article>`;
   } else {
     currentRoot.innerHTML = `<article class="stack-item"><strong>暂未加入宗门</strong><p>满足门槛后，即可在下方挑选正邪宗门与入门路线。</p></article>`;
-    setDisabled(salaryButton, true);
-    setDisabled(leaveButton, true);
+    treasuryRoot.innerHTML = `<article class="stack-item"><strong>宗门宝库未开启</strong><p>加入宗门后才能查看并捐赠宝库物资。</p></article>`;
+    attendanceNote.textContent = "尚未加入宗门，当前无法进行宗门点卯。";
+    [salaryButton, leaveButton, teachButton, teachInput, donateButton, donateKind, donateRef, donateQuantity]
+      .forEach((element) => setDisabled(element, true, "尚未加入宗门"));
   }
 
   listRoot.innerHTML = "";

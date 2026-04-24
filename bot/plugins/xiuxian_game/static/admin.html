@@ -1501,6 +1501,7 @@
             <select id="admin-task-type">
               <option value="custom">普通任务</option>
               <option value="quiz">答题任务</option>
+              <option value="metric">计数任务</option>
             </select>
           </label>
           <label>
@@ -1510,6 +1511,17 @@
           <label>
             奖励灵石
             <input id="admin-task-stone" type="number" min="0" value="0">
+          </label>
+          <label>
+            奖励修为
+            <input id="admin-task-cultivation" type="number" min="0" value="0">
+          </label>
+          <label>
+            奖励缩放
+            <select id="admin-task-reward-scale-mode">
+              <option value="fixed">固定奖励</option>
+              <option value="realm">按领取者境界缩放</option>
+            </select>
           </label>
           <label>
             奖励物品类型
@@ -1548,6 +1560,14 @@
           <label>
             需提交数量
             <input id="admin-task-required-quantity" type="number" min="0" value="0">
+          </label>
+          <label>
+            计数指标
+            <select id="admin-task-metric-key"></select>
+          </label>
+          <label>
+            目标次数
+            <input id="admin-task-metric-target" type="number" min="0" value="0">
           </label>
           <label>
             领取上限

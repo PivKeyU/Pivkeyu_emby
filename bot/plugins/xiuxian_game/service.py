@@ -9432,24 +9432,28 @@ def build_leaderboard(kind: str, page: int = 1, page_size: int = 20) -> dict[str
 
 
 def format_leaderboard_text(result: dict[str, Any]) -> str:
+    def _rich_escape(value: Any) -> str:
+        return re.sub(r"([_*\[`])", r"\\\1", str(value or ""))
+
     title_map = {
         "stone": "灵石排行榜",
         "realm": "境界排行榜",
         "artifact": "法宝排行榜",
     }
-    lines = [f"**{title_map.get(result['kind'], '排行榜')}**", f"第 {result['page']} 页 / 共 {result['total_pages']} 页", ""]
+    lines = [f"🏆 **{title_map.get(result['kind'], '排行榜')}**", f"📄 页码：`{result['page']}/{result['total_pages']}`", ""]
     if not result["items"]:
-        lines.append("当前没有可显示的数据。")
+        lines.append("📭 当前没有可显示的数据。")
         return "\n".join(lines)
 
     for item in result["items"]:
         if result["kind"] == "stone":
-            desc = f"{item['spiritual_stone']} 灵石"
+            desc = f"💎 灵石：`{item['spiritual_stone']}`"
         elif result["kind"] == "realm":
-            desc = f"{item['realm_stage']}{item['realm_layer']}层"
+            desc = f"🏯 境界：`{_rich_escape(str(item['realm_stage']) + str(item['realm_layer']) + '层')}`"
         else:
-            desc = item["artifact_name"] or "暂无装备法宝"
-        lines.append(f"{item['rank']}. {item['name']} | {desc}")
+            desc = f"🧿 本命法宝：{_rich_escape(item['artifact_name'] or '暂无装备法宝')}"
+        lines.append(f"{item['rank']}. {_rich_escape(item['name'])}")
+        lines.append(f"↳ {desc}")
     return "\n".join(lines)
 
 
@@ -11293,6 +11297,10 @@ def _duel_display_name(profile: dict[str, Any]) -> str:
     return _profile_name_with_title(profile)
 
 
+def _duel_md_escape(value: Any) -> str:
+    return re.sub(r"([_*\[`])", r"\\\1", str(value or ""))
+
+
 def _duel_item_names(items: list[dict[str, Any]] | None, fallback: str) -> str:
     rows = [str(item.get("name") or "").strip() for item in (items or []) if str(item.get("name") or "").strip()]
     return "、".join(rows[:3]) if rows else fallback
@@ -11782,22 +11790,17 @@ def _format_duel_side_block(snapshot: dict[str, Any], label: str) -> list[str]:
     stats = snapshot["stats"]
     side_emoji = "🟥" if label == "挑战者" else "🟦" if label == "应战者" else "⚔️"
     return [
-        f"{side_emoji} {label}：{snapshot['name']}",
-        f"🏯 境界：{snapshot['realm_text']} ｜ ⚡ 战力：{snapshot['power']:.1f} ｜ 🎯 预测胜率：{snapshot['win_rate']:.1f}%",
-        f"🌱 灵根：{snapshot['root_text']} ｜ 🧭 五行修正 {snapshot['root_modifier_percent']:+.1f}% ｜ 🪨 灵根战斗系数 {snapshot['root_factor']:.3f}",
-        f"📜 功法：{snapshot['technique_name']}",
-        f"🧰 法宝：{snapshot['artifact_names']} ｜ 🧿 符箓：{snapshot['talisman_name']}",
-        (
-            "⚔️ 核心数值："
-            f"攻 {stats['attack_power']} 防 {stats['defense_power']} "
-            f"气血 {stats['qi_blood']} 真元 {stats['true_yuan']} "
-            f"身法 {stats['body_movement']} 斗法 {stats['duel_rate_bonus']:+d}%"
-        ),
-        (
-            "🧠 资质数值："
-            f"根骨 {stats['bone']} 悟性 {stats['comprehension']} "
-            f"神识 {stats['divine_sense']} 机缘 {stats['fortune']}"
-        ),
+        f"{side_emoji} {label}：{_duel_md_escape(snapshot['name'])}",
+        f"🏯 境界：`{_duel_md_escape(snapshot['realm_text'])}`",
+        f"⚡ 战力：`{snapshot['power']:.1f}` ｜ 🎯 预测胜率：`{snapshot['win_rate']:.1f}%`",
+        f"🌱 灵根：{_duel_md_escape(snapshot['root_text'])}",
+        f"🧭 五行修正：`{snapshot['root_modifier_percent']:+.1f}%` ｜ 🪨 战斗系数：`{snapshot['root_factor']:.3f}`",
+        f"📜 功法：{_duel_md_escape(snapshot['technique_name'])}",
+        f"🧰 法宝：{_duel_md_escape(snapshot['artifact_names'])}",
+        f"🧿 符箓：{_duel_md_escape(snapshot['talisman_name'])}",
+        f"⚔️ 核心：`攻 {stats['attack_power']}` ｜ `防 {stats['defense_power']}` ｜ `斗法 {stats['duel_rate_bonus']:+d}%`",
+        f"🩸 续航：`气血 {stats['qi_blood']}` ｜ `真元 {stats['true_yuan']}` ｜ `身法 {stats['body_movement']}`",
+        f"🧠 资质：`根骨 {stats['bone']}` ｜ `悟性 {stats['comprehension']}` ｜ `神识 {stats['divine_sense']}` ｜ `机缘 {stats['fortune']}`",
     ]
 
 
@@ -12182,12 +12185,12 @@ def format_duel_matchup_text(
         "",
         *_format_duel_side_block(duel["defender_snapshot"], "应战者"),
         "",
-        f"📊 综合预测：挑战者 {duel['challenger_rate'] * 100:.1f}% / 应战者 {duel['defender_rate'] * 100:.1f}%",
+        f"📊 综合预测：挑战者 `{duel['challenger_rate'] * 100:.1f}%` / 应战者 `{duel['defender_rate'] * 100:.1f}%`",
     ]
     if stake:
-        lines.append(f"💰 赌注：每人 {stake} 灵石")
-    lines.append(f"🎁 胜者掠夺：败者当前灵石的 {plunder_percent}%")
-    lines.append(f"🗡️ 法宝掠夺：基础 {artifact_plunder_chance}% 夺取 1 件未绑定法宝，受双方机缘影响")
+        lines.append(f"💰 赌注：每人 `{stake}` 灵石")
+    lines.append(f"🎁 胜者掠夺：败者当前灵石的 `{plunder_percent}%`")
+    lines.append(f"🗡️ 法宝掠夺：基础 `{artifact_plunder_chance}%` 夺取 1 件未绑定法宝，受双方机缘影响")
     lines.extend(_duel_mode_preview_lines(duel, duel_mode))
     return "\n".join(lines)
 
@@ -13353,47 +13356,42 @@ def format_duel_settlement_text(
     duel_mode = _normalize_duel_mode(result.get("duel_mode"))
     winner_profile = challenger if int(result["winner_tg"]) == int(challenger["tg"]) else defender
     loser_profile = defender if int(result["loser_tg"]) == int(defender["tg"]) else challenger
-    winner_name = _duel_display_name(winner_profile)
-    loser_name = _duel_display_name(loser_profile)
+    winner_name = _duel_md_escape(_duel_display_name(winner_profile))
+    loser_name = _duel_md_escape(_duel_display_name(loser_profile))
     lines = [
         {
             "standard": "⚖️ **斗法已结算**",
             "master": "⛓️ **炉鼎对决已结算**",
             "death": "☠️ **生死斗已结算**",
         }.get(duel_mode, "⚖️ **斗法已结算**"),
-        f"胜者：{winner_name}",
-        f"败者：{loser_name}",
-        f"{result['summary']}",
+        f"🏆 胜者：{winner_name}",
+        f"💥 败者：{loser_name}",
+        f"📝 战报：{_duel_md_escape(result['summary'])}",
     ]
     mode_outcome = result.get("mode_outcome") or {}
     if mode_outcome:
         lines.append("")
         if mode_outcome.get("kind") == "subjugated":
-            lines.append(f"炉鼎结果：{winner_name} 收下 {loser_name} 为炉鼎。")
+            lines.append(f"⛓️ 炉鼎结果：{winner_name} 收下 {loser_name} 为炉鼎。")
         elif mode_outcome.get("kind") == "break_free":
-            lines.append(f"脱离结果：{winner_name} 斩断炉鼎印记，重获自由。")
+            lines.append(f"🕊️ 脱离结果：{winner_name} 斩断炉鼎印记，重获自由。")
         elif mode_outcome.get("kind") == "master_defended":
-            lines.append(f"脱离结果：{winner_name} 守住炉鼎印记，{loser_name} 需等待下一次强制挑战。")
+            lines.append(f"🔒 脱离结果：{winner_name} 守住炉鼎印记，{loser_name} 需等待下一次强制挑战。")
         elif mode_outcome.get("kind") == "death":
-            lines.append(f"生死结果：{winner_name} 继承了 {loser_name} 的全部遗产，{loser_name} 已身死道消。")
+            lines.append(f"☠️ 生死结果：{winner_name} 继承了 {loser_name} 的全部遗产，{loser_name} 已身死道消。")
 
     battle_log = list(result.get("battle_log") or [])
     if battle_log:
-        lines.extend(
-            [
-                "",
-                f"斗法过程：共 {int(result.get('round_count') or 0)} 回合，关键战况已简要播报。",
-            ]
-        )
+        lines.extend(["", f"⏱️ 回合：`{int(result.get('round_count') or 0)}`"])
 
     stake = int(result.get("stake") or 0)
     if stake > 0:
         lines.extend(
             [
                 "",
-                "赌斗盈亏：",
-                f"{winner_name} 赢得 {stake} 灵石",
-                f"{loser_name} 输掉 {stake} 灵石",
+                "💰 **赌斗盈亏**",
+                f"• {winner_name}：`+{stake}` 灵石",
+                f"• {loser_name}：`-{stake}` 灵石",
             ]
         )
 
@@ -13402,9 +13400,9 @@ def format_duel_settlement_text(
         lines.extend(
             [
                 "",
-                "胜者掠夺：",
-                f"{winner_name} 额外掠夺 {int(result.get('plunder_amount') or 0)} 灵石",
-                f"掠夺比例：{plunder_percent}%",
+                "🪙 **胜者掠夺**",
+                f"• 额外掠夺：`{int(result.get('plunder_amount') or 0)}` 灵石",
+                f"• 掠夺比例：`{plunder_percent}%`",
             ]
         )
 
@@ -13414,9 +13412,9 @@ def format_duel_settlement_text(
         lines.extend(
             [
                 "",
-                "法宝掠夺：",
-                f"{winner_name} 夺取了 {loser_name} 的 {artifact_payload.get('name', '未知法宝')}",
-                f"触发概率：{artifact_plunder.get('chance', 0)}%",
+                "🗡️ **法宝掠夺**",
+                f"• 掠夺结果：{winner_name} 夺取了 {loser_name} 的 {_duel_md_escape(artifact_payload.get('name', '未知法宝'))}",
+                f"• 触发概率：`{artifact_plunder.get('chance', 0)}%`",
             ]
         )
 
@@ -13428,9 +13426,9 @@ def format_duel_settlement_text(
         lines.extend(
             [
                 "",
-                "斗法感悟：",
-                f"{winner_name} 在鏖战后额外提升 " + "、".join(
-                    f"{item.get('label', item.get('key', '属性'))} +{int(item.get('value') or 0)}"
+                "🌱 **斗法感悟**",
+                f"• {winner_name} 在鏖战后额外提升 " + "、".join(
+                    f"{_duel_md_escape(item.get('label', item.get('key', '属性')))} +{int(item.get('value') or 0)}"
                     for item in winner_growth
                 ),
             ]
@@ -13447,32 +13445,30 @@ def format_duel_settlement_text(
         "defender": "应战者",
     }
     lines.append("")
-    lines.append("押注结算：")
+    lines.append("🎯 **押注结算**")
     if not rows:
-        lines.append("暂无道友参与押注。")
+        lines.append("📭 暂无道友参与押注。")
     else:
-        header = "按净收益从高到低："
+        header = "📈 按净收益从高到低："
         if total_pages > 1:
             header += f" 第 {current_page}/{total_pages} 页"
         lines.append(header)
         for index, row in enumerate(page_rows, start=start + 1):
+            bettor_name = _duel_md_escape(row["name"])
             if row.get("result") == "win":
                 lines.append(
-                    f"{index}. {row['name']} 押中{side_label.get(row.get('side'), '胜方')}，"
-                    f"下注 {row['bet_amount']}，净赚 {row['net_profit']}，返还 {row['amount']} 灵石"
+                    f"{index}. {bettor_name} ｜ 押中{side_label.get(row.get('side'), '胜方')} ｜ 下注 `{row['bet_amount']}` ｜ 净赚 `{row['net_profit']}` ｜ 返还 `{row['amount']}`"
                 )
             else:
                 lines.append(
-                    f"{index}. {row['name']} 押错{side_label.get(row.get('side'), '败方')}，"
-                    f"下注 {row['bet_amount']}，净亏 {abs(int(row.get('net_profit') or 0))} 灵石"
+                    f"{index}. {bettor_name} ｜ 押错{side_label.get(row.get('side'), '败方')} ｜ 下注 `{row['bet_amount']}` ｜ 净亏 `{abs(int(row.get('net_profit') or 0))}`"
                 )
 
     lines.extend(
         [
             "",
-            "祝词：",
-            "愿胜者道心愈坚、再攀一层；愿败者锋芒不折、来日再战。",
-            "也愿诸位观战押注的道友财运常在、仙途长青，机缘与紫气同来。",
+            "✨ 愿胜者道心愈坚、再攀一层；愿败者锋芒不折、来日再战。",
+            "🍀 也愿诸位观战押注的道友财运常在、仙途长青。",
         ]
     )
     return "\n".join(lines)

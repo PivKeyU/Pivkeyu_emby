@@ -88,9 +88,11 @@ from bot.plugins.xiuxian_game.api_models import (
     RedEnvelopePayload,
     RetreatPayload,
     ScenePayload,
+    SectDonatePayload,
     SectJoinPayload,
     SectPayload,
     SectRoleAssignPayload,
+    SectTeachPayload,
     ShopCancelPayload,
     SocialModePayload,
     TalismanBindingPayload,
@@ -219,8 +221,10 @@ from bot.plugins.xiuxian_game.features.retreat import finish_retreat_for_user, s
 from bot.plugins.xiuxian_game.features.sects import (
     claim_sect_salary_for_user,
     create_sect_with_roles,
+    donate_item_to_sect_treasury,
     join_sect_for_user,
     leave_sect_for_user,
+    perform_sect_teach_attendance,
     set_user_sect_role,
 )
 from bot.plugins.xiuxian_game.features.shop import (
@@ -298,6 +302,7 @@ from bot.sql_helper.sql_xiuxian import (
     delete_task,
     create_technique,
     get_emby_account,
+    get_latest_group_encounter_time,
     get_xiuxian_settings,
     grant_image_upload_permission,
     has_image_upload_permission,
@@ -385,12 +390,14 @@ EVENT_SUMMARY_SNAPSHOT_TTL_SECONDS = 15.0
 EVENT_SUMMARY_MESSAGE_MAP_KEY = "event_summary_message_map"
 NOTICE_GROUP_RESOLUTION_CACHE: dict[str, int] = {}
 COMMAND_DISPATCH_CACHE: dict[tuple[int, int, str], float] = {}
+ENCOUNTER_AUTO_CHAT_STATE: dict[int, bool] = {}
 DUEL_SETTLEMENT_PAGE_SIZE = 10
 STATIC_ASSET_PATTERN = re.compile(r'(/plugins/xiuxian/static/([A-Za-z0-9_.-]+\.(?:css|js)))')
 XIUXIAN_BOT_COMMANDS = (
     BotCommand("xiuxian", f"修仙玩法 v{PLUGIN_VERSION} [私聊]"),
     BotCommand("xiuxian_me", "展示修仙名帖 [群聊]"),
     BotCommand("xiuxian_rank", "查看修仙排行榜 [群聊]"),
+    BotCommand("xiuxian_world", "查看修仙信息汇总 [群聊]"),
     BotCommand("train", "群内吐纳修炼 [群聊]"),
     BotCommand("work", "群内结算灵石委托，可一键完成 [群聊]"),
     BotCommand("salary", "群内领取宗门俸禄 [群聊]"),
@@ -823,6 +830,21 @@ def _message_jump_link(label: str, chat_id: int | None, message_id: int | None) 
     return f"[{safe_label}]({url})" if url else safe_label
 
 
+def _format_notice_card(title: str, *, emoji: str, lines: Iterable[str], footer: str | None = None) -> str:
+    rows = [f"{emoji} **{_md_escape(title)}**"]
+    rows.extend(str(line).strip() for line in lines if str(line or "").strip())
+    if footer:
+        rows.extend(["", str(footer).strip()])
+    return "\n".join(rows)
+
+
+def _format_layer_upgrade_line(upgraded_layers: list[int] | None, *, label: str = "层数提升") -> str:
+    layers = [int(layer) for layer in (upgraded_layers or []) if int(layer) > 0]
+    if not layers:
+        return ""
+    return f"🪜 {label}：{' → '.join(f'`{layer}层`' for layer in layers)}"
+
+
 def _format_group_profile_showcase(payload: dict[str, Any], fallback_name: str | None = None) -> str:
     profile = payload["profile"]
     effective_stats = payload.get("effective_stats") or {}
@@ -848,35 +870,27 @@ def _format_group_profile_showcase(payload: dict[str, Any], fallback_name: str |
         retreat_end_at = _parse_shanghai_datetime(profile.get("retreat_end_at"))
         retreat_display = retreat_end_at.strftime("%m-%d %H:%M") if retreat_end_at else str(profile.get("retreat_end_at"))
         retreat_text = f"闭关中，预计 {retreat_display} 出关"
-    return "\n".join(
-        [
-            "🌌 **修仙名帖**",
+    return _format_notice_card(
+        "修仙名帖",
+        emoji="🌌",
+        lines=[
             f"👤 道友：{_md_escape(display_name)}",
             f"🌱 灵根：{_md_escape(format_root(profile))}",
             f"🏯 境界：{_md_escape(str(profile['realm_stage']) + str(profile['realm_layer']) + '层')}",
-            f"📈 修为：`{profile['cultivation']} / {progress.get('threshold', 0)}` ｜ 距下一层还差 `{progress.get('remaining', 0)}`",
-            f"💎 灵石：`{profile['spiritual_stone']}` ｜ ☠️ 丹毒：`{profile['dan_poison']}/100`",
+            f"📈 当前修为：`{profile['cultivation']} / {progress.get('threshold', 0)}`",
+            f"⏭️ 距下一层：`{progress.get('remaining', 0)}`",
+            f"💎 灵石：`{profile['spiritual_stone']}`",
+            f"☠️ 丹毒：`{profile['dan_poison']}/100`",
             f"🏷️ 称号：{_md_escape(current_title.get('name') or '未佩戴称号')}",
-            (
-                "⚔️ 战斗："
-                f"`攻 {effective_stats.get('attack_power', profile.get('attack_power', 0))}` ｜ "
-                f"`防 {effective_stats.get('defense_power', profile.get('defense_power', 0))}` ｜ "
-                f"`战力 {payload.get('combat_power', 0)}`"
-            ),
-            (
-                "🧭 资质："
-                f"`根骨 {effective_stats.get('bone', profile.get('bone', 0))}` ｜ "
-                f"`悟性 {effective_stats.get('comprehension', profile.get('comprehension', 0))}` ｜ "
-                f"`神识 {effective_stats.get('divine_sense', profile.get('divine_sense', 0))}` ｜ "
-                f"`机缘 {effective_stats.get('fortune', profile.get('fortune', 0))}` ｜ "
-                f"`魅力 {effective_stats.get('charisma', profile.get('charisma', 0))}`"
-            ),
+            f"⚔️ 战斗：`攻 {effective_stats.get('attack_power', profile.get('attack_power', 0))}` ｜ `防 {effective_stats.get('defense_power', profile.get('defense_power', 0))}` ｜ `战力 {payload.get('combat_power', 0)}`",
+            f"🧭 资质：`根骨 {effective_stats.get('bone', profile.get('bone', 0))}` ｜ `悟性 {effective_stats.get('comprehension', profile.get('comprehension', 0))}` ｜ `神识 {effective_stats.get('divine_sense', profile.get('divine_sense', 0))}`",
+            f"✨ 机缘向：`机缘 {effective_stats.get('fortune', profile.get('fortune', 0))}` ｜ `魅力 {effective_stats.get('charisma', profile.get('charisma', 0))}`",
             "🛡️ 法宝：",
             *[_md_escape(line) for line in artifact_lines],
             f"🧿 符箓：{_md_escape(active_talisman.get('name') or '暂无待生效符箓')}",
             f"📜 功法：{_md_escape(current_technique.get('name') or '暂无参悟功法')}",
             f"🕰️ 状态：{_md_escape(retreat_text)}",
-        ]
+        ],
     )
 
 
@@ -913,6 +927,28 @@ def _main_group_chat_id() -> int | None:
     if not group:
         return None
     return int(group[0])
+
+
+def _encounter_auto_trigger_enabled(chat_id: int | None) -> bool:
+    resolved_chat_id = int(chat_id or 0)
+    if not resolved_chat_id:
+        return False
+    cached = ENCOUNTER_AUTO_CHAT_STATE.get(resolved_chat_id)
+    if cached is not None:
+        return cached
+
+    allowed_chat_ids = {
+        int(item)
+        for item in (group or [])
+        if str(item or "").strip() and int(item or 0) != 0
+    }
+    main_chat_id = _main_group_chat_id()
+    if main_chat_id:
+        allowed_chat_ids.add(int(main_chat_id))
+
+    enabled = resolved_chat_id in allowed_chat_ids or get_latest_group_encounter_time(resolved_chat_id) is not None
+    ENCOUNTER_AUTO_CHAT_STATE[resolved_chat_id] = enabled
+    return enabled
 
 
 def _notice_group_setting_key(scope: str) -> str | None:
@@ -1147,12 +1183,14 @@ def _achievement_group_text(unlock: dict[str, Any]) -> str:
     achievement = unlock.get("achievement") or {}
     reward_summary = unlock.get("reward_summary") or format_reward_summary(achievement.get("reward_config"))
     display_name = unlock.get("display_name") or f"TG {unlock.get('tg')}"
-    return "\n".join(
-        [
-            "📣 **成就喜报**",
-            f"恭喜 {_md_escape(display_name)} 达成 **{_md_escape(achievement.get('name') or '未知成就')}**",
+    return _format_notice_card(
+        "成就喜报",
+        emoji="📣",
+        lines=[
+            f"👤 达成者：{_md_escape(display_name)}",
+            f"🏅 成就：**{_md_escape(achievement.get('name') or '未知成就')}**",
             f"🎁 奖励：{_md_escape(reward_summary)}",
-        ]
+        ],
     )
 
 
@@ -1562,7 +1600,7 @@ def _build_event_summary_text(
     lines = [
         "🧭 **仙界汇总**",
         f"🕰️ 更新时间：`{datetime.now(SHANGHAI_TZ).strftime('%m-%d %H:%M')}`",
-        f"📌 总览：拍卖 `{len(auctions)}` ｜ 擂台 `{len(arenas)}` ｜ 小铺 `{len(shops)}` ｜ 合计 `{total_count}`",
+        f"📊 进行中：拍卖 `{len(auctions)}` ｜ 擂台 `{len(arenas)}` ｜ 小铺 `{len(shops)}` ｜ 合计 `{total_count}`",
     ]
     if not auctions and not arenas and not shops:
         lines.append("")
@@ -1577,9 +1615,8 @@ def _build_event_summary_text(
             label = f"{row.get('item_name') or '未知拍品'}"
             current_price = int(row.get("current_display_price_stone") or 0)
             detail = _summary_remaining_text(row.get("end_at"))
-            lines.append(
-                f"• {_message_jump_link(label, int(row.get('group_chat_id') or 0), int(row.get('group_message_id') or 0))} ｜ 当前价 `{current_price}` 灵石 ｜ {detail}"
-            )
+            lines.append(f"• {_message_jump_link(label, int(row.get('group_chat_id') or 0), int(row.get('group_message_id') or 0))}")
+            lines.append(f"↳ 💰 当前价：`{current_price}` 灵石 ｜ ⏳ {detail}")
         if len(auctions) > 6:
             lines.append(f"• 其余还有 `{len(auctions) - 6}` 场拍卖进行中")
 
@@ -1590,9 +1627,8 @@ def _build_event_summary_text(
             champion_name = str(row.get("champion_display_name") or "").strip() or f"TG {int(row.get('champion_tg') or 0)}"
             label = f"{row.get('realm_stage') or '未知'}擂台"
             detail = _summary_remaining_text(row.get("end_at"))
-            lines.append(
-                f"• {_message_jump_link(label, int(row.get('group_chat_id') or 0), int(row.get('group_message_id') or 0))} ｜ 擂主 {_md_escape(champion_name)} ｜ {detail}"
-            )
+            lines.append(f"• {_message_jump_link(label, int(row.get('group_chat_id') or 0), int(row.get('group_message_id') or 0))}")
+            lines.append(f"↳ 👑 擂主：{_md_escape(champion_name)} ｜ ⏳ {detail}")
         if len(arenas) > 6:
             lines.append(f"• 其余还有 `{len(arenas) - 6}` 座擂台开放中")
 
@@ -1602,9 +1638,8 @@ def _build_event_summary_text(
         for row in shops[:6]:
             label = f"{row.get('shop_name') or '游仙小铺'} · {row.get('item_name') or '未知商品'}"
             detail = f"`{int(row.get('price_stone') or 0)}` 灵石 / 库存 `{int(row.get('quantity') or 0)}`"
-            lines.append(
-                f"• {_message_jump_link(label, int(row.get('notice_group_chat_id') or 0), int(row.get('notice_group_message_id') or 0))} ｜ {detail}"
-            )
+            lines.append(f"• {_message_jump_link(label, int(row.get('notice_group_chat_id') or 0), int(row.get('notice_group_message_id') or 0))}")
+            lines.append(f"↳ 🛒 价格 / 库存：{detail}")
         if len(shops) > 6:
             lines.append(f"• 其余还有 `{len(shops) - 6}` 条小铺通知")
 
@@ -1873,14 +1908,15 @@ def _gift_group_broadcast_text(sender_name: str, receiver: dict[str, Any], amoun
         or str(receiver.get("display_name") or "").strip()
         or (f"@{receiver['username']}" if str(receiver.get("username") or "").strip() else f"TG {receiver.get('tg', 0)}")
     )
-    return "\n".join(
-        [
-            "🎁 **灵石赠礼**",
+    return _format_notice_card(
+        "灵石赠礼",
+        emoji="🎁",
+        lines=[
             f"👤 赠礼人：{_md_escape(sender_name)}",
             f"🎯 收礼人：{_md_escape(receiver_label)}",
             f"💎 金额：`{int(amount or 0)}` 灵石",
-            "✨ 一份机缘已经当众完成交接，愿善缘常在。",
-        ]
+            "✨ 一份机缘已经当众完成交接。",
+        ],
     )
 
 
@@ -1891,10 +1927,10 @@ def _format_attribute_growth_text(changes: list[dict[str, Any]] | None, *, prefi
         value = int(item.get("value") or 0)
         if value <= 0:
             continue
-        rows.append(f"{label}+{value}")
+        rows.append(f"{label} +{value}")
     if not rows:
         return ""
-    return f"{prefix}：{'、'.join(rows)}"
+    return f"🌱 {prefix}：{' ｜ '.join(rows)}"
 
 
 def _normalize_commission_command_key(raw: str | None) -> str | None:
@@ -1952,16 +1988,32 @@ def _commission_selection_error(bundle: dict[str, Any], requested_key: str | Non
         for item in commissions:
             if str(item.get("key") or "").strip() == requested_key:
                 reason = str(item.get("reason") or "").strip() or "当前暂不可承接。"
-                return f"{item.get('name') or '该委托'} 暂不可承接：{reason}"
-        return "未找到对应的灵石委托。可用示例：/work、/work 灵田、/work 修剑。"
+                return _format_notice_card(
+                    "灵石委托未解锁",
+                    emoji="🧾",
+                    lines=[
+                        f"📌 委托：{_md_escape(item.get('name') or '该委托')}",
+                        f"⚠️ 原因：{_md_escape(reason)}",
+                        "🧭 示例：`/work` ｜ `/work 灵田` ｜ `/work 修剑`",
+                    ],
+                )
+        return _format_notice_card(
+            "未找到灵石委托",
+            emoji="🧾",
+            lines=["🧭 示例：`/work` ｜ `/work 灵田` ｜ `/work 修剑`"],
+        )
     locked_rows = commissions[:3]
     if not locked_rows:
-        return "当前没有可承接的灵石委托。"
-    preview = "；".join(
-        f"{item.get('name') or item.get('key')}: {str(item.get('reason') or '暂不可承接').strip()}"
+        return _format_notice_card("当前暂无可接委托", emoji="🧾", lines=["📭 稍后再来看看新的灵石路子。"])
+    preview = [
+        f"• {_md_escape(item.get('name') or item.get('key') or '委托')}：{_md_escape(str(item.get('reason') or '暂不可承接').strip())}"
         for item in locked_rows
+    ]
+    return _format_notice_card(
+        "当前暂无可接委托",
+        emoji="🧾",
+        lines=["📌 最近受限项目：", *preview],
     )
-    return f"当前没有可承接的灵石委托。{preview}"
 
 
 def _minimal_player_lookup_payload(result: dict[str, Any], self_tg: int) -> dict[str, Any]:
@@ -2156,7 +2208,8 @@ def _shop_notice_text(item: dict[str, Any]) -> str:
         f"✨ 商品：**{_md_escape(item.get('item_name') or '未知商品')}**",
         f"📚 类型：`{_md_escape(item.get('item_kind_label') or item.get('item_kind') or '商品')}`",
         f"💰 单价：`{int(item.get('price_stone') or 0)}` 灵石 / 件",
-        f"📦 库存：`{quantity}` ｜ {status_emoji} 状态：{_md_escape(status_text)}",
+        f"📦 库存：`{quantity}`",
+        f"{status_emoji} 状态：{_md_escape(status_text)}",
     ]
     if enabled:
         lines.append("👇 点击下方按钮可直接购买 1 件，成交后库存会自动刷新。")
@@ -2282,10 +2335,14 @@ def _auction_group_text(auction: dict[str, Any]) -> str:
         [
             "🏺 **群内拍卖进行中**",
             f"🧿 拍品：**{_md_escape(item_name)}** × `{quantity}`",
-            f"📚 类型：`{_md_escape(item_kind)}` ｜ 👤 卖家：{_md_escape(seller_name)}",
-            f"💰 起拍价：`{opening_price}` ｜ 📈 当前价：`{current_price}` ｜ 🔺 加价档：`{increment}`",
+            f"📚 类型：`{_md_escape(item_kind)}`",
+            f"👤 卖家：{_md_escape(seller_name)}",
+            f"💰 起拍价：`{opening_price}` 灵石",
+            f"📈 当前价：`{current_price}` 灵石",
+            f"🔺 加价档：`{increment}` 灵石",
             buyout_line,
-            f"🧾 成交手续费：`{fee_percent}%` ｜ 🪧 出价次数：`{bid_count}`",
+            f"🧾 成交手续费：`{fee_percent}%`",
+            f"🪧 出价次数：`{bid_count}`",
             f"⏳ 结束时间：`{end_text}`",
             leader_line,
             "👇 点击下方按钮即可出价，竞拍面板会自动刷新。",
@@ -2385,13 +2442,16 @@ async def _finalize_auction_flow(result: dict[str, Any] | None) -> None:
             await _send_message(
                 bot,
                 chat_id,
-                "\n".join(
-                    [
-                        "🎉 **拍卖成交**",
-                        f"恭喜 {_md_escape(winner_name)} 以 `{final_price}` 灵石拍得 **{_md_escape(item_name)}**。",
+                _format_notice_card(
+                    "拍卖成交",
+                    emoji="🎉",
+                    lines=[
+                        f"🏆 得主：{_md_escape(winner_name)}",
+                        f"🧿 拍品：**{_md_escape(item_name)}**",
+                        f"💰 成交价：`{final_price}` 灵石",
                         f"🧾 手续费：`{fee_amount}` 灵石",
                         f"📥 卖家入账：`{seller_income}` 灵石",
-                    ]
+                    ],
                 ),
                 parse_mode=RICH_TEXT_MODE,
                 persistent=True,
@@ -2552,9 +2612,11 @@ def _arena_group_text(arena: dict[str, Any]) -> str:
             f"🏟️ **{_md_escape(arena_stage)}擂台开启**",
             f"🎯 准入：仅限 `{_md_escape(arena_stage)}` 修士",
             f"👑 当前擂主：{_md_escape(champion_name)}",
-            f"🏯 擂主境界：{_md_escape(realm_text)} ｜ ⚔️ 战力：`{combat_power}`",
+            f"🏯 擂主境界：{_md_escape(realm_text)}",
+            f"⚔️ 擂主战力：`{combat_power}`",
             f"📣 开擂者：{_md_escape(opener_name)}",
-            f"🛡️ 守擂成功：`{defense_count}` ｜ 🔁 易主：`{change_count}` ｜ ⚔️ 总挑战：`{challenge_count}`",
+            f"🛡️ 守擂成功：`{defense_count}` ｜ 🔁 易主：`{change_count}`",
+            f"⚔️ 总挑战：`{challenge_count}`",
             f"⏳ 状态：{_md_escape(status_label)} ｜ 剩余：`{_arena_remaining_text(arena)}`",
             "🎁 实战修为会在每场攻擂后即时结算，胜负与对手强度都会影响收益",
             (
@@ -2629,24 +2691,34 @@ async def _finalize_arena_flow(result: dict[str, Any] | None) -> None:
     outcome = str(result.get("result") or "")
     chat_id = int(arena.get("group_chat_id") or await _resolve_notice_group_chat_id("arena") or 0)
     if chat_id and outcome == "finished":
-        lines = [
-            "🏁 **擂台落幕**",
-            f"🏟️ 境界：`{_md_escape(arena.get('realm_stage') or '炼气')}`",
-            f"👑 最终擂主：{_md_escape(result.get('champion_name') or arena.get('champion_display_name') or '未知擂主')}",
-            f"🛡️ 守擂成功：`{int(result.get('defense_success_count') or 0)}` ｜ ⚔️ 总挑战：`{int(result.get('challenge_count') or 0)}`",
-            "🌿 实战修为已在每场攻擂后即时结算，本次落幕不再追加固定大额修为",
-        ]
-        await _send_message(bot, chat_id, "\n".join(lines), parse_mode=RICH_TEXT_MODE, persistent=True)
+        await _send_message(
+            bot,
+            chat_id,
+            _format_notice_card(
+                "擂台落幕",
+                emoji="🏁",
+                lines=[
+                    f"🏟️ 境界：`{_md_escape(arena.get('realm_stage') or '炼气')}`",
+                    f"👑 最终擂主：{_md_escape(result.get('champion_name') or arena.get('champion_display_name') or '未知擂主')}",
+                    f"🛡️ 守擂成功：`{int(result.get('defense_success_count') or 0)}`",
+                    f"⚔️ 总挑战：`{int(result.get('challenge_count') or 0)}`",
+                    "🌿 实战修为已在每场攻擂后即时结算，本次落幕不再追加固定大额修为。",
+                ],
+            ),
+            parse_mode=RICH_TEXT_MODE,
+            persistent=True,
+        )
     elif chat_id and outcome == "finished_no_reward":
         await _send_message(
             bot,
             chat_id,
-            "\n".join(
-                [
-                    "🏁 **擂台落幕**",
+            _format_notice_card(
+                "擂台落幕",
+                emoji="🏁",
+                lines=[
                     "⌛ 本期擂台虽然到时，但最终已无合格擂主可领取奖励。",
-                    "待下次有人重新开擂，再看谁能守到最后。",
-                ]
+                    "🔁 待下次有人重新开擂，再看谁能守到最后。",
+                ],
             ),
             parse_mode=RICH_TEXT_MODE,
             persistent=True,
@@ -2733,49 +2805,72 @@ async def _push_arena_to_group(arena: dict[str, Any]) -> tuple[dict[str, Any], s
 
 
 def _quiz_task_text(task: dict[str, Any]) -> str:
-    reward_parts = []
-    if int(task.get("reward_stone") or 0):
-        reward_parts.append(f"{task['reward_stone']} 灵石")
-    if task.get("reward_item_kind") and task.get("reward_item_quantity"):
-        reward_parts.append(f"{task['reward_item_quantity']} 个 {task.get('reward_item_kind_label') or task['reward_item_kind']}")
-    reward_text = "、".join(reward_parts) or "暂未设置奖励"
-    return (
-        f"🧩 **答题悬赏**\n"
-        f"📌 类型：{_md_escape(task.get('task_scope_label') or '官方任务')} ｜ 标题：**{_md_escape(task['title'])}**\n"
-        f"📝 {_md_escape(task.get('description') or '请完成任务后领取奖励。')}\n\n"
-        f"❓ 题目：{_md_escape(task.get('question_text') or '请直接在群里回复正确答案。')}\n"
-        f"🎁 奖励：{_md_escape(reward_text)}\n"
-        "🥇 首位答对的道友即可完成任务并领取奖励。"
+    reward_lines = _task_reward_lines(task)
+    scale_line = "📈 奖励按完成者当前境界折算" if str(task.get("reward_scale_mode") or "fixed") == "realm" else ""
+    return _format_notice_card(
+        "答题悬赏",
+        emoji="🧩",
+        lines=[
+            f"📌 范围：{_md_escape(task.get('task_scope_label') or '官方任务')}",
+            f"🧭 标题：**{_md_escape(task['title'])}**",
+            f"📝 说明：{_md_escape(task.get('description') or '请完成任务后领取奖励。')}",
+            f"❓ 题目：{_md_escape(task.get('question_text') or '请直接在群里回复正确答案。')}",
+            *( [scale_line] if scale_line else [] ),
+            "🎁 奖励：",
+            *reward_lines,
+        ],
+        footer="🥇 首位答对的道友即可完成任务并领取奖励。",
     )
 
 
-def _task_required_text(task: dict[str, Any]) -> str:
+def _task_required_lines(task: dict[str, Any]) -> list[str]:
+    if str(task.get("task_type") or "") == "metric":
+        metric_label = task.get("metric_label") or task.get("requirement_metric_key") or "计数指标"
+        metric_target = int(task.get("requirement_metric_target") or task.get("metric_target") or 0)
+        if metric_target > 0:
+            return [f"• {_md_escape(metric_label)} 累计达到 `{metric_target}` 次"]
+        return []
     if not task.get("required_item_kind") or not int(task.get("required_item_quantity") or 0):
-        return ""
+        return []
     item = task.get("required_item") or {}
     item_name = item.get("name") or task.get("required_item_kind_label") or task.get("required_item_kind") or "物品"
-    return f"提交需求：{int(task.get('required_item_quantity') or 0)} 个 {item_name}"
+    return [f"• 提交 `{int(task.get('required_item_quantity') or 0)}` 个 {_md_escape(item_name)}"]
+
+
+def _task_reward_lines(task: dict[str, Any]) -> list[str]:
+    reward_parts: list[str] = []
+    if int(task.get("reward_stone") or 0):
+        reward_parts.append(f"• 💎 `+{int(task['reward_stone'])}` 灵石")
+    if int(task.get("reward_cultivation") or 0):
+        reward_parts.append(f"• 📈 `+{int(task['reward_cultivation'])}` 修为")
+    if task.get("reward_item_kind") and task.get("reward_item_quantity"):
+        reward_item = task.get("reward_item") or {}
+        reward_name = reward_item.get("name") or task.get("reward_item_kind_label") or task.get("reward_item_kind")
+        reward_parts.append(f"• 🎒 `{int(task['reward_item_quantity'])}` 个 {_md_escape(reward_name)}")
+    reward_text = reward_parts or ["• 暂未设置奖励"]
+    if str(task.get("reward_scale_mode") or "fixed") == "realm":
+        reward_text.append("• 📐 奖励会按完成者当前境界折算")
+    return reward_text
 
 
 def _task_group_text(task: dict[str, Any]) -> str:
     if task.get("task_type") == "quiz":
         return _quiz_task_text(task)
 
-    reward_parts = []
-    if int(task.get("reward_stone") or 0):
-        reward_parts.append(f"{task['reward_stone']} 灵石")
-    if task.get("reward_item_kind") and task.get("reward_item_quantity"):
-        reward_parts.append(f"{task['reward_item_quantity']} 个 {task.get('reward_item_kind_label') or task['reward_item_kind']}")
-    reward_text = "、".join(reward_parts) or "暂未设置奖励"
-    required_text = _task_required_text(task)
-    required_line = f"{required_text}\n" if required_text else ""
-    return (
-        f"📜 **悬赏委托**\n"
-        f"📌 类型：{_md_escape(task.get('task_scope_label') or '任务')} ｜ 标题：**{_md_escape(task['title'])}**\n"
-        f"📝 {_md_escape(task.get('description') or '请前往修仙面板领取或完成任务。')}\n\n"
-        f"{_md_escape(required_line) if required_line else ''}"
-        f"🎁 奖励：{_md_escape(reward_text)}\n"
-        "🧭 道友们可前往修仙面板查看详情。"
+    reward_lines = _task_reward_lines(task)
+    required_lines = _task_required_lines(task)
+    return _format_notice_card(
+        "悬赏委托",
+        emoji="📜",
+        lines=[
+            f"📌 范围：{_md_escape(task.get('task_scope_label') or '任务')}",
+            f"🧭 标题：**{_md_escape(task['title'])}**",
+            f"📝 说明：{_md_escape(task.get('description') or '请前往修仙面板领取或完成任务。')}",
+            *(["📦 要求：", *required_lines] if required_lines else []),
+            "🎁 奖励：",
+            *reward_lines,
+        ],
+        footer="🧭 道友们可前往修仙面板查看详情。",
     )
 
 
@@ -2851,7 +2946,8 @@ def _red_envelope_notice_text(envelope: dict[str, Any], claims: list[dict[str, A
         "🧧 **灵石红包**",
         f"🖼️ 封面：{_md_escape(envelope.get('cover_text') or '福运临门')}",
         f"🎛️ 模式：{_md_escape(envelope.get('mode_label') or envelope.get('mode'))}",
-        f"💎 总额：`{envelope.get('amount_total')}` 灵石 / `{envelope.get('count_total')}` 个红包",
+        f"💎 总额：`{envelope.get('amount_total')}` 灵石",
+        f"🧩 红包数：`{envelope.get('count_total')}` 个",
     ]
     target_tg = int(envelope.get("target_tg") or 0)
     if target_tg:
@@ -2860,7 +2956,8 @@ def _red_envelope_notice_text(envelope: dict[str, Any], claims: list[dict[str, A
     if claims is None:
         lines.append("👇 道友们请点击下方按钮领取红包。")
         return "\n".join(lines)
-    lines.append(f"📦 剩余：`{envelope.get('remaining_amount')}` 灵石 / `{envelope.get('remaining_count')}` 个红包")
+    lines.append(f"📦 剩余灵石：`{envelope.get('remaining_amount')}`")
+    lines.append(f"🧾 剩余份数：`{envelope.get('remaining_count')}`")
     if claims:
         claim_lines = []
         for row in claims[-5:]:
@@ -2977,6 +3074,7 @@ async def _push_group_encounter_notice(payload: dict[str, Any]) -> dict[str, Any
     chat_id = int(instance.get("group_chat_id") or _main_group_chat_id() or 0)
     if not chat_id:
         return None
+    ENCOUNTER_AUTO_CHAT_STATE[chat_id] = True
     text = render_group_encounter_text(template, instance)
     image_source = _resolve_group_image_source(template.get("image_url"))
     if image_source:
@@ -3874,6 +3972,7 @@ def register_bot(bot_instance) -> None:
                 "/xiuxian - 打开修仙总览\n"
                 "/xiuxian_me - 在群里展示自己的修仙信息\n"
                 "/xiuxian_rank [stone|realm|artifact] [页码] - 查看修仙排行榜\n"
+                "/xiuxian_world - 查看修仙信息汇总跳转链接\n"
                 "/train - 群里直接完成一次吐纳修炼\n"
                 "/work [委托名] - 群里直接结算灵石委托；不填委托名时一键完成当前全部可接委托\n"
                 "/salary - 群里领取一次宗门俸禄\n"
@@ -3957,6 +4056,61 @@ def register_bot(bot_instance) -> None:
         finally:
             await _delete_user_command_message(msg)
 
+    @bot_instance.on_message(filters.command(["xiuxian_world"], prefixes))
+    async def xiuxian_world_command(_, msg):
+        try:
+            if getattr(getattr(msg, "chat", None), "id", None) and getattr(getattr(msg, "chat", None), "type", None) in {
+                enums.ChatType.GROUP,
+                enums.ChatType.SUPERGROUP,
+            }:
+                if not _register_command_dispatch(msg, "xiuxian_world"):
+                    LOGGER.warning(
+                        f"xiuxian command duplicate skipped chat={getattr(getattr(msg, 'chat', None), 'id', None)} "
+                        f"message={getattr(msg, 'id', None)} command=xiuxian_world"
+                    )
+                    return
+            current_chat_id = int(getattr(getattr(msg, "chat", None), "id", 0) or 0)
+            configured_chat_ids = list(await _configured_event_summary_chat_ids())
+            mapping = _event_summary_message_map()
+            candidate_chat_ids = [
+                chat_id
+                for chat_id in configured_chat_ids
+                if int(chat_id or 0) != 0 and int(chat_id or 0) != current_chat_id and int(mapping.get(int(chat_id), 0) or 0) > 0
+            ]
+            if not candidate_chat_ids:
+                candidate_chat_ids = [
+                    chat_id
+                    for chat_id, message_id in mapping.items()
+                    if int(chat_id or 0) != 0 and int(chat_id or 0) != current_chat_id and int(message_id or 0) > 0
+                ]
+            if not candidate_chat_ids and int(mapping.get(current_chat_id) or 0) > 0:
+                candidate_chat_ids = [current_chat_id]
+            target_chat_id = int(candidate_chat_ids[0]) if candidate_chat_ids else 0
+            target_message_id = int(mapping.get(target_chat_id) or 0)
+            target_url = _message_jump_url(target_chat_id, target_message_id)
+            if not target_url:
+                await _reply_text(msg, "当前还没有可跳转的修仙信息汇总消息，请先在目标群生成仙界汇总。", quote=True)
+                return
+            link_text = _format_notice_card(
+                "修仙信息汇总",
+                emoji="🔗",
+                lines=[
+                    f"🧭 快捷跳转：{_message_jump_link('修仙信息汇总', target_chat_id, target_message_id)}",
+                    "📱 点击下方按钮可直接进入目标群汇总消息。",
+                ],
+            )
+            await _reply_text(
+                msg,
+                link_text,
+                quote=True,
+                parse_mode=RICH_TEXT_MODE,
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("修仙信息汇总", url=target_url)]]
+                ),
+            )
+        finally:
+            await _delete_user_command_message(msg)
+
     @bot_instance.on_message(filters.command(["train", "practice"], prefixes) & filters.chat(group))
     async def xiuxian_train_group_command(_, msg):
         try:
@@ -3970,13 +4124,22 @@ def register_bot(bot_instance) -> None:
             if actor is None:
                 return
             result = practice_for_user(actor.id)
-            lines = [f"吐纳完成，修为 +{result['gain']}，灵石 +{result['stone_gain']}。"]
-            if result.get("upgraded_layers"):
-                lines.append("层数提升：" + "、".join(f"{layer}层" for layer in result["upgraded_layers"]))
+            lines = [
+                f"📈 修为：`+{result['gain']}`",
+                f"💎 灵石：`+{result['stone_gain']}`",
+            ]
+            layer_line = _format_layer_upgrade_line(result.get("upgraded_layers"))
+            if layer_line:
+                lines.append(layer_line)
             growth_text = _format_attribute_growth_text(result.get("attribute_growth"))
             if growth_text:
                 lines.append(growth_text)
-            await _reply_text(msg, "\n".join(lines), quote=True)
+            await _reply_text(
+                msg,
+                _format_notice_card("吐纳完成", emoji="🫧", lines=lines),
+                quote=True,
+                parse_mode=RICH_TEXT_MODE,
+            )
         except Exception as exc:
             await _reply_text(msg, str(exc) or "吐纳修炼失败，请稍后重试。", quote=True)
         finally:
@@ -3998,7 +4161,12 @@ def register_bot(bot_instance) -> None:
             bundle = _full_bundle(actor.id)
             selected_rows, _ = _select_group_commissions(bundle, requested_key=requested_key)
             if not selected_rows:
-                return await _reply_text(msg, _commission_selection_error(bundle, requested_key=requested_key), quote=True)
+                return await _reply_text(
+                    msg,
+                    _commission_selection_error(bundle, requested_key=requested_key),
+                    quote=True,
+                    parse_mode=RICH_TEXT_MODE,
+                )
 
             total_stone = 0
             total_cultivation = 0
@@ -4013,11 +4181,11 @@ def register_bot(bot_instance) -> None:
                 total_stone += stone_gain
                 total_cultivation += cultivation_gain
                 detail_rows.append(
-                    f"{commission.get('name') or selected.get('name') or '灵石委托'}：灵石 +{stone_gain}，修为 +{cultivation_gain}。"
+                    f"• {_md_escape(commission.get('name') or selected.get('name') or '灵石委托')}：💎 `+{stone_gain}` ｜ 📈 `+{cultivation_gain}`"
                 )
                 detail = str(commission.get("detail") or "").strip()
                 if detail:
-                    detail_rows.append(detail)
+                    detail_rows.append(f"↳ {_md_escape(detail)}")
                 growth_text = _format_attribute_growth_text(
                     commission.get("attribute_growth"),
                     prefix=f"{commission.get('name') or selected.get('name') or '灵石委托'}成长",
@@ -4032,13 +4200,23 @@ def register_bot(bot_instance) -> None:
                 lines = detail_rows
             else:
                 lines = [
-                    f"本次一键完成 {len(selected_rows)} 项灵石委托，共获得灵石 +{total_stone}，修为 +{total_cultivation}。"
+                    f"🧾 本次连做 `{len(selected_rows)}` 项委托",
+                    f"💎 合计灵石：`+{total_stone}`",
+                    f"📈 合计修为：`+{total_cultivation}`",
+                    "",
+                    "📋 明细：",
                 ]
                 lines.extend(detail_rows)
             lines.extend(growth_rows)
-            if upgraded_layers:
-                lines.append("层数提升：" + "、".join(f"{layer}层" for layer in upgraded_layers))
-            await _reply_text(msg, "\n".join(lines), quote=True)
+            layer_line = _format_layer_upgrade_line(upgraded_layers)
+            if layer_line:
+                lines.append(layer_line)
+            await _reply_text(
+                msg,
+                _format_notice_card("灵石委托完成", emoji="💼", lines=lines),
+                quote=True,
+                parse_mode=RICH_TEXT_MODE,
+            )
         except Exception as exc:
             await _reply_text(msg, str(exc) or "灵石委托结算失败，请稍后重试。", quote=True)
         finally:
@@ -4061,8 +4239,16 @@ def register_bot(bot_instance) -> None:
             role_name = str(role.get("role_name") or "宗门职位").strip()
             await _reply_text(
                 msg,
-                f"宗门俸禄已到账，本次领取 {result.get('salary', 0)} 灵石。当前身份：{role_name}。",
+                _format_notice_card(
+                    "宗门俸禄到账",
+                    emoji="🏯",
+                    lines=[
+                        f"💎 本次领取：`{result.get('salary', 0)}` 灵石",
+                        f"🎖️ 当前身份：{_md_escape(role_name)}",
+                    ],
+                ),
                 quote=True,
+                parse_mode=RICH_TEXT_MODE,
             )
         except Exception as exc:
             await _reply_text(msg, str(exc) or "领取宗门俸禄失败，请稍后重试。", quote=True)
@@ -4112,14 +4298,22 @@ def register_bot(bot_instance) -> None:
                 end_at = _parse_shanghai_datetime(arena_payload.get("end_at"))
                 end_text = end_at.strftime("%m-%d %H:%M") if end_at else str(arena_payload.get("end_at") or "未知")
                 success_lines = [
-                    f"{arena_payload.get('realm_stage') or '炼气'}擂台已开启，持续约 {int(arena_payload.get('duration_minutes') or 0)} 分钟。",
-                    f"你已登上首任擂主之位，结算时刻约为 {end_text}，修为改为每场攻擂后即时结算，不再在落幕时一次性发大量修为。",
+                    f"🏟️ 境界：`{_md_escape(arena_payload.get('realm_stage') or '炼气')}`",
+                    f"⏳ 持续：约 `{int(arena_payload.get('duration_minutes') or 0)}` 分钟",
+                    f"👑 你已成为首任擂主",
+                    f"🕰️ 预计结算：`{end_text}`",
+                    "🌿 修为改为每场攻擂后即时结算，不再在落幕时一次性发大量修为。",
                 ]
                 if int(opened.get("open_fee_stone") or 0) > 0:
-                    success_lines.append(f"本次已扣除 {int(opened.get('open_fee_stone') or 0)} 灵石开擂手续费。")
+                    success_lines.append(f"🎫 已扣除：`{int(opened.get('open_fee_stone') or 0)}` 灵石开擂手续费")
                 if pin_warning:
-                    success_lines.append(pin_warning)
-                await _reply_text(msg, "\n".join(success_lines), quote=True)
+                    success_lines.append(f"📌 {pin_warning}")
+                await _reply_text(
+                    msg,
+                    _format_notice_card("擂台已开启", emoji="🏟️", lines=success_lines),
+                    quote=True,
+                    parse_mode=RICH_TEXT_MODE,
+                )
             except Exception as exc:
                 await _reply_text(msg, str(exc) or "开设擂台失败，请稍后重试。", quote=True)
         finally:
@@ -4487,15 +4681,30 @@ def register_bot(bot_instance) -> None:
         reward_lines = []
         if int(reward.get("reward_stone") or 0):
             reward_lines.append(f"{reward['reward_stone']} 灵石")
+        if int(reward.get("reward_cultivation") or 0):
+            reward_lines.append(f"{reward['reward_cultivation']} 修为")
         if reward.get("reward_item"):
             reward_lines.append(
                 f"{reward['reward_item'].get('quantity', 1)} 个{(reward['reward_item'].get('artifact') or reward['reward_item'].get('pill') or reward['reward_item'].get('talisman') or reward['reward_item'].get('material') or {}).get('name', '物品')}"
             )
         reward_text = "、".join(reward_lines) if reward_lines else "任务奖励"
         winner_name = msg.from_user.first_name or f"TG {msg.from_user.id}"
-        success_text = f"答题成功，{winner_name} 已完成《{task['title']}》，奖励：{reward_text}。"
+        success_lines = [
+            f"🏆 完成者：{_md_escape(winner_name)}",
+            f"📜 任务：**{_md_escape(task['title'])}**",
+            f"🎁 奖励：{_md_escape(reward_text)}",
+        ]
+        reward_payload = result.get("reward") or {}
+        reward_layer_line = _format_layer_upgrade_line(reward_payload.get("upgraded_layers"))
+        if reward_layer_line:
+            success_lines.append(reward_layer_line)
+        if int(reward_payload.get("cultivation_efficiency_percent") or 100) < 100:
+            success_lines.append(
+                f"📉 修为效率：`{int(reward_payload.get('cultivation_efficiency_percent') or 100)}%`（避世折算后）"
+            )
+        success_text = _format_notice_card("答题完成", emoji="🧩", lines=success_lines)
         try:
-            await _reply_text(msg, success_text, quote=True, parse_mode=PLAIN_TEXT_MODE)
+            await _reply_text(msg, success_text, quote=True, parse_mode=RICH_TEXT_MODE)
         except Exception as exc:
             LOGGER.warning(f"xiuxian quiz completion reply failed: {exc}")
             await _send_message(
@@ -4503,19 +4712,19 @@ def register_bot(bot_instance) -> None:
                 msg.chat.id,
                 success_text,
                 reply_to_message_id=msg.id,
-                parse_mode=PLAIN_TEXT_MODE,
+                parse_mode=RICH_TEXT_MODE,
             )
         try:
             task_chat_id = int(task.get("group_chat_id") or msg.chat.id)
             if task.get("group_message_id"):
-                summary = _task_group_text(task) + f"\n\n已完成：{winner_name}"
+                summary = _task_group_text(task) + f"\n\n✅ 已完成：{_md_escape(winner_name)}"
                 if task.get("image_url"):
                     caption, _ = _split_photo_caption(summary)
                     await bot_instance.edit_message_caption(
                         task_chat_id,
                         int(task["group_message_id"]),
                         caption or "任务已完成",
-                        parse_mode=PLAIN_TEXT_MODE,
+                        parse_mode=RICH_TEXT_MODE,
                     )
                 else:
                     await _edit_message_text(
@@ -4523,24 +4732,33 @@ def register_bot(bot_instance) -> None:
                         task_chat_id,
                         int(task["group_message_id"]),
                         summary,
-                        parse_mode=PLAIN_TEXT_MODE,
+                        parse_mode=RICH_TEXT_MODE,
                         persistent=True,
                     )
             else:
                 await _send_message(
                     bot_instance,
                     task_chat_id,
-                    f"任务《{task['title']}》已由 {winner_name} 完成。",
-                    parse_mode=PLAIN_TEXT_MODE,
+                    _format_notice_card(
+                        "任务完成",
+                        emoji="✅",
+                        lines=[
+                            f"📜 任务：**{_md_escape(task['title'])}**",
+                            f"🏆 完成者：{_md_escape(winner_name)}",
+                        ],
+                    ),
+                    parse_mode=RICH_TEXT_MODE,
                 )
         except Exception as exc:
             LOGGER.warning(f"xiuxian quiz task message refresh failed: {exc}")
 
-    @bot_instance.on_message(filters.text & filters.chat(group) & ~filters.regex(r"^[\\/!\\.，。]"))
+    @bot_instance.on_message(filters.text & filters.group & ~filters.regex(r"^[\\/!\\.，。]"))
     async def xiuxian_group_encounter_trigger(_, msg):
         if msg.from_user is None or getattr(msg.from_user, "is_bot", False):
             return
         if not getattr(msg, "text", None):
+            return
+        if not _encounter_auto_trigger_enabled(getattr(getattr(msg, "chat", None), "id", None)):
             return
         text = str(msg.text or "").strip()
         if not text or text.startswith(("/", "!", ".")):
@@ -4716,20 +4934,24 @@ def register_bot(bot_instance) -> None:
                 result = rob_player(actor.id, msg.reply_to_message.from_user.id)
                 if result["success"]:
                     if int(result["amount"] or 0) > 0:
-                        lines = [f"抢劫成功，你夺得了 {result['amount']} 灵石。"]
+                        lines = [f"💎 掠得灵石：`+{result['amount']}`"]
                     else:
-                        lines = ["抢劫成功，但对方身上已没剩多少灵石。"]
+                        lines = ["💎 抢劫成功，但对方身上已没剩多少灵石。"]
                     artifact_payload = ((result.get("artifact_plunder") or {}).get("artifact") or {})
                     if artifact_payload:
-                        lines.append(f"你又顺手夺走了 1 件未绑定法宝：{artifact_payload.get('name', '未知法宝')}。")
-                    lines.append(f"本次判定成功率约 {round(float(result.get('success_rate', 0)) * 100, 1)}%。")
-                    text = "\n".join(lines)
+                        lines.append(f"🗡️ 额外夺得：{_md_escape(artifact_payload.get('name', '未知法宝'))}")
+                    lines.append(f"🎯 判定成功率：`{round(float(result.get('success_rate', 0)) * 100, 1)}%`")
+                    text = _format_notice_card("抢劫得手", emoji="🦹", lines=lines)
                 else:
-                    text = (
-                        f"抢劫失败，你反而损失了 {-result['amount']} 灵石。\n"
-                        f"本次判定成功率约 {round(float(result.get('success_rate', 0)) * 100, 1)}%。"
+                    text = _format_notice_card(
+                        "抢劫失手",
+                        emoji="🚫",
+                        lines=[
+                            f"💸 赔付灵石：`{-int(result['amount'])}`",
+                            f"🎯 判定成功率：`{round(float(result.get('success_rate', 0)) * 100, 1)}%`",
+                        ],
                     )
-                await _reply_text(msg, text, quote=True)
+                await _reply_text(msg, text, quote=True, parse_mode=RICH_TEXT_MODE)
                 await _notify_achievement_unlocks(result.get("achievement_unlocks"))
             except Exception as exc:
                 LOGGER.warning(
@@ -4760,12 +4982,20 @@ def register_bot(bot_instance) -> None:
                 return await _reply_text(msg, "你不能采补自己。", quote=True)
             try:
                 result = harvest_furnace_for_user(actor.id, msg.reply_to_message.from_user.id)
-                lines = [str(result.get("message") or "本次采补已完成。").strip()]
-                lines.append(f"主人修为 +{int(result.get('master_gain') or 0)}")
-                lines.append(f"炉鼎当前修为 -{int(result.get('furnace_loss') or 0)}")
-                if result.get("upgraded_layers"):
-                    lines.append("层数提升：" + "、".join(f"{layer}层" for layer in result["upgraded_layers"]))
-                await _reply_text(msg, "\n".join(lines), quote=True)
+                lines = [
+                    f"📝 {_md_escape(str(result.get('message') or '本次采补已完成。').strip())}",
+                    f"📈 主人修为：`+{int(result.get('master_gain') or 0)}`",
+                    f"📉 炉鼎修为：`-{int(result.get('furnace_loss') or 0)}`",
+                ]
+                layer_line = _format_layer_upgrade_line(result.get("upgraded_layers"))
+                if layer_line:
+                    lines.append(layer_line)
+                await _reply_text(
+                    msg,
+                    _format_notice_card("采补完成", emoji="🩸", lines=lines),
+                    quote=True,
+                    parse_mode=RICH_TEXT_MODE,
+                )
             except Exception as exc:
                 await _reply_text(msg, str(exc) or "采补失败，请稍后重试。", quote=True)
         finally:
@@ -4815,7 +5045,8 @@ def register_bot(bot_instance) -> None:
 
                 fallback_name = msg.reply_to_message.from_user.first_name or f"TG {msg.reply_to_message.from_user.id}"
                 lines = [
-                    f"探查成功。你的神识 {seeker_divine_sense}，对方神识 {target_divine_sense}。",
+                    f"🧠 你的神识：`{seeker_divine_sense}`",
+                    f"🔍 对方神识：`{target_divine_sense}`",
                     "",
                     _format_group_profile_showcase(target, fallback_name),
                 ]
@@ -5275,6 +5506,23 @@ def register_web(app) -> None:
         result = claim_sect_salary_for_user(telegram_user["id"])
         return {"code": 200, "data": {"salary": result["salary"], "bundle": _full_bundle(telegram_user["id"])}}
 
+    @user_router.post("/api/sect/teach")
+    async def xiuxian_sect_teach_api(payload: SectTeachPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = perform_sect_teach_attendance(telegram_user["id"], payload.cultivation_amount)
+        return {"code": 200, "data": {"result": result, "bundle": _full_bundle(telegram_user["id"])}}
+
+    @user_router.post("/api/sect/donate")
+    async def xiuxian_sect_donate_api(payload: SectDonatePayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = donate_item_to_sect_treasury(
+            telegram_user["id"],
+            payload.item_kind,
+            payload.item_ref_id,
+            payload.quantity,
+        )
+        return {"code": 200, "data": {"result": result, "bundle": _full_bundle(telegram_user["id"])}}
+
     @user_router.post("/api/task/create")
     async def xiuxian_create_task_api(payload: UserTaskPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
@@ -5290,7 +5538,11 @@ def register_web(app) -> None:
             required_item_kind=payload.required_item_kind,
             required_item_ref_id=payload.required_item_ref_id,
             required_item_quantity=payload.required_item_quantity,
+            requirement_metric_key=payload.requirement_metric_key,
+            requirement_metric_target=payload.requirement_metric_target,
             reward_stone=payload.reward_stone,
+            reward_cultivation=payload.reward_cultivation,
+            reward_scale_mode=payload.reward_scale_mode,
             reward_item_kind=payload.reward_item_kind,
             reward_item_ref_id=payload.reward_item_ref_id,
             reward_item_quantity=payload.reward_item_quantity,
@@ -6054,7 +6306,11 @@ def register_web(app) -> None:
             required_item_kind=payload.required_item_kind,
             required_item_ref_id=payload.required_item_ref_id,
             required_item_quantity=payload.required_item_quantity,
+            requirement_metric_key=payload.requirement_metric_key,
+            requirement_metric_target=payload.requirement_metric_target,
             reward_stone=payload.reward_stone,
+            reward_cultivation=payload.reward_cultivation,
+            reward_scale_mode=payload.reward_scale_mode,
             reward_item_kind=payload.reward_item_kind,
             reward_item_ref_id=payload.reward_item_ref_id,
             reward_item_quantity=payload.reward_item_quantity,

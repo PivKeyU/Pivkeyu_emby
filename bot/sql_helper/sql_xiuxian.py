@@ -210,6 +210,7 @@ TASK_SCOPE_LABELS = {
 TASK_TYPE_LABELS = {
     "quiz": "答题任务",
     "custom": "自定义任务",
+    "metric": "计数任务",
 }
 TECHNIQUE_TYPE_LABELS = {
     "balanced": "均衡功法",
@@ -982,6 +983,8 @@ class XiuxianProfile(Base):
     last_salary_claim_at = Column(DateTime, nullable=True)
     sect_joined_at = Column(DateTime, nullable=True)
     sect_betrayal_until = Column(DateTime, nullable=True)
+    last_sect_attendance_at = Column(DateTime, nullable=True)
+    last_sect_attendance_method = Column(String(16), nullable=True)
     master_tg = Column(BigInteger, nullable=True)
     servitude_started_at = Column(DateTime, nullable=True)
     servitude_challenge_available_at = Column(DateTime, nullable=True)
@@ -1242,6 +1245,19 @@ class XiuxianSectRole(Base):
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
 
+class XiuxianSectTreasuryItem(Base):
+    __tablename__ = "xiuxian_sect_treasury_items"
+    __table_args__ = (UniqueConstraint("sect_id", "item_kind", "item_ref_id", name="uq_xiuxian_sect_treasury_item"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    sect_id = Column(Integer, ForeignKey("xiuxian_sects.id", ondelete="CASCADE"), nullable=False)
+    item_kind = Column(String(16), nullable=False)
+    item_ref_id = Column(Integer, nullable=False)
+    quantity = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
 class XiuxianMaterial(Base):
     __tablename__ = "xiuxian_materials"
 
@@ -1405,9 +1421,13 @@ class XiuxianTask(Base):
     required_item_ref_id = Column(Integer, nullable=True)
     required_item_quantity = Column(Integer, default=0, nullable=False)
     reward_stone = Column(Integer, default=0, nullable=False)
+    reward_cultivation = Column(Integer, default=0, nullable=False)
     reward_item_kind = Column(String(16), nullable=True)
     reward_item_ref_id = Column(Integer, nullable=True)
     reward_item_quantity = Column(Integer, default=0, nullable=False)
+    reward_scale_mode = Column(String(16), default="fixed", nullable=False)
+    requirement_metric_key = Column(String(64), nullable=True)
+    requirement_metric_target = Column(Integer, default=0, nullable=False)
     max_claimants = Column(Integer, default=1, nullable=False)
     claimants_count = Column(Integer, default=0, nullable=False)
     active_in_group = Column(Boolean, default=False, nullable=False)
@@ -1430,6 +1450,7 @@ class XiuxianTaskClaim(Base):
     tg = Column(BigInteger, nullable=False)
     status = Column(String(16), default="accepted", nullable=False)
     submitted_answer = Column(String(255), nullable=True)
+    metric_start_value = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
@@ -2049,6 +2070,8 @@ def serialize_profile(profile: XiuxianProfile | None) -> dict[str, Any] | None:
         "last_salary_claim_at": serialize_datetime(profile.last_salary_claim_at),
         "sect_joined_at": serialize_datetime(profile.sect_joined_at),
         "sect_betrayal_until": serialize_datetime(profile.sect_betrayal_until),
+        "last_sect_attendance_at": serialize_datetime(profile.last_sect_attendance_at),
+        "last_sect_attendance_method": profile.last_sect_attendance_method,
         "master_tg": profile.master_tg,
         "servitude_started_at": serialize_datetime(profile.servitude_started_at),
         "servitude_challenge_available_at": serialize_datetime(profile.servitude_challenge_available_at),
@@ -2352,6 +2375,21 @@ def serialize_sect_role(role: XiuxianSectRole | None) -> dict[str, Any] | None:
     }
 
 
+def serialize_sect_treasury_item(row: XiuxianSectTreasuryItem | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "id": row.id,
+        "sect_id": row.sect_id,
+        "item_kind": row.item_kind,
+        "item_kind_label": ITEM_KIND_LABELS.get(row.item_kind, row.item_kind),
+        "item_ref_id": row.item_ref_id,
+        "quantity": max(int(row.quantity or 0), 0),
+        "created_at": serialize_datetime(row.created_at),
+        "updated_at": serialize_datetime(row.updated_at),
+    }
+
+
 def serialize_material(material: XiuxianMaterial | None) -> dict[str, Any] | None:
     if material is None:
         return None
@@ -2490,10 +2528,14 @@ def serialize_task(task: XiuxianTask | None) -> dict[str, Any] | None:
         "required_item_ref_id": task.required_item_ref_id,
         "required_item_quantity": task.required_item_quantity,
         "reward_stone": task.reward_stone,
+        "reward_cultivation": int(task.reward_cultivation or 0),
         "reward_item_kind": task.reward_item_kind,
         "reward_item_kind_label": ITEM_KIND_LABELS.get(task.reward_item_kind or "", task.reward_item_kind),
         "reward_item_ref_id": task.reward_item_ref_id,
         "reward_item_quantity": task.reward_item_quantity,
+        "reward_scale_mode": str(task.reward_scale_mode or "fixed"),
+        "requirement_metric_key": task.requirement_metric_key,
+        "requirement_metric_target": max(int(task.requirement_metric_target or 0), 0),
         "max_claimants": task.max_claimants,
         "claimants_count": task.claimants_count,
         "active_in_group": task.active_in_group,
@@ -3280,6 +3322,7 @@ def clear_all_xiuxian_user_data() -> dict[str, Any]:
             "mentorships": session.query(XiuxianMentorship).delete(synchronize_session=False),
             "explorations": session.query(XiuxianExploration).delete(synchronize_session=False),
             "task_claims": session.query(XiuxianTaskClaim).delete(synchronize_session=False),
+            "sect_treasury_items": session.query(XiuxianSectTreasuryItem).delete(synchronize_session=False),
             "encounter_instances": session.query(XiuxianEncounterInstance).delete(synchronize_session=False),
             "red_envelope_claims": session.query(XiuxianRedEnvelopeClaim).delete(synchronize_session=False),
             "red_envelopes": session.query(XiuxianRedEnvelope).delete(synchronize_session=False),
@@ -6932,6 +6975,17 @@ def list_sect_roles(sect_id: int) -> list[dict[str, Any]]:
         return [serialize_sect_role(row) for row in rows]
 
 
+def list_sect_treasury_items(sect_id: int) -> list[dict[str, Any]]:
+    with Session() as session:
+        rows = (
+            session.query(XiuxianSectTreasuryItem)
+            .filter(XiuxianSectTreasuryItem.sect_id == int(sect_id or 0))
+            .order_by(XiuxianSectTreasuryItem.updated_at.desc(), XiuxianSectTreasuryItem.id.desc())
+            .all()
+        )
+        return [serialize_sect_treasury_item(row) for row in rows]
+
+
 def get_material(material_id: int) -> XiuxianMaterial | None:
     material_value = int(material_id or 0)
     if material_value <= 0:
@@ -7647,6 +7701,13 @@ def create_task(**fields) -> dict[str, Any]:
         fields["required_item_kind"] = str(fields.get("required_item_kind")).strip() or None
     fields["required_item_ref_id"] = int(fields.get("required_item_ref_id") or 0) or None
     fields["required_item_quantity"] = max(int(fields.get("required_item_quantity") or 0), 0)
+    fields["reward_cultivation"] = max(int(fields.get("reward_cultivation") or 0), 0)
+    fields["reward_scale_mode"] = str(fields.get("reward_scale_mode") or "fixed").strip() or "fixed"
+    if fields.get("requirement_metric_key"):
+        fields["requirement_metric_key"] = str(fields.get("requirement_metric_key")).strip() or None
+    else:
+        fields["requirement_metric_key"] = None
+    fields["requirement_metric_target"] = max(int(fields.get("requirement_metric_target") or 0), 0)
     if fields.get("reward_item_kind"):
         fields["reward_item_kind"] = str(fields.get("reward_item_kind")).strip() or None
     fields["reward_item_ref_id"] = int(fields.get("reward_item_ref_id") or 0) or None
@@ -7684,6 +7745,7 @@ def list_task_claims(task_id: int) -> list[dict[str, Any]]:
                 "tg": row.tg,
                 "status": row.status,
                 "submitted_answer": row.submitted_answer,
+                "metric_start_value": max(int(row.metric_start_value or 0), 0),
             }
             for row in rows
         ]

@@ -105,6 +105,16 @@ class SectJoinPayload(InitDataPayload):
     sect_id: int
 
 
+class SectTeachPayload(InitDataPayload):
+    cultivation_amount: int
+
+
+class SectDonatePayload(InitDataPayload):
+    item_kind: str
+    item_ref_id: int
+    quantity: int = 1
+
+
 class GiftPayload(InitDataPayload):
     target_tg: int
     amount: int
@@ -236,7 +246,11 @@ class UserTaskPayload(InitDataPayload):
     required_item_kind: str | None = None
     required_item_ref_id: int | None = None
     required_item_quantity: int = 0
+    requirement_metric_key: str | None = None
+    requirement_metric_target: int = 0
     reward_stone: int = 0
+    reward_cultivation: int = 0
+    reward_scale_mode: str = "fixed"
     reward_item_kind: str | None = None
     reward_item_ref_id: int | None = None
     reward_item_quantity: int = 0
@@ -720,7 +734,11 @@ class AdminTaskPayload(BaseModel):
     required_item_kind: str | None = None
     required_item_ref_id: int | None = None
     required_item_quantity: int = 0
+    requirement_metric_key: str | None = None
+    requirement_metric_target: int = 0
     reward_stone: int = 0
+    reward_cultivation: int = 0
+    reward_scale_mode: str = "fixed"
     reward_item_kind: str | None = None
     reward_item_ref_id: int | None = None
     reward_item_quantity: int = 0

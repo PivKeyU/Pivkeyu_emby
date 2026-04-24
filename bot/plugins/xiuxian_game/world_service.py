@@ -35,6 +35,7 @@ from bot.sql_helper.sql_xiuxian import (
     XiuxianRecipeIngredient,
     XiuxianSect,
     XiuxianSectRole,
+    XiuxianSectTreasuryItem,
     XiuxianTask,
     XiuxianTaskClaim,
     XiuxianMaterialInventory,
@@ -63,6 +64,7 @@ from bot.sql_helper.sql_xiuxian import (
     get_sect,
     get_technique,
     get_talisman,
+    get_user_achievement_progress_map,
     get_xiuxian_settings,
     get_active_duel_lock,
     grant_artifact_to_user,
@@ -79,6 +81,7 @@ from bot.sql_helper.sql_xiuxian import (
     list_scene_drops,
     list_scenes,
     list_shop_items,
+    list_sect_treasury_items,
     list_equipped_artifacts,
     list_slave_profiles,
     list_sect_roles,
@@ -104,12 +107,15 @@ from bot.sql_helper.sql_xiuxian import (
     serialize_technique,
     serialize_talisman,
     serialize_task,
+    sync_title_by_name,
+    grant_title_to_user,
     upsert_profile,
     utcnow,
 )
 from bot.plugins.xiuxian_game.cache import CATALOG_TTL, load_multi_versioned_json
 from bot.plugins.xiuxian_game.probability import adjust_probability_percent, roll_probability_percent
 from bot.plugins.xiuxian_game.achievement_service import (
+    ACHIEVEMENT_METRIC_LABELS,
     record_achievement_progress,
     record_craft_metrics,
     record_exploration_metrics,
@@ -148,6 +154,48 @@ ITEM_SOURCE_VERSION_GROUPS = (
     ("catalog", "shop-items"),
     ("catalog", "tasks"),
 )
+SECT_ATTENDANCE_METHOD_LABELS = {
+    "teach": "传功点卯",
+    "donate": "捐赠点卯",
+}
+SECT_PROMOTION_ROLE_ORDER = [
+    "outer_disciple",
+    "inner_disciple",
+    "outer_deacon",
+    "inner_deacon",
+    "core",
+    "elder",
+]
+SECT_PROMOTION_THRESHOLDS = {
+    "outer_disciple": 0,
+    "inner_disciple": 12,
+    "outer_deacon": 36,
+    "inner_deacon": 72,
+    "core": 120,
+    "elder": 180,
+}
+SECT_DONATION_KIND_SCORE = {
+    "material": 0,
+    "pill": 1,
+    "talisman": 1,
+    "artifact": 2,
+}
+ITEM_CONTRIBUTION_BONUS_FIELDS = (
+    "attack_bonus",
+    "defense_bonus",
+    "bone_bonus",
+    "comprehension_bonus",
+    "divine_sense_bonus",
+    "fortune_bonus",
+    "qi_blood_bonus",
+    "true_yuan_bonus",
+    "body_movement_bonus",
+    "duel_rate_bonus",
+    "cultivation_bonus",
+    "breakthrough_bonus",
+)
+TASK_REWARD_SCALE_MODES = {"fixed", "realm"}
+METRIC_TASK_ALLOWED_KEYS = set(ACHIEVEMENT_METRIC_LABELS.keys())
 
 
 def _is_active_spouse_pair(session: Session, actor_tg: int, target_tg: int) -> bool:
@@ -174,6 +222,196 @@ def china_now():
 
 def china_day_key() -> str:
     return china_now().strftime("%Y-%m-%d")
+
+
+def _china_day_key_for(value: datetime | None) -> str:
+    normalized = _normalize_comparable_datetime(value)
+    if normalized is None:
+        return ""
+    return (normalized + timedelta(hours=8)).strftime("%Y-%m-%d")
+
+
+def _sect_attendance_done_today(profile: XiuxianProfile | dict[str, Any] | None) -> bool:
+    if profile is None:
+        return False
+    if isinstance(profile, dict):
+        last_attendance_at = _parse_optional_datetime(str(profile.get("last_sect_attendance_at") or "") or None)
+    else:
+        last_attendance_at = getattr(profile, "last_sect_attendance_at", None)
+    return bool(last_attendance_at and _china_day_key_for(last_attendance_at) == china_day_key())
+
+
+def _count_item_bonus_lines(item: dict[str, Any] | None) -> int:
+    payload = item or {}
+    bonus_count = sum(1 for field in ITEM_CONTRIBUTION_BONUS_FIELDS if int(payload.get(field) or 0) != 0)
+    if int(payload.get("effect_value") or 0) > 0:
+        bonus_count += 1
+    if bool(payload.get("unique_item")):
+        bonus_count += 1
+    return bonus_count
+
+
+def _item_contribution_score(item_kind: str, item: dict[str, Any] | None, quantity: int) -> int:
+    amount = max(int(quantity or 0), 1)
+    quality = max(_quality_from_item(item_kind, item), 1)
+    bonus_lines = min(_count_item_bonus_lines(item), 6)
+    kind_score = SECT_DONATION_KIND_SCORE.get(str(item_kind or "").strip(), 0)
+    score = ((quality + kind_score) * min(amount, 6) + bonus_lines) // 3
+    if bool((item or {}).get("unique_item")):
+        score += 2
+    return max(min(score, 18), 1)
+
+
+def _teach_contribution_score(cultivation_amount: int) -> int:
+    amount = max(int(cultivation_amount or 0), 0)
+    return max(min(amount // 2000, 10), 1)
+
+
+def _sect_role_rank(role_key: str | None) -> int:
+    try:
+        return SECT_PROMOTION_ROLE_ORDER.index(str(role_key or "").strip())
+    except ValueError:
+        return -1
+
+
+def _sect_target_role_by_contribution(sect_roles: list[dict[str, Any]], contribution: int) -> dict[str, Any] | None:
+    role_map = {
+        str(role.get("role_key") or "").strip(): role
+        for role in (sect_roles or [])
+        if str(role.get("role_key") or "").strip()
+    }
+    target = role_map.get("outer_disciple")
+    for role_key in SECT_PROMOTION_ROLE_ORDER:
+        role = role_map.get(role_key)
+        threshold = int(SECT_PROMOTION_THRESHOLDS.get(role_key, 0) or 0)
+        if role is not None and int(contribution or 0) >= threshold:
+            target = role
+    return target
+
+
+def _sect_promotion_preview(
+    sect_roles: list[dict[str, Any]],
+    current_role_key: str | None,
+    contribution: int,
+) -> dict[str, Any] | None:
+    current_rank = _sect_role_rank(current_role_key)
+    if current_rank < 0:
+        return None
+    role_map = {
+        str(role.get("role_key") or "").strip(): role
+        for role in (sect_roles or [])
+        if str(role.get("role_key") or "").strip()
+    }
+    for role_key in SECT_PROMOTION_ROLE_ORDER[current_rank + 1 :]:
+        role = role_map.get(role_key)
+        if role is None:
+            continue
+        threshold = int(SECT_PROMOTION_THRESHOLDS.get(role_key, 0) or 0)
+        remaining = max(threshold - int(contribution or 0), 0)
+        return {
+            "current_role_key": current_role_key,
+            "current_role_name": SECT_ROLE_LABELS.get(str(current_role_key or ""), current_role_key),
+            "next_role_key": role_key,
+            "next_role_name": role.get("role_name") or SECT_ROLE_LABELS.get(role_key, role_key),
+            "next_threshold": threshold,
+            "remaining_contribution": remaining,
+            "ready": remaining <= 0,
+        }
+    return None
+
+
+def _grant_sect_role_title(sect: dict[str, Any], role: dict[str, Any]) -> dict[str, Any]:
+    sect_name = str((sect or {}).get("name") or "宗门").strip() or "宗门"
+    role_name = str((role or {}).get("role_name") or "门下弟子").strip() or "门下弟子"
+    return sync_title_by_name(
+        name=f"{sect_name}{role_name}",
+        description=f"{sect_name}身份称号：{role_name}",
+        enabled=True,
+    )
+
+
+def _maybe_promote_sect_member(
+    tg: int,
+    sect: dict[str, Any],
+    before_role_key: str | None,
+    after_role_key: str | None,
+) -> dict[str, Any] | None:
+    previous_rank = _sect_role_rank(before_role_key)
+    next_rank = _sect_role_rank(after_role_key)
+    if next_rank < 0 or next_rank <= previous_rank:
+        return None
+    role = get_sect_role_payload(int(sect.get("id") or 0), after_role_key)
+    if role is None:
+        return None
+    title = _grant_sect_role_title(sect, role)
+    grant_title_to_user(
+        tg,
+        int(title["id"]),
+        source="sect",
+        obtained_note=f"宗门贡献达标，晋升为{role.get('role_name') or after_role_key}",
+        auto_equip_if_empty=True,
+    )
+    create_journal(
+        tg,
+        "sect",
+        "宗门晋升",
+        f"因宗门贡献达标，职位由【{SECT_ROLE_LABELS.get(str(before_role_key or ''), before_role_key or '门下弟子')}】晋升为【{role.get('role_name') or after_role_key}】。",
+    )
+    return {"role": role, "title": title}
+
+
+def _task_reward_scale_factor(profile: dict[str, Any] | None, scale_mode: str | None) -> float:
+    if str(scale_mode or "fixed").strip() != "realm":
+        return 1.0
+    payload = profile or {}
+    stage_index = max(realm_index(payload.get("realm_stage")), 0)
+    layer = max(int(payload.get("realm_layer") or 1), 1)
+    return min(1.0 + stage_index * 0.14 + (layer - 1) * 0.03, 4.2)
+
+
+def _scaled_task_reward_values(task: XiuxianTask | dict[str, Any], profile: dict[str, Any] | None) -> dict[str, Any]:
+    if isinstance(task, dict):
+        reward_stone = max(int(task.get("reward_stone") or 0), 0)
+        reward_cultivation = max(int(task.get("reward_cultivation") or 0), 0)
+        scale_mode = str(task.get("reward_scale_mode") or "fixed").strip() or "fixed"
+    else:
+        reward_stone = max(int(getattr(task, "reward_stone", 0) or 0), 0)
+        reward_cultivation = max(int(getattr(task, "reward_cultivation", 0) or 0), 0)
+        scale_mode = str(getattr(task, "reward_scale_mode", "fixed") or "fixed").strip() or "fixed"
+    factor = _task_reward_scale_factor(profile, scale_mode)
+    stone_value = int(round(reward_stone * factor)) if reward_stone > 0 else 0
+    cultivation_value = int(round(reward_cultivation * factor)) if reward_cultivation > 0 else 0
+    return {
+        "reward_stone": stone_value,
+        "reward_cultivation": cultivation_value,
+        "reward_scale_mode": scale_mode,
+        "reward_scale_factor": round(factor, 2),
+    }
+
+
+def _metric_task_progress_payload(
+    task: dict[str, Any] | XiuxianTask,
+    claim: dict[str, Any] | None,
+    progress_map: dict[str, int],
+) -> dict[str, Any]:
+    if isinstance(task, dict):
+        metric_key = str(task.get("requirement_metric_key") or "").strip()
+        target = max(int(task.get("requirement_metric_target") or 0), 0)
+    else:
+        metric_key = str(getattr(task, "requirement_metric_key", "") or "").strip()
+        target = max(int(getattr(task, "requirement_metric_target", 0) or 0), 0)
+    current_value = max(int(progress_map.get(metric_key, 0) or 0), 0)
+    start_value = max(int((claim or {}).get("metric_start_value") or current_value), 0)
+    progress_value = max(current_value - start_value, 0) if claim else 0
+    return {
+        "metric_key": metric_key,
+        "metric_label": ACHIEVEMENT_METRIC_LABELS.get(metric_key, metric_key or "计数指标"),
+        "metric_current_value": current_value,
+        "metric_start_value": start_value if claim else current_value,
+        "metric_progress_value": progress_value,
+        "metric_target": target,
+        "metric_claimable": bool(claim and target > 0 and progress_value >= target),
+    }
 
 
 def _require_alive_profile_data(tg: int, action_text: str) -> tuple[XiuxianProfile, dict[str, Any]]:
@@ -647,9 +885,38 @@ def get_current_sect_bundle(tg: int) -> dict[str, Any] | None:
     sect["roles"] = list_sect_roles(sect["id"])
     sect["roster"] = _get_sect_roster(sect["id"])
     sect["current_role"] = get_sect_role_payload(sect["id"], profile.get("sect_role_key"))
+    sect["attendance"] = {
+        "done_today": _sect_attendance_done_today(profile),
+        "last_at": profile.get("last_sect_attendance_at"),
+        "last_method": profile.get("last_sect_attendance_method"),
+        "last_method_label": SECT_ATTENDANCE_METHOD_LABELS.get(
+            str(profile.get("last_sect_attendance_method") or "").strip(),
+            profile.get("last_sect_attendance_method"),
+        ),
+    }
+    sect["promotion_preview"] = _sect_promotion_preview(
+        sect["roles"],
+        str(profile.get("sect_role_key") or "").strip() or None,
+        int(profile.get("sect_contribution") or 0),
+    )
     entry_technique = _sect_entry_technique_payload(str(sect.get("name") or ""))
     sect["entry_technique_name"] = (entry_technique or {}).get("name")
     sect["entry_technique_rarity"] = (entry_technique or {}).get("rarity")
+    treasury_items = []
+    for row in list_sect_treasury_items(int(sect["id"])):
+        item = _get_item_payload(str(row.get("item_kind") or ""), int(row.get("item_ref_id") or 0))
+        row["item"] = item
+        row["item_name"] = (item or {}).get("name") or row.get("item_kind_label") or row.get("item_kind") or "物品"
+        row["quality_level"] = _quality_from_item(str(row.get("item_kind") or ""), item)
+        treasury_items.append(row)
+    treasury_items.sort(
+        key=lambda item: (
+            -int(item.get("quality_level") or 1),
+            -int(item.get("quantity") or 0),
+            str(item.get("item_name") or ""),
+        )
+    )
+    sect["treasury_items"] = treasury_items
     sect["leave_preview"] = {
         "stone_penalty": _sect_betrayal_stone_penalty(int(profile.get("spiritual_stone") or 0)),
         "cooldown_days": _sect_betrayal_cooldown_days(),
@@ -680,9 +947,12 @@ def join_sect_for_user(tg: int, sect_id: int) -> dict[str, Any]:
         tg,
         sect_id=sect_id,
         sect_role_key="outer_disciple",
+        sect_contribution=0,
         sect_joined_at=utcnow(),
         sect_betrayal_until=None,
         last_salary_claim_at=None,
+        last_sect_attendance_at=None,
+        last_sect_attendance_method=None,
     )
     entry_technique = _sect_entry_technique_payload(str(sect.get("name") or ""))
     if entry_technique and not any(int((row.get("technique") or {}).get("id") or 0) == int(entry_technique["id"]) for row in list_user_techniques(tg, enabled_only=False)):
@@ -762,6 +1032,8 @@ def leave_sect_for_user(tg: int) -> dict[str, Any]:
                 XiuxianProfile.sect_joined_at: None,
                 XiuxianProfile.sect_betrayal_until: cooldown_until,
                 XiuxianProfile.last_salary_claim_at: None,
+                XiuxianProfile.last_sect_attendance_at: None,
+                XiuxianProfile.last_sect_attendance_method: None,
                 XiuxianProfile.updated_at: update_time,
             },
             synchronize_session=False,
@@ -811,6 +1083,9 @@ def set_user_sect_role(tg: int, sect_id: int, role_key: str) -> dict[str, Any]:
         profile_payload["sect_joined_at"] = utcnow()
         profile_payload["sect_betrayal_until"] = None
         profile_payload["last_salary_claim_at"] = None
+        profile_payload["last_sect_attendance_at"] = None
+        profile_payload["last_sect_attendance_method"] = None
+        profile_payload["sect_contribution"] = 0
     updated = upsert_profile(tg, **profile_payload)
     return {"profile": serialize_profile(updated), "role": role, "sect": sect}
 
@@ -848,6 +1123,162 @@ def claim_sect_salary_for_user(tg: int) -> dict[str, Any]:
     return {"salary": salary, "profile": _full_profile_bundle(tg)["profile"], "role": role}
 
 
+def perform_sect_teach_attendance(tg: int, cultivation_amount: int) -> dict[str, Any]:
+    amount = max(int(cultivation_amount or 0), 0)
+    if amount < 1000:
+        raise ValueError("传功点卯至少需要投入 1000 修为。")
+
+    promotion_payload = None
+    with Session() as session:
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+        if profile is None or not profile.consented:
+            raise ValueError("你还没有踏入仙途")
+        assert_profile_alive(profile, "宗门传功点卯")
+        if not profile.sect_id:
+            raise ValueError("你尚未加入宗门")
+        if _sect_attendance_done_today(profile):
+            method_label = SECT_ATTENDANCE_METHOD_LABELS.get(
+                str(profile.last_sect_attendance_method or "").strip(),
+                profile.last_sect_attendance_method or "已完成点卯",
+            )
+            raise ValueError(f"你今日已经完成宗门点卯（{method_label}）。")
+        current_cultivation = max(int(profile.cultivation or 0), 0)
+        if current_cultivation < amount:
+            raise ValueError(f"当前修为不足，最多只能传功 {current_cultivation}。")
+
+        sect = serialize_sect(get_sect(int(profile.sect_id or 0)))
+        if sect is None:
+            raise ValueError("当前宗门不存在")
+        roles = list_sect_roles(int(profile.sect_id or 0))
+        before_role_key = str(profile.sect_role_key or "").strip() or "outer_disciple"
+        contribution_gain = _teach_contribution_score(amount)
+        new_contribution = max(int(profile.sect_contribution or 0), 0) + contribution_gain
+        target_role = _sect_target_role_by_contribution(roles, new_contribution)
+        next_role_key = before_role_key
+        if target_role is not None and _sect_role_rank(target_role.get("role_key")) > _sect_role_rank(before_role_key):
+            next_role_key = str(target_role.get("role_key") or before_role_key)
+
+        profile.cultivation = current_cultivation - amount
+        profile.sect_contribution = new_contribution
+        profile.last_sect_attendance_at = utcnow()
+        profile.last_sect_attendance_method = "teach"
+        profile.sect_role_key = next_role_key
+        profile.updated_at = utcnow()
+        session.commit()
+
+        if next_role_key != before_role_key:
+            promotion_payload = _maybe_promote_sect_member(tg, sect, before_role_key, next_role_key)
+
+    create_journal(
+        tg,
+        "sect",
+        "宗门点卯",
+        f"以传功方式完成今日宗门点卯，投入 {amount} 修为，获得 {contribution_gain} 点宗门贡献。",
+    )
+    return {
+        "method": "teach",
+        "cultivation_amount": amount,
+        "contribution_gain": contribution_gain,
+        "promotion": promotion_payload,
+        "sect": get_current_sect_bundle(tg),
+    }
+
+
+def donate_item_to_sect_treasury(tg: int, item_kind: str, item_ref_id: int, quantity: int) -> dict[str, Any]:
+    normalized_kind = str(item_kind or "").strip()
+    if normalized_kind not in {"artifact", "pill", "talisman", "material"}:
+        raise ValueError("宗门宝库目前只接收背包中的法宝、丹药、符箓和材料。")
+    ref_id = int(item_ref_id or 0)
+    amount = max(int(quantity or 0), 0)
+    if ref_id <= 0 or amount <= 0:
+        raise ValueError("请先选择要捐入宗门宝库的物品和数量。")
+
+    submitted_item = None
+    promotion_payload = None
+    treasury_payload = None
+    with Session() as session:
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+        if profile is None or not profile.consented:
+            raise ValueError("你还没有踏入仙途")
+        assert_profile_alive(profile, "捐赠宗门宝库")
+        if not profile.sect_id:
+            raise ValueError("你尚未加入宗门")
+        if _sect_attendance_done_today(profile):
+            method_label = SECT_ATTENDANCE_METHOD_LABELS.get(
+                str(profile.last_sect_attendance_method or "").strip(),
+                profile.last_sect_attendance_method or "已完成点卯",
+            )
+            raise ValueError(f"你今日已经完成宗门点卯（{method_label}）。")
+
+        sect = serialize_sect(get_sect(int(profile.sect_id or 0)))
+        if sect is None:
+            raise ValueError("当前宗门不存在")
+        roles = list_sect_roles(int(profile.sect_id or 0))
+        before_role_key = str(profile.sect_role_key or "").strip() or "outer_disciple"
+        submitted_item = _consume_required_item(session, tg, normalized_kind, ref_id, amount)
+        contribution_gain = _item_contribution_score(normalized_kind, submitted_item, amount)
+        new_contribution = max(int(profile.sect_contribution or 0), 0) + contribution_gain
+        target_role = _sect_target_role_by_contribution(roles, new_contribution)
+        next_role_key = before_role_key
+        if target_role is not None and _sect_role_rank(target_role.get("role_key")) > _sect_role_rank(before_role_key):
+            next_role_key = str(target_role.get("role_key") or before_role_key)
+
+        treasury_row = (
+            session.query(XiuxianSectTreasuryItem)
+            .filter(
+                XiuxianSectTreasuryItem.sect_id == int(profile.sect_id or 0),
+                XiuxianSectTreasuryItem.item_kind == normalized_kind,
+                XiuxianSectTreasuryItem.item_ref_id == ref_id,
+            )
+            .with_for_update()
+            .first()
+        )
+        if treasury_row is None:
+            treasury_row = XiuxianSectTreasuryItem(
+                sect_id=int(profile.sect_id or 0),
+                item_kind=normalized_kind,
+                item_ref_id=ref_id,
+                quantity=0,
+            )
+            session.add(treasury_row)
+        treasury_row.quantity = max(int(treasury_row.quantity or 0), 0) + amount
+        treasury_row.updated_at = utcnow()
+
+        profile.sect_contribution = new_contribution
+        profile.last_sect_attendance_at = utcnow()
+        profile.last_sect_attendance_method = "donate"
+        profile.sect_role_key = next_role_key
+        profile.updated_at = utcnow()
+        session.commit()
+        treasury_payload = {
+            "item_kind": normalized_kind,
+            "item_ref_id": ref_id,
+            "quantity": int(treasury_row.quantity or 0),
+        }
+
+        if next_role_key != before_role_key:
+            promotion_payload = _maybe_promote_sect_member(tg, sect, before_role_key, next_role_key)
+
+    item_name = (submitted_item or {}).get("name") or f"{normalized_kind}#{ref_id}"
+    create_journal(
+        tg,
+        "sect",
+        "宗门点卯",
+        f"以捐赠方式完成今日宗门点卯，向宗门宝库提交 {item_name} × {amount}，获得 {contribution_gain} 点宗门贡献。",
+    )
+    return {
+        "method": "donate",
+        "item": submitted_item,
+        "item_kind": normalized_kind,
+        "item_ref_id": ref_id,
+        "quantity": amount,
+        "contribution_gain": contribution_gain,
+        "promotion": promotion_payload,
+        "treasury_item": treasury_payload,
+        "sect": get_current_sect_bundle(tg),
+    }
+
+
 def _can_publish_sect_task(tg: int) -> bool:
     profile = serialize_profile(get_profile(tg, create=False))
     if not profile or not profile.get("sect_id"):
@@ -883,7 +1314,11 @@ def create_bounty_task(
     required_item_kind: str | None = None,
     required_item_ref_id: int | None = None,
     required_item_quantity: int = 0,
+    requirement_metric_key: str | None = None,
+    requirement_metric_target: int = 0,
     reward_stone: int = 0,
+    reward_cultivation: int = 0,
+    reward_scale_mode: str = "fixed",
     reward_item_kind: str | None = None,
     reward_item_ref_id: int | None = None,
     reward_item_quantity: int = 0,
@@ -903,20 +1338,26 @@ def create_bounty_task(
     required_kind = str(required_item_kind or "").strip() or None
     required_ref = int(required_item_ref_id or 0) or None
     required_qty = max(int(required_item_quantity or 0), 0)
+    metric_key = str(requirement_metric_key or "").strip() or None
+    metric_target = max(int(requirement_metric_target or 0), 0)
     reward_kind = str(reward_item_kind or "").strip() or None
     reward_ref = int(reward_item_ref_id or 0) or None
     reward_qty = max(int(reward_item_quantity or 0), 0)
     reward_stone_value = max(int(reward_stone or 0), 0)
+    reward_cultivation_value = max(int(reward_cultivation or 0), 0)
+    reward_scale_mode_value = str(reward_scale_mode or "fixed").strip() or "fixed"
     publish_cost = 0
 
     if task_scope_value not in {"official", "sect", "personal"}:
         raise ValueError("任务范围不支持")
-    if task_type_value not in {"quiz", "custom"}:
+    if task_type_value not in {"quiz", "custom", "metric"}:
         raise ValueError("任务类型不支持")
     if actor_tg is not None and task_scope_value == "official":
         raise ValueError("玩家不能发布官方任务")
     if _meaningful_text_length(title_value) < 2:
         raise ValueError("任务标题至少填写 2 个字")
+    if reward_scale_mode_value not in TASK_REWARD_SCALE_MODES:
+        raise ValueError("任务奖励缩放模式不支持")
 
     if task_type_value == "quiz":
         if _meaningful_text_length(question_value) < 4:
@@ -927,10 +1368,25 @@ def create_bounty_task(
             raise ValueError("答题任务必须绑定群聊后才能发布")
         if required_kind:
             raise ValueError("答题任务暂不支持提交物品")
+        if metric_key:
+            raise ValueError("答题任务暂不支持计数要求")
         should_push_group = True
         max_claimants = 1
+    elif task_type_value == "metric":
+        if _meaningful_text_length(description_value) < 6:
+            raise ValueError("计数任务必须填写至少 6 个字的任务说明")
+        if required_kind:
+            raise ValueError("计数任务暂不支持提交物品")
+        if not metric_key or metric_key not in METRIC_TASK_ALLOWED_KEYS:
+            raise ValueError("请选择有效的计数任务指标")
+        if metric_target <= 0:
+            raise ValueError("计数任务目标次数必须大于 0")
     elif _meaningful_text_length(description_value) < 6:
         raise ValueError("普通任务必须填写至少 6 个字的任务说明")
+
+    if task_type_value != "metric":
+        metric_key = None
+        metric_target = 0
 
     if required_kind:
         if required_kind not in {"artifact", "pill", "talisman", "material"}:
@@ -960,7 +1416,7 @@ def create_bounty_task(
         reward_ref = None
         reward_qty = 0
 
-    if reward_stone_value <= 0 and not reward_kind:
+    if reward_stone_value <= 0 and reward_cultivation_value <= 0 and not reward_kind:
         raise ValueError("悬赏任务必须设置奖励，不能发布无奖励任务")
 
     actor_profile = None
@@ -1018,10 +1474,14 @@ def create_bounty_task(
             required_item_kind=required_kind,
             required_item_ref_id=required_ref,
             required_item_quantity=required_qty,
+            requirement_metric_key=metric_key,
+            requirement_metric_target=metric_target,
             reward_stone=reward_stone_value,
+            reward_cultivation=reward_cultivation_value,
             reward_item_kind=reward_kind,
             reward_item_ref_id=reward_ref,
             reward_item_quantity=reward_qty,
+            reward_scale_mode=reward_scale_mode_value,
             max_claimants=max(int(max_claimants or 1), 1),
             active_in_group=should_push_group,
             group_chat_id=group_chat_id,
@@ -1053,6 +1513,7 @@ def list_task_claims_for_user(tg: int) -> list[dict[str, Any]]:
                 "tg": row.tg,
                 "status": row.status,
                 "submitted_answer": row.submitted_answer,
+                "metric_start_value": max(int(row.metric_start_value or 0), 0),
             }
             for row in rows
         ]
@@ -1061,6 +1522,7 @@ def list_task_claims_for_user(tg: int) -> list[dict[str, Any]]:
 def list_tasks_for_user(tg: int) -> list[dict[str, Any]]:
     profile = serialize_profile(get_profile(tg, create=False)) or {}
     claims_by_task = {claim["task_id"]: claim for claim in list_task_claims_for_user(tg)}
+    progress_map = get_user_achievement_progress_map(tg)
     rows = []
     for task in list_tasks(enabled_only=True):
         if task["status"] not in {"open", "active"}:
@@ -1069,6 +1531,9 @@ def list_tasks_for_user(tg: int) -> list[dict[str, Any]]:
             continue
         task["claimed"] = task["id"] in claims_by_task or int(task.get("winner_tg") or 0) == int(tg)
         task["claim"] = claims_by_task.get(task["id"])
+        task.update(_scaled_task_reward_values(task, profile))
+        if str(task.get("task_type") or "") == "metric":
+            task.update(_metric_task_progress_payload(task, task.get("claim"), progress_map))
         task["can_cancel"] = (
             int(task.get("owner_tg") or 0) == int(tg)
             and task.get("status") in {"open", "active"}
@@ -1124,6 +1589,11 @@ def _decorate_task_payload(task: dict[str, Any] | None) -> dict[str, Any] | None
         payload["reward_item"] = _get_item_payload(payload["reward_item_kind"], int(payload["reward_item_ref_id"]))
     else:
         payload["reward_item"] = None
+    if payload.get("requirement_metric_key"):
+        payload["metric_label"] = ACHIEVEMENT_METRIC_LABELS.get(
+            str(payload.get("requirement_metric_key") or ""),
+            payload.get("requirement_metric_key"),
+        )
     return payload
 
 
@@ -1245,25 +1715,61 @@ def _award_task_rewards(tg: int, task: XiuxianTask) -> dict[str, Any]:
         int(getattr(task, "reward_item_ref_id", 0) or 0),
         int(getattr(task, "reward_item_quantity", 0) or 0),
     )
+    legacy_service = _legacy_service()
+    profile = serialize_profile(get_profile(tg, create=False)) or {}
+    scaled_reward = _scaled_task_reward_values(task, profile)
+    reward_stone = int(scaled_reward.get("reward_stone") or 0)
+    cultivation_gain_raw = max(int(scaled_reward.get("reward_cultivation") or 0), 0)
+    cultivation_gain = 0
+    cultivation_efficiency_percent = 100
+    upgraded_layers: list[int] = []
+    remaining = 0
     with Session() as session:
         updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if updated is None:
             raise ValueError("用户不存在")
-        apply_spiritual_stone_delta(
-            session,
-            tg,
-            int(task.reward_stone or 0),
-            action_text="领取任务奖励",
-            allow_dead=False,
-            apply_tribute=True,
-        )
+        if reward_stone > 0:
+            apply_spiritual_stone_delta(
+                session,
+                tg,
+                reward_stone,
+                action_text="领取任务奖励",
+                allow_dead=False,
+                apply_tribute=True,
+            )
+        if cultivation_gain_raw > 0:
+            cultivation_gain, gain_meta = legacy_service.adjust_cultivation_gain_for_social_mode(
+                updated,
+                cultivation_gain_raw,
+                settings=get_xiuxian_settings(),
+            )
+            cultivation_gain = int(cultivation_gain or 0)
+            cultivation_efficiency_percent = int(gain_meta.get("efficiency_percent") or 100)
+            layer, cultivation, upgraded_layers, remaining = legacy_service.apply_cultivation_gain(
+                legacy_service.normalize_realm_stage(updated.realm_stage or legacy_service.FIRST_REALM_STAGE),
+                int(updated.realm_layer or 1),
+                int(updated.cultivation or 0),
+                cultivation_gain,
+            )
+            updated.realm_layer = layer
+            updated.cultivation = cultivation
+        updated.updated_at = utcnow()
         session.commit()
+    if cultivation_gain > 0:
+        legacy_service._apply_profile_growth_floor(tg)
     reward_item = None
     if task.reward_item_kind and task.reward_item_ref_id and int(task.reward_item_quantity or 0) > 0:
         reward_item = _grant_item_by_kind(tg, task.reward_item_kind, int(task.reward_item_ref_id), int(task.reward_item_quantity))
     return {
         "profile": _full_profile_bundle(tg)["profile"],
-        "reward_stone": int(task.reward_stone or 0),
+        "reward_stone": reward_stone,
+        "reward_cultivation": cultivation_gain,
+        "reward_cultivation_raw": cultivation_gain_raw,
+        "cultivation_efficiency_percent": cultivation_efficiency_percent,
+        "reward_scale_mode": scaled_reward.get("reward_scale_mode"),
+        "reward_scale_factor": scaled_reward.get("reward_scale_factor"),
+        "upgraded_layers": upgraded_layers,
+        "remaining": remaining,
         "reward_item": reward_item,
     }
 
@@ -3024,6 +3530,7 @@ def claim_task_for_user(tg: int, task_id: int) -> dict[str, Any]:
     profile = serialize_profile(get_profile(tg, create=False))
     if not profile or not profile.get("consented"):
         raise ValueError("你还没有踏入仙途")
+    metric_progress_payload = None
     with Session() as session:
         completed_now = False
         submitted_item = None
@@ -3039,13 +3546,65 @@ def claim_task_for_user(tg: int, task_id: int) -> dict[str, Any]:
             .filter(XiuxianTaskClaim.task_id == task_id, XiuxianTaskClaim.tg == tg)
             .first()
         )
-        if existing is not None:
+        if existing is not None and str(task.task_type or "") != "metric":
             raise ValueError("你已经领取过该任务")
-        if int(task.claimants_count or 0) >= int(task.max_claimants or 1):
+        if existing is None and int(task.claimants_count or 0) >= int(task.max_claimants or 1):
             raise ValueError("该任务已被领取完")
 
         claim_status = "accepted"
-        if task.required_item_kind and task.required_item_ref_id and int(task.required_item_quantity or 0) > 0:
+        if str(task.task_type or "") == "metric":
+            progress_map = get_user_achievement_progress_map(tg)
+            claim_payload = (
+                {
+                    "metric_start_value": max(int(existing.metric_start_value or 0), 0),
+                }
+                if existing is not None
+                else None
+            )
+            metric_progress_payload = _metric_task_progress_payload(task, claim_payload, progress_map)
+            if existing is None:
+                session.add(
+                    XiuxianTaskClaim(
+                        task_id=task_id,
+                        tg=tg,
+                        status="accepted",
+                        metric_start_value=max(int(metric_progress_payload.get("metric_current_value") or 0), 0),
+                    )
+                )
+                task.updated_at = utcnow()
+                session.commit()
+                session.refresh(task)
+                serialized = _decorate_task_payload(serialize_task(task))
+                serialized.update(_scaled_task_reward_values(task, profile))
+                serialized.update(
+                    _metric_task_progress_payload(
+                        task,
+                        {"metric_start_value": max(int(metric_progress_payload.get("metric_current_value") or 0), 0)},
+                        progress_map,
+                    )
+                )
+                create_journal(tg, "task", "接取任务", f"接取了计数任务【{serialized['title']}】")
+                return {"task": serialized, "reward": None, "submitted_item": None}
+
+            if existing.status == "completed":
+                raise ValueError("你已经完成过该任务")
+            if existing.status == "cancelled":
+                raise ValueError("该任务已被撤销，无法继续结算")
+            if not metric_progress_payload.get("metric_claimable"):
+                metric_label = metric_progress_payload.get("metric_label") or "进度"
+                raise ValueError(
+                    f"当前计数尚未达标：{metric_label} {metric_progress_payload.get('metric_progress_value', 0)}/{metric_progress_payload.get('metric_target', 0)}。"
+                )
+            if int(task.claimants_count or 0) >= int(task.max_claimants or 1):
+                raise ValueError("该任务奖励已被领取完")
+            existing.status = "completed"
+            task.claimants_count = int(task.claimants_count or 0) + 1
+            completed_now = True
+            if task.claimants_count >= int(task.max_claimants or 1):
+                task.status = "completed"
+            else:
+                task.status = "active"
+        elif task.required_item_kind and task.required_item_ref_id and int(task.required_item_quantity or 0) > 0:
             submitted_item = _consume_required_item(
                 session,
                 tg,
@@ -3055,17 +3614,36 @@ def claim_task_for_user(tg: int, task_id: int) -> dict[str, Any]:
             )
             completed_now = True
             claim_status = "completed"
-
-        session.add(XiuxianTaskClaim(task_id=task_id, tg=tg, status=claim_status))
-        task.claimants_count = int(task.claimants_count or 0) + 1
-        if completed_now and task.claimants_count >= int(task.max_claimants or 1):
-            task.status = "completed"
-        elif not completed_now and task.claimants_count >= int(task.max_claimants or 1):
-            task.status = "active"
+            session.add(XiuxianTaskClaim(task_id=task_id, tg=tg, status=claim_status))
+            task.claimants_count = int(task.claimants_count or 0) + 1
+            if completed_now and task.claimants_count >= int(task.max_claimants or 1):
+                task.status = "completed"
+            elif not completed_now and task.claimants_count >= int(task.max_claimants or 1):
+                task.status = "active"
+        else:
+            session.add(XiuxianTaskClaim(task_id=task_id, tg=tg, status=claim_status))
+            task.claimants_count = int(task.claimants_count or 0) + 1
+            if task.claimants_count >= int(task.max_claimants or 1):
+                task.status = "active"
         task.updated_at = utcnow()
         session.commit()
         session.refresh(task)
         serialized = _decorate_task_payload(serialize_task(task))
+        serialized.update(_scaled_task_reward_values(task, profile))
+        if str(task.task_type or "") == "metric":
+            progress_map = get_user_achievement_progress_map(tg)
+            claim_for_payload = (
+                session.query(XiuxianTaskClaim)
+                .filter(XiuxianTaskClaim.task_id == task_id, XiuxianTaskClaim.tg == tg)
+                .first()
+            )
+            serialized.update(
+                _metric_task_progress_payload(
+                    task,
+                    {"metric_start_value": max(int(getattr(claim_for_payload, "metric_start_value", 0) or 0), 0)} if claim_for_payload else None,
+                    progress_map,
+                )
+            )
 
     if not completed_now:
         create_journal(tg, "task", "接取任务", f"接取了任务【{serialized['title']}】")
@@ -3079,16 +3657,28 @@ def claim_task_for_user(tg: int, task_id: int) -> dict[str, Any]:
             if profile_obj is not None:
                 upsert_profile(tg, sect_contribution=int(profile_obj.sect_contribution or 0) + 1)
         if refreshed_task is not None:
-            item_name = _required_item_name(
-                str(refreshed_task.required_item_kind or ""),
-                int(refreshed_task.required_item_ref_id or 0),
-            )
-            create_journal(
-                tg,
-                "task",
-                "提交物品完成任务",
-                f"提交了 {item_name} × {int(refreshed_task.required_item_quantity or 0)}，完成任务【{refreshed_task.title}】",
-            )
+            if str(refreshed_task.task_type or "") == "metric":
+                metric_label = ACHIEVEMENT_METRIC_LABELS.get(
+                    str(refreshed_task.requirement_metric_key or ""),
+                    refreshed_task.requirement_metric_key or "计数指标",
+                )
+                create_journal(
+                    tg,
+                    "task",
+                    "完成计数任务",
+                    f"{metric_label} 达到 {int(refreshed_task.requirement_metric_target or 0)}，完成任务【{refreshed_task.title}】。",
+                )
+            else:
+                item_name = _required_item_name(
+                    str(refreshed_task.required_item_kind or ""),
+                    int(refreshed_task.required_item_ref_id or 0),
+                )
+                create_journal(
+                    tg,
+                    "task",
+                    "提交物品完成任务",
+                    f"提交了 {item_name} × {int(refreshed_task.required_item_quantity or 0)}，完成任务【{refreshed_task.title}】",
+                )
         return {
             "task": _decorate_task_payload(serialize_task(refreshed_task)),
             "reward": reward,
@@ -3251,6 +3841,10 @@ def build_world_bundle(tg: int) -> dict[str, Any]:
         "sects": list_sects_for_user(tg),
         "current_sect": get_current_sect_bundle(tg),
         "tasks": list_tasks_for_user(tg),
+        "achievement_metric_presets": [
+            {"key": key, "label": label}
+            for key, label in sorted(ACHIEVEMENT_METRIC_LABELS.items(), key=lambda item: item[1])
+        ],
         "materials": list_user_materials(tg),
         "recipes": recipes,
         "recipe_discovered_count": len(recipes),

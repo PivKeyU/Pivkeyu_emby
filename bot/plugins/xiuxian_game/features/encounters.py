@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -30,6 +31,11 @@ from bot.sql_helper.sql_xiuxian import (
 )
 
 
+AUTO_ENCOUNTER_PITY_STEP = 6
+AUTO_ENCOUNTER_FORCE_AFTER = 12
+AUTO_ENCOUNTER_STREAKS: dict[int, int] = {}
+
+
 def _legacy_service():
     from bot.plugins.xiuxian_game import service as legacy_service
 
@@ -40,6 +46,13 @@ def _legacy_world_service():
     from bot.plugins.xiuxian_game import world_service as legacy_world_service
 
     return legacy_world_service
+
+
+MARKDOWN_ESCAPE_PATTERN = re.compile(r"([_*\[`])")
+
+
+def _md_escape(value: Any) -> str:
+    return MARKDOWN_ESCAPE_PATTERN.sub(r"\\\1", str(value or ""))
 
 
 def list_encounter_templates(enabled_only: bool = False) -> list[dict[str, Any]]:
@@ -90,10 +103,12 @@ def _encounter_reward_payload(template: dict[str, Any]) -> dict[str, Any]:
 
 
 def maybe_spawn_group_encounter(chat_id: int) -> dict[str, Any] | None:
-    if not int(chat_id or 0):
+    chat_id_value = int(chat_id or 0)
+    if not chat_id_value:
         return None
     _legacy_service().ensure_seed_data()
-    if find_active_group_encounter(int(chat_id)):
+    if find_active_group_encounter(chat_id_value):
+        AUTO_ENCOUNTER_STREAKS.pop(chat_id_value, None)
         return None
 
     settings = get_xiuxian_settings()
@@ -101,16 +116,28 @@ def maybe_spawn_group_encounter(chat_id: int) -> dict[str, Any] | None:
         int(settings.get("encounter_group_cooldown_minutes", DEFAULT_SETTINGS.get("encounter_group_cooldown_minutes", 12)) or 0),
         0,
     )
-    latest_time = get_latest_group_encounter_time(int(chat_id))
+    latest_time = get_latest_group_encounter_time(chat_id_value)
     if latest_time and utcnow() - latest_time < timedelta(minutes=cooldown_minutes):
+        AUTO_ENCOUNTER_STREAKS.pop(chat_id_value, None)
         return None
 
-    chance = max(min(int(settings.get("encounter_spawn_chance", DEFAULT_SETTINGS.get("encounter_spawn_chance", 5)) or 0), 100), 0)
-    if chance <= 0 or random.randint(1, 100) > chance:
+    base_chance = max(
+        min(int(settings.get("encounter_spawn_chance", DEFAULT_SETTINGS.get("encounter_spawn_chance", 5)) or 0), 100),
+        0,
+    )
+    if base_chance <= 0:
+        AUTO_ENCOUNTER_STREAKS.pop(chat_id_value, None)
+        return None
+    streak = max(int(AUTO_ENCOUNTER_STREAKS.get(chat_id_value) or 0), 0) + 1
+    effective_chance = min(base_chance + max(streak - 1, 0) * AUTO_ENCOUNTER_PITY_STEP, 100)
+    force_spawn = streak >= AUTO_ENCOUNTER_FORCE_AFTER
+    if not force_spawn and random.randint(1, 100) > effective_chance:
+        AUTO_ENCOUNTER_STREAKS[chat_id_value] = streak
         return None
 
     template = _weighted_choice(list_encounter_templates(enabled_only=True))
     if not template:
+        AUTO_ENCOUNTER_STREAKS[chat_id_value] = streak
         return None
 
     active_seconds = max(
@@ -120,11 +147,12 @@ def maybe_spawn_group_encounter(chat_id: int) -> dict[str, Any] | None:
     instance = create_encounter_instance(
         template_id=int(template.get("id") or 0) or None,
         template_name=str(template.get("name") or "无名奇遇"),
-        group_chat_id=int(chat_id),
+        group_chat_id=chat_id_value,
         button_text=str(template.get("button_text") or "争抢机缘"),
         reward_payload=_encounter_reward_payload(template),
         expires_at=utcnow() + timedelta(seconds=active_seconds),
     )
+    AUTO_ENCOUNTER_STREAKS.pop(chat_id_value, None)
     return {"template": template, "instance": instance}
 
 
@@ -202,11 +230,11 @@ def render_group_encounter_text(template: dict[str, Any], instance: dict[str, An
     requirement_text = "；".join(requirements) if requirements else "无门槛，先到先得"
     return (
         f"🌠 **群机缘降世**\n"
-        f"📜 **{template.get('name') or '未命名奇遇'}**\n"
-        f"{action_text}\n\n"
-        f"🎁 奖励预览：{reward_summary}\n"
-        f"📌 领取要求：{requirement_text}\n"
-        f"⏳ 截止：{expires_at}\n"
+        f"📜 奇遇：**{_md_escape(template.get('name') or '未命名奇遇')}**\n"
+        f"📝 异象：{_md_escape(action_text)}\n"
+        f"🎁 奖励预览：{_md_escape(reward_summary)}\n"
+        f"📌 领取要求：{_md_escape(requirement_text)}\n"
+        f"⏳ 截止：{_md_escape(expires_at)}\n"
         "谁先抢到，机缘便归谁。"
     )
 
@@ -381,9 +409,16 @@ def render_group_encounter_success_text(result: dict[str, Any], winner_name: str
     for key, value in mapping.items():
         success_text = success_text.replace(key, value)
     if success_text:
-        return success_text
+        return "\n".join(
+            [
+                "🎉 **奇遇已被夺得**",
+                _md_escape(success_text),
+                f"🎁 收获：{_md_escape(reward_summary)}",
+            ]
+        )
     return (
         f"🎉 **奇遇已被夺得**\n"
-        f"{winner_name} 抢先拿下了 **{template.get('name') or '一桩奇遇'}**。\n"
-        f"🎁 收获：{reward_summary}"
+        f"🏆 夺得者：{_md_escape(winner_name)}\n"
+        f"📜 奇遇：**{_md_escape(template.get('name') or '一桩奇遇')}**\n"
+        f"🎁 收获：{_md_escape(reward_summary)}"
     )

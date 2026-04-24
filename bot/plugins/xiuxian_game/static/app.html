@@ -756,13 +756,13 @@
             <p class="eyebrow">仙门势力</p>
             <h2>宗门</h2>
           </div>
-          <span class="summary-tip">加入宗门、领取俸禄、叛出宗门</span>
+          <span class="summary-tip">加入宗门、点卯、宝库、贡献晋升与俸禄</span>
         </summary>
         <div class="fold-body">
           <details class="mini-fold" open>
             <summary class="mini-fold-summary">
               <h3>当前宗门</h3>
-              <span class="summary-tip">月俸、职位与宗门加成</span>
+              <span class="summary-tip">月俸、职位、贡献与宗门加成</span>
             </summary>
             <div class="mini-fold-body">
               <div class="inline-action-buttons">
@@ -770,6 +770,59 @@
                 <button id="sect-leave-btn" type="button" class="ghost">叛出宗门</button>
               </div>
               <div id="sect-current" class="stack-list"></div>
+            </div>
+          </details>
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>宗门点卯</h3>
+              <span class="summary-tip">每日可选传功或捐物，只能完成一次</span>
+            </summary>
+            <div class="mini-fold-body">
+              <p id="sect-attendance-note" class="section-copy">加入宗门后，可每日完成一次点卯并获得少量贡献。</p>
+              <form id="sect-teach-form" class="mini-form">
+                <div class="compact-grid">
+                  <label>
+                    传功修为
+                    <input id="sect-teach-amount" type="number" min="1000" step="1000" value="2000" placeholder="至少 1000">
+                  </label>
+                  <div class="form-actions">
+                    <button id="sect-teach-btn" type="submit">传功点卯</button>
+                  </div>
+                </div>
+              </form>
+              <form id="sect-donate-form" class="mini-form">
+                <div class="compact-grid">
+                  <label>
+                    物品类型
+                    <select id="sect-donate-kind">
+                      <option value="material">材料</option>
+                      <option value="artifact">法宝</option>
+                      <option value="pill">丹药</option>
+                      <option value="talisman">符箓</option>
+                    </select>
+                  </label>
+                  <label>
+                    提交物品
+                    <select id="sect-donate-ref"></select>
+                  </label>
+                  <label>
+                    提交数量
+                    <input id="sect-donate-quantity" type="number" min="1" value="1">
+                  </label>
+                  <div class="form-actions">
+                    <button id="sect-donate-btn" type="submit">捐入宗门宝库</button>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </details>
+          <details class="mini-fold" open>
+            <summary class="mini-fold-summary">
+              <h3>宗门宝库</h3>
+              <span class="summary-tip">查看已入库物资与高品捐赠</span>
+            </summary>
+            <div class="mini-fold-body">
+              <div id="sect-treasury" class="stack-list"></div>
             </div>
           </details>
           <details class="mini-fold" open>
@@ -806,9 +859,17 @@
                 <select id="task-type">
                   <option value="custom">普通任务</option>
                   <option value="quiz">答题任务</option>
+                  <option value="metric">计数任务</option>
                 </select>
               </label>
-              <label>奖励灵石<input id="task-reward-stone" type="number" min="1" value="10"></label>
+              <label>奖励灵石<input id="task-reward-stone" type="number" min="0" value="10"></label>
+              <label>奖励修为<input id="task-reward-cultivation" type="number" min="0" value="0"></label>
+              <label>奖励缩放
+                <select id="task-reward-scale-mode">
+                  <option value="fixed">固定奖励</option>
+                  <option value="realm">按领取者境界缩放</option>
+                </select>
+              </label>
               <label>领取上限<input id="task-max-claimants" type="number" min="1" value="1"></label>
               <label>需提交物类型
                 <select id="task-required-kind">
@@ -823,6 +884,10 @@
                 <select id="task-required-ref"></select>
               </label>
               <label>需提交数量<input id="task-required-quantity" type="number" min="0" value="0"></label>
+              <label>计数指标
+                <select id="task-metric-key"></select>
+              </label>
+              <label>目标次数<input id="task-metric-target" type="number" min="0" value="0"></label>
               <label class="wide-field">任务描述<textarea id="task-description" rows="3" placeholder="请至少写明 6 个字的目标、要求与额外说明"></textarea></label>
               <label class="wide-field">题目内容<textarea id="task-question" rows="3" placeholder="答题任务请写清题目内容"></textarea></label>
               <label>标准答案<input id="task-answer" type="text" placeholder="仅答题任务使用"></label>
