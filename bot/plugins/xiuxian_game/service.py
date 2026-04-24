@@ -203,6 +203,7 @@ from bot.plugins.xiuxian_game.probability import (
 )
 from bot.plugins.xiuxian_game.world_service import (
     _get_item_payload,
+    get_item_source_catalog,
     get_sect_effects,
     sync_recipe_with_ingredients_by_name,
     sync_scene_with_drops_by_name,
@@ -8923,23 +8924,31 @@ def build_gambling_bundle(tg: int, bundle: dict[str, Any] | None = None) -> dict
     fortune_value = int(effective_stats.get("fortune", profile.get("fortune", FORTUNE_BASELINE)) or FORTUNE_BASELINE)
     quality_rules = _normalize_gambling_quality_weight_rules(settings.get("gambling_quality_weight_rules"))
     raw_pool = _configured_gambling_pool(settings)
+    source_catalog = get_item_source_catalog()
     empty_chance = _gambling_empty_chance(fortune_value)
     enabled_pool = []
     total_effective_weight = 0.0
     for entry in raw_pool:
         weight = _gambling_entry_effective_weight(entry, fortune_value, settings)
-        payload = {
-            **entry,
-            "effective_weight": round(weight, 6),
-        }
-        total_effective_weight += weight
         if _reward_pool_entry_enabled(entry, "gambling") and int(entry.get("item_ref_id") or 0) > 0 and weight > 0:
+            payload = {
+                **entry,
+                "effective_weight": round(weight, 6),
+            }
+            total_effective_weight += weight
             enabled_pool.append(payload)
     for entry in enabled_pool:
         chance = (
             float(entry.get("effective_weight") or 0.0) / total_effective_weight * 100.0 * max(1.0 - empty_chance, 0.0)
         ) if total_effective_weight > 0 else 0.0
-        entry["chance_percent"] = round(chance, 3)
+        source_labels = source_catalog.get(
+            (str(entry.get("item_kind") or "").strip(), int(entry.get("item_ref_id") or 0)),
+            [],
+        )
+        route_labels = [label for label in source_labels if label != "仙界奇石"] or source_labels
+        entry["source_labels"] = route_labels[:6]
+        entry["source_summary"] = "、".join(route_labels[:4]) if route_labels else ""
+        entry["chance_percent"] = round(chance, 6)
     enabled_pool.sort(
         key=lambda item: (
             -int(item.get("quality_level") or 0),

@@ -209,6 +209,7 @@ from bot.plugins.xiuxian_game.features.marriage import (
     set_gender_for_user,
 )
 from bot.plugins.xiuxian_game.features.miniapp_bundle import (
+    build_fishing_cast_bundle_patch,
     build_bootstrap_core_bundle,
     build_full_profile_bundle,
 )
@@ -5189,7 +5190,16 @@ def register_web(app) -> None:
     async def xiuxian_fishing_cast_api(payload: FishingCastPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = cast_fishing_line_for_user(telegram_user["id"], payload.spot_key)
-        return {"code": 200, "data": {"result": result, "bundle": _full_bundle(telegram_user["id"])}}
+        return {
+            "code": 200,
+            "data": {
+                "result": result,
+                "bundle_patch": build_fishing_cast_bundle_patch(
+                    telegram_user["id"],
+                    **_bundle_runtime_flags(telegram_user["id"]),
+                ),
+            },
+        }
 
     @user_router.post("/api/explore/start")
     async def xiuxian_explore_start_api(payload: ExploreStartPayload):

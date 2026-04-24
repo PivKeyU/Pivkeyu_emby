@@ -71,6 +71,7 @@ from bot.sql_helper.sql_xiuxian import (
     grant_recipe_to_user,
     grant_talisman_to_user,
     grant_technique_to_user,
+    list_achievements,
     list_recipe_ingredients,
     list_recipes,
     list_recent_journals,
@@ -106,6 +107,7 @@ from bot.sql_helper.sql_xiuxian import (
     upsert_profile,
     utcnow,
 )
+from bot.plugins.xiuxian_game.cache import CATALOG_TTL, load_multi_versioned_json
 from bot.plugins.xiuxian_game.probability import adjust_probability_percent, roll_probability_percent
 from bot.plugins.xiuxian_game.achievement_service import (
     record_achievement_progress,
@@ -138,6 +140,14 @@ SECT_ENTRY_TECHNIQUES = {
 }
 DUEL_BET_PREVIEW_CACHE_TTL_SECONDS = 20.0
 DUEL_BET_PREVIEW_CACHE: dict[int, dict[str, Any]] = {}
+ITEM_SOURCE_VERSION_GROUPS = (
+    ("settings",),
+    ("catalog", "achievements"),
+    ("catalog", "recipes"),
+    ("catalog", "scenes"),
+    ("catalog", "shop-items"),
+    ("catalog", "tasks"),
+)
 
 
 def _is_active_spouse_pair(session: Session, actor_tg: int, target_tg: int) -> bool:
@@ -1411,31 +1421,108 @@ def create_recipe_with_ingredients(
     return recipe
 
 
-def _material_source_catalog() -> dict[int, list[str]]:
-    catalog: dict[int, set[str]] = {}
+def _append_item_source_label(
+    catalog: dict[tuple[str, int], set[str]],
+    item_kind: str,
+    item_ref_id: int,
+    label: str,
+) -> None:
+    normalized_kind = str(item_kind or "").strip()
+    normalized_label = str(label or "").strip()
+    ref_id = int(item_ref_id or 0)
+    if not normalized_kind or ref_id <= 0 or not normalized_label:
+        return
+    catalog.setdefault((normalized_kind, ref_id), set()).add(normalized_label)
+
+
+def _build_item_source_catalog_uncached() -> dict[tuple[str, int], list[str]]:
+    catalog: dict[tuple[str, int], set[str]] = {}
+
     for scene in list_scenes(enabled_only=True):
         scene_name = str(scene.get("name") or "未知秘境").strip()
+        if not scene_name:
+            continue
         for drop in list_scene_drops(int(scene.get("id") or 0)):
-            if str(drop.get("reward_kind") or "") != "material":
-                continue
-            material_id = int(drop.get("reward_ref_id") or 0)
-            if material_id <= 0:
-                continue
-            catalog.setdefault(material_id, set()).add(f"秘境：{scene_name}")
+            _append_item_source_label(
+                catalog,
+                str(drop.get("reward_kind") or ""),
+                int(drop.get("reward_ref_id") or 0),
+                f"秘境：{scene_name}",
+            )
         for event in scene.get("event_pool") or []:
-            if str((event or {}).get("bonus_reward_kind") or "") != "material":
-                continue
-            material_id = int((event or {}).get("bonus_reward_ref_id") or 0)
-            if material_id <= 0:
-                continue
-            catalog.setdefault(material_id, set()).add(f"事件：{scene_name}")
+            _append_item_source_label(
+                catalog,
+                str((event or {}).get("bonus_reward_kind") or ""),
+                int((event or {}).get("bonus_reward_ref_id") or 0),
+                f"事件：{scene_name}",
+            )
+
     for item in list_shop_items(official_only=True, include_disabled=False):
-        if str(item.get("item_kind") or "") != "material":
+        shop_name = str(item.get("shop_name") or "").strip() or "官方商店"
+        _append_item_source_label(
+            catalog,
+            str(item.get("item_kind") or ""),
+            int(item.get("item_ref_id") or 0),
+            f"官坊：{shop_name}",
+        )
+
+    for task in list_tasks(enabled_only=True):
+        if int(task.get("owner_tg") or 0) > 0:
             continue
-        material_id = int(item.get("item_ref_id") or 0)
-        if material_id <= 0:
+        task_scope = str(task.get("task_scope") or "").strip()
+        if task_scope not in {"official", "sect"}:
             continue
-        catalog.setdefault(material_id, set()).add(f"官坊：{item.get('shop_name') or '官方商店'}")
+        title = str(task.get("title") or "").strip() or "未命名任务"
+        prefix = "官方任务" if task_scope == "official" else "宗门任务"
+        _append_item_source_label(
+            catalog,
+            str(task.get("reward_item_kind") or ""),
+            int(task.get("reward_item_ref_id") or 0),
+            f"{prefix}：{title}",
+        )
+
+    for achievement in list_achievements(enabled_only=True):
+        reward = achievement.get("reward_config") or {}
+        label = f"成就：{str(achievement.get('name') or '').strip() or '未命名成就'}"
+        for reward_item in reward.get("items") or []:
+            _append_item_source_label(
+                catalog,
+                str((reward_item or {}).get("kind") or ""),
+                int((reward_item or {}).get("ref_id") or 0),
+                label,
+            )
+
+    for reward in get_xiuxian_settings().get("gambling_reward_pool") or []:
+        if not bool(reward.get("gambling_enabled", reward.get("enabled", True))):
+            continue
+        _append_item_source_label(
+            catalog,
+            str(reward.get("item_kind") or ""),
+            int(reward.get("item_ref_id") or 0),
+            "仙界奇石",
+        )
+
+    return {
+        key: sorted(values)
+        for key, values in catalog.items()
+    }
+
+
+def get_item_source_catalog() -> dict[tuple[str, int], list[str]]:
+    return load_multi_versioned_json(
+        version_part_groups=ITEM_SOURCE_VERSION_GROUPS,
+        cache_parts=("world", "item-sources"),
+        ttl=CATALOG_TTL,
+        loader=_build_item_source_catalog_uncached,
+    )
+
+
+def _material_source_catalog() -> dict[int, list[str]]:
+    catalog: dict[int, set[str]] = {
+        ref_id: set(labels)
+        for (item_kind, ref_id), labels in get_item_source_catalog().items()
+        if item_kind == "material"
+    }
     for recipe in list_recipes(enabled_only=True):
         if str(recipe.get("result_kind") or "") != "material":
             continue
@@ -1451,6 +1538,7 @@ def _material_source_catalog() -> dict[int, list[str]]:
 
 def build_recipe_catalog(tg: int | None = None) -> list[dict[str, Any]]:
     material_sources = _material_source_catalog()
+    item_sources = get_item_source_catalog()
     rows = []
     profile = serialize_profile(get_profile(tg, create=False)) if tg is not None else None
     source_rows: list[dict[str, Any]]
@@ -1467,6 +1555,7 @@ def build_recipe_catalog(tg: int | None = None) -> list[dict[str, Any]]:
             recipe["obtained_note"] = row.get("obtained_note")
             source_rows.append(recipe)
     for recipe in source_rows:
+        recipe_id = int(recipe.get("id") or 0)
         ingredients = []
         for ingredient in list_recipe_ingredients(recipe["id"]):
             material = ingredient.get("material") or {}
@@ -1475,6 +1564,9 @@ def build_recipe_catalog(tg: int | None = None) -> list[dict[str, Any]]:
             ingredient["source_text"] = "、".join(source_labels[:4]) if source_labels else "暂未标注"
             ingredients.append(ingredient)
         recipe["ingredients"] = ingredients
+        recipe_source_labels = item_sources.get(("recipe", recipe_id), [])
+        recipe["source_labels"] = recipe_source_labels
+        recipe["source_text"] = "、".join(recipe_source_labels[:4]) if recipe_source_labels else ""
         recipe["result_item"] = _get_item_payload(recipe["result_kind"], int(recipe["result_ref_id"]))
         if profile and profile.get("consented"):
             preview = _recipe_success_preview(recipe, ingredients, profile, recipe["result_item"])

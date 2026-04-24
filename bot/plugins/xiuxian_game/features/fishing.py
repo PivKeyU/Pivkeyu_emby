@@ -3,6 +3,7 @@ from __future__ import annotations
 import random
 from typing import Any
 
+from bot.plugins.xiuxian_game.cache import CATALOG_TTL, load_multi_versioned_json
 from bot.sql_helper import Session
 from bot.sql_helper.sql_xiuxian import (
     ITEM_KIND_LABELS,
@@ -86,6 +87,15 @@ FISHING_SPOTS: dict[str, dict[str, Any]] = {
 }
 
 PREVIEW_REWARD_LIMIT = 8
+FISHING_REWARD_POOL_VERSION_GROUPS = (
+    ("settings",),
+    ("catalog", "materials"),
+    ("catalog", "pills"),
+    ("catalog", "talismans"),
+    ("catalog", "artifacts"),
+    ("catalog", "recipes"),
+    ("catalog", "techniques"),
+)
 
 
 def _legacy_service():
@@ -260,6 +270,16 @@ def _build_fishing_candidates(
     return [row for row in rows if row.get("ref_id") and row.get("name") and float(row.get("fishing_weight") or 0.0) > 0]
 
 
+def _base_fishing_candidates(settings: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    current_settings = settings or _legacy_service().get_xiuxian_settings()
+    return load_multi_versioned_json(
+        version_part_groups=FISHING_REWARD_POOL_VERSION_GROUPS,
+        cache_parts=("fishing", "reward-pool"),
+        ttl=CATALOG_TTL,
+        loader=lambda: _build_fishing_candidates(_build_item_lookups(), settings=current_settings),
+    )
+
+
 def _spot_candidates(spot: dict[str, Any], candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
     allowed_kinds = set((spot.get("kind_weights") or {}).keys())
     quality_min = max(int(spot.get("quality_min") or 1), 1)
@@ -357,10 +377,16 @@ def _preview_rewards(candidates: list[dict[str, Any]], limit: int = PREVIEW_REWA
     return rows
 
 
-def _build_spot_bundle(spot: dict[str, Any], profile: XiuxianProfile, candidates: list[dict[str, Any]]) -> dict[str, Any]:
+def _build_spot_bundle(
+    spot: dict[str, Any],
+    profile: XiuxianProfile,
+    candidates: list[dict[str, Any]],
+    *,
+    current_fortune: int,
+    profile_stone: int,
+) -> dict[str, Any]:
     available = _meets_realm_requirement(profile, spot.get("min_realm_stage"), int(spot.get("min_realm_layer") or 1))
     stone_cost = max(int(spot.get("cast_cost_stone") or 0), 0)
-    profile_stone = max(int(get_shared_spiritual_stone_total(int(profile.tg or 0)) or 0), 0)
     if available and profile_stone < stone_cost:
         available = False
         available_reason = f"抛竿至少需要 {stone_cost} 灵石"
@@ -369,7 +395,7 @@ def _build_spot_bundle(spot: dict[str, Any], profile: XiuxianProfile, candidates
     else:
         available_reason = f"需达到 {_spot_requirement_text(spot)}"
 
-    tier_weights = _tier_weights_for_spot(spot, int(profile.fortune or 0), {int(row.get("quality_level") or 0) for row in candidates})
+    tier_weights = _tier_weights_for_spot(spot, current_fortune, {int(row.get("quality_level") or 0) for row in candidates})
     total_weight = sum(max(float(row.get("weight") or 0.0), 0.0) for row in tier_weights)
     odds_preview = [
         {
@@ -393,7 +419,7 @@ def _build_spot_bundle(spot: dict[str, Any], profile: XiuxianProfile, candidates
         "available": bool(available and candidates),
         "available_reason": available_reason if candidates else "当前没有可从该钓场钓出的物品",
         "candidate_count": len(candidates),
-        "empty_chance_percent": round(_fishing_empty_chance(spot, int(profile.fortune or 0)) * 100.0, 1),
+        "empty_chance_percent": round(_fishing_empty_chance(spot, current_fortune) * 100.0, 1),
         "reward_preview": _preview_rewards(candidates),
         "odds_preview": odds_preview,
     }
@@ -401,7 +427,6 @@ def _build_spot_bundle(spot: dict[str, Any], profile: XiuxianProfile, candidates
 
 def build_fishing_bundle(tg: int) -> dict[str, Any]:
     _legacy_service().ensure_seed_data()
-    settings = _legacy_service().get_xiuxian_settings()
     profile = get_profile(tg, create=False)
     if profile is None or not profile.consented:
         return {
@@ -410,12 +435,22 @@ def build_fishing_bundle(tg: int) -> dict[str, Any]:
             "available_spot_count": 0,
             "note": "踏入仙途后才能开始垂钓。",
         }
-    item_lookups = _build_item_lookups()
-    base_candidates = _build_fishing_candidates(item_lookups, settings=settings)
-    spots = [_build_spot_bundle(spot, profile, _spot_candidates(spot, base_candidates)) for spot in FISHING_SPOTS.values()]
+    current_fortune = max(int(profile.fortune or 0), 0)
+    profile_stone = max(int(get_shared_spiritual_stone_total(int(profile.tg or 0)) or 0), 0)
+    base_candidates = _base_fishing_candidates()
+    spots = [
+        _build_spot_bundle(
+            spot,
+            profile,
+            _spot_candidates(spot, base_candidates),
+            current_fortune=current_fortune,
+            profile_stone=profile_stone,
+        )
+        for spot in FISHING_SPOTS.values()
+    ]
     return {
         "spots": spots,
-        "current_fortune": max(int(profile.fortune or 0), 0),
+        "current_fortune": current_fortune,
         "available_spot_count": sum(1 for spot in spots if spot.get("available")),
         "note": "垂钓与仙界奇石共用同一套奖励池，但会额外压低高品阶权重，并且存在空竿；共享奖池会自动排除破境丹、破境丹丹方、唯一法宝与仙界奇石本体。",
     }
@@ -432,6 +467,10 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
     effective_stats = full_bundle.get("effective_stats") or {}
     effective_fortune = max(int(effective_stats.get("fortune") or full_bundle.get("profile", {}).get("fortune") or 0), 0)
     empty_chance = _fishing_empty_chance(spot, effective_fortune)
+    base_candidates = _base_fishing_candidates(settings)
+    candidates = _spot_candidates(spot, base_candidates)
+    if not candidates:
+        raise ValueError("该钓场当前没有可钓取的奖励")
     chosen = None
     chosen_kind = ""
     cast_cost_stone = max(int(spot.get("cast_cost_stone") or 0), 0)
@@ -444,29 +483,6 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
         if not _meets_realm_requirement(profile, spot.get("min_realm_stage"), int(spot.get("min_realm_layer") or 1)):
             raise ValueError(f"前往 {spot['name']} 需达到 {_spot_requirement_text(spot)}")
 
-        base_candidates = _build_fishing_candidates(_build_item_lookups(), settings=settings)
-        candidates = _spot_candidates(spot, base_candidates)
-        if not candidates:
-            raise ValueError("该钓场当前没有可钓取的奖励")
-
-        if random.random() >= empty_chance:
-            tier_pick = _weighted_choice(
-                _tier_weights_for_spot(spot, effective_fortune, {int(row.get("quality_level") or 0) for row in candidates}, settings),
-                weight_key="weight",
-            )
-            if not tier_pick:
-                raise ValueError("当前无法计算钓鱼概率")
-            chosen_tier = int(tier_pick.get("quality_level") or 1)
-            tier_candidates = [row for row in candidates if int(row.get("quality_level") or 0) == chosen_tier]
-            kind_pick = _weighted_choice(_kind_weights_for_tier(spot, tier_candidates), weight_key="weight")
-            if not kind_pick:
-                raise ValueError("当前钓场没有可用的奖励种类")
-            chosen_kind = str(kind_pick.get("kind") or "")
-            kind_candidates = [row for row in tier_candidates if str(row.get("kind") or "") == chosen_kind]
-            chosen = _weighted_choice(kind_candidates, weight_key="fishing_weight")
-            if not chosen:
-                raise ValueError("当前钓场没有可用的奖励物品")
-
         if cast_cost_stone > 0:
             apply_spiritual_stone_delta(
                 session,
@@ -476,6 +492,24 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
                 apply_tribute=False,
             )
         session.commit()
+
+    if random.random() >= empty_chance:
+        tier_pick = _weighted_choice(
+            _tier_weights_for_spot(spot, effective_fortune, {int(row.get("quality_level") or 0) for row in candidates}, settings),
+            weight_key="weight",
+        )
+        if not tier_pick:
+            raise ValueError("当前无法计算钓鱼概率")
+        chosen_tier = int(tier_pick.get("quality_level") or 1)
+        tier_candidates = [row for row in candidates if int(row.get("quality_level") or 0) == chosen_tier]
+        kind_pick = _weighted_choice(_kind_weights_for_tier(spot, tier_candidates), weight_key="weight")
+        if not kind_pick:
+            raise ValueError("当前钓场没有可用的奖励种类")
+        chosen_kind = str(kind_pick.get("kind") or "")
+        kind_candidates = [row for row in tier_candidates if str(row.get("kind") or "") == chosen_kind]
+        chosen = _weighted_choice(kind_candidates, weight_key="fishing_weight")
+        if not chosen:
+            raise ValueError("当前钓场没有可用的奖励物品")
 
     if chosen is None:
         message = f"你在 {spot['name']} 抛竿许久，水面只剩回荡的灵波，最终空手而归。"

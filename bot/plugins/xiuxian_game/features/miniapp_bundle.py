@@ -3,7 +3,17 @@ from __future__ import annotations
 from typing import Any
 
 from bot.func_helper.emby_currency import get_emby_balance, get_exchange_settings
+from bot.sql_helper.sql_xiuxian import (
+    list_recent_journals,
+    list_user_artifacts,
+    list_user_materials,
+    list_user_pills,
+    list_user_recipes,
+    list_user_talismans,
+    list_user_techniques,
+)
 from bot.plugins.xiuxian_game.features.exploration import _scene_requirement_state
+from bot.plugins.xiuxian_game.features.fishing import build_fishing_bundle
 from bot.plugins.xiuxian_game.features.gambling import build_gambling_bundle
 from bot.plugins.xiuxian_game.features.shop import attach_official_recycle_quotes
 from bot.plugins.xiuxian_game.service import (
@@ -40,6 +50,7 @@ from bot.plugins.xiuxian_game.service import (
 from bot.plugins.xiuxian_game.world_service import (
     _user_task_daily_limit,
     _user_task_publish_count_today,
+    build_recipe_fragment_synthesis_catalog,
     get_current_sect_bundle,
     list_sects_for_user,
 )
@@ -83,8 +94,6 @@ def build_bootstrap_core_bundle(
     admin_panel_url: str | None = None,
 ) -> dict[str, Any]:
     bundle = _build_core_profile_bundle(tg)
-    bundle.update(_build_core_world_bundle(tg))
-    attach_official_recycle_quotes(bundle)
     _apply_capabilities(
         bundle,
         can_upload_images=can_upload_images,
@@ -113,6 +122,39 @@ def build_deferred_profile_sections(
         is_admin=is_admin,
         admin_panel_url=admin_panel_url,
     )
+
+
+def build_fishing_cast_bundle_patch(
+    tg: int,
+    *,
+    can_upload_images: bool = False,
+    upload_image_reason: str = "",
+    allow_non_admin_image_upload: bool = False,
+    is_admin: bool = False,
+    admin_panel_url: str | None = None,
+) -> dict[str, Any]:
+    bundle = _build_core_profile_bundle(tg)
+    bundle["artifacts"] = list_user_artifacts(tg)
+    bundle["pills"] = list_user_pills(tg)
+    bundle["talismans"] = list_user_talismans(tg)
+    bundle["materials"] = list_user_materials(tg)
+    bundle["recipes"] = list_user_recipes(tg, enabled_only=False)
+    bundle["techniques"] = list_user_techniques(tg, enabled_only=False)
+    bundle["technique_owned_count"] = len(bundle["techniques"])
+    bundle["recipe_discovered_count"] = len(bundle["recipes"])
+    bundle["recipe_fragment_syntheses"] = build_recipe_fragment_synthesis_catalog(tg)
+    bundle["journal"] = list_recent_journals(tg)
+    bundle["fishing"] = build_fishing_bundle(tg)
+    attach_official_recycle_quotes(bundle)
+    _apply_capabilities(
+        bundle,
+        can_upload_images=can_upload_images,
+        upload_image_reason=upload_image_reason,
+        allow_non_admin_image_upload=allow_non_admin_image_upload,
+        is_admin=is_admin,
+        admin_panel_url=admin_panel_url,
+    )
+    return bundle
 
 
 def _build_core_profile_bundle(tg: int) -> dict[str, Any]:
@@ -305,7 +347,7 @@ def _build_core_profile_bundle(tg: int) -> dict[str, Any]:
         "achievement_metric_progress": {},
         "achievement_unlocked_count": 0,
         "achievement_total_count": 0,
-        "technique_owned_count": len(list_user_techniques(tg, enabled_only=False)),
+        "technique_owned_count": 0,
         "technique_total_count": 0,
     }
     return bundle

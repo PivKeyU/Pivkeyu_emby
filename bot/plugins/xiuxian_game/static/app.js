@@ -33,6 +33,7 @@ const state = {
 };
 
 const WIKI_BUNDLE_CACHE_KEY = "xiuxian_wiki_bundle_v2";
+const BOOTSTRAP_CACHE_KEY_PREFIX = "xiuxian_bootstrap_core_v1";
 const REALM_ORDER = ["炼气", "筑基", "金丹", "元婴", "化神", "炼虚", "合体", "大乘", "渡劫", "人仙", "地仙", "天仙", "金仙", "大罗金仙", "仙君", "仙王", "仙尊", "仙帝"];
 
 function escapeHtml(value) {
@@ -577,6 +578,57 @@ function writeSessionStorage(key, value) {
   }
 }
 
+function readLocalStorage(key) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch (error) {
+    return null;
+  }
+}
+
+function writeLocalStorage(key, value) {
+  try {
+    if (value == null) {
+      window.localStorage.removeItem(key);
+      return;
+    }
+    window.localStorage.setItem(key, value);
+  } catch (error) {
+    // Ignore storage quota and unavailable storage errors.
+  }
+}
+
+function bootstrapCacheKey() {
+  const userId = Number(tg?.initDataUnsafe?.user?.id || 0);
+  return `${BOOTSTRAP_CACHE_KEY_PREFIX}:${userId > 0 ? userId : "anon"}`;
+}
+
+function hydrateBootstrapCache() {
+  const raw = readLocalStorage(bootstrapCacheKey());
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || !parsed.profile_bundle || typeof parsed.profile_bundle !== "object") {
+      writeLocalStorage(bootstrapCacheKey(), null);
+      return null;
+    }
+    return parsed;
+  } catch (error) {
+    writeLocalStorage(bootstrapCacheKey(), null);
+    return null;
+  }
+}
+
+function storeBootstrapCache(payload) {
+  if (!payload || typeof payload !== "object" || !payload.profile_bundle || typeof payload.profile_bundle !== "object") {
+    return;
+  }
+  writeLocalStorage(bootstrapCacheKey(), JSON.stringify({
+    profile_bundle: payload.profile_bundle,
+    bottom_nav: Array.isArray(payload.bottom_nav) ? payload.bottom_nav : [],
+  }));
+}
+
 function hydrateWikiBundleFromCache() {
   if (state.wikiBundle) return state.wikiBundle;
   const raw = readSessionStorage(WIKI_BUNDLE_CACHE_KEY);
@@ -682,7 +734,12 @@ async function openWikiEntry(entryId) {
   const entry = rows.find((item) => String(item?.id || "") === String(entryId || ""));
   if (!entry) return;
   const lines = wikiPopupLines(entry);
-  await popup(wikiCardTitle(entry) || entry.title || "修仙 Wiki", lines.join("\n\n"), "success");
+  await popup(
+    wikiCardTitle(entry) || entry.title || "修仙 Wiki",
+    lines.join("\n\n"),
+    "success",
+    { autoCloseMs: 0 },
+  );
 }
 
 async function refreshWikiBundle({ force = false } = {}) {
@@ -3473,7 +3530,7 @@ function scheduleDeferredBootstrapWork() {
   if (connection?.saveData || /2g/i.test(String(connection?.effectiveType || ""))) {
     return;
   }
-  window.setTimeout(() => deferUiWork(runner), 2400);
+  window.setTimeout(() => deferUiWork(runner), 4200);
 }
 
 async function refreshBundle({ background = false } = {}) {
@@ -3490,6 +3547,7 @@ async function refreshBundle({ background = false } = {}) {
       state.deferredBundleLoaded = false;
       state.deferredBundlePromise = null;
       const payload = await postJson("/plugins/xiuxian/api/bootstrap");
+      storeBootstrapCache(payload);
       renderBottomNav(payload.bottom_nav || []);
       applyProfileBundle(payload.profile_bundle);
       scheduleDeferredBootstrapWork();
@@ -3531,12 +3589,25 @@ async function bootstrap() {
   renderWikiArea();
   state.deferredBundleLoaded = false;
   state.deferredBundlePromise = null;
-  const payload = await postJson("/plugins/xiuxian/api/bootstrap");
-  renderBottomNav(payload.bottom_nav || []);
-  applyProfileBundle(payload.profile_bundle);
-  scheduleDeferredBootstrapWork();
-  if (payload.initial_leaderboard) {
-    renderLeaderboard(payload.initial_leaderboard);
+  const cachedPayload = hydrateBootstrapCache();
+  if (cachedPayload?.profile_bundle) {
+    renderBottomNav(cachedPayload.bottom_nav || []);
+    applyProfileBundle(cachedPayload.profile_bundle);
+  }
+  try {
+    const payload = await postJson("/plugins/xiuxian/api/bootstrap");
+    storeBootstrapCache(payload);
+    renderBottomNav(payload.bottom_nav || []);
+    applyProfileBundle(payload.profile_bundle);
+    scheduleDeferredBootstrapWork();
+    if (payload.initial_leaderboard) {
+      renderLeaderboard(payload.initial_leaderboard);
+    }
+  } catch (error) {
+    if (!cachedPayload?.profile_bundle) {
+      throw error;
+    }
+    setStatus("已显示上次缓存，最新数据同步失败。", "warning");
   }
 }
 
@@ -5090,6 +5161,7 @@ renderCraftArea = function renderCraftArea(bundle) {
     recipe.result_item?.name,
     (recipe.ingredients || []).map((item) => item.material?.name),
     (recipe.ingredients || []).map((item) => item.source_text),
+    recipe.source_text,
     recipe.source,
     recipe.obtained_note,
   ]));
@@ -5163,12 +5235,16 @@ renderCraftArea = function renderCraftArea(bundle) {
       `;
     const card = document.createElement("article");
     card.className = "stack-item";
+    const recipeRouteText = recipe.source_text
+      ? `掉落途径：${recipe.source_text}`
+      : "";
     card.innerHTML = `
       <div class="stack-item-head">
         <strong>${escapeHtml(recipe.name)}</strong>
         <span class="badge badge--normal">${escapeHtml(recipe.recipe_kind_label || recipe.recipe_kind)}</span>
       </div>
       <p>${escapeHtml(recipe.source ? `来源：${recipe.source}${recipe.obtained_note ? ` · ${recipe.obtained_note}` : ""}` : "已掌握配方，可随时开炉。")}</p>
+      ${recipeRouteText ? `<p>${escapeHtml(recipeRouteText)}</p>` : ""}
       <div class="info-grid">
         <article class="info-chip">
           <span>炼成目标</span>
@@ -5644,7 +5720,7 @@ setStatus = function setStatusRefined(text, tone = "info") {
   }
 };
 
-popup = async function popupRefined(title, message, tone = "success") {
+popup = async function popupRefined(title, message, tone = "success", options = {}) {
   touchFeedback(tone);
   const layer = document.querySelector("#modal-layer");
   const label = document.querySelector("#modal-label");
@@ -5667,7 +5743,10 @@ popup = async function popupRefined(title, message, tone = "success") {
   if (popupAutoCloseTimer) {
     window.clearTimeout(popupAutoCloseTimer);
   }
-  popupAutoCloseTimer = window.setTimeout(closeInlinePopup, tone === "error" ? 3200 : 2400);
+  const autoCloseMs = Number.isFinite(Number(options?.autoCloseMs))
+    ? Math.max(Number(options.autoCloseMs), 0)
+    : (tone === "error" ? 3200 : 2400);
+  popupAutoCloseTimer = autoCloseMs > 0 ? window.setTimeout(closeInlinePopup, autoCloseMs) : null;
   popupResolver = null;
   return Promise.resolve();
 };
@@ -7146,7 +7225,12 @@ document.querySelector("#fishing-spot-list")?.addEventListener("click", async (e
     const payload = await runButtonAction(button, "抛竿中…", () => postJson("/plugins/xiuxian/api/fishing/cast", {
       spot_key: spotKey,
     }));
-    if (payload.bundle) applyProfileBundle(payload.bundle);
+    if (payload.bundle_patch) {
+      const mergedBundle = mergeBundleData(state.profileBundle, payload.bundle_patch);
+      applyProfileBundle(mergedBundle);
+    } else if (payload.bundle) {
+      applyProfileBundle(payload.bundle);
+    }
     const result = payload.result || {};
     const rewardName = result.reward_item?.name || "未知物品";
     const lines = [result.message || "你已经顺利完成本次垂钓。"];
@@ -7171,6 +7255,8 @@ document.querySelector("#fishing-spot-list")?.addEventListener("click", async (e
 function formatChancePercent(value) {
   const amount = Number(value || 0);
   if (!Number.isFinite(amount) || amount <= 0) return "0%";
+  if (amount < 0.001) return "<0.001%";
+  if (amount < 0.01) return `${amount.toFixed(4).replace(/\.?0+$/, "")}%`;
   return `${amount.toFixed(amount >= 10 ? 2 : 3).replace(/\.?0+$/, "")}%`;
 }
 
@@ -7237,6 +7323,7 @@ function renderGamblingArea(bundle) {
         ${qualityBadgeHtml(entry.quality_label || "凡品", entry.quality_color, "badge badge--normal")}
       </div>
       <p>${escapeHtml(entry.item_kind_label || entry.item_kind || "物品")} · 当前概率 ${escapeHtml(formatChancePercent(entry.chance_percent || 0))}</p>
+      ${entry.source_summary ? `<p class="muted">掉落途径：${escapeHtml(entry.source_summary)}</p>` : ""}
       <div class="item-tags">
         <span class="tag">掉落数量 ${escapeHtml(gamblingQuantityText(entry))}</span>
         <span class="tag">奇石权重 ${escapeHtml(entry.gambling_weight ?? entry.base_weight ?? 0)}</span>
@@ -7457,12 +7544,16 @@ document.querySelector("#wiki-filter-row")?.addEventListener("click", (event) =>
 document.querySelector("#wiki-featured-list")?.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-wiki-entry]");
   if (!button) return;
+  event.preventDefault();
+  event.stopPropagation();
   await openWikiEntry(button.dataset.wikiEntry || "");
 });
 
 document.querySelector("#wiki-result-list")?.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-wiki-entry]");
   if (!button) return;
+  event.preventDefault();
+  event.stopPropagation();
   await openWikiEntry(button.dataset.wikiEntry || "");
 });
 
