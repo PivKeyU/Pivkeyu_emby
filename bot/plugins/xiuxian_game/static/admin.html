@@ -136,11 +136,21 @@
                 擂台通知群地址 / ID
                 <input id="setting-arena-notice-group" type="text" placeholder="支持 -100xxxxxxxxxx、@groupname、t.me/groupname">
               </label>
-              <p class="muted wide-field">通知群支持填写群 ID、公开群 `@username`、`t.me/群地址`，也支持 `t.me/c/...` 消息链接；留空表示关闭。</p>
+              <p class="muted wide-field">通知群支持填写群 ID、公开群 `@username`、`t.me/群地址`，也支持 `t.me/c/...` 消息链接；留空表示关闭。若公开地址暂时无法解析，会先保存原值，并在首次群播时再次解析。</p>
               <label>
                 事件汇总间隔（分钟，0 关闭）
                 <input id="setting-event-summary-interval" type="number" min="0" max="1440" value="10">
               </label>
+              <div class="wide-field">
+                <label>
+                  手动补发仙界汇总（选填目标群）
+                  <input id="setting-event-summary-target" type="text" placeholder="留空则使用已配置通知群；支持 -100xxxxxxxxxx、@groupname、t.me/...">
+                </label>
+                <div class="inline-action-buttons">
+                  <button id="event-summary-refresh-btn" type="button" class="ghost">手动发送 / 刷新仙界汇总</button>
+                </div>
+                <p class="muted">镜像更新、重启或手动修改通知群后，可在这里立即补发并重新置顶仙界汇总。</p>
+              </div>
               <label>
                 玩家发布任务消耗
                 <input id="setting-task-publish-cost" type="number" min="0" value="20">

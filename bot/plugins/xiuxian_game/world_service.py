@@ -1557,16 +1557,24 @@ def build_recipe_catalog(tg: int | None = None) -> list[dict[str, Any]]:
     for recipe in source_rows:
         recipe_id = int(recipe.get("id") or 0)
         ingredients = []
+        fragment_source_labels: list[str] = []
         for ingredient in list_recipe_ingredients(recipe["id"]):
             material = ingredient.get("material") or {}
             source_labels = material_sources.get(int(material.get("id") or ingredient.get("material_id") or 0), [])
             ingredient["sources"] = source_labels
             ingredient["source_text"] = "、".join(source_labels[:4]) if source_labels else "暂未标注"
+            material_name = str(material.get("name") or "").strip()
+            if "残页" in material_name:
+                for label in source_labels:
+                    normalized_label = str(label or "").strip()
+                    if normalized_label and normalized_label not in fragment_source_labels:
+                        fragment_source_labels.append(normalized_label)
             ingredients.append(ingredient)
         recipe["ingredients"] = ingredients
         recipe_source_labels = item_sources.get(("recipe", recipe_id), [])
-        recipe["source_labels"] = recipe_source_labels
-        recipe["source_text"] = "、".join(recipe_source_labels[:4]) if recipe_source_labels else ""
+        resolved_source_labels = recipe_source_labels or fragment_source_labels
+        recipe["source_labels"] = resolved_source_labels
+        recipe["source_text"] = "、".join(resolved_source_labels[:4]) if resolved_source_labels else ""
         recipe["result_item"] = _get_item_payload(recipe["result_kind"], int(recipe["result_ref_id"]))
         if profile and profile.get("consented"):
             preview = _recipe_success_preview(recipe, ingredients, profile, recipe["result_item"])

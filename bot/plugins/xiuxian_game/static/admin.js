@@ -2692,6 +2692,28 @@ function bindEvents() {
     }
   });
 
+  $("event-summary-refresh-btn")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    try {
+      const result = await withAdminButtonBusy(button, "发送中...", () => request("POST", "/plugins/xiuxian/admin-api/event-summary/refresh", {
+        chat_id: $("setting-event-summary-target")?.value?.trim?.() || "",
+        force_create: true,
+      }));
+      const targetChatIds = Array.isArray(result?.target_chat_ids) ? result.target_chat_ids : [];
+      const targetCount = Number(result?.target_count || targetChatIds.length || 0);
+      const detail = targetCount > 0
+        ? `已刷新 ${targetCount} 个群的仙界汇总${targetChatIds.length ? `：${targetChatIds.join("、")}` : "。"}`
+        : "仙界汇总已刷新。";
+      adminStatus(detail, "success");
+      await bootstrapAdmin();
+      await popup("发送成功", detail);
+    } catch (error) {
+      const message = String(error?.message || error || "仙界汇总发送失败");
+      adminStatus(message, "error");
+      await popup("发送失败", message, "error");
+    }
+  });
+
   $("setting-shop-name")?.addEventListener("input", (event) => {
     if ($("official-shop-name")) {
       $("official-shop-name").value = event.currentTarget?.value?.trim?.() || "";

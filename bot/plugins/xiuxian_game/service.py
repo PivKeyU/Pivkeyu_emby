@@ -88,6 +88,7 @@ from bot.sql_helper.sql_xiuxian import (
     list_materials,
     list_pills,
     list_profiles,
+    list_recipe_ingredients,
     list_recipes,
     list_shop_items,
     list_techniques,
@@ -8408,13 +8409,16 @@ def patch_auction_listing(auction_id: int, **fields) -> dict[str, Any] | None:
     return update_auction_item(auction_id, **fields)
 
 
-def _normalize_notice_group_id(value: Any) -> int:
+def _normalize_notice_group_id(value: Any) -> int | str:
     if value in {None, ""}:
         return 0
-    try:
-        return int(value)
-    except (TypeError, ValueError):
+    raw = str(value).strip()
+    if not raw:
         return 0
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return raw
 
 
 def _default_arena_stage_rule_map() -> dict[str, dict[str, int]]:
@@ -8946,9 +8950,11 @@ def build_gambling_bundle(tg: int, bundle: dict[str, Any] | None = None) -> dict
             [],
         )
         route_labels = [label for label in source_labels if label != "仙界奇石"] or source_labels
+        if not route_labels and str(entry.get("item_kind") or "").strip() == "recipe":
+            route_labels = _recipe_fragment_source_labels(int(entry.get("item_ref_id") or 0), source_catalog)
         entry["source_labels"] = route_labels[:6]
         entry["source_summary"] = "、".join(route_labels[:4]) if route_labels else ""
-        entry["chance_percent"] = round(chance, 6)
+        entry["chance_percent"] = chance
     enabled_pool.sort(
         key=lambda item: (
             -int(item.get("quality_level") or 0),
@@ -9985,6 +9991,29 @@ def _gambling_entry_effective_weight(entry: dict[str, Any], fortune_value: int |
 def _gambling_empty_chance(fortune_value: int | float) -> float:
     fortune_gap = max(float(fortune_value or 0.0) - float(FORTUNE_BASELINE), 0.0)
     return max(min(0.32 - min(fortune_gap / 140.0, 0.14), 0.42), 0.12)
+
+
+def _recipe_fragment_source_labels(
+    recipe_id: int,
+    source_catalog: dict[tuple[str, int], list[str]] | None = None,
+) -> list[str]:
+    resolved_recipe_id = int(recipe_id or 0)
+    if resolved_recipe_id <= 0:
+        return []
+    catalog = source_catalog or get_item_source_catalog()
+    labels: list[str] = []
+    for ingredient in list_recipe_ingredients(resolved_recipe_id):
+        material = ingredient.get("material") or {}
+        material_id = int(material.get("id") or ingredient.get("material_id") or 0)
+        material_name = str(material.get("name") or "").strip()
+        if material_id <= 0 or "残页" not in material_name:
+            continue
+        for label in catalog.get(("material", material_id), []):
+            normalized_label = str(label or "").strip()
+            if not normalized_label or normalized_label == "仙界奇石" or normalized_label in labels:
+                continue
+            labels.append(normalized_label)
+    return labels
 
 
 def _gambling_fortune_hint(fortune_value: int | float, settings: dict[str, Any]) -> str:

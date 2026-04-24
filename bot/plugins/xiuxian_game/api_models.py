@@ -303,6 +303,11 @@ class ArenaStageRulePayload(BaseModel):
     reward_cultivation: int
 
 
+class EventSummaryRefreshPayload(BaseModel):
+    chat_id: int | str | None = None
+    force_create: bool = True
+
+
 class AdminSettingPayload(BaseModel):
     coin_stone_exchange_enabled: bool | None = None
     coin_exchange_rate: int | None = None

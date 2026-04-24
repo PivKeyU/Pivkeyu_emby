@@ -24,6 +24,7 @@ const LEVEL_META = {
     tone: "pending"
   }
 };
+const MINIAPP_BOOTSTRAP_CACHE_PREFIX = "miniapp_bootstrap";
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -215,6 +216,139 @@ function resolveDisplayName(user) {
   return user?.first_name || user?.last_name || user?.username || "未知用户";
 }
 
+function readLocalStorage(key) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeLocalStorage(key, value) {
+  try {
+    if (value == null) {
+      window.localStorage.removeItem(key);
+      return;
+    }
+    window.localStorage.setItem(key, value);
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function miniAppBootstrapCacheKey(userId) {
+  return `${MINIAPP_BOOTSTRAP_CACHE_PREFIX}:${userId || "anon"}`;
+}
+
+function hydrateMiniAppBootstrapCache(userId) {
+  const raw = readLocalStorage(miniAppBootstrapCacheKey(userId));
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || !parsed.telegram_user || !parsed.meta) {
+      writeLocalStorage(miniAppBootstrapCacheKey(userId), null);
+      return null;
+    }
+    return parsed;
+  } catch {
+    writeLocalStorage(miniAppBootstrapCacheKey(userId), null);
+    return null;
+  }
+}
+
+function storeMiniAppBootstrapCache(userId, payload) {
+  if (!payload || typeof payload !== "object") return;
+  writeLocalStorage(miniAppBootstrapCacheKey(userId), JSON.stringify(payload));
+}
+
+function applyMiniAppBootstrapData(data, userId) {
+  const welcomeText = document.querySelector("#welcome-text");
+  const heroNote = document.querySelector("#hero-note");
+  const adminEntryCard = document.querySelector("#admin-entry-card");
+  const adminEntryButton = document.querySelector("#admin-entry-button");
+  const badge = document.querySelector("#account-level-badge");
+  const levelDesc = document.querySelector("#account-level-desc");
+  const pluginCount = document.querySelector("#plugin-count");
+  const pluginCountPill = document.querySelector("#plugin-count-pill");
+  const rolePill = document.querySelector("#role-pill");
+  const { telegram_user, account, meta, permissions } = data;
+  let visiblePlugins = (meta.plugins || []).filter((item) => item.miniapp_path);
+  const loadedCount = visiblePlugins.filter((item) => item.loaded).length;
+  const levelMeta = getLevelMeta(account?.lv || (account ? "" : "d"));
+  const displayName = resolveDisplayName(telegram_user);
+  const accountTone = account?.lv_tone || levelMeta.tone;
+
+  document.title = `${meta.brand || "片刻面板"}`;
+
+  badge.className = `badge badge--${accountTone}`;
+  badge.textContent = account?.lv_short_text || account?.lv_text || levelMeta.shortText || levelMeta.text;
+  levelDesc.textContent = account?.lv_description || levelMeta.description;
+
+  document.querySelector("#tg-id").textContent = telegram_user.id || "-";
+  document.querySelector("#tg-name").textContent = displayName;
+  document.querySelector("#account-iv").textContent = account?.iv ?? 0;
+  document.querySelector("#account-name").textContent = account?.name || "未绑定";
+  document.querySelector("#account-ex").textContent = formatDate(account?.ex, "永久");
+  document.querySelector("#account-us").textContent = account?.us ?? 0;
+
+  document.querySelector("#brand-name").textContent = meta.brand || "Emby";
+  document.querySelector("#currency-name").textContent = meta.currency || "积分";
+  document.querySelector("#hero-name").textContent = displayName;
+  document.querySelector("#hero-id").textContent = telegram_user.id || "-";
+
+  pluginCount.textContent = `已加载 ${loadedCount} / ${visiblePlugins.length}`;
+  pluginCountPill.textContent = `${visiblePlugins.length} 个模块`;
+  rolePill.textContent = permissions?.is_admin ? "管理员" : "普通用户";
+
+  if (permissions?.is_admin && permissions?.admin_url) {
+    adminEntryCard.classList.remove("hidden");
+    adminEntryButton.onclick = () => {
+      window.location.href = withReturnTo(permissions.admin_url);
+    };
+  } else {
+    adminEntryCard.classList.add("hidden");
+    adminEntryButton.onclick = null;
+  }
+
+  welcomeText.textContent = `欢迎回来，${displayName}。`;
+  heroNote.textContent = account?.name
+    ? `当前已绑定 Emby 账号 ${account.name}，到期时间 ${formatDate(account.ex, "永久")}。`
+    : "你尚未绑定 Emby 账号，请使用注册码开通或联系管理员。";
+
+  const savedOrderStr = localStorage.getItem(`miniapp_order_${userId}`);
+  if (savedOrderStr) {
+    try {
+      const savedOrder = JSON.parse(savedOrderStr);
+      visiblePlugins.sort((a, b) => {
+        const nameA = a.miniapp_label || a.name || "";
+        const nameB = b.miniapp_label || b.name || "";
+        let iA = savedOrder.indexOf(nameA);
+        let iB = savedOrder.indexOf(nameB);
+        if (iA === -1) iA = 999;
+        if (iB === -1) iB = 999;
+        return iA - iB;
+      });
+    } catch (error) {
+      console.error("排序数据读取失败", error);
+    }
+  }
+
+  renderPlugins(visiblePlugins);
+  renderBottomNav(meta.bottom_nav || []);
+}
+
+function bindPluginGridNavigation() {
+  const pluginGrid = document.querySelector("#plugin-grid");
+  if (!pluginGrid || pluginGrid.dataset.bound === "1") return;
+  pluginGrid.dataset.bound = "1";
+  pluginGrid.addEventListener("click", (event) => {
+    if (event.target.closest("button")) return;
+    const card = event.target.closest("[data-open-path]");
+    if (!card) return;
+    window.location.href = card.dataset.openPath;
+  });
+}
+
 async function bootstrapMiniApp() {
   const tg = window.Telegram?.WebApp;
   const welcomeText = document.querySelector("#welcome-text");
@@ -235,7 +369,12 @@ async function bootstrapMiniApp() {
 
   tg.ready();
   tg.expand();
-  const userId = tg.initDataUnsafe?.user?.id || 'default';
+  bindPluginGridNavigation();
+  const userId = tg.initDataUnsafe?.user?.id || "default";
+  const cachedData = hydrateMiniAppBootstrapCache(userId);
+  if (cachedData) {
+    applyMiniAppBootstrapData(cachedData, userId);
+  }
 
   try {
     const response = await fetch("/miniapp-api/bootstrap", {
@@ -249,86 +388,20 @@ async function bootstrapMiniApp() {
       throw new Error(result.detail || result.message || "服务器连接失败。");
     }
 
-    const { telegram_user, account, meta, permissions } = result.data;
-    let visiblePlugins = (meta.plugins || []).filter((item) => item.miniapp_path);
-    const loadedCount = visiblePlugins.filter((item) => item.loaded).length;
-    const levelMeta = getLevelMeta(account?.lv || (account ? "" : "d"));
-    const displayName = resolveDisplayName(telegram_user);
-    const accountTone = account?.lv_tone || levelMeta.tone;
+    storeMiniAppBootstrapCache(userId, result.data);
+    applyMiniAppBootstrapData(result.data, userId);
 
-    document.title = `${meta.brand || "片刻面板"}`;
-
-    badge.className = `badge badge--${accountTone}`;
-    badge.textContent = account?.lv_short_text || account?.lv_text || levelMeta.shortText || levelMeta.text;
-    levelDesc.textContent = account?.lv_description || levelMeta.description;
-
-    document.querySelector("#tg-id").textContent = telegram_user.id || "-";
-    document.querySelector("#tg-name").textContent = displayName;
-    document.querySelector("#account-iv").textContent = account?.iv ?? 0;
-    document.querySelector("#account-name").textContent = account?.name || "未绑定";
-    document.querySelector("#account-ex").textContent = formatDate(account?.ex, "永久");
-    document.querySelector("#account-us").textContent = account?.us ?? 0;
-
-    document.querySelector("#brand-name").textContent = meta.brand || "Emby";
-    document.querySelector("#currency-name").textContent = meta.currency || "积分";
-    document.querySelector("#hero-name").textContent = displayName;
-    document.querySelector("#hero-id").textContent = telegram_user.id || "-";
-
-    pluginCount.textContent = `已加载 ${loadedCount} / ${visiblePlugins.length}`;
-    pluginCountPill.textContent = `${visiblePlugins.length} 个模块`;
-    rolePill.textContent = permissions?.is_admin ? "管理员" : "普通用户";
-
-    if (permissions?.is_admin && permissions?.admin_url) {
-      adminEntryCard.classList.remove("hidden");
-      adminEntryButton.onclick = () => {
-        window.location.href = withReturnTo(permissions.admin_url);
-      };
-    } else {
-      adminEntryCard.classList.add("hidden");
-      adminEntryButton.onclick = null;
-    }
-
-    welcomeText.textContent = `欢迎回来，${displayName}。`;
-    heroNote.textContent = account?.name
-      ? `当前已绑定 Emby 账号 ${account.name}，到期时间 ${formatDate(account.ex, "永久")}。`
-      : "你尚未绑定 Emby 账号，请使用注册码开通或联系管理员。";
-
-    // Sort visible plugins and render
-    const savedOrderStr = localStorage.getItem(`miniapp_order_${userId}`);
-    if (savedOrderStr) {
-      try {
-        const savedOrder = JSON.parse(savedOrderStr);
-        visiblePlugins.sort((a, b) => {
-          const nameA = a.miniapp_label || a.name || "";
-          const nameB = b.miniapp_label || b.name || "";
-          let iA = savedOrder.indexOf(nameA);
-          let iB = savedOrder.indexOf(nameB);
-          if(iA === -1) iA = 999;
-          if(iB === -1) iB = 999;
-          return iA - iB;
-        });
-      } catch (e) { console.error("排序数据读取失败", e); }
-    }
-    
-    renderPlugins(visiblePlugins);
-
-    // Save order on plugin grid reorder (touch-friendly: tap to open, no drag on mobile)
-    const pluginGrid = document.querySelector("#plugin-grid");
-    pluginGrid.addEventListener("click", (event) => {
-      if (event.target.closest("button")) return;
-      const card = event.target.closest("[data-open-path]");
-      if (!card) return;
-      window.location.href = card.dataset.openPath;
-    });
-
-    renderBottomNav(meta.bottom_nav || []);
   } catch (error) {
     const message = normalizeError(error);
-    welcomeText.textContent = `连接失败：${message}`;
-    heroNote.textContent = "请检查网络后重试，或联系管理员。";
-    levelDesc.textContent = "账号状态未知。";
-    renderPlugins([]);
-    renderBottomNav([]);
+    if (!cachedData) {
+      welcomeText.textContent = `连接失败：${message}`;
+      heroNote.textContent = "请检查网络后重试，或联系管理员。";
+      levelDesc.textContent = "账号状态未知。";
+      renderPlugins([]);
+      renderBottomNav([]);
+      return;
+    }
+    heroNote.textContent = `已展示本地缓存，最新数据同步失败：${message}`;
   }
 }
 

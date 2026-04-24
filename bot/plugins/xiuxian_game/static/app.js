@@ -5747,8 +5747,9 @@ popup = async function popupRefined(title, message, tone = "success", options = 
     ? Math.max(Number(options.autoCloseMs), 0)
     : (tone === "error" ? 3200 : 2400);
   popupAutoCloseTimer = autoCloseMs > 0 ? window.setTimeout(closeInlinePopup, autoCloseMs) : null;
-  popupResolver = null;
-  return Promise.resolve();
+  return new Promise((resolve) => {
+    popupResolver = resolve;
+  });
 };
 
 renderProfile = function renderProfileRedesigned(bundle) {
@@ -7545,7 +7546,9 @@ document.querySelector("#wiki-featured-list")?.addEventListener("click", async (
   const button = event.target.closest("[data-wiki-entry]");
   if (!button) return;
   event.preventDefault();
+  event.stopImmediatePropagation();
   event.stopPropagation();
+  button.blur?.();
   await openWikiEntry(button.dataset.wikiEntry || "");
 });
 
@@ -7553,7 +7556,9 @@ document.querySelector("#wiki-result-list")?.addEventListener("click", async (ev
   const button = event.target.closest("[data-wiki-entry]");
   if (!button) return;
   event.preventDefault();
+  event.stopImmediatePropagation();
   event.stopPropagation();
+  button.blur?.();
   await openWikiEntry(button.dataset.wikiEntry || "");
 });
 
