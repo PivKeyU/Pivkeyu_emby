@@ -776,10 +776,13 @@
           <details class="mini-fold" open>
             <summary class="mini-fold-summary">
               <h3>宗门点卯</h3>
-              <span class="summary-tip">每日可选传功或捐物，只能完成一次</span>
+              <span class="summary-tip">每日签到独立计算，传功与捐物另外累积贡献</span>
             </summary>
             <div class="mini-fold-body">
-              <p id="sect-attendance-note" class="section-copy">加入宗门后，可每日完成一次点卯并获得少量贡献。</p>
+              <p id="sect-attendance-note" class="section-copy">点卯是每日宗门签到；传功与捐物是独立贡献行为，不再占用签到次数。</p>
+              <div class="form-actions">
+                <button id="sect-attendance-btn" type="button">今日点卯签到</button>
+              </div>
               <form id="sect-teach-form" class="mini-form">
                 <div class="compact-grid">
                   <label>
@@ -787,7 +790,7 @@
                     <input id="sect-teach-amount" type="number" min="1000" step="1000" value="2000" placeholder="至少 1000">
                   </label>
                   <div class="form-actions">
-                    <button id="sect-teach-btn" type="submit">传功点卯</button>
+                    <button id="sect-teach-btn" type="submit">传功</button>
                   </div>
                 </div>
               </form>

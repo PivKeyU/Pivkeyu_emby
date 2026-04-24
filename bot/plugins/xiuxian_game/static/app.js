@@ -4350,7 +4350,7 @@ document.querySelector("#sect-teach-form")?.addEventListener("submit", async (ev
   try {
     const amount = Number(document.querySelector("#sect-teach-amount")?.value || 0);
     if (amount < 1000) {
-      await popup("表单未完成", "传功点卯至少需要投入 1000 修为。", "error");
+      await popup("表单未完成", "传功至少需要投入 1000 修为。", "error");
       return;
     }
     const payload = await runButtonAction(button, "传功中…", () => postJson("/plugins/xiuxian/api/sect/teach", {
@@ -4358,12 +4358,31 @@ document.querySelector("#sect-teach-form")?.addEventListener("submit", async (ev
     }));
     const result = payload.result || {};
     const promotionText = result.promotion?.role?.role_name ? `\n职位晋升：${result.promotion.role.role_name}` : "";
-    const message = `已完成今日传功点卯，投入 ${amount} 修为，获得 ${Number(result.contribution_gain || 0)} 点宗门贡献。${promotionText}`;
+    const message = `已向宗门传功 ${amount} 修为，获得 ${Number(result.contribution_gain || 0)} 点宗门贡献。${promotionText}`;
     setStatus(message, "success");
-    await popup("点卯成功", message);
-    await refreshBundle();
+    await popup("传功成功", message);
+    if (payload.bundle) applyProfileBundle(payload.bundle);
+    else await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "宗门传功失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
+});
+
+document.querySelector("#sect-attendance-btn")?.addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  try {
+    const payload = await runButtonAction(button, "签到中…", () => postJson("/plugins/xiuxian/api/sect/attendance", {}));
+    const result = payload.result || {};
+    const promotionText = result.promotion?.role?.role_name ? `\n职位晋升：${result.promotion.role.role_name}` : "";
+    const message = `已完成今日宗门点卯签到，获得 ${Number(result.contribution_gain || 0)} 点宗门贡献。${promotionText}`;
+    setStatus(message, "success");
+    await popup("签到成功", message);
+    if (payload.bundle) applyProfileBundle(payload.bundle);
+    else await refreshBundle();
+  } catch (error) {
+    const message = normalizeError(error, "宗门点卯失败。");
     setStatus(message, "error");
     await popup("操作失败", message, "error");
   }
@@ -4392,7 +4411,8 @@ document.querySelector("#sect-donate-form")?.addEventListener("submit", async (e
     const message = `已向宗门宝库提交 ${itemName} × ${quantity}，获得 ${Number(result.contribution_gain || 0)} 点宗门贡献。${promotionText}`;
     setStatus(message, "success");
     await popup("捐赠成功", message);
-    await refreshBundle();
+    if (payload.bundle) applyProfileBundle(payload.bundle);
+    else await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "捐赠宗门宝库失败。");
     setStatus(message, "error");
@@ -6904,6 +6924,7 @@ renderSectArea = function renderSectAreaEnhanced(bundle) {
   const listRoot = document.querySelector("#sect-list");
   const treasuryRoot = document.querySelector("#sect-treasury");
   const attendanceNote = document.querySelector("#sect-attendance-note");
+  const attendanceButton = document.querySelector("#sect-attendance-btn");
   const salaryButton = document.querySelector("#sect-salary-btn");
   const leaveButton = document.querySelector("#sect-leave-btn");
   const teachButton = document.querySelector("#sect-teach-btn");
@@ -6912,7 +6933,7 @@ renderSectArea = function renderSectAreaEnhanced(bundle) {
   const donateKind = document.querySelector("#sect-donate-kind");
   const donateRef = document.querySelector("#sect-donate-ref");
   const donateQuantity = document.querySelector("#sect-donate-quantity");
-  if (!currentRoot || !listRoot || !treasuryRoot || !attendanceNote || !salaryButton || !leaveButton) return;
+  if (!currentRoot || !listRoot || !treasuryRoot || !attendanceNote || !attendanceButton || !salaryButton || !leaveButton) return;
 
   const current = bundle.current_sect;
   const duelLockReason = currentDuelLockReason(bundle);
@@ -6927,8 +6948,8 @@ renderSectArea = function renderSectAreaEnhanced(bundle) {
     const attendance = current.attendance || {};
     const promotionPreview = current.promotion_preview || null;
     const attendanceText = attendance.done_today
-      ? `今日已通过${attendance.last_method_label || attendance.last_method || "宗门点卯"}完成点卯。`
-      : "今日尚未点卯，可选择传功或捐物完成。";
+      ? "今日已完成宗门点卯签到。"
+      : "今日尚未点卯，可先完成一次宗门签到。";
     const promotionText = promotionPreview
       ? `再获 ${promotionPreview.remaining_contribution || 0} 点贡献可晋升为 ${promotionPreview.next_role_name || promotionPreview.next_role_key || "下一职位"}。`
       : "当前职位已达到自动晋升上限。";
@@ -6944,7 +6965,7 @@ renderSectArea = function renderSectAreaEnhanced(bundle) {
           <span class="tag">成员 ${escapeHtml((current.roster || []).length)}</span>
           <span class="tag">贡献 ${escapeHtml(contribution)}</span>
           <span class="tag">月俸 ${escapeHtml(role?.monthly_salary ?? 0)} 灵石</span>
-          <span class="tag">${escapeHtml(attendance.done_today ? "今日已点卯" : "今日未点卯")}</span>
+          <span class="tag">${escapeHtml(attendance.done_today ? "今日已签到" : "今日未签到")}</span>
           ${current.entry_technique_name ? `<span class="tag">入门功法 ${escapeHtml(current.entry_technique_name)}</span>` : ""}
         </div>
         <p>宗门加成：${escapeHtml(sectBonusSummary(current, role))}</p>
@@ -6954,14 +6975,16 @@ renderSectArea = function renderSectAreaEnhanced(bundle) {
     `;
     attendanceNote.textContent = `${attendanceText}${attendance.last_at ? ` 上次点卯：${formatDate(attendance.last_at)}。` : ""}`;
     const attendanceBlockedReason = attendance.done_today
-      ? `今日已通过${attendance.last_method_label || attendance.last_method || "宗门点卯"}完成点卯。`
+      ? "今日已完成宗门签到。"
       : (duelLockReason || "");
+    const sectActionBlockedReason = duelLockReason || "";
     setDisabled(salaryButton, Boolean(duelLockReason), duelLockReason);
     setDisabled(leaveButton, Boolean(duelLockReason), duelLockReason);
+    setDisabled(attendanceButton, Boolean(attendanceBlockedReason), attendanceBlockedReason);
     [teachButton, teachInput, donateButton, donateKind, donateRef, donateQuantity]
-      .forEach((element) => setDisabled(element, Boolean(attendanceBlockedReason), attendanceBlockedReason));
+      .forEach((element) => setDisabled(element, Boolean(sectActionBlockedReason), sectActionBlockedReason));
     const availableDonationRows = sectDonationRows(donateKind?.value || "material", bundle);
-    if (!attendanceBlockedReason && !availableDonationRows.length) {
+    if (!sectActionBlockedReason && !availableDonationRows.length) {
       setDisabled(donateRef, true, "当前背包没有可提交物品");
       setDisabled(donateButton, true, "当前背包没有可提交物品");
     }
@@ -6977,12 +7000,12 @@ renderSectArea = function renderSectAreaEnhanced(bundle) {
           <p>${escapeHtml(row.item_kind_label || row.item_kind || "物品")} · ${escapeHtml(row.item?.quality_label || row.item?.rarity || row.item?.quality_feature || "常规物资")}</p>
         </article>
       `).join("")
-      : `<article class="stack-item"><strong>宗门宝库暂无物资</strong><p>完成每日捐物点卯后，已提交的物品会展示在这里。</p></article>`;
+      : `<article class="stack-item"><strong>宗门宝库暂无物资</strong><p>成员捐入宗门宝库的物资会展示在这里。</p></article>`;
   } else {
     currentRoot.innerHTML = `<article class="stack-item"><strong>暂未加入宗门</strong><p>满足门槛后，即可在下方挑选正邪宗门与入门路线。</p></article>`;
     treasuryRoot.innerHTML = `<article class="stack-item"><strong>宗门宝库未开启</strong><p>加入宗门后才能查看并捐赠宝库物资。</p></article>`;
-    attendanceNote.textContent = "尚未加入宗门，当前无法进行宗门点卯。";
-    [salaryButton, leaveButton, teachButton, teachInput, donateButton, donateKind, donateRef, donateQuantity]
+    attendanceNote.textContent = "尚未加入宗门，当前无法进行宗门点卯签到。";
+    [attendanceButton, salaryButton, leaveButton, teachButton, teachInput, donateButton, donateKind, donateRef, donateQuantity]
       .forEach((element) => setDisabled(element, true, "尚未加入宗门"));
   }
 

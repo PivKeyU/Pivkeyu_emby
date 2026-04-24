@@ -155,9 +155,11 @@ ITEM_SOURCE_VERSION_GROUPS = (
     ("catalog", "tasks"),
 )
 SECT_ATTENDANCE_METHOD_LABELS = {
-    "teach": "传功点卯",
-    "donate": "捐赠点卯",
+    "attendance": "宗门签到",
+    "teach": "传功",
+    "donate": "捐赠宝库",
 }
+SECT_DAILY_ATTENDANCE_CONTRIBUTION = 1
 SECT_PROMOTION_ROLE_ORDER = [
     "outer_disciple",
     "inner_disciple",
@@ -235,9 +237,13 @@ def _sect_attendance_done_today(profile: XiuxianProfile | dict[str, Any] | None)
     if profile is None:
         return False
     if isinstance(profile, dict):
+        attendance_method = str(profile.get("last_sect_attendance_method") or "").strip()
         last_attendance_at = _parse_optional_datetime(str(profile.get("last_sect_attendance_at") or "") or None)
     else:
+        attendance_method = str(getattr(profile, "last_sect_attendance_method", "") or "").strip()
         last_attendance_at = getattr(profile, "last_sect_attendance_at", None)
+    if attendance_method != "attendance":
+        return False
     return bool(last_attendance_at and _china_day_key_for(last_attendance_at) == china_day_key())
 
 
@@ -265,6 +271,22 @@ def _item_contribution_score(item_kind: str, item: dict[str, Any] | None, quanti
 def _teach_contribution_score(cultivation_amount: int) -> int:
     amount = max(int(cultivation_amount or 0), 0)
     return max(min(amount // 2000, 10), 1)
+
+
+def _apply_sect_contribution_gain(
+    profile: XiuxianProfile,
+    roles: list[dict[str, Any]],
+    contribution_gain: int,
+) -> tuple[str, str, int]:
+    before_role_key = str(profile.sect_role_key or "").strip() or "outer_disciple"
+    new_contribution = max(int(profile.sect_contribution or 0), 0) + max(int(contribution_gain or 0), 0)
+    target_role = _sect_target_role_by_contribution(roles, new_contribution)
+    next_role_key = before_role_key
+    if target_role is not None and _sect_role_rank(target_role.get("role_key")) > _sect_role_rank(before_role_key):
+        next_role_key = str(target_role.get("role_key") or before_role_key)
+    profile.sect_contribution = new_contribution
+    profile.sect_role_key = next_role_key
+    return before_role_key, next_role_key, new_contribution
 
 
 def _sect_role_rank(role_key: str | None) -> int:
@@ -885,13 +907,16 @@ def get_current_sect_bundle(tg: int) -> dict[str, Any] | None:
     sect["roles"] = list_sect_roles(sect["id"])
     sect["roster"] = _get_sect_roster(sect["id"])
     sect["current_role"] = get_sect_role_payload(sect["id"], profile.get("sect_role_key"))
+    attendance_method = str(profile.get("last_sect_attendance_method") or "").strip()
+    attendance_last_at = profile.get("last_sect_attendance_at") if attendance_method == "attendance" else None
     sect["attendance"] = {
         "done_today": _sect_attendance_done_today(profile),
-        "last_at": profile.get("last_sect_attendance_at"),
-        "last_method": profile.get("last_sect_attendance_method"),
-        "last_method_label": SECT_ATTENDANCE_METHOD_LABELS.get(
-            str(profile.get("last_sect_attendance_method") or "").strip(),
-            profile.get("last_sect_attendance_method"),
+        "last_at": attendance_last_at,
+        "last_method": attendance_method if attendance_method == "attendance" else None,
+        "last_method_label": (
+            SECT_ATTENDANCE_METHOD_LABELS.get(attendance_method, attendance_method)
+            if attendance_method == "attendance"
+            else None
         ),
     }
     sect["promotion_preview"] = _sect_promotion_preview(
@@ -1123,46 +1148,26 @@ def claim_sect_salary_for_user(tg: int) -> dict[str, Any]:
     return {"salary": salary, "profile": _full_profile_bundle(tg)["profile"], "role": role}
 
 
-def perform_sect_teach_attendance(tg: int, cultivation_amount: int) -> dict[str, Any]:
-    amount = max(int(cultivation_amount or 0), 0)
-    if amount < 1000:
-        raise ValueError("传功点卯至少需要投入 1000 修为。")
-
+def perform_sect_attendance(tg: int) -> dict[str, Any]:
     promotion_payload = None
+    contribution_gain = SECT_DAILY_ATTENDANCE_CONTRIBUTION
     with Session() as session:
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if profile is None or not profile.consented:
             raise ValueError("你还没有踏入仙途")
-        assert_profile_alive(profile, "宗门传功点卯")
+        assert_profile_alive(profile, "宗门签到")
         if not profile.sect_id:
             raise ValueError("你尚未加入宗门")
         if _sect_attendance_done_today(profile):
-            method_label = SECT_ATTENDANCE_METHOD_LABELS.get(
-                str(profile.last_sect_attendance_method or "").strip(),
-                profile.last_sect_attendance_method or "已完成点卯",
-            )
-            raise ValueError(f"你今日已经完成宗门点卯（{method_label}）。")
-        current_cultivation = max(int(profile.cultivation or 0), 0)
-        if current_cultivation < amount:
-            raise ValueError(f"当前修为不足，最多只能传功 {current_cultivation}。")
+            raise ValueError("你今日已经完成宗门签到。")
 
         sect = serialize_sect(get_sect(int(profile.sect_id or 0)))
         if sect is None:
             raise ValueError("当前宗门不存在")
         roles = list_sect_roles(int(profile.sect_id or 0))
-        before_role_key = str(profile.sect_role_key or "").strip() or "outer_disciple"
-        contribution_gain = _teach_contribution_score(amount)
-        new_contribution = max(int(profile.sect_contribution or 0), 0) + contribution_gain
-        target_role = _sect_target_role_by_contribution(roles, new_contribution)
-        next_role_key = before_role_key
-        if target_role is not None and _sect_role_rank(target_role.get("role_key")) > _sect_role_rank(before_role_key):
-            next_role_key = str(target_role.get("role_key") or before_role_key)
-
-        profile.cultivation = current_cultivation - amount
-        profile.sect_contribution = new_contribution
+        before_role_key, next_role_key, _ = _apply_sect_contribution_gain(profile, roles, contribution_gain)
         profile.last_sect_attendance_at = utcnow()
-        profile.last_sect_attendance_method = "teach"
-        profile.sect_role_key = next_role_key
+        profile.last_sect_attendance_method = "attendance"
         profile.updated_at = utcnow()
         session.commit()
 
@@ -1172,8 +1177,53 @@ def perform_sect_teach_attendance(tg: int, cultivation_amount: int) -> dict[str,
     create_journal(
         tg,
         "sect",
-        "宗门点卯",
-        f"以传功方式完成今日宗门点卯，投入 {amount} 修为，获得 {contribution_gain} 点宗门贡献。",
+        "宗门签到",
+        f"完成今日宗门点卯签到，获得 {contribution_gain} 点宗门贡献。",
+    )
+    return {
+        "method": "attendance",
+        "contribution_gain": contribution_gain,
+        "promotion": promotion_payload,
+        "sect": get_current_sect_bundle(tg),
+    }
+
+
+def perform_sect_teach(tg: int, cultivation_amount: int) -> dict[str, Any]:
+    amount = max(int(cultivation_amount or 0), 0)
+    if amount < 1000:
+        raise ValueError("传功至少需要投入 1000 修为。")
+
+    promotion_payload = None
+    with Session() as session:
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+        if profile is None or not profile.consented:
+            raise ValueError("你还没有踏入仙途")
+        assert_profile_alive(profile, "宗门传功")
+        if not profile.sect_id:
+            raise ValueError("你尚未加入宗门")
+        current_cultivation = max(int(profile.cultivation or 0), 0)
+        if current_cultivation < amount:
+            raise ValueError(f"当前修为不足，最多只能传功 {current_cultivation}。")
+
+        sect = serialize_sect(get_sect(int(profile.sect_id or 0)))
+        if sect is None:
+            raise ValueError("当前宗门不存在")
+        roles = list_sect_roles(int(profile.sect_id or 0))
+        contribution_gain = _teach_contribution_score(amount)
+        before_role_key, next_role_key, _ = _apply_sect_contribution_gain(profile, roles, contribution_gain)
+
+        profile.cultivation = current_cultivation - amount
+        profile.updated_at = utcnow()
+        session.commit()
+
+        if next_role_key != before_role_key:
+            promotion_payload = _maybe_promote_sect_member(tg, sect, before_role_key, next_role_key)
+
+    create_journal(
+        tg,
+        "sect",
+        "宗门传功",
+        f"向宗门传功 {amount} 修为，获得 {contribution_gain} 点宗门贡献。",
     )
     return {
         "method": "teach",
@@ -1203,25 +1253,14 @@ def donate_item_to_sect_treasury(tg: int, item_kind: str, item_ref_id: int, quan
         assert_profile_alive(profile, "捐赠宗门宝库")
         if not profile.sect_id:
             raise ValueError("你尚未加入宗门")
-        if _sect_attendance_done_today(profile):
-            method_label = SECT_ATTENDANCE_METHOD_LABELS.get(
-                str(profile.last_sect_attendance_method or "").strip(),
-                profile.last_sect_attendance_method or "已完成点卯",
-            )
-            raise ValueError(f"你今日已经完成宗门点卯（{method_label}）。")
 
         sect = serialize_sect(get_sect(int(profile.sect_id or 0)))
         if sect is None:
             raise ValueError("当前宗门不存在")
         roles = list_sect_roles(int(profile.sect_id or 0))
-        before_role_key = str(profile.sect_role_key or "").strip() or "outer_disciple"
         submitted_item = _consume_required_item(session, tg, normalized_kind, ref_id, amount)
         contribution_gain = _item_contribution_score(normalized_kind, submitted_item, amount)
-        new_contribution = max(int(profile.sect_contribution or 0), 0) + contribution_gain
-        target_role = _sect_target_role_by_contribution(roles, new_contribution)
-        next_role_key = before_role_key
-        if target_role is not None and _sect_role_rank(target_role.get("role_key")) > _sect_role_rank(before_role_key):
-            next_role_key = str(target_role.get("role_key") or before_role_key)
+        before_role_key, next_role_key, _ = _apply_sect_contribution_gain(profile, roles, contribution_gain)
 
         treasury_row = (
             session.query(XiuxianSectTreasuryItem)
@@ -1244,10 +1283,6 @@ def donate_item_to_sect_treasury(tg: int, item_kind: str, item_ref_id: int, quan
         treasury_row.quantity = max(int(treasury_row.quantity or 0), 0) + amount
         treasury_row.updated_at = utcnow()
 
-        profile.sect_contribution = new_contribution
-        profile.last_sect_attendance_at = utcnow()
-        profile.last_sect_attendance_method = "donate"
-        profile.sect_role_key = next_role_key
         profile.updated_at = utcnow()
         session.commit()
         treasury_payload = {
@@ -1263,8 +1298,8 @@ def donate_item_to_sect_treasury(tg: int, item_kind: str, item_ref_id: int, quan
     create_journal(
         tg,
         "sect",
-        "宗门点卯",
-        f"以捐赠方式完成今日宗门点卯，向宗门宝库提交 {item_name} × {amount}，获得 {contribution_gain} 点宗门贡献。",
+        "宗门捐赠",
+        f"向宗门宝库提交 {item_name} × {amount}，获得 {contribution_gain} 点宗门贡献。",
     )
     return {
         "method": "donate",

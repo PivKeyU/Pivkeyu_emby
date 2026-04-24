@@ -224,7 +224,8 @@ from bot.plugins.xiuxian_game.features.sects import (
     donate_item_to_sect_treasury,
     join_sect_for_user,
     leave_sect_for_user,
-    perform_sect_teach_attendance,
+    perform_sect_attendance,
+    perform_sect_teach,
     set_user_sect_role,
 )
 from bot.plugins.xiuxian_game.features.shop import (
@@ -5506,10 +5507,16 @@ def register_web(app) -> None:
         result = claim_sect_salary_for_user(telegram_user["id"])
         return {"code": 200, "data": {"salary": result["salary"], "bundle": _full_bundle(telegram_user["id"])}}
 
+    @user_router.post("/api/sect/attendance")
+    async def xiuxian_sect_attendance_api(payload: InitDataPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = perform_sect_attendance(telegram_user["id"])
+        return {"code": 200, "data": {"result": result, "bundle": _full_bundle(telegram_user["id"])}}
+
     @user_router.post("/api/sect/teach")
     async def xiuxian_sect_teach_api(payload: SectTeachPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
-        result = perform_sect_teach_attendance(telegram_user["id"], payload.cultivation_amount)
+        result = perform_sect_teach(telegram_user["id"], payload.cultivation_amount)
         return {"code": 200, "data": {"result": result, "bundle": _full_bundle(telegram_user["id"])}}
 
     @user_router.post("/api/sect/donate")
