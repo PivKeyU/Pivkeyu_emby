@@ -937,9 +937,9 @@
       <article class="stack-item">
         <div class="stack-item-head">
           <strong>${escapeHtml(item.name)}</strong>
-          <span class="badge badge--normal">${escapeHtml(item.equip_slot_label || item.equip_slot || "武器")}</span>
+          <span class="badge badge--normal">${escapeHtml(item.equip_category_label || item.equip_slot_label || item.equip_slot || "武器")}</span>
         </div>
-        <p class="quality-line">${qualityBadgeHtml(item.rarity || "凡品", item.quality_color)}<span class="builder-chip">${escapeHtml(item.artifact_role_label || item.artifact_role || "攻伐")}</span>${item.artifact_set?.name ? `<span class="builder-chip">${escapeHtml(item.artifact_set.name)}</span>` : ""}</p>
+        <p class="quality-line">${qualityBadgeHtml(item.rarity || "凡品", item.quality_color)}<span class="builder-chip">${escapeHtml(item.equip_slot_label || item.equip_slot || "未知槽位")}</span><span class="builder-chip">${escapeHtml(item.artifact_role_label || item.artifact_role || "攻伐")}</span>${item.artifact_set?.name ? `<span class="builder-chip">${escapeHtml(item.artifact_set.name)}</span>` : ""}</p>
         <p>${escapeHtml(affixSummary(item))}</p>
         <p>${escapeHtml(combatConfigSummary(item.combat_config || {}))}</p>
         <div class="inline-action-buttons">${editButton("artifact", item.id)}${deleteButton("artifact", item.id)}</div>

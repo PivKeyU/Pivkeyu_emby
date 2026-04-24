@@ -308,7 +308,6 @@ Mini App 用户页和回调面板都可以执行：
 - `foundation`
 - `clear_poison`
 - `cultivation`
-- `stone`
 - `bone`
 - `comprehension`
 - `divine_sense`
@@ -331,7 +330,6 @@ Mini App 用户页和回调面板都可以执行：
 - `foundation`：突破辅助丹
 - `clear_poison`：清丹毒
 - `cultivation`：直接加修为
-- `stone`：直接加灵石
 - `bone`：直接加根骨
 - `comprehension`：直接加悟性
 - `divine_sense`：直接加神识

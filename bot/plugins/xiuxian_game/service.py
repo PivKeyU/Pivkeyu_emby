@@ -131,6 +131,7 @@ from bot.sql_helper.sql_xiuxian import (
     serialize_recipe,
     serialize_technique,
     serialize_talisman,
+    purge_removed_pill_types,
     starter_artifact_protection_active,
     get_quality_meta,
     get_active_duel_lock,
@@ -242,7 +243,6 @@ PILL_BATCH_USE_TYPES = {
     "fortune",
     "karma",
     "qi_blood",
-    "stone",
     "true_yuan",
     "willpower",
 }
@@ -3828,7 +3828,7 @@ def resolve_pill_effects(
         "success_rate_bonus": 0.0,
         "clear_poison": base_effect_value if pill_type == "clear_poison" else 0.0,
         "cultivation_gain": base_effect_value if pill_type == "cultivation" else 0.0,
-        "stone_gain": base_effect_value if pill_type == "stone" else 0.0,
+        "stone_gain": 0.0,
         "insight_gain": 0.0,
         "attack_bonus": float(pill.get("attack_bonus", 0) or 0) * multiplier,
         "defense_bonus": float(pill.get("defense_bonus", 0) or 0) * multiplier,
@@ -3882,6 +3882,8 @@ def _pill_usage_reason(profile_data: dict[str, Any], pill: dict[str, Any]) -> st
     if not realm_requirement_met(profile_data, pill.get("min_realm_stage"), pill.get("min_realm_layer")):
         return f"需要达到 {format_realm_requirement(pill.get('min_realm_stage'), pill.get('min_realm_layer'))} 才能服用这枚丹药。"
     pill_type = str(pill.get("pill_type") or "").strip()
+    if pill_type == "stone":
+        return "灵石收益类丹药已删除，当前无法服用。"
     if pill_type == "foundation":
         return "破境丹只能在对应的大境界突破时配合使用。"
     if pill_type == "root_refine":
@@ -4086,6 +4088,36 @@ def collect_equipped_artifacts(tg: int) -> list[dict[str, Any]]:
     return [_decorate_artifact_with_set(row["artifact"], artifact_set_map) for row in list_equipped_artifacts(tg)]
 
 
+def _bulk_collect_equipped_artifacts(tgs: list[int] | tuple[int, ...] | set[int]) -> dict[int, list[dict[str, Any]]]:
+    owner_tgs = sorted({int(tg or 0) for tg in tgs if int(tg or 0) > 0})
+    if not owner_tgs:
+        return {}
+
+    artifact_set_map = _artifact_set_index()
+    payload: dict[int, list[dict[str, Any]]] = {tg: [] for tg in owner_tgs}
+    with Session() as session:
+        rows = (
+            session.query(XiuxianEquippedArtifact, XiuxianArtifact)
+            .join(XiuxianArtifact, XiuxianArtifact.id == XiuxianEquippedArtifact.artifact_id)
+            .filter(XiuxianEquippedArtifact.tg.in_(owner_tgs))
+            .order_by(
+                XiuxianEquippedArtifact.tg.asc(),
+                XiuxianEquippedArtifact.slot.asc(),
+                XiuxianEquippedArtifact.id.asc(),
+            )
+            .all()
+        )
+
+    for equipped, artifact in rows:
+        owner_tg = int(equipped.tg or 0)
+        if owner_tg <= 0:
+            continue
+        payload.setdefault(owner_tg, []).append(
+            _decorate_artifact_with_set(serialize_artifact(artifact) or {}, artifact_set_map)
+        )
+    return payload
+
+
 def merge_artifact_effects(
     profile: dict[str, Any],
     equipped_artifacts: list[dict[str, Any]] | None,
@@ -4178,7 +4210,7 @@ def _current_technique_payload(profile_data: dict[str, Any]) -> dict[str, Any] |
     return technique
 
 
-SEED_DATA_VERSION = "2026-04-22-default-content-v6"
+SEED_DATA_VERSION = "2026-04-25-default-content-v7"
 SEED_DATA_READY = False
 SEED_DATA_LOCK = threading.RLock()
 SEED_DATA_DB_LOCK_KEY = 2026041701
@@ -5372,6 +5404,7 @@ def ensure_seed_data(force: bool = False) -> None:
                 achievement_payload["reward_config"] = reward_config
                 sync_achievement_by_key(**achievement_payload)
 
+            purge_removed_pill_types()
             set_xiuxian_settings({"seed_data_version": SEED_DATA_VERSION})
             SEED_DATA_READY = True
 
@@ -9383,21 +9416,34 @@ def compute_talisman_score(
 
 def build_leaderboard(kind: str, page: int = 1, page_size: int = 20) -> dict[str, Any]:
     profiles = [serialize_profile(row) for row in list_profiles()]
+    kind = {
+        "stone": "stone",
+        "stones": "stone",
+        "realm": "realm",
+        "realms": "realm",
+        "artifact": "artifact",
+        "artifacts": "artifact",
+    }.get(str(kind or "stone").strip().lower(), "stone")
+
     tgs = [int(item["tg"]) for item in profiles]
     emby_name_map = get_emby_name_map(tgs)
+    equipped_artifact_map = _bulk_collect_equipped_artifacts(tgs) if kind == "artifact" else {}
 
     rows = []
     for item in profiles:
-        equipped_artifacts = collect_equipped_artifacts(int(item["tg"]))
+        tg = int(item["tg"])
+        equipped_artifacts = equipped_artifact_map.get(tg, []) if kind == "artifact" else []
+        artifact_name = ", ".join(artifact["name"] for artifact in equipped_artifacts[:3]) if equipped_artifacts else None
+        artifact_score = compute_artifact_score(item, equipped_artifacts) if equipped_artifacts else 0
         base = {
-            "tg": item["tg"],
-            "name": emby_name_map.get(item["tg"], f"TG {item['tg']}"),
+            "tg": tg,
+            "name": emby_name_map.get(tg, f"TG {tg}"),
             "realm_stage": item["realm_stage"],
             "realm_layer": item["realm_layer"],
             "cultivation": int(item["cultivation"] or 0),
             "spiritual_stone": item["spiritual_stone"],
-            "artifact_name": ", ".join(artifact["name"] for artifact in equipped_artifacts[:3]) if equipped_artifacts else None,
-            "artifact_score": compute_artifact_score(item, equipped_artifacts),
+            "artifact_name": artifact_name,
+            "artifact_score": artifact_score,
             "realm_stage_rank": realm_index(item["realm_stage"]),
         }
         if kind == "stone":
@@ -11169,7 +11215,6 @@ def _apply_pill_effect_once(
     bone_resistance = min((float(profile.bone or 0) / 200), 0.45)
     dan_poison = min(int(profile.dan_poison or 0) + int(round(float(effects.get("poison_delta", 0) or 0) * (1 - bone_resistance))), 100)
     cultivation = int(profile.cultivation or 0)
-    spiritual_stone = int(profile.spiritual_stone or 0)
     bone = int(profile.bone or 0) + int(round(effects.get("bone_bonus", 0)))
     comprehension = int(profile.comprehension or 0) + int(round(effects.get("comprehension_bonus", 0)))
     divine_sense = int(profile.divine_sense or 0) + int(round(effects.get("divine_sense_bonus", 0)))
@@ -11188,8 +11233,6 @@ def _apply_pill_effect_once(
         dan_poison = max(dan_poison - int(round(effects.get("clear_poison", effects.get("effect_value", 50)))), 0)
     elif pill.pill_type == "cultivation":
         cultivation += int(round(effects.get("cultivation_gain", effects.get("effect_value", 0))))
-    elif pill.pill_type == "stone":
-        spiritual_stone += int(round(effects.get("stone_gain", effects.get("effect_value", 0))))
     elif pill.pill_type == "root_refine":
         steps = max(int(round(float(effects.get("root_quality_gain", 0) or 0))), 0)
         root_patch = _refined_root_payload(profile_data, steps)
@@ -11205,17 +11248,6 @@ def _apply_pill_effect_once(
         cultivation,
         0,
     )
-    stone_delta = spiritual_stone - int(profile.spiritual_stone or 0)
-    if stone_delta:
-        apply_spiritual_stone_delta(
-            session,
-            tg,
-            stone_delta,
-            action_text="通过丹药变动灵石",
-            enforce_currency_lock=stone_delta != 0,
-            allow_dead=False,
-            apply_tribute=stone_delta > 0,
-        )
     profile.dan_poison = dan_poison
     profile.cultivation = cultivation
     profile.bone = bone

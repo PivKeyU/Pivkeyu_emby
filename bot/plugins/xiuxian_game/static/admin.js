@@ -18,7 +18,6 @@ const PILL_TYPES = [
   { value: "foundation", label: "突破加成", effect: "突破助力值" },
   { value: "clear_poison", label: "解毒", effect: "减少丹毒值" },
   { value: "cultivation", label: "提升修为", effect: "增加修为值" },
-  { value: "stone", label: "补给灵石", effect: "增加灵石值" },
   { value: "bone", label: "提升根骨", effect: "根骨增量" },
   { value: "comprehension", label: "提升悟性", effect: "悟性增量" },
   { value: "divine_sense", label: "提升神识", effect: "神识增量" },
@@ -245,7 +244,6 @@ PILL_TYPES.splice(0, PILL_TYPES.length, ...[
   { value: "foundation", label: "突破加成", effect: "突破增幅" },
   { value: "clear_poison", label: "解毒", effect: "减少丹毒" },
   { value: "cultivation", label: "提升修为", effect: "增加修为" },
-  { value: "stone", label: "补给灵石", effect: "增加灵石" },
   { value: "bone", label: "提升根骨", effect: "根骨增量" },
   { value: "comprehension", label: "提升悟性", effect: "提升悟性" },
   { value: "divine_sense", label: "提升神识", effect: "神识增量" },
@@ -2233,8 +2231,8 @@ function renderWorld() {
   renderErrorLogs(bundle.error_logs || []);
 
   renderStack("artifact-list", (bundle.artifacts || []).map((item) => `
-    <article class="stack-item"><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml(item.artifact_type_label || item.artifact_type)}</span></div>
-    <p>品质 ${escapeHtml(item.rarity)} · 攻击 ${escapeHtml(item.attack_bonus)} · 防御 ${escapeHtml(item.defense_bonus)} · 斗法 ${escapeHtml(item.duel_rate_bonus)}% · 修炼 ${escapeHtml(item.cultivation_bonus)}</p>
+    <article class="stack-item"><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml(item.equip_category_label || item.artifact_type_label || item.artifact_type)}</span></div>
+    <p>品质 ${escapeHtml(item.rarity)} · 分类 ${escapeHtml(item.equip_category_label || "未分类")} · 槽位 ${escapeHtml(item.equip_slot_label || item.equip_slot || "未知槽位")} · 攻击 ${escapeHtml(item.attack_bonus)} · 防御 ${escapeHtml(item.defense_bonus)} · 斗法 ${escapeHtml(item.duel_rate_bonus)}% · 修炼 ${escapeHtml(item.cultivation_bonus)}</p>
     <p>${escapeHtml(combatConfigSummary(item.combat_config || {}))}</p>
     <p>境界限制：${escapeHtml(item.min_realm_stage || "无限制")} ${escapeHtml(item.min_realm_layer || 1)} 层</p>
     <div class="inline-action-buttons">${deleteButton("artifact", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无法宝</strong></article>`);
@@ -3586,7 +3584,7 @@ function renderPlayerInventory(detail = {}) {
           <strong>${escapeHtml(item.name || "未命名法宝")}</strong>
           ${qualityBadgeHtml(item.rarity || "凡品", item.quality_color)}
         </div>
-        <p>${escapeHtml(item.equip_slot_label || item.equip_slot || "未知槽位")} · ${escapeHtml(item.artifact_role_label || item.artifact_role || "未分类")}</p>
+        <p>${escapeHtml(item.equip_category_label || "未分类")} · ${escapeHtml(item.equip_slot_label || item.equip_slot || "未知槽位")} · ${escapeHtml(item.artifact_role_label || item.artifact_role || "未分类")}</p>
         <p>总数 ${escapeHtml(row.quantity || 0)} · 绑定 ${escapeHtml(row.bound_quantity || 0)} · 可流通 ${escapeHtml(row.consumable_quantity || 0)} · ${item.equipped ? "已装备" : "未装备"}</p>
         <p>${escapeHtml(affixSummary(item))}</p>
         <div class="inline-action-buttons player-inline-actions">${actions.join("")}</div>

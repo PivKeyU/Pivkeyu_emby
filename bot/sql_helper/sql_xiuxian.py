@@ -163,6 +163,22 @@ ARTIFACT_SLOT_LABELS = {
     "helmet": "头冠",
     "bracelet": "护腕",
 }
+ARTIFACT_EQUIP_CATEGORY_LABELS = {
+    "weapon": "武器",
+    "armor": "防具",
+    "accessory": "饰品",
+    "other": "其他装备",
+}
+ARTIFACT_SLOT_CATEGORY_MAP = {
+    "weapon": "weapon",
+    "chest": "armor",
+    "legs": "armor",
+    "boots": "armor",
+    "helmet": "armor",
+    "bracelet": "armor",
+    "necklace": "accessory",
+    "ring": "accessory",
+}
 SECT_CAMP_LABELS = {
     "orthodox": "正道",
     "heterodox": "邪道",
@@ -171,7 +187,6 @@ PILL_TYPE_LABELS = {
     "foundation": "突破加成",
     "clear_poison": "解毒",
     "cultivation": "提升修为",
-    "stone": "补给灵石",
     "bone": "提升根骨",
     "comprehension": "提升悟性",
     "divine_sense": "提升神识",
@@ -607,7 +622,6 @@ PILL_TYPE_LABELS = {
     "foundation": "突破加成",
     "clear_poison": "解毒",
     "cultivation": "提升修为",
-    "stone": "补给灵石",
     "bone": "提升根骨",
     "comprehension": "提升悟性",
     "divine_sense": "提升神识",
@@ -628,11 +642,11 @@ PILL_TYPE_LABELS = {
     "root_heaven": "洗成天灵根",
     "root_variant": "洗成变异灵根",
 }
+REMOVED_PILL_TYPES = {"stone"}
 PILL_EFFECT_VALUE_LABELS = {
     "foundation": "突破增幅",
     "clear_poison": "解毒值",
     "cultivation": "修为增量",
-    "stone": "灵石增量",
     "bone": "根骨增量",
     "comprehension": "悟性增量",
     "divine_sense": "神识增量",
@@ -2633,6 +2647,7 @@ def serialize_artifact(artifact: XiuxianArtifact | None) -> dict[str, Any] | Non
     if artifact is None:
         return None
     quality = get_quality_meta(artifact.rarity)
+    equip_category = artifact_equip_category(artifact.equip_slot)
 
     return {
         "id": artifact.id,
@@ -2648,6 +2663,8 @@ def serialize_artifact(artifact: XiuxianArtifact | None) -> dict[str, Any] | Non
         "artifact_role_label": ARTIFACT_ROLE_LABELS.get(artifact.artifact_role, artifact.artifact_role),
         "equip_slot": artifact.equip_slot,
         "equip_slot_label": ARTIFACT_SLOT_LABELS.get(artifact.equip_slot, artifact.equip_slot),
+        "equip_category": equip_category,
+        "equip_category_label": ARTIFACT_EQUIP_CATEGORY_LABELS.get(equip_category, equip_category),
         "artifact_set_id": artifact.artifact_set_id,
         "unique_item": bool(artifact.unique_item),
         "image_url": artifact.image_url,
@@ -2668,6 +2685,13 @@ def serialize_artifact(artifact: XiuxianArtifact | None) -> dict[str, Any] | Non
         "min_realm_layer": artifact.min_realm_layer,
         "enabled": artifact.enabled,
     }
+
+
+def artifact_equip_category(slot: str | None) -> str | None:
+    slot_name = str(slot or "").strip().lower()
+    if not slot_name:
+        return None
+    return ARTIFACT_SLOT_CATEGORY_MAP.get(slot_name, "other")
 
 
 def serialize_pill(pill: XiuxianPill | None) -> dict[str, Any] | None:
@@ -4377,7 +4401,12 @@ def _normalize_sect_fields(fields: dict[str, Any]) -> dict[str, Any]:
 def _normalize_pill_fields(fields: dict[str, Any]) -> dict[str, Any]:
     payload = _normalize_common_item_fields(fields)
     payload.update(_normalize_common_bonus_fields(fields))
-    payload["pill_type"] = str(fields.get("pill_type") or "foundation").strip() or "foundation"
+    pill_type = str(fields.get("pill_type") or "foundation").strip() or "foundation"
+    if pill_type in REMOVED_PILL_TYPES:
+        raise ValueError("灵石收益类丹药已删除，请改用其他丹药类型。")
+    if pill_type not in PILL_TYPE_LABELS:
+        raise ValueError("不支持的丹药类型。")
+    payload["pill_type"] = pill_type
     payload["effect_value"] = _coerce_int(fields.get("effect_value"), 0)
     payload["poison_delta"] = _coerce_int(fields.get("poison_delta"), 0)
     return payload
@@ -4692,6 +4721,272 @@ def delete_pill(pill_id: int) -> bool:
         _queue_catalog_cache_invalidation(session, "pills")
         session.commit()
         return True
+
+
+def _sanitize_removed_pill_reward_config(raw: Any, removed_ids: set[int]) -> dict[str, Any]:
+    payload = _sanitize_json_value(raw) or {}
+    if not isinstance(payload, dict):
+        return {}
+    items = payload.get("items")
+    if not isinstance(items, list):
+        return payload
+    sanitized_items = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("kind") or item.get("item_kind") or "").strip()
+        ref_id = int(item.get("ref_id") or item.get("item_ref_id") or 0)
+        if kind == "pill" and ref_id in removed_ids:
+            continue
+        sanitized_items.append(_sanitize_json_value(item))
+    payload["items"] = sanitized_items
+    return payload
+
+
+def _sanitize_removed_pill_event_pool(raw: Any, removed_ids: set[int]) -> Any:
+    rows = _sanitize_json_value(raw)
+    if not isinstance(rows, list):
+        return rows
+    sanitized_rows = []
+    for row in rows:
+        if not isinstance(row, dict):
+            sanitized_rows.append(row)
+            continue
+        payload = dict(_sanitize_json_value(row) or {})
+        reward_kind = str(payload.get("bonus_reward_kind") or "").strip()
+        reward_ref_id = int(payload.get("bonus_reward_ref_id") or 0)
+        if reward_kind == "pill" and reward_ref_id in removed_ids:
+            payload["bonus_reward_kind"] = None
+            payload["bonus_reward_ref_id"] = None
+            payload["bonus_quantity_min"] = 1
+            payload["bonus_quantity_max"] = 1
+            payload["bonus_chance"] = 0
+        sanitized_rows.append(payload)
+    return sanitized_rows
+
+
+def _sanitize_removed_pill_reward_pool(raw: Any, removed_ids: set[int]) -> Any:
+    rows = _sanitize_json_value(raw)
+    if not isinstance(rows, list):
+        return rows
+    return [
+        row for row in rows
+        if not (
+            isinstance(row, dict)
+            and str(row.get("item_kind") or "").strip() == "pill"
+            and int(row.get("item_ref_id") or 0) in removed_ids
+        )
+    ]
+
+
+def _sanitize_removed_pill_encounter_reward(raw: Any, removed_ids: set[int]) -> dict[str, Any]:
+    payload = _sanitize_json_value(raw) or {}
+    if not isinstance(payload, dict):
+        return {}
+    reward_kind = str(payload.get("reward_item_kind") or "").strip()
+    reward_ref_id = int(payload.get("reward_item_ref_id") or 0)
+    if reward_kind == "pill" and reward_ref_id in removed_ids:
+        payload["reward_item_kind"] = None
+        payload["reward_item_ref_id"] = None
+        payload["reward_item_quantity"] = 0
+    return payload
+
+
+def purge_removed_pill_types() -> dict[str, int]:
+    removed_types = tuple(sorted(str(item).strip() for item in REMOVED_PILL_TYPES if str(item).strip()))
+    if not removed_types:
+        return {"pill_count": 0}
+
+    with Session() as session:
+        rows = (
+            session.query(XiuxianPill)
+            .filter(XiuxianPill.pill_type.in_(removed_types))
+            .all()
+        )
+        pill_ids = {int(row.id) for row in rows if int(getattr(row, "id", 0) or 0) > 0}
+        if not pill_ids:
+            return {"pill_count": 0}
+
+        affected_tgs = {
+            int(tg)
+            for (tg,) in (
+                session.query(XiuxianPillInventory.tg)
+                .filter(XiuxianPillInventory.pill_id.in_(pill_ids))
+                .distinct()
+                .all()
+            )
+            if int(tg or 0) > 0
+        }
+        listing_owner_tgs = {
+            int(owner_tg)
+            for (owner_tg,) in (
+                session.query(XiuxianShopItem.owner_tg)
+                .filter(
+                    XiuxianShopItem.item_kind == "pill",
+                    XiuxianShopItem.item_ref_id.in_(pill_ids),
+                    XiuxianShopItem.owner_tg.isnot(None),
+                )
+                .distinct()
+                .all()
+            )
+            if int(owner_tg or 0) > 0
+        }
+        listing_owner_tgs.update(
+            {
+                int(owner_tg)
+                for (owner_tg,) in (
+                    session.query(XiuxianAuctionItem.owner_tg)
+                    .filter(
+                        XiuxianAuctionItem.item_kind == "pill",
+                        XiuxianAuctionItem.item_ref_id.in_(pill_ids),
+                        XiuxianAuctionItem.owner_tg.isnot(None),
+                    )
+                    .distinct()
+                    .all()
+                )
+                if int(owner_tg or 0) > 0
+            }
+        )
+
+        shop_deleted = session.query(XiuxianShopItem).filter(
+            XiuxianShopItem.item_kind == "pill",
+            XiuxianShopItem.item_ref_id.in_(pill_ids),
+        ).delete(synchronize_session=False)
+        auction_deleted = session.query(XiuxianAuctionItem).filter(
+            XiuxianAuctionItem.item_kind == "pill",
+            XiuxianAuctionItem.item_ref_id.in_(pill_ids),
+        ).delete(synchronize_session=False)
+        treasury_deleted = session.query(XiuxianSectTreasuryItem).filter(
+            XiuxianSectTreasuryItem.item_kind == "pill",
+            XiuxianSectTreasuryItem.item_ref_id.in_(pill_ids),
+        ).delete(synchronize_session=False)
+        inventory_deleted = session.query(XiuxianPillInventory).filter(
+            XiuxianPillInventory.pill_id.in_(pill_ids),
+        ).delete(synchronize_session=False)
+        recipe_deleted = session.query(XiuxianRecipe).filter(
+            XiuxianRecipe.result_kind == "pill",
+            XiuxianRecipe.result_ref_id.in_(pill_ids),
+        ).delete(synchronize_session=False)
+        scene_drop_deleted = session.query(XiuxianSceneDrop).filter(
+            XiuxianSceneDrop.reward_kind == "pill",
+            XiuxianSceneDrop.reward_ref_id.in_(pill_ids),
+        ).delete(synchronize_session=False)
+        exploration_updated = session.query(XiuxianExploration).filter(
+            XiuxianExploration.reward_kind == "pill",
+            XiuxianExploration.reward_ref_id.in_(pill_ids),
+        ).update(
+            {
+                "reward_kind": None,
+                "reward_ref_id": None,
+                "reward_quantity": 0,
+                "updated_at": utcnow(),
+            },
+            synchronize_session=False,
+        )
+        task_required_updated = session.query(XiuxianTask).filter(
+            XiuxianTask.required_item_kind == "pill",
+            XiuxianTask.required_item_ref_id.in_(pill_ids),
+        ).update(
+            {
+                "required_item_kind": None,
+                "required_item_ref_id": None,
+                "required_item_quantity": 0,
+                "updated_at": utcnow(),
+            },
+            synchronize_session=False,
+        )
+        task_reward_updated = session.query(XiuxianTask).filter(
+            XiuxianTask.reward_item_kind == "pill",
+            XiuxianTask.reward_item_ref_id.in_(pill_ids),
+        ).update(
+            {
+                "reward_item_kind": None,
+                "reward_item_ref_id": None,
+                "reward_item_quantity": 0,
+                "updated_at": utcnow(),
+            },
+            synchronize_session=False,
+        )
+        encounter_updated = session.query(XiuxianEncounterTemplate).filter(
+            XiuxianEncounterTemplate.reward_item_kind == "pill",
+            XiuxianEncounterTemplate.reward_item_ref_id.in_(pill_ids),
+        ).update(
+            {
+                "reward_item_kind": None,
+                "reward_item_ref_id": None,
+                "reward_item_quantity_min": 1,
+                "reward_item_quantity_max": 1,
+                "updated_at": utcnow(),
+            },
+            synchronize_session=False,
+        )
+
+        achievement_updated = 0
+        for achievement in session.query(XiuxianAchievement).all():
+            current_config = _sanitize_json_value(achievement.reward_config) or {}
+            sanitized_config = _sanitize_removed_pill_reward_config(current_config, pill_ids)
+            if sanitized_config != current_config:
+                achievement.reward_config = sanitized_config
+                achievement.updated_at = utcnow()
+                achievement_updated += 1
+
+        scene_updated = 0
+        for scene in session.query(XiuxianScene).all():
+            current_pool = _sanitize_json_value(scene.event_pool) or []
+            sanitized_pool = _sanitize_removed_pill_event_pool(current_pool, pill_ids)
+            if sanitized_pool != current_pool:
+                scene.event_pool = sanitized_pool
+                scene.updated_at = utcnow()
+                scene_updated += 1
+
+        encounter_instance_updated = 0
+        for instance in session.query(XiuxianEncounterInstance).all():
+            current_reward = _sanitize_json_value(instance.reward_payload) or {}
+            sanitized_reward = _sanitize_removed_pill_encounter_reward(current_reward, pill_ids)
+            if sanitized_reward != current_reward:
+                instance.reward_payload = sanitized_reward
+                instance.updated_at = utcnow()
+                encounter_instance_updated += 1
+
+        settings_updated = 0
+        for setting in session.query(XiuxianSetting).filter(
+            XiuxianSetting.setting_key.in_(("gambling_reward_pool",))
+        ).all():
+            current_value = _sanitize_json_value(setting.setting_value)
+            sanitized_value = _sanitize_removed_pill_reward_pool(current_value, pill_ids)
+            if sanitized_value != current_value:
+                setting.setting_value = sanitized_value
+                settings_updated += 1
+        if settings_updated:
+            _queue_settings_cache_invalidation(session)
+
+        pill_count = len(pill_ids)
+        for row in rows:
+            session.delete(row)
+
+        if affected_tgs or listing_owner_tgs:
+            _queue_profile_cache_invalidation(session, *(affected_tgs | listing_owner_tgs))
+            _queue_user_view_cache_invalidation(session, *(affected_tgs | listing_owner_tgs))
+        _queue_catalog_cache_invalidation(session, "pills", "shop-items", "recipes", "scenes")
+        session.commit()
+
+    return {
+        "pill_count": pill_count,
+        "shop_count": int(shop_deleted or 0),
+        "auction_count": int(auction_deleted or 0),
+        "treasury_count": int(treasury_deleted or 0),
+        "inventory_count": int(inventory_deleted or 0),
+        "recipe_count": int(recipe_deleted or 0),
+        "scene_drop_count": int(scene_drop_deleted or 0),
+        "exploration_count": int(exploration_updated or 0),
+        "task_required_count": int(task_required_updated or 0),
+        "task_reward_count": int(task_reward_updated or 0),
+        "encounter_count": int(encounter_updated or 0),
+        "encounter_instance_count": int(encounter_instance_updated or 0),
+        "achievement_count": int(achievement_updated or 0),
+        "scene_count": int(scene_updated or 0),
+        "settings_count": int(settings_updated or 0),
+    }
 
 
 def delete_talisman(talisman_id: int) -> bool:

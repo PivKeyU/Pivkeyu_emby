@@ -448,6 +448,27 @@ DUEL_COMMAND_MODES = {
     "masterduel": "master",
     "slaveduel": "master",
 }
+XIUXIAN_RANK_KIND_ALIASES = {
+    "stone": "stone",
+    "stones": "stone",
+    "stone_rank": "stone",
+    "灵石": "stone",
+    "灵石榜": "stone",
+    "realm": "realm",
+    "realms": "realm",
+    "realm_rank": "realm",
+    "境界": "realm",
+    "境界榜": "realm",
+    "修为": "realm",
+    "修为榜": "realm",
+    "artifact": "artifact",
+    "artifacts": "artifact",
+    "artifact_rank": "artifact",
+    "法宝": "artifact",
+    "法宝榜": "artifact",
+    "装备": "artifact",
+    "装备榜": "artifact",
+}
 
 
 def _ensure_xiuxian_bot_commands() -> None:
@@ -485,6 +506,24 @@ def _register_command_dispatch(message, command_name: str, *, ttl_seconds: int =
 
     COMMAND_DISPATCH_CACHE[cache_key] = now
     return True
+
+
+def _parse_xiuxian_rank_args(command_parts: Iterable[str] | None) -> tuple[str, int]:
+    kind = "stone"
+    page = 1
+    for raw_part in command_parts or []:
+        part = str(raw_part or "").strip()
+        if not part:
+            continue
+        alias = XIUXIAN_RANK_KIND_ALIASES.get(part.lower()) or XIUXIAN_RANK_KIND_ALIASES.get(part)
+        if alias:
+            kind = alias
+            continue
+        try:
+            page = max(int(part), 1)
+        except ValueError:
+            continue
+    return kind, page
 
 
 def _xiuxian_basic_guide_text(consented: bool) -> str:
@@ -3933,7 +3972,7 @@ def register_bot(bot_instance) -> None:
     @bot_instance.on_callback_query(filters.regex(r"^xiuxian:rank:(stone|realm|artifact):(\d+)$"))
     async def xiuxian_rank_callback(_, call):
         kind, page = call.matches[0].group(1), int(call.matches[0].group(2))
-        result = build_leaderboard(kind, page)
+        result = await run_in_threadpool(build_leaderboard, kind, page)
         await _edit_text(
             call.message,
             format_leaderboard_text(result),
@@ -3972,7 +4011,7 @@ def register_bot(bot_instance) -> None:
                 "/help - 查看命令帮助\n"
                 "/xiuxian - 打开修仙总览\n"
                 "/xiuxian_me - 在群里展示自己的修仙信息\n"
-                "/xiuxian_rank [stone|realm|artifact] [页码] - 查看修仙排行榜\n"
+                "/xiuxian_rank [stone|realm|artifact|灵石榜|境界榜|法宝榜] [页码] - 查看修仙排行榜\n"
                 "/xiuxian_world - 查看修仙信息汇总跳转链接\n"
                 "/train - 群里直接完成一次吐纳修炼\n"
                 "/work [委托名] - 群里直接结算灵石委托；不填委托名时一键完成当前全部可接委托\n"
@@ -4027,27 +4066,8 @@ def register_bot(bot_instance) -> None:
                     f"message={getattr(msg, 'id', None)} command=xiuxian_rank"
                 )
                 return
-            kind_alias = {
-                "stone": "stone",
-                "stones": "stone",
-                "stone_rank": "stone",
-                "realm": "realm",
-                "realms": "realm",
-                "realm_rank": "realm",
-                "artifact": "artifact",
-                "artifacts": "artifact",
-                "artifact_rank": "artifact",
-            }
-            kind = "stone"
-            page = 1
-            if len(msg.command) > 1:
-                kind = kind_alias.get(str(msg.command[1]).lower(), kind_alias.get(str(msg.command[1]), "stone"))
-            if len(msg.command) > 2:
-                try:
-                    page = max(int(msg.command[2]), 1)
-                except ValueError:
-                    page = 1
-            result = build_leaderboard(kind, page)
+            kind, page = _parse_xiuxian_rank_args(msg.command[1:])
+            result = await run_in_threadpool(build_leaderboard, kind, page)
             await _reply_text(
                 msg,
                 format_leaderboard_text(result),

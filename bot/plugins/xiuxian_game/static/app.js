@@ -2029,9 +2029,35 @@ function artifactTypeLabel(type) {
   return type === "support" ? "辅助法宝" : "战斗法宝";
 }
 
+function artifactEquipCategoryLabel(item = {}) {
+  if (item?.equip_category_label) return item.equip_category_label;
+  switch (item?.equip_slot) {
+    case "weapon":
+      return "武器";
+    case "chest":
+    case "legs":
+    case "boots":
+    case "helmet":
+    case "bracelet":
+      return "防具";
+    case "necklace":
+    case "ring":
+      return "饰品";
+    default:
+      return "装备";
+  }
+}
+
 function fallbackReason(reason, fallback) {
   const message = String(reason || "").trim();
   return !message || /^[?？.\s]+$/.test(message) ? fallback : message;
+}
+
+function disabledReason(disabled, reason = "", fallback = "") {
+  if (!disabled) return "";
+  const message = String(reason || "").trim();
+  if (!message) return String(fallback || "").trim();
+  return /^[?？.\s]+$/.test(message) ? String(fallback || "").trim() : message;
 }
 
 function meaningfulTextLength(value) {
@@ -2334,6 +2360,8 @@ function renderArtifactList(items, retreating, equipLimit, equippedCount) {
       </div>
       <p>${escapeHtml(item.description || "暂无描述")}</p>
       <div class="item-tags">
+        <span class="tag">${escapeHtml(artifactEquipCategoryLabel(item))}</span>
+        <span class="tag">${escapeHtml(item.equip_slot_label || item.equip_slot || "槽位未定")}</span>
         <span class="tag ${item.artifact_type === "support" ? "support" : ""}">${escapeHtml(item.artifact_type_label || artifactTypeLabel(item.artifact_type))}</span>
         ${item.unique_item ? `<span class="tag">唯一</span>` : ""}
         <span class="tag">攻击 ${escapeHtml(effects.attack_bonus ?? item.attack_bonus)}</span>
@@ -2938,7 +2966,11 @@ function renderTechniqueArea(bundle) {
   techniques.forEach((item) => {
     const effects = item.resolved_effects || {};
     const disabled = item.active || !item.usable;
-    const reason = item.active ? "" : fallbackReason(item.unusable_reason, "当前无法切换到这门功法");
+    const reason = disabledReason(
+      disabled,
+      item.active ? "当前已启用这门功法" : item.unusable_reason,
+      "当前无法切换到这门功法"
+    );
     const card = document.createElement("article");
     card.className = "stack-item";
     card.innerHTML = `
@@ -3184,6 +3216,7 @@ function renderExploreArea(bundle) {
   if (active && !active.claimed) {
     const endAt = parseShanghaiDate(active.end_at);
     const canClaim = endAt ? endAt.getTime() <= Date.now() : false;
+    const claimReason = canClaim ? "" : "探索尚未结束，暂时不能领取奖励。";
     activeRoot.innerHTML = `
       <article class="stack-item">
         <div class="stack-item-head">
@@ -3192,6 +3225,7 @@ function renderExploreArea(bundle) {
         </div>
         <p>${escapeHtml(cleanSceneCopy(active.event_text) || "未知遭遇")}</p>
         <p>结束时间：${escapeHtml(formatDate(active.end_at))}</p>
+        ${claimReason ? `<p class="reason-text">${escapeHtml(claimReason)}</p>` : ""}
         <button type="button" data-explore-claim="${active.id}" ${canClaim ? "" : "disabled"}>${canClaim ? "领取奖励" : "尚未结束"}</button>
       </article>
     `;
@@ -3423,6 +3457,8 @@ function renderArtifactList(items, retreating, equipLimit, equippedCount) {
       </div>
       <p>${escapeHtml(item.description || "暂无描述")}</p>
       <div class="item-tags">
+        <span class="tag">${escapeHtml(artifactEquipCategoryLabel(item))}</span>
+        <span class="tag">${escapeHtml(item.equip_slot_label || item.equip_slot || "槽位未定")}</span>
         <span class="tag ${item.artifact_type === "support" ? "support" : ""}">${escapeHtml(item.artifact_type_label || artifactTypeLabel(item.artifact_type))}</span>
         <span class="tag">攻击 ${escapeHtml(effects.attack_bonus ?? item.attack_bonus)}</span>
         <span class="tag">防御 ${escapeHtml(effects.defense_bonus ?? item.defense_bonus)}</span>
@@ -5133,6 +5169,8 @@ renderArtifactList = function renderArtifactList(items, retreating, equipLimit, 
       </div>
       <p>${escapeHtml(item.description || "暂无描述")}</p>
       <div class="item-tags">
+        <span class="tag">${escapeHtml(artifactEquipCategoryLabel(item))}</span>
+        <span class="tag">${escapeHtml(item.equip_slot_label || item.equip_slot || "槽位未定")}</span>
         <span class="tag ${item.artifact_type === "support" ? "support" : ""}">${escapeHtml(item.artifact_type_label || artifactTypeLabel(item.artifact_type))}</span>
         <span class="tag">${escapeHtml(item.rarity || "凡品")}</span>
         ${itemAffixTags(item, effects)}
@@ -5304,6 +5342,7 @@ function inventoryMatches(item, query, extraFields = []) {
     item?.quality_label,
     item?.artifact_type_label,
     item?.artifact_role_label,
+    item?.equip_category_label,
     item?.equip_slot_label,
     item?.pill_type_label,
     item?.quality_feature,
@@ -5362,6 +5401,7 @@ function recipeResultPreviewTags(recipe, item) {
   const qualityLabel = item.rarity || item.quality_label || "凡品";
   tags.push(qualityBadgeHtml(qualityLabel, item.quality_color, "tag"));
   if (kind === "artifact") {
+    tags.push(`<span class="tag">${escapeHtml(artifactEquipCategoryLabel(item))}</span>`);
     tags.push(`<span class="tag ${item.artifact_type === "support" ? "support" : ""}">${escapeHtml(item.artifact_type_label || artifactTypeLabel(item.artifact_type))}</span>`);
     tags.push(`<span class="tag">${escapeHtml(item.equip_slot_label || item.equip_slot || "槽位未定")}</span>`);
     tags.push(`<span class="tag">${escapeHtml(item.artifact_role_label || item.artifact_role || "定位未定")}</span>`);
@@ -5549,7 +5589,7 @@ renderArtifactList = function renderArtifactList(items, retreating, equipLimit, 
   );
   if (!rows.length) {
     root.innerHTML = (items || []).length
-      ? `<article class="stack-item"><strong>未找到匹配法宝</strong><p>可按名称、品质、槽位或套装继续检索。</p></article>`
+      ? `<article class="stack-item"><strong>未找到匹配法宝</strong><p>可按名称、品质、分类、槽位或套装继续检索。</p></article>`
       : `<article class="stack-item"><strong>暂无法宝</strong><p>管理后台发放或在${escapeHtml(officialShopName())}购买后会出现在这里。</p></article>`;
     return;
   }
@@ -5582,6 +5622,8 @@ renderArtifactList = function renderArtifactList(items, retreating, equipLimit, 
       </div>
       <p>${escapeHtml(item.description || "暂无描述")}</p>
       <div class="item-tags">
+        <span class="tag">${escapeHtml(artifactEquipCategoryLabel(item))}</span>
+        <span class="tag">${escapeHtml(item.equip_slot_label || item.equip_slot || "槽位未定")}</span>
         <span class="tag ${item.artifact_type === "support" ? "support" : ""}">${escapeHtml(item.artifact_type_label || artifactTypeLabel(item.artifact_type))}</span>
         ${qualityBadgeHtml(item.rarity || "凡品", item.quality_color, "tag")}
         ${unbindableQuantity > 0 ? `<span class="tag">已绑定 ${escapeHtml(unbindableQuantity)}</span>` : ""}
@@ -5628,9 +5670,11 @@ renderTalismanList = function renderTalismanList(items, retreating) {
     const canBind = bindableQuantity > 0;
     const canUnbind = unbindableQuantity > 0;
     const unbindCost = Number(state.profileBundle?.settings?.equipment_unbind_cost || 0);
-    const reason = item.active
-      ? "当前已有待生效符箓"
-      : fallbackReason(item.unusable_reason, retreating ? "闭关期间无法启用符箓" : "当前不满足启用条件");
+    const reason = disabledReason(
+      disabled,
+      item.active ? "当前已有待生效符箓" : item.unusable_reason,
+      retreating ? "闭关期间无法启用符箓" : "当前不满足启用条件"
+    );
     const card = document.createElement("article");
     card.className = "stack-item";
     card.innerHTML = `
@@ -5684,7 +5728,7 @@ renderPillList = function renderPillList(items, retreating) {
     const batchUsable = Boolean(item.batch_usable) && Number(row.quantity || 0) > 1;
     const batchMax = Math.max(Number(item.batch_use_max || row.quantity || 1), 1);
     const batchNote = Number(row.quantity || 0) > 1 ? String(item.batch_use_note || "").trim() : "";
-    const reason = fallbackReason(item.unusable_reason, "当前无法使用该丹药");
+    const reason = disabledReason(disabled, item.unusable_reason, "当前无法使用该丹药");
     const card = document.createElement("article");
     card.className = "stack-item";
     card.innerHTML = `
@@ -6839,7 +6883,7 @@ renderArtifactList = function renderArtifactListEnhanced(items, retreating, equi
   );
   if (!rows.length) {
     root.innerHTML = (items || []).length
-      ? `<article class="stack-item"><strong>未找到匹配法宝</strong><p>可按名称、品质、槽位或套装继续检索。</p></article>`
+      ? `<article class="stack-item"><strong>未找到匹配法宝</strong><p>可按名称、品质、分类、槽位或套装继续检索。</p></article>`
       : `<article class="stack-item"><strong>暂无法宝</strong><p>管理后台发放或在${escapeHtml(officialShopName())}购买后会出现在这里。</p></article>`;
     return;
   }
@@ -6852,9 +6896,11 @@ renderArtifactList = function renderArtifactListEnhanced(items, retreating, equi
     const canBind = bindableQuantity > 0;
     const canUnbind = unbindableQuantity > 0;
     const unbindCost = Number(state.profileBundle?.settings?.equipment_unbind_cost || 0);
-    const reason = item.equipped
-      ? ""
-      : fallbackReason(item.unusable_reason, retreating ? "闭关期间无法切换法宝" : "当前不满足装备条件");
+    const reason = disabledReason(
+      disabled,
+      item.unusable_reason,
+      retreating ? "闭关期间无法切换法宝" : "当前不满足装备条件"
+    );
     const activeSet = item.artifact_set_name ? `${item.artifact_set_name}` : "无套装";
     const card = document.createElement("article");
     card.className = "stack-item";
@@ -6865,6 +6911,7 @@ renderArtifactList = function renderArtifactListEnhanced(items, retreating, equi
       </div>
       <p>${escapeHtml(item.description || "暂无描述")}</p>
       <div class="item-tags">
+        <span class="tag">${escapeHtml(artifactEquipCategoryLabel(item))}</span>
         <span class="tag ${item.artifact_type === "support" ? "support" : ""}">${escapeHtml(item.artifact_type_label || artifactTypeLabel(item.artifact_type))}</span>
         <span class="tag">${escapeHtml(item.equip_slot_label || item.equip_slot || "槽位未定")}</span>
         <span class="tag">${escapeHtml(item.artifact_role_label || item.artifact_role || "定位未定")}</span>

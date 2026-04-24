@@ -1422,10 +1422,10 @@ EXTRA_PILLS = [
     {
         "name": "聚宝含光丹",
         "rarity": "中品",
-        "pill_type": "stone",
-        "effect_value": 96,
+        "pill_type": "fortune",
+        "effect_value": 8,
         "poison_delta": 2,
-        "description": "丹成之时有宝光自生，内蕴精纯灵石精华，服下可补丹田之虚，解灵石之困。",
+        "description": "丹成之时有宝光内敛，药力更偏向聚运引财，服下后更易与宝缘和机缘暗合。",
         "materials": [("星河砂", 1), ("暖玉粉", 1), ("寒水露", 1)],
         "success": 68,
     },

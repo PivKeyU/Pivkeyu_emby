@@ -67,7 +67,7 @@ def resolve_pill_effects(
         "success_rate_bonus": 0.0,
         "clear_poison": base_effect_value if pill_type == "clear_poison" else 0.0,
         "cultivation_gain": base_effect_value if pill_type == "cultivation" else 0.0,
-        "stone_gain": base_effect_value if pill_type == "stone" else 0.0,
+        "stone_gain": 0.0,
         "insight_gain": 0.0,
         "attack_bonus": float(pill.get("attack_bonus", 0) or 0) * multiplier,
         "defense_bonus": float(pill.get("defense_bonus", 0) or 0) * multiplier,
@@ -132,6 +132,8 @@ def pill_usage_reason(profile_data: dict[str, Any], pill: dict[str, Any]) -> str
     poison_reason = _pill_poison_lock_reason(profile_data, pill_type)
     if poison_reason:
         return poison_reason
+    if pill_type == "stone":
+        return "灵石收益类丹药已删除，当前无法服用。"
     if pill_type == "foundation":
         return "破境丹只能在对应的大境界突破时配合使用。"
     if pill_type == "root_refine":
