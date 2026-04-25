@@ -3971,15 +3971,19 @@ def register_bot(bot_instance) -> None:
 
     @bot_instance.on_callback_query(filters.regex(r"^xiuxian:rank:(stone|realm|artifact):(\d+)$"))
     async def xiuxian_rank_callback(_, call):
-        kind, page = call.matches[0].group(1), int(call.matches[0].group(2))
-        result = await run_in_threadpool(build_leaderboard, kind, page)
-        await _edit_text(
-            call.message,
-            format_leaderboard_text(result),
-            reply_markup=leaderboard_keyboard(result["kind"], result["page"], result["total_pages"]),
-            parse_mode=RICH_TEXT_MODE,
-        )
-        await callAnswer(call, "排行榜已刷新。")
+        try:
+            kind, page = call.matches[0].group(1), int(call.matches[0].group(2))
+            result = await run_in_threadpool(build_leaderboard, kind, page)
+            await _edit_text(
+                call.message,
+                format_leaderboard_text(result),
+                reply_markup=leaderboard_keyboard(result["kind"], result["page"], result["total_pages"]),
+                parse_mode=RICH_TEXT_MODE,
+            )
+            await callAnswer(call, "排行榜已刷新。")
+        except Exception as exc:
+            LOGGER.exception(f"xiuxian rank callback failed: {exc}")
+            await callAnswer(call, "排行榜刷新失败，请稍后重试。", True)
 
     @bot_instance.on_message(filters.command(["xiuxian"], prefixes) & filters.private)
     async def xiuxian_command(_, msg):
@@ -4074,6 +4078,12 @@ def register_bot(bot_instance) -> None:
                 reply_markup=leaderboard_keyboard(result["kind"], result["page"], result["total_pages"]),
                 parse_mode=RICH_TEXT_MODE,
             )
+        except Exception as exc:
+            LOGGER.exception(
+                f"xiuxian rank command failed chat={getattr(getattr(msg, 'chat', None), 'id', None)} "
+                f"actor={getattr(getattr(msg, 'from_user', None), 'id', None)}: {exc}"
+            )
+            await _reply_text(msg, "排行榜加载失败，请稍后重试。")
         finally:
             await _delete_user_command_message(msg)
 

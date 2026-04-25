@@ -865,6 +865,7 @@ function rememberBundleCandidate(payload) {
   const candidate = extractBundleCandidate(payload);
   if (candidate) {
     state.pendingBundleCandidate = candidate;
+    state.deferredBundleLoaded = true;
   }
   return candidate;
 }
@@ -3738,6 +3739,7 @@ function scheduleDeferredBootstrapWork() {
 async function refreshBundle({ background = false } = {}) {
   const pendingBundle = takePendingBundleCandidate();
   if (pendingBundle) {
+    state.deferredBundleLoaded = true;
     applyProfileBundle(pendingBundle);
     return pendingBundle;
   }
@@ -3770,6 +3772,25 @@ async function refreshBundle({ background = false } = {}) {
     state.bundleRefreshPromise.catch(() => null);
   }
   return state.bundleRefreshPromise;
+}
+
+function syncActionBundle(payload, { backgroundFallback = true } = {}) {
+  const bundle = extractBundleCandidate(payload);
+  if (bundle) {
+    state.deferredBundleLoaded = true;
+    applyProfileBundle(bundle);
+    return Promise.resolve(bundle);
+  }
+  const refreshTask = refreshBundle({ background: backgroundFallback });
+  if (backgroundFallback) {
+    refreshTask.catch((error) => console.warn("xiuxian bundle refresh failed", error));
+    return Promise.resolve(null);
+  }
+  return refreshTask;
+}
+
+function refreshLeaderboardInBackground(kind = state.leaderboard.kind, page = state.leaderboard.page) {
+  refreshLeaderboard(kind, page).catch((error) => console.warn("xiuxian leaderboard refresh failed", error));
 }
 
 async function refreshLeaderboard(kind = state.leaderboard.kind, page = state.leaderboard.page) {
@@ -3818,9 +3839,9 @@ document.querySelector("#enter-path").addEventListener("click", async (event) =>
   try {
     const payload = await runButtonAction(button, "入道中…", () => postJson("/plugins/xiuxian/api/enter"));
     setStatus(`仙途已开，你的灵根是：${profileRootText(payload.profile)}`, "success");
+    syncActionBundle(payload);
+    refreshLeaderboardInBackground("realm", 1);
     await popup("踏入仙途", `灵根抽取完成：${profileRootText(payload.profile)}`);
-    await refreshBundle();
-    await refreshLeaderboard("realm", 1);
   } catch (error) {
     const message = normalizeError(error, "踏入仙途失败。");
     setStatus(message, "error");
@@ -3837,9 +3858,9 @@ document.querySelector("#train-btn").addEventListener("click", async (event) => 
       ? `\n避世修为效率：${payload.cultivation_efficiency_percent}%（原始 ${payload.gain_raw || payload.gain}）`
       : "";
     setStatus(`本次修炼获得修为 ${payload.gain}、灵石 ${payload.stone_gain}${growthText ? `，${growthText}` : ""}。`, "success");
+    syncActionBundle(payload);
+    refreshLeaderboardInBackground(state.leaderboard.kind, state.leaderboard.page);
     await popup("吐纳成功", `修为 +${payload.gain}\n灵石 +${payload.stone_gain}${growthText ? `\n${growthText}` : ""}${efficiencyText}`);
-    await refreshBundle();
-    await refreshLeaderboard(state.leaderboard.kind, state.leaderboard.page);
   } catch (error) {
     const message = normalizeError(error, "吐纳修炼失败。");
     setStatus(message, "error");
@@ -3854,9 +3875,9 @@ document.querySelector("#break-btn").addEventListener("click", async (event) => 
     const tone = payload.success ? "success" : "warning";
     const message = `点数 ${payload.roll} / 成功率 ${payload.success_rate}%`;
     setStatus(`突破判定完成：${message}`, tone);
+    syncActionBundle(payload);
+    refreshLeaderboardInBackground("realm", 1);
     await popup(payload.success ? "突破成功" : "突破失败", message, tone);
-    await refreshBundle();
-    await refreshLeaderboard("realm", 1);
   } catch (error) {
     const message = normalizeError(error, "突破失败。");
     setStatus(message, "error");
@@ -3871,9 +3892,9 @@ document.querySelector("#break-pill-btn").addEventListener("click", async (event
     const tone = payload.success ? "success" : "warning";
     const detail = `点数 ${payload.roll} / 成功率 ${payload.success_rate}%`;
     setStatus(`服用破境丹后已完成突破判定：${detail}`, tone);
+    syncActionBundle(payload);
+    refreshLeaderboardInBackground("realm", 1);
     await popup(payload.success ? "突破成功" : "突破失败", detail, tone);
-    await refreshBundle();
-    await refreshLeaderboard("realm", 1);
   } catch (error) {
     const message = normalizeError(error, "服用破境丹突破失败。");
     setStatus(message, "error");
@@ -3903,8 +3924,8 @@ document.querySelector("#retreat-start-btn").addEventListener("click", async (ev
     }
     const message = lines.join("\n");
     setStatus(`闭关已开始，预计 ${retreatProfile.retreat_end_at ? formatDate(retreatProfile.retreat_end_at) : "稍后"} 出关。`, "success");
+    syncActionBundle(payload);
     await popup("闭关开始", message);
-    await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "开始闭关失败。");
     setStatus(message, "error");
@@ -3925,9 +3946,9 @@ document.querySelector("#retreat-finish-btn").addEventListener("click", async (e
       ? `${baseMessage}由于中途灵石不足，剩余闭关进度未继续结算。`
       : baseMessage;
     setStatus(message, settled.insufficient_stone ? "warning" : "success");
+    syncActionBundle(payload);
+    refreshLeaderboardInBackground("realm", 1);
     await popup("闭关结算完成", message, settled.insufficient_stone ? "warning" : "success");
-    await refreshBundle();
-    await refreshLeaderboard("realm", 1);
   } catch (error) {
     const message = normalizeError(error, "出关结算失败。");
     setStatus(message, "error");
@@ -3941,8 +3962,8 @@ document.querySelector("#social-mode-btn")?.addEventListener("click", async (eve
   const nextLabel = nextMode === "secluded" ? "避世" : "入世";
   try {
     const payload = await runButtonAction(button, "切换中…", () => postJson("/plugins/xiuxian/api/social-mode", { social_mode: nextMode }));
-    applyProfileBundle(payload.bundle);
     setStatus(`当前状态已切换为${nextLabel}。`, "success");
+    syncActionBundle(payload);
     await popup("状态已切换", `当前已切换为${nextLabel}。`, "success");
   } catch (error) {
     const message = normalizeError(error, "切换状态失败。");
@@ -3961,8 +3982,8 @@ document.querySelector("#coin-to-stone-form").addEventListener("submit", async (
     }));
     const message = `消耗 ${payload.spent_coin} 片刻碎片，获得 ${payload.received_stone} 灵石。`;
     setStatus(`兑换成功：${message}`, "success");
+    syncActionBundle(payload);
     await popup("兑换成功", message);
-    await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "兑换灵石失败。");
     setStatus(message, "error");
@@ -3985,8 +4006,8 @@ document.querySelector("#stone-to-coin-form").addEventListener("submit", async (
         : "";
     const message = `消耗 ${payload.spent_stone} 灵石，获得 ${payload.received_coin} 片刻碎片${feeText}。`;
     setStatus(`兑换成功：${message}`, "success");
+    syncActionBundle(payload);
     await popup("兑换成功", message);
-    await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "兑换碎片失败。");
     setStatus(message, "error");
@@ -4001,10 +4022,10 @@ document.querySelector("#gambling-exchange-form")?.addEventListener("submit", as
     const payload = await runButtonAction(button, "兑换中…", () => postJson("/plugins/xiuxian/api/gambling/exchange", {
       count: Number(document.querySelector("#gambling-exchange-count")?.value || 0),
     }));
-    if (payload.bundle) applyProfileBundle(payload.bundle);
     const result = payload.result || {};
     const message = `消耗 ${Number(result.total_cost_stone || 0)} 灵石，兑换 ${Number(result.exchange_count || 0)} 枚仙界奇石，当前持有 ${Number(result.immortal_stone_quantity || 0)} 枚。`;
     setStatus(message, "success");
+    syncActionBundle(payload);
     await popup("兑换成功", message);
   } catch (error) {
     const message = normalizeError(error, "兑换仙界奇石失败。");
@@ -4020,7 +4041,6 @@ document.querySelector("#gambling-open-form")?.addEventListener("submit", async 
     const payload = await runButtonAction(button, "开启中…", () => postJson("/plugins/xiuxian/api/gambling/open", {
       count: Number(document.querySelector("#gambling-open-count")?.value || 0),
     }));
-    if (payload.bundle) applyProfileBundle(payload.bundle);
     const result = payload.result || {};
     const rareRows = (result.summary || []).filter((item) => item.broadcasted);
     const lines = [
@@ -4035,6 +4055,7 @@ document.querySelector("#gambling-open-form")?.addEventListener("submit", async 
       lines.push(`已触发群播：${rareRows.map((item) => `${item.quality_label || "高品"} ${item.item_name || "未知物品"} x${Number(item.quantity || 0)}`).join("、")}`);
     }
     setStatus(`奇石开启完成：${result.summary_text || "奖励已发放。"}。`, "success");
+    syncActionBundle(payload);
     await popup("奇石开启完成", lines.join("\n"));
   } catch (error) {
     const message = normalizeError(error, "开启仙界奇石失败。");
@@ -4105,8 +4126,8 @@ document.querySelector("#personal-shop-form").addEventListener("submit", async (
       : (document.querySelector("#shop-broadcast").checked ? " 商品通知已推送到群里。" : "");
     const message = `已上架 ${payload.listing.item_name}，售价 ${payload.listing.price_stone} 灵石${discountText}。${noticeText}`;
     setStatus(message, "success");
+    syncActionBundle(payload);
     await popup("上架成功", message);
-    await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "上架个人店铺失败。");
     setStatus(message, "error");
@@ -4125,12 +4146,8 @@ document.querySelector("#official-recycle-form")?.addEventListener("submit", asy
     }));
     const result = payload?.result || {};
     const message = `已归炉 ${result.item_name || "物品"} x${Number(result.quantity || 0)}，到账 ${Number(result.total_price_stone || 0)} 灵石。`;
-    if (payload?.bundle) {
-      applyProfileBundle(payload.bundle);
-    } else {
-      await refreshBundle();
-    }
     setStatus(message, "success");
+    syncActionBundle(payload);
     await popup("归炉成功", message);
   } catch (error) {
     const message = normalizeError(error, "提交万宝归炉失败。");
@@ -4156,11 +4173,7 @@ document.querySelector("#personal-auction-form")?.addEventListener("submit", asy
     const pushWarning = String(payload.push_warning || "").trim();
     const message = `${itemName} 已发起群拍，起拍价 ${payload.auction?.opening_price_stone || 0} 灵石，单次加价 ${payload.auction?.bid_increment_stone || 1} 灵石${buyoutPrice > 0 ? `，一口价 ${buyoutPrice} 灵石` : ""}。${pushWarning || "群消息已推送并置顶。"}`
       .trim();
-    if (payload.bundle) {
-      applyProfileBundle(payload.bundle);
-    } else {
-      await refreshBundle();
-    }
+    syncActionBundle(payload);
     setStatus(message, pushWarning ? "warning" : "success");
     await popup(pushWarning ? "拍卖已创建，但置顶失败" : "拍卖已发起", message, pushWarning ? "warning" : "success");
   } catch (error) {
@@ -4181,8 +4194,8 @@ document.querySelector("#personal-shop-list")?.addEventListener("click", async (
       ? `已取消 ${payload.result.item_name} 的上架。`
       : "已取消该商品的上架。";
     setStatus(message, "success");
+    syncActionBundle(payload);
     await popup("取消成功", message);
-    await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "取消上架失败。");
     setStatus(message, "error");
@@ -4212,11 +4225,11 @@ document.querySelector("#artifact-list").addEventListener("click", async (event)
       }));
       const actionText = payload.action === "unequipped" ? "已卸下法宝" : "已装备法宝";
       message = `${actionText}：${payload.artifact_name}`;
-      await refreshLeaderboard(state.leaderboard.kind, state.leaderboard.page);
+      refreshLeaderboardInBackground(state.leaderboard.kind, state.leaderboard.page);
     }
     setStatus(message, "success");
+    syncActionBundle(payload);
     await popup("操作成功", message);
-    await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "法宝操作失败。");
     setStatus(message, "error");
@@ -4246,8 +4259,8 @@ document.querySelector("#pill-list").addEventListener("click", async (event) => 
       : `已服用 ${payload.pill.name}。`;
     const message = payload.summary ? `${statusMessage}\n${payload.summary}` : statusMessage;
     setStatus(statusMessage, "success");
+    syncActionBundle(payload);
     await popup(usedQuantity > 1 ? "批量服用成功" : "服用成功", message);
-    await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "服用丹药失败。");
     setStatus(message, "error");
@@ -4280,8 +4293,8 @@ document.querySelector("#talisman-list").addEventListener("click", async (event)
       title = "激活成功";
     }
     setStatus(message, "success");
+    syncActionBundle(payload);
     await popup(title, message);
-    await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "激活符箓失败。");
     setStatus(message, "error");
@@ -4299,8 +4312,8 @@ async function purchaseItem(button) {
     const discountText = payload.discount_amount ? `，魅力减免 ${payload.discount_amount} 灵石` : "";
     const message = `购买 ${itemName} 成功，共消耗 ${payload.total_cost} 灵石${discountText}。`;
     setStatus(message, "success");
+    syncActionBundle(payload);
     await popup("购买成功", message);
-    await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "购买商品失败。");
     setStatus(message, "error");
@@ -4328,8 +4341,8 @@ document.querySelector("#sect-list")?.addEventListener("click", async (event) =>
       sect_id: Number(button.dataset.sectId)
     }));
     setStatus("宗门加入成功。", "success");
+    syncActionBundle(payload);
     await popup("加入成功", "宗门关系已建立。");
-    await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "加入宗门失败。");
     setStatus(message, "error");
@@ -4342,8 +4355,8 @@ document.querySelector("#sect-salary-btn")?.addEventListener("click", async (eve
   try {
     const payload = await runButtonAction(button, "领取中…", () => postJson("/plugins/xiuxian/api/sect/salary"));
     setStatus(`已领取宗门俸禄 ${payload.salary} 灵石。`, "success");
+    syncActionBundle(payload);
     await popup("领取成功", `已领取宗门俸禄 ${payload.salary} 灵石。`);
-    await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "领取俸禄失败。");
     setStatus(message, "error");
@@ -4360,17 +4373,13 @@ document.querySelector("#sect-leave-btn")?.addEventListener("click", async (even
     const penalty = Number(betrayal.stone_penalty || 0);
     const contribution = Number(betrayal.contribution_cleared || 0);
     const cooldownUntil = betrayal.cooldown_until ? formatDate(betrayal.cooldown_until) : "";
-    if (payload?.bundle) {
-      applyProfileBundle(payload.bundle);
-    } else {
-      await refreshBundle();
-    }
     const lines = [`你已经叛出 ${sectName}。`];
     if (penalty > 0) lines.push(`宗门收回供奉灵石 ${penalty}。`);
     if (contribution > 0) lines.push(`宗门贡献清零 ${contribution}。`);
     if (cooldownUntil) lines.push(`叛宗余罚将持续到 ${cooldownUntil}。`);
     const message = lines.join("\n");
     setStatus(message, "success");
+    syncActionBundle(payload);
     await popup("叛出成功", message);
   } catch (error) {
     const message = normalizeError(error, "叛出宗门失败。");
@@ -4396,9 +4405,8 @@ document.querySelector("#sect-teach-form")?.addEventListener("submit", async (ev
     const promotionText = result.promotion?.role?.role_name ? `\n职位晋升：${result.promotion.role.role_name}` : "";
     const message = `已向宗门传功 ${amount} 修为，获得 ${Number(result.contribution_gain || 0)} 点宗门贡献。${promotionText}`;
     setStatus(message, "success");
+    syncActionBundle(payload);
     await popup("传功成功", message);
-    if (payload.bundle) applyProfileBundle(payload.bundle);
-    else await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "宗门传功失败。");
     setStatus(message, "error");
@@ -4414,9 +4422,8 @@ document.querySelector("#sect-attendance-btn")?.addEventListener("click", async 
     const promotionText = result.promotion?.role?.role_name ? `\n职位晋升：${result.promotion.role.role_name}` : "";
     const message = `已完成今日宗门点卯签到，获得 ${Number(result.contribution_gain || 0)} 点宗门贡献。${promotionText}`;
     setStatus(message, "success");
+    syncActionBundle(payload);
     await popup("签到成功", message);
-    if (payload.bundle) applyProfileBundle(payload.bundle);
-    else await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "宗门点卯失败。");
     setStatus(message, "error");
@@ -4446,9 +4453,8 @@ document.querySelector("#sect-donate-form")?.addEventListener("submit", async (e
     const promotionText = result.promotion?.role?.role_name ? `\n职位晋升：${result.promotion.role.role_name}` : "";
     const message = `已向宗门宝库提交 ${itemName} × ${quantity}，获得 ${Number(result.contribution_gain || 0)} 点宗门贡献。${promotionText}`;
     setStatus(message, "success");
+    syncActionBundle(payload);
     await popup("捐赠成功", message);
-    if (payload.bundle) applyProfileBundle(payload.bundle);
-    else await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "捐赠宗门宝库失败。");
     setStatus(message, "error");
@@ -4518,9 +4524,9 @@ document.querySelector("#task-form-legacy")?.addEventListener("submit", async (e
       active_in_group: document.querySelector("#task-push-group").checked
     }));
     setStatus("悬赏任务已发布。", "success");
-    await popup("发布成功", `任务【${payload.task.title}】已发布。`);
     form?.reset?.();
-    await refreshBundle();
+    syncActionBundle(payload);
+    await popup("发布成功", `任务【${payload.task.title}】已发布。`);
   } catch (error) {
     const message = normalizeError(error, "发布任务失败。");
     setStatus(message, "error");
@@ -4533,16 +4539,16 @@ document.querySelector("#task-list")?.addEventListener("click", async (event) =>
   if (!button || button.disabled) return;
   const action = button.dataset.taskAction || "claim";
   try {
+    let payload = null;
     if (action === "cancel") {
-      const payload = await runButtonAction(button, "撤销中…", () => postJson("/plugins/xiuxian/api/task/cancel", {
+      payload = await runButtonAction(button, "撤销中…", () => postJson("/plugins/xiuxian/api/task/cancel", {
         task_id: Number(button.dataset.taskId)
       }));
       const taskTitle = payload.result?.task?.title || "该任务";
       const message = `任务《${taskTitle}》已撤销。`;
       setStatus(message, "success");
-      await popup("撤销成功", message);
     } else {
-      const payload = await runButtonAction(button, "领取中…", () => postJson("/plugins/xiuxian/api/task/claim", {
+      payload = await runButtonAction(button, "领取中…", () => postJson("/plugins/xiuxian/api/task/claim", {
         task_id: Number(button.dataset.taskId)
       }));
       const submitted = payload.result?.submitted_item;
@@ -4554,23 +4560,32 @@ document.querySelector("#task-list")?.addEventListener("click", async (event) =>
         const rewardText = taskResultRewardText(reward, resultTask);
         const message = `已提交 ${itemName} × ${quantity}，任务已直接完成。奖励：${rewardText}`;
         setStatus(message, "success");
+        syncActionBundle(payload);
         await popup("提交完成", message);
+        return;
       } else if (resultTask.task_type === "metric" && reward) {
         const rewardText = taskResultRewardText(reward, resultTask);
         const message = `计数任务《${resultTask.title || "未命名任务"}》已完成。奖励：${rewardText}`;
         setStatus(message, "success");
+        syncActionBundle(payload);
         await popup("结算成功", message);
+        return;
       } else if (resultTask.task_type === "metric") {
         const message = "计数任务已接取，后续只统计你接取之后新增的完成进度。";
         setStatus(message, "success");
+        syncActionBundle(payload);
         await popup("接取成功", message);
+        return;
       } else {
         const message = "任务已接取，请按要求完成后再领取奖励。";
         setStatus(message, "success");
+        syncActionBundle(payload);
         await popup("接取成功", message);
+        return;
       }
     }
-    await refreshBundle();
+    syncActionBundle(payload);
+    await popup("撤销成功", `任务《${payload?.result?.task?.title || "该任务"}》已撤销。`);
   } catch (error) {
     const fallback = action === "cancel" ? "撤销任务失败。" : "领取任务失败。";
     const message = normalizeError(error, fallback);
@@ -4589,8 +4604,8 @@ document.querySelector("#technique-list")?.addEventListener("click", async (even
     const techniqueName = payload.technique?.name || "功法";
     const message = `已切换为 ${techniqueName}。`;
     setStatus(message, "success");
+    syncActionBundle(payload);
     await popup("切换成功", message);
-    await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "切换功法失败。");
     setStatus(message, "error");
@@ -4631,12 +4646,8 @@ document.querySelector("#recipe-list")?.addEventListener("click", async (event) 
     if (result.result_item?.name) detailRows.push(`目标成品：${result.result_item.name}`);
     if (Number(result.total_reward_quantity || 0) > 0) detailRows.push(`总产出：${result.total_reward_quantity}`);
     if (result.reward) detailRows.push(`获得：${grantedItemName(result.reward) || "成品已入库"}`);
+    syncActionBundle(payload);
     await popup(title, detailRows.join("\n"), tone);
-    if (payload.bundle) {
-      state.deferredBundleLoaded = true;
-      applyProfileBundle(payload.bundle);
-    }
-    else await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "炼制失败。");
     setStatus(message, "error");
@@ -4658,12 +4669,8 @@ document.querySelector("#recipe-fragment-synthesis-list")?.addEventListener("cli
     const itemName = result.result_item?.name || result.recipe?.result_item?.name || "成品";
     const message = `已消耗 ${materialName} × ${requiredQuantity}，成功参悟 ${recipeName}。`;
     setStatus(message, "success");
+    syncActionBundle(payload);
     await popup("参悟成功", [message, `对应成品：${itemName}`].join("\n"));
-    if (payload.bundle) {
-      state.deferredBundleLoaded = true;
-      applyProfileBundle(payload.bundle);
-    }
-    else await refreshBundle();
   } catch (error) {
     const message = normalizeError(error, "参悟配方失败。");
     setStatus(message, "error");
@@ -4681,11 +4688,8 @@ document.querySelector("#scene-list")?.addEventListener("click", async (event) =
       scene_id: sceneId,
       minutes
     }));
-    if (payload.bundle) {
-      state.deferredBundleLoaded = true;
-      applyProfileBundle(payload.bundle);
-    }
     setStatus("探索已开始。", "success");
+    syncActionBundle(payload);
     await popup("探索开始", `已派出角色探索，预计 ${minutes} 分钟后可领取。`, "success", { autoCloseMs: 3800 });
   } catch (error) {
     const message = normalizeError(error, "开始探索失败。");
@@ -4701,10 +4705,6 @@ document.querySelector("#exploration-active")?.addEventListener("click", async (
     const payload = await runButtonAction(button, "领取中…", () => postJson("/plugins/xiuxian/api/explore/claim", {
       exploration_id: Number(button.dataset.exploreClaim)
     }));
-    if (payload.bundle) {
-      state.deferredBundleLoaded = true;
-      applyProfileBundle(payload.bundle);
-    }
     const result = payload.result || {};
     const death = result.death || {};
     setStatus(death.died ? "探索已结算，秘境中遭逢重创。" : "探索奖励已领取。", death.died ? "warning" : "success");
@@ -4725,6 +4725,7 @@ document.querySelector("#exploration-active")?.addEventListener("click", async (
       const growthText = attributeGrowthText(result.attribute_growth || []);
       if (growthText) lines.push(`📈 ${growthText}`);
     }
+    syncActionBundle(payload);
     await popup(
       death.died ? "探索失败" : "领取成功",
       lines.join("\n") || "探索奖励已发放到你的背包与档案。",
@@ -4752,9 +4753,9 @@ document.querySelector("#red-envelope-form")?.addEventListener("submit", async (
       target_tg: document.querySelector("#red-target").value ? Number(document.querySelector("#red-target").value) : null
     }));
     setStatus("灵石红包已发往群内。", "success");
-    await popup("发送成功", `红包【${payload.result.envelope.cover_text}】已发出。`);
     form?.reset?.();
-    await refreshBundle();
+    syncActionBundle(payload);
+    await popup("发送成功", `红包【${payload.result.envelope.cover_text}】已发出。`);
   } catch (error) {
     const message = normalizeError(error, "发送红包失败。");
     setStatus(message, "error");
@@ -5035,9 +5036,9 @@ document.querySelector("#gift-form")?.addEventListener("submit", async (event) =
     const amount = payload.result?.amount || 0;
     const message = `已向 ${targetName} 赠送 ${amount} 灵石。`;
     setStatus(message, "success");
-    await popup("赠送成功", message);
     document.querySelector("#gift-amount").value = "100";
-    await refreshBundle();
+    syncActionBundle(payload);
+    await popup("赠送成功", message);
   } catch (error) {
     const message = normalizeError(error, "灵石赠送失败。");
     setStatus(message, "error");
@@ -5080,13 +5081,9 @@ document.querySelector("#item-gift-form")?.addEventListener("submit", async (eve
     const targetName = target.display_label || (target.username ? `@${target.username}` : `TG ${target.tg}`);
     const message = `已向 ${targetName} 赠送 ${itemName} × ${giftQuantity}。`;
     setStatus(message, "success");
-    await popup("物品赠送成功", message);
     document.querySelector("#item-gift-quantity").value = "1";
-    if (payload.bundle) {
-      applyProfileBundle(payload.bundle);
-    } else {
-      await refreshBundle();
-    }
+    syncActionBundle(payload);
+    await popup("物品赠送成功", message);
   } catch (error) {
     const message = normalizeError(error, "物品赠送失败。");
     setStatus(message, "error");
@@ -5956,7 +5953,6 @@ userTaskForm?.addEventListener("submit", async (event) => {
       ? `任务《${payload.task.title}》已创建${costText}，但群内推送失败。\n${pushWarning}`
       : `任务《${payload.task.title}》已发布${costText}。`;
     setStatus(message, pushWarning ? "warning" : "success");
-    await popup(pushWarning ? "创建已完成，但推送失败" : "发布成功", message, pushWarning ? "warning" : "success");
     form?.reset?.();
     const rewardStoneInput = document.querySelector("#task-reward-stone");
     if (rewardStoneInput) rewardStoneInput.value = "10";
@@ -5967,7 +5963,8 @@ userTaskForm?.addEventListener("submit", async (event) => {
     const metricTargetInput = document.querySelector("#task-metric-target");
     if (metricTargetInput) metricTargetInput.value = "0";
     syncUserTaskComposer();
-    await refreshBundle();
+    syncActionBundle(payload);
+    await popup(pushWarning ? "创建已完成，但推送失败" : "发布成功", message, pushWarning ? "warning" : "success");
   } catch (error) {
     const message = normalizeError(error, "发布任务失败，请稍后重试");
     setStatus(message, "error");
@@ -6751,8 +6748,8 @@ document.addEventListener("click", async (event) => {
   try {
     await runButtonAction(button, clearButton ? "卸下中..." : "佩戴中...", async () => {
       const titleId = clearButton ? null : Number(equipButton.dataset.titleEquip || 0) || null;
-      await postJson("/plugins/xiuxian/api/title/equip", { title_id: titleId });
-      await refreshBundle();
+      const payload = await postJson("/plugins/xiuxian/api/title/equip", { title_id: titleId });
+      syncActionBundle(payload);
       await popup("称号已更新", clearButton ? "你已经暂时卸下当前称号。" : "修仙名帖上的称号已经切换。");
     });
   } catch (error) {
@@ -6860,8 +6857,8 @@ document.querySelector("#title-group-sync-btn")?.addEventListener("click", async
   const button = event.currentTarget;
   try {
     await runButtonAction(button, "同步中...", async () => {
-      await postJson("/plugins/xiuxian/api/title/group-sync", {});
-      await refreshBundle();
+      const payload = await postJson("/plugins/xiuxian/api/title/group-sync", {});
+      syncActionBundle(payload);
       await popup("同步成功", "当前佩戴称号已尝试同步到群组头衔。若群内未生效，请确认你是否为该群管理员，以及 bot 是否拥有修改管理员头衔的权限。");
     });
   } catch (error) {
@@ -7766,10 +7763,10 @@ document.querySelector("#commission-list")?.addEventListener("click", async (eve
     const detail = result.detail || "委托已经顺利完成。";
     const growthText = attributeGrowthText(result.attribute_growth || []);
     const message = `${title} 完成，灵石 +${stoneGain}，修为 +${cultivationGain}${growthText ? `，${growthText}` : ""}。`;
-    await refreshBundle();
+    syncActionBundle(payload);
     setStatus(message, "success");
     await popup("委托完成", `${detail}\n灵石 +${stoneGain}\n修为 +${cultivationGain}${growthText ? `\n${growthText}` : ""}`);
-    await refreshLeaderboard(state.leaderboard.kind, state.leaderboard.page);
+    refreshLeaderboardInBackground(state.leaderboard.kind, state.leaderboard.page);
   } catch (error) {
     const message = normalizeError(error, "承接灵石委托失败。");
     setStatus(message, "error");
