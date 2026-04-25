@@ -1913,7 +1913,11 @@ def _queue_event_summary_refresh(
             if EVENT_SUMMARY_REFRESH_TASK is asyncio.current_task():
                 globals()["EVENT_SUMMARY_REFRESH_TASK"] = None
 
-    EVENT_SUMMARY_REFRESH_TASK = asyncio.create_task(runner())
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.get_event_loop()
+    EVENT_SUMMARY_REFRESH_TASK = loop.create_task(runner())
 
 
 def _duel_settlement_total_pages(bet_settlement: dict[str, Any] | None) -> int:

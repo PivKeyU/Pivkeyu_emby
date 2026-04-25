@@ -108,13 +108,25 @@ def _adaptive_pyrogram_transmissions(workers: int) -> int:
 def _validate_telegram_credentials():
     issues = []
 
-    if not isinstance(bot_token, str) or ":" not in bot_token or bot_token.startswith("5701:AA"):
+    normalized_bot_token = str(bot_token or "").strip()
+    normalized_owner_hash = str(owner_hash or "").strip().lower()
+    if (
+        not isinstance(bot_token, str)
+        or ":" not in normalized_bot_token
+        or normalized_bot_token.startswith("5701:AA")
+        or "replace_with" in normalized_bot_token
+        or normalized_bot_token.startswith("1234567890:")
+    ):
         issues.append("bot_token")
 
-    if not isinstance(owner_api, int) or owner_api <= 0 or owner_api == 73711:
+    if not isinstance(owner_api, int) or owner_api <= 0 or owner_api in {73711, 12345678}:
         issues.append("owner_api")
 
-    if not isinstance(owner_hash, str) or len(owner_hash.strip()) < 16:
+    if (
+        not isinstance(owner_hash, str)
+        or len(normalized_owner_hash) < 16
+        or "replace_with" in normalized_owner_hash
+    ):
         issues.append("owner_hash")
 
     if issues:

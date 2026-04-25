@@ -46,13 +46,30 @@ function getLevelMeta(code) {
 
 function normalizeError(error) {
   const message = String(error?.message || "").trim();
-  if (!message || message === "Failed to fetch" || message.startsWith("Unexpected token")) {
+  if (
+    !message
+    || message === "Failed to fetch"
+    || message.startsWith("Unexpected token")
+    || message.includes("Unexpected end of JSON input")
+  ) {
     return "网络连接失败，请稍后重试。";
   }
   if (message === "Internal Server Error") {
     return "服务器内部错误，请稍后再试。";
   }
   return message;
+}
+
+async function readResponsePayload(response) {
+  const raw = await response.text();
+  if (!raw) {
+    return { code: response.ok ? 200 : response.status, data: null };
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error(raw.trim() || "Internal Server Error");
+  }
 }
 
 function formatDate(value, fallback = "") {
@@ -382,7 +399,7 @@ async function bootstrapMiniApp() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ init_data: tg.initData })
     });
-    const result = await response.json();
+    const result = await readResponsePayload(response);
 
     if (!response.ok || result.code !== 200) {
       throw new Error(result.detail || result.message || "服务器连接失败。");
