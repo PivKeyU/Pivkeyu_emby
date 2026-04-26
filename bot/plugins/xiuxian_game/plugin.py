@@ -1394,6 +1394,10 @@ def _with_core_bundle(tg: int, payload: Any, *, field: str = "result") -> dict[s
     return data
 
 
+def _with_result_core_bundle(tg: int, result: Any) -> dict[str, Any]:
+    return _with_core_bundle(tg, {"result": result})
+
+
 def _message_auto_delete_seconds() -> int:
     raw = get_xiuxian_settings().get(
         "message_auto_delete_seconds",
@@ -5497,13 +5501,13 @@ def register_web(app) -> None:
     async def xiuxian_social_mode_api(payload: SocialModePayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = switch_social_mode_for_user(telegram_user["id"], payload.social_mode)
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/furnace/harvest")
     async def xiuxian_furnace_harvest_api(payload: FurnaceHarvestPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = harvest_furnace_for_user(telegram_user["id"], payload.target_tg)
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/mentorship/request")
     async def xiuxian_mentorship_request_api(payload: MentorshipRequestPayload):
@@ -5514,71 +5518,71 @@ def register_web(app) -> None:
             payload.sponsor_role,
             message=payload.message,
         )
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/mentorship/request/respond")
     async def xiuxian_mentorship_request_respond_api(payload: MentorshipRequestActionPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = respond_mentorship_request_for_user(telegram_user["id"], payload.request_id, payload.action)
         await _notify_achievement_unlocks(result.get("achievement_unlocks"))
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/mentorship/teach")
     async def xiuxian_mentorship_teach_api(payload: MentorshipTeachPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = mentor_teach_for_user(telegram_user["id"], payload.disciple_tg)
         await _notify_achievement_unlocks(result.get("achievement_unlocks"))
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/mentorship/consult")
     async def xiuxian_mentorship_consult_api(payload: InitDataPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = consult_mentor_for_user(telegram_user["id"])
         await _notify_achievement_unlocks(result.get("achievement_unlocks"))
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/mentorship/graduate")
     async def xiuxian_mentorship_graduate_api(payload: MentorshipTargetPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = graduate_mentorship_for_user(telegram_user["id"], payload.target_tg)
         await _notify_achievement_unlocks(result.get("achievement_unlocks"))
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/mentorship/dissolve")
     async def xiuxian_mentorship_dissolve_api(payload: MentorshipTargetPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = dissolve_mentorship_for_user(telegram_user["id"], payload.target_tg)
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/gender/set")
     async def xiuxian_gender_set_api(payload: GenderSetPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = set_gender_for_user(telegram_user["id"], payload.gender)
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/marriage/request")
     async def xiuxian_marriage_request_api(payload: MarriageRequestPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = create_marriage_request_for_user(telegram_user["id"], payload.target_tg, message=payload.message)
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/marriage/request/respond")
     async def xiuxian_marriage_request_respond_api(payload: MarriageRequestActionPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = respond_marriage_request_for_user(telegram_user["id"], payload.request_id, payload.action)
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/marriage/dual-cultivate")
     async def xiuxian_marriage_dual_cultivate_api(payload: InitDataPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = dual_cultivate_with_spouse(telegram_user["id"])
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/marriage/divorce")
     async def xiuxian_marriage_divorce_api(payload: InitDataPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = divorce_with_spouse(telegram_user["id"])
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/exchange")
     async def xiuxian_exchange_api(payload: ExchangePayload):
@@ -5595,14 +5599,14 @@ def register_web(app) -> None:
     async def xiuxian_gambling_exchange_api(payload: GamblingExchangePayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = exchange_immortal_stones(telegram_user["id"], payload.count)
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/gambling/open")
     async def xiuxian_gambling_open_api(payload: GamblingOpenPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = open_immortal_stones(telegram_user["id"], payload.count)
         await _maybe_broadcast_gambling(telegram_user["id"], result)
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/sect/join")
     async def xiuxian_join_sect_api(payload: SectJoinPayload):
@@ -5626,13 +5630,13 @@ def register_web(app) -> None:
     async def xiuxian_sect_attendance_api(payload: InitDataPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = perform_sect_attendance(telegram_user["id"])
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/sect/teach")
     async def xiuxian_sect_teach_api(payload: SectTeachPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = perform_sect_teach(telegram_user["id"], payload.cultivation_amount)
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/sect/donate")
     async def xiuxian_sect_donate_api(payload: SectDonatePayload):
@@ -5643,7 +5647,7 @@ def register_web(app) -> None:
             payload.item_ref_id,
             payload.quantity,
         )
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/task/create")
     async def xiuxian_create_task_api(payload: UserTaskPayload):
@@ -5682,7 +5686,7 @@ def register_web(app) -> None:
     async def xiuxian_claim_task_api(payload: TaskClaimPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = claim_task_for_user(telegram_user["id"], payload.task_id)
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/task/cancel")
     async def xiuxian_cancel_task_api(payload: TaskCancelPayload):
@@ -5712,7 +5716,7 @@ def register_web(app) -> None:
                     )
         except Exception as exc:
             LOGGER.warning(f"xiuxian task cancel message refresh failed: {exc}")
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/recipe/craft")
     async def xiuxian_craft_recipe_api(payload: CraftPayload):
@@ -5720,37 +5724,37 @@ def register_web(app) -> None:
         result = craft_recipe_for_user(telegram_user["id"], payload.recipe_id, payload.quantity)
         await _maybe_broadcast_craft(telegram_user["id"], result)
         await _notify_achievement_unlocks(result.get("achievement_unlocks"))
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/recipe/synthesize")
     async def xiuxian_recipe_fragment_synthesis_api(payload: RecipeFragmentSynthesisPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = synthesize_recipe_fragment_for_user(telegram_user["id"], payload.recipe_id)
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/farm/plant")
     async def xiuxian_farm_plant_api(payload: FarmPlantPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = plant_crop_for_user(telegram_user["id"], payload.slot_index, payload.material_id)
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/farm/care")
     async def xiuxian_farm_care_api(payload: FarmCarePayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = tend_farm_plot_for_user(telegram_user["id"], payload.slot_index, payload.action)
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/farm/harvest")
     async def xiuxian_farm_harvest_api(payload: FarmHarvestPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = harvest_farm_plot_for_user(telegram_user["id"], payload.slot_index)
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/farm/unlock")
     async def xiuxian_farm_unlock_api(payload: FarmUnlockPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = unlock_farm_plot_for_user(telegram_user["id"], payload.slot_index)
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/fishing/cast")
     async def xiuxian_fishing_cast_api(payload: FishingCastPayload):
@@ -5778,7 +5782,7 @@ def register_web(app) -> None:
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = claim_exploration_for_user(telegram_user["id"], payload.exploration_id)
         await _notify_achievement_unlocks(result.get("achievement_unlocks"))
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/red-envelope/create")
     async def xiuxian_create_red_envelope_api(payload: RedEnvelopePayload):
@@ -5795,7 +5799,7 @@ def register_web(app) -> None:
         )
         await _push_red_envelope_notice(result["envelope"])
         await _notify_achievement_unlocks(result.get("achievement_unlocks"))
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/shop/personal")
     async def xiuxian_personal_shop_api(payload: PersonalShopPayload):
@@ -5871,7 +5875,7 @@ def register_web(app) -> None:
         await _refresh_shop_notice_message((result or {}).get("item") or {})
         _queue_event_summary_refresh(int(((result or {}).get("item") or {}).get("notice_group_chat_id") or 0) or None)
         _remember_journal(telegram_user["id"], "shop", "取消上架", f"取消了商品 #{payload.item_id} 的上架")
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/shop/purchase")
     async def xiuxian_purchase_api(payload: PurchasePayload):
@@ -5907,7 +5911,7 @@ def register_web(app) -> None:
             "万宝归炉",
             f"归炉了【{result.get('item_name') or '未知物品'}】x{result.get('quantity') or 0}，到账 {result.get('total_price_stone') or 0} 灵石",
         )
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/player/search")
     async def xiuxian_player_search_api(payload: PlayerLookupPayload):
@@ -5923,7 +5927,7 @@ def register_web(app) -> None:
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = gift_spirit_stone(telegram_user["id"], payload.target_tg, payload.amount)
         await _notify_achievement_unlocks(result.get("achievement_unlocks"))
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/gift/item")
     async def xiuxian_item_gift_api(payload: ItemGiftPayload):
@@ -5935,7 +5939,7 @@ def register_web(app) -> None:
             payload.item_ref_id,
             payload.quantity,
         )
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/journal")
     async def xiuxian_journal_api(payload: InitDataPayload):
