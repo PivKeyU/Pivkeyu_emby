@@ -1004,6 +1004,13 @@ button {
   line-height: 1.35;
 }
 
+button,
+summary,
+.bottom-nav a {
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+}
+
 input,
 select,
 textarea {
@@ -1026,7 +1033,6 @@ textarea {
 
 button {
   min-height: 48px;
-  touch-action: manipulation;
   cursor: pointer;
   border: 0;
   color: #fff;
@@ -1368,36 +1374,103 @@ button.is-blocked:not(:disabled) {
 
   .app-shell {
     width: 100%;
-    padding: 8px max(6px, env(safe-area-inset-right)) 18px max(6px, env(safe-area-inset-left));
-    gap: 8px;
+    padding: 6px max(6px, env(safe-area-inset-right)) 14px max(6px, env(safe-area-inset-left));
+    gap: 6px;
   }
 
   h1 {
-    font-size: 34px;
+    font-size: 30px;
+  }
+
+  h2 {
+    font-size: 19px;
+  }
+
+  h3 {
+    font-size: 15px;
   }
 
   .hero-panel {
-    padding: 12px;
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .hero-copy,
+  .section-copy,
+  .modal-message,
+  .hero-admin p {
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .hero-pill,
+  .badge,
+  .tag,
+  .feedback-chip,
+  .rank-tab,
+  .bottom-nav a {
+    min-height: 34px;
+    padding: 6px 10px;
+    font-size: 11px;
   }
 
   .fold-toolbar {
     top: max(4px, env(safe-area-inset-top));
-    padding: 8px 10px;
+    gap: 8px;
+    padding: 7px 10px;
     border-radius: 14px;
   }
 
+  .fold-shortcuts {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  .fold-shortcut {
+    min-height: 40px;
+    padding: 6px 4px;
+    border-radius: 12px;
+    font-size: 10px;
+    line-height: 1.15;
+    text-align: center;
+    text-wrap: balance;
+  }
+
   .summary-tip {
-    max-width: 18ch;
-    font-size: 11px;
+    max-width: 16ch;
+    font-size: 10px;
+    line-height: 1.35;
   }
 
   .fold-summary,
   .mini-fold-summary {
     align-items: flex-start;
+    gap: 10px;
+  }
+
+  .fold-summary {
+    min-height: 52px;
+    padding: 12px 14px;
+  }
+
+  .fold-summary::after {
+    min-width: 42px;
+    font-size: 11px;
+  }
+
+  .mini-fold-summary {
+    min-height: 46px;
+    padding: 11px 14px;
   }
 
   .fold-body {
-    padding: 0 12px 14px;
+    gap: 10px;
+    padding: 0 10px 12px;
+  }
+
+  .mini-fold-body {
+    gap: 10px;
+    padding: 0 14px 14px;
   }
 
   .info-grid,
@@ -1412,17 +1485,23 @@ button.is-blocked:not(:disabled) {
   }
 
   .profile-item {
-    padding: 12px;
+    padding: 10px;
   }
 
   .profile-item strong {
-    font-size: 16px;
+    margin-top: 8px;
+    font-size: 15px;
+  }
+
+  .stack-item {
+    padding: 10px;
   }
 
   .stack-item-head,
   .inline-actions,
   .inline-action-buttons {
     align-items: stretch;
+    gap: 8px;
   }
 
   .inline-actions > button,
@@ -1457,6 +1536,18 @@ button.is-blocked:not(:disabled) {
   .tag,
   .badge {
     flex: 0 0 auto;
+  }
+
+  input,
+  select,
+  textarea {
+    min-height: 44px;
+    padding: 10px 12px;
+  }
+
+  button {
+    min-height: 44px;
+    padding: 10px 12px;
   }
 
   .bottom-nav {
@@ -1499,6 +1590,7 @@ button.is-blocked:not(:disabled) {
   }
 
   .app-shell {
+    gap: 5px;
     padding-inline: max(5px, env(safe-area-inset-left)) max(5px, env(safe-area-inset-right));
   }
 
@@ -1508,37 +1600,78 @@ button.is-blocked:not(:disabled) {
     font-size: 13px;
   }
 
+  .hero-panel {
+    gap: 8px;
+    padding: 9px;
+  }
+
   .summary-tip {
     display: none;
   }
 
   .fold-summary {
     gap: 8px;
-    min-height: 56px;
-    padding: 14px 12px;
+    min-height: 48px;
+    padding: 10px 11px;
   }
 
   .fold-summary::after {
-    min-width: 42px;
-    font-size: 11px;
+    min-width: 36px;
+    font-size: 10px;
   }
 
   .mini-fold-summary {
-    padding: 13px 12px;
+    min-height: 44px;
+    padding: 10px 11px;
+  }
+
+  .fold-body {
+    gap: 8px;
+    padding: 0 9px 10px;
+  }
+
+  .mini-fold-body {
+    gap: 8px;
+    padding: 0 11px 11px;
+  }
+
+  .profile-item,
+  .stack-item {
+    padding: 9px;
+  }
+
+  .fold-shortcut {
+    min-height: 38px;
+    padding: 5px 3px;
+    font-size: 9px;
+    line-height: 1.1;
   }
 
   .bottom-nav {
-    gap: 6px;
-    padding: 7px;
+    gap: 5px;
+    padding: 6px;
   }
 
   .bottom-nav a {
-    min-height: 42px;
-    padding: 7px 5px;
+    min-height: 40px;
+    padding: 6px 4px;
+    font-size: 10px;
   }
 
   .bottom-nav-icon {
     font-size: 14px;
+  }
+}
+
+@media (min-width: 560px) and (max-width: 640px) {
+  .fold-shortcuts {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .fold-shortcut {
+    min-height: 38px;
+    padding: 5px 3px;
+    font-size: 9px;
   }
 }
 
@@ -1672,6 +1805,19 @@ button.is-blocked:not(:disabled) {
   .fold-summary {
     min-height: 50px;
     padding: 12px 14px;
+  }
+
+  .fold-shortcuts {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 4px;
+  }
+
+  .fold-shortcut {
+    min-height: 34px;
+    padding: 4px 3px;
+    border-radius: 10px;
+    font-size: 9px;
+    line-height: 1.05;
   }
 
   .summary-tip {

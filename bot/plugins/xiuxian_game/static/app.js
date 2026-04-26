@@ -140,6 +140,58 @@ function touchFeedback(tone = "success") {
   tg.HapticFeedback.notificationOccurred("success");
 }
 
+const TOUCH_CONTEXTMENU_GUARD_MS = 900;
+let lastTouchContextTarget = null;
+let lastTouchContextAt = 0;
+
+function isEditableTouchTarget(target) {
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest(
+    "textarea, [contenteditable=''], [contenteditable='true'], [contenteditable='plaintext-only'], "
+      + "input:not([type='button']):not([type='checkbox']):not([type='file']):not([type='image']):not([type='radio']):not([type='range']):not([type='reset']):not([type='submit'])"
+  ));
+}
+
+function rememberTouchContextTarget(target) {
+  if (!(target instanceof Element)) return;
+  lastTouchContextTarget = target;
+  lastTouchContextAt = Date.now();
+}
+
+function markTouchPointerInteraction(event) {
+  if (String(event.pointerType || "").toLowerCase() !== "touch") return;
+  rememberTouchContextTarget(event.target);
+}
+
+function markTouchStartInteraction(event) {
+  if (!event.touches?.length) return;
+  rememberTouchContextTarget(event.target);
+}
+
+function shouldSuppressTouchContextMenu(event) {
+  const pointerType = String(event.pointerType || "").toLowerCase();
+  if (pointerType === "mouse") return false;
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target || isEditableTouchTarget(target)) return false;
+  if (pointerType === "touch") return true;
+  const recentTouch = Date.now() - lastTouchContextAt <= TOUCH_CONTEXTMENU_GUARD_MS;
+  if (!recentTouch || !(lastTouchContextTarget instanceof Element)) return false;
+  return target === lastTouchContextTarget
+    || target.contains(lastTouchContextTarget)
+    || lastTouchContextTarget.contains(target);
+}
+
+function installTouchContextMenuGuard() {
+  if (document.documentElement.dataset.touchContextMenuGuardBound) return;
+  document.documentElement.dataset.touchContextMenuGuardBound = "1";
+  document.addEventListener("pointerdown", markTouchPointerInteraction, { passive: true, capture: true });
+  document.addEventListener("touchstart", markTouchStartInteraction, { passive: true, capture: true });
+  document.addEventListener("contextmenu", (event) => {
+    if (!shouldSuppressTouchContextMenu(event)) return;
+    event.preventDefault();
+  }, { capture: true });
+}
+
 function normalizeErrorLegacy(error, fallback) {
   const message = String(error?.message || fallback || "操作失败，请稍后再试").trim();
   if (!message || /^[?？.\s]+$/.test(message)) {
@@ -1758,6 +1810,8 @@ function setupFoldToolbar() {
 }
 
 function setupMobileInteractionPolish() {
+  installTouchContextMenuGuard();
+
   document.addEventListener("focusin", (event) => {
     const field = event.target?.closest?.("input, textarea, select");
     if (!field || field.closest(".modal-card")) return;
