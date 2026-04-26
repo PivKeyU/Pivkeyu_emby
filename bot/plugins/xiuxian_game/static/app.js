@@ -113,6 +113,8 @@ function grantedItemName(payload) {
     || payload.pill?.name
     || payload.talisman?.name
     || payload.material?.name
+    || payload.technique?.name
+    || payload.recipe?.name
     || payload.item_name
     || "";
 }
@@ -2729,7 +2731,13 @@ function taskResultRewardText(reward, task = {}) {
   if (Number(reward?.reward_stone || 0) > 0) parts.push(`${Number(reward.reward_stone)} 灵石`);
   if (Number(reward?.reward_cultivation || 0) > 0) parts.push(`${Number(reward.reward_cultivation)} 修为`);
   if (reward?.reward_item) {
-    const item = reward.reward_item.artifact || reward.reward_item.pill || reward.reward_item.talisman || reward.reward_item.material || {};
+    const item = reward.reward_item.artifact
+      || reward.reward_item.pill
+      || reward.reward_item.talisman
+      || reward.reward_item.material
+      || reward.reward_item.technique
+      || reward.reward_item.recipe
+      || {};
     parts.push(`${Number(reward.reward_item.quantity || 1)} ${item.name || "物品"}`);
   }
   return parts.join(" · ") || taskRewardText(task);

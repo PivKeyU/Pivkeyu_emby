@@ -6328,12 +6328,19 @@ def _grant_auction_item_to_inventory(
     item_kind: str,
     item_ref_id: int,
     quantity: int,
-) -> None:
+    source: str | None = None,
+    obtained_note: str | None = None,
+    auto_equip_if_empty: bool | None = None,
+) -> dict[str, Any] | None:
     amount = max(int(quantity or 0), 0)
     if amount <= 0:
-        return
+        return None
+    normalized_kind = str(item_kind or "").strip()
+    normalized_source = str(source or "").strip() or None
+    normalized_note = (str(obtained_note or "").strip() or None) if obtained_note is not None else None
+    auto_equip = True if auto_equip_if_empty is None else bool(auto_equip_if_empty)
 
-    def _grant_technique_in_session(target_tg: int, technique_id: int) -> None:
+    def _grant_technique_in_session(target_tg: int, technique_id: int) -> dict[str, Any]:
         technique = session.query(XiuxianTechnique).filter(XiuxianTechnique.id == int(technique_id)).first()
         if technique is None:
             raise ValueError("technique not found")
@@ -6360,22 +6367,57 @@ def _grant_auction_item_to_inventory(
             row = XiuxianUserTechnique(
                 tg=int(target_tg),
                 technique_id=int(technique_id),
-                source="auction",
-                obtained_note="拍卖所得",
+                source=normalized_source or "auction",
+                obtained_note=normalized_note if obtained_note is not None else "拍卖所得",
             )
             session.add(row)
         else:
-            row.source = row.source or "auction"
-            row.obtained_note = row.obtained_note or "拍卖所得"
+            row.source = normalized_source or row.source
+            if obtained_note is not None:
+                row.obtained_note = normalized_note
+            elif not row.obtained_note:
+                row.obtained_note = "拍卖所得"
             row.updated_at = utcnow()
-        if not profile.current_technique_id:
+        if auto_equip and not profile.current_technique_id:
             profile.current_technique_id = int(technique_id)
             profile.updated_at = utcnow()
         _queue_profile_cache_invalidation(session, int(target_tg))
         _queue_user_view_cache_invalidation(session, int(target_tg))
+        return serialize_user_technique(row, serialize_technique(technique))
 
-    if item_kind == "artifact":
-        _grant_artifact_inventory_in_session(
+    def _grant_recipe_in_session(target_tg: int, recipe_id: int) -> dict[str, Any]:
+        recipe = session.query(XiuxianRecipe).filter(XiuxianRecipe.id == int(recipe_id)).first()
+        if recipe is None:
+            raise ValueError("recipe not found")
+        row = (
+            session.query(XiuxianUserRecipe)
+            .filter(
+                XiuxianUserRecipe.tg == int(target_tg),
+                XiuxianUserRecipe.recipe_id == int(recipe_id),
+            )
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            row = XiuxianUserRecipe(
+                tg=int(target_tg),
+                recipe_id=int(recipe_id),
+                source=normalized_source or "auction",
+                obtained_note=normalized_note if obtained_note is not None else "拍卖所得",
+            )
+            session.add(row)
+        else:
+            row.source = normalized_source or row.source
+            if obtained_note is not None:
+                row.obtained_note = normalized_note
+            elif not row.obtained_note:
+                row.obtained_note = "拍卖所得"
+            row.updated_at = utcnow()
+        _queue_user_view_cache_invalidation(session, int(target_tg))
+        return serialize_user_recipe(row, serialize_recipe(recipe))
+
+    if normalized_kind == "artifact":
+        artifact, row, _ = _grant_artifact_inventory_in_session(
             session,
             int(tg),
             int(item_ref_id),
@@ -6383,9 +6425,14 @@ def _grant_auction_item_to_inventory(
             reject_if_owned=False,
             strict_quantity=False,
         )
-        return
+        _queue_user_view_cache_invalidation(session, int(tg))
+        return {
+            "artifact": serialize_artifact(artifact),
+            "quantity": max(int(row.quantity or 0), 0),
+            "bound_quantity": int(row.bound_quantity or 0),
+        }
 
-    if item_kind == "pill":
+    if normalized_kind == "pill":
         row = (
             session.query(XiuxianPillInventory)
             .filter(
@@ -6400,9 +6447,14 @@ def _grant_auction_item_to_inventory(
             session.add(row)
         row.quantity = int(row.quantity or 0) + amount
         row.updated_at = utcnow()
-        return
+        _queue_user_view_cache_invalidation(session, int(tg))
+        pill = session.query(XiuxianPill).filter(XiuxianPill.id == int(item_ref_id)).first()
+        return {
+            "pill": serialize_pill(pill),
+            "quantity": int(row.quantity or 0),
+        }
 
-    if item_kind == "talisman":
+    if normalized_kind == "talisman":
         row = (
             session.query(XiuxianTalismanInventory)
             .filter(
@@ -6418,9 +6470,16 @@ def _grant_auction_item_to_inventory(
         row.quantity = int(row.quantity or 0) + amount
         row.bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
         row.updated_at = utcnow()
-        return
+        _queue_profile_cache_invalidation(session, int(tg))
+        _queue_user_view_cache_invalidation(session, int(tg))
+        talisman = session.query(XiuxianTalisman).filter(XiuxianTalisman.id == int(item_ref_id)).first()
+        return {
+            "talisman": serialize_talisman(talisman),
+            "quantity": int(row.quantity or 0),
+            "bound_quantity": int(row.bound_quantity or 0),
+        }
 
-    if item_kind == "material":
+    if normalized_kind == "material":
         row = (
             session.query(XiuxianMaterialInventory)
             .filter(
@@ -6435,13 +6494,20 @@ def _grant_auction_item_to_inventory(
             session.add(row)
         row.quantity = int(row.quantity or 0) + amount
         row.updated_at = utcnow()
-        return
+        _queue_user_view_cache_invalidation(session, int(tg))
+        material = session.query(XiuxianMaterial).filter(XiuxianMaterial.id == int(item_ref_id)).first()
+        return {
+            "material": serialize_material(material),
+            "quantity": int(row.quantity or 0),
+        }
 
-    if item_kind == "technique":
-        _grant_technique_in_session(int(tg), int(item_ref_id))
-        return
+    if normalized_kind == "technique":
+        return _grant_technique_in_session(int(tg), int(item_ref_id))
 
-    raise ValueError("不支持的拍卖物品类型")
+    if normalized_kind == "recipe":
+        return _grant_recipe_in_session(int(tg), int(item_ref_id))
+
+    raise ValueError("不支持的物品类型")
 
 
 def list_auction_items(
@@ -8881,49 +8947,21 @@ def cancel_personal_shop_item(owner_tg: int, item_id: int) -> dict[str, Any]:
 
         restore_quantity = max(int(item.quantity or 0), 0)
         if restore_quantity > 0:
-            if item.item_kind == "artifact":
-                _grant_artifact_inventory_in_session(
-                    session,
-                    int(owner_tg),
-                    int(item.item_ref_id),
-                    restore_quantity,
-                    reject_if_owned=False,
-                    strict_quantity=False,
-                )
-            elif item.item_kind == "pill":
-                row = (
-                    session.query(XiuxianPillInventory)
-                    .filter(
-                        XiuxianPillInventory.tg == owner_tg,
-                        XiuxianPillInventory.pill_id == item.item_ref_id,
-                    )
-                    .first()
-                )
-                if row is None:
-                    row = XiuxianPillInventory(tg=owner_tg, pill_id=item.item_ref_id, quantity=0)
-                    session.add(row)
-                row.quantity += restore_quantity
-                row.updated_at = utcnow()
-            elif item.item_kind == "talisman":
-                row = (
-                    session.query(XiuxianTalismanInventory)
-                    .filter(
-                        XiuxianTalismanInventory.tg == owner_tg,
-                        XiuxianTalismanInventory.talisman_id == item.item_ref_id,
-                    )
-                    .first()
-                )
-                if row is None:
-                    row = XiuxianTalismanInventory(tg=owner_tg, talisman_id=item.item_ref_id, quantity=0)
-                    session.add(row)
-                row.quantity += restore_quantity
-                row.updated_at = utcnow()
-            else:
-                raise ValueError("暂不支持该类型商品取消上架")
+            _grant_auction_item_to_inventory(
+                session,
+                tg=int(owner_tg),
+                item_kind=str(item.item_kind or ""),
+                item_ref_id=int(item.item_ref_id or 0),
+                quantity=restore_quantity,
+                source="shop_cancel",
+                obtained_note="取消上架返还",
+                auto_equip_if_empty=False,
+            )
 
         item.quantity = 0
         item.enabled = False
         item.updated_at = utcnow()
+        _queue_catalog_cache_invalidation(session, "shop-items")
         session.commit()
         session.refresh(item)
         return {

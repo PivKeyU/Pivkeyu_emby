@@ -54,6 +54,7 @@ from bot.sql_helper.sql_xiuxian import (
     calculate_realm_threshold,
     clear_all_xiuxian_user_data,
     cancel_auction_item,
+    cancel_personal_shop_item as sql_cancel_personal_shop_item,
     create_journal,
     create_auction_item,
     create_artifact,
@@ -5099,6 +5100,102 @@ def attach_official_recycle_quotes(bundle: dict[str, Any]) -> dict[str, Any]:
     return bundle
 
 
+def _find_official_recycle_quote_for_user(tg: int, item_kind: str, item_ref_id: int) -> dict[str, Any] | None:
+    normalized_kind = str(item_kind or "").strip()
+    source_map: dict[str, tuple[list[dict[str, Any]], str]] = {
+        "artifact": (list_user_artifacts(tg), "artifact"),
+        "pill": (list_user_pills(tg), "pill"),
+        "talisman": (list_user_talismans(tg), "talisman"),
+        "material": (list_user_materials(tg), "material"),
+        "technique": (list_user_techniques(tg, enabled_only=False), "technique"),
+        "recipe": (list_user_recipes(tg, enabled_only=False), "recipe"),
+    }
+    rows, item_key = source_map.get(normalized_kind, ([], ""))
+    target_ref_id = int(item_ref_id or 0)
+    if target_ref_id <= 0 or not item_key:
+        return None
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        item_payload = _official_recycle_source_payload(row, item_key)
+        if int(item_payload.get("id") or 0) != target_ref_id:
+            continue
+        if "tradeable_quantity" in row and row.get("tradeable_quantity") is not None:
+            available_quantity = max(int(row.get("tradeable_quantity") or 0), 0)
+        elif normalized_kind in {"technique", "recipe"}:
+            available_quantity = 1
+        else:
+            available_quantity = max(int(row.get("quantity") or 0), 0)
+        if available_quantity <= 0:
+            return None
+        try:
+            return build_official_recycle_quote(
+                normalized_kind,
+                item_payload,
+                available_quantity=available_quantity,
+                quantity=1,
+            )
+        except ValueError:
+            return None
+    return None
+
+
+def _restore_inventory_item_after_failure(
+    tg: int,
+    item_kind: str,
+    item_ref_id: int,
+    quantity: int,
+    *,
+    action_text: str,
+) -> None:
+    normalized_kind = str(item_kind or "").strip()
+    amount = max(int(quantity or 0), 0)
+    if amount <= 0:
+        return
+    if normalized_kind in {"artifact", "pill", "talisman", "material"}:
+        grant_item_to_user(int(tg), normalized_kind, int(item_ref_id), amount)
+        return
+    if normalized_kind == "technique":
+        grant_technique_to_user(
+            int(tg),
+            int(item_ref_id),
+            source="rollback",
+            obtained_note=f"{action_text}失败返还",
+            auto_equip_if_empty=True,
+        )
+        return
+    if normalized_kind == "recipe":
+        grant_recipe_to_user(
+            int(tg),
+            int(item_ref_id),
+            source="rollback",
+            obtained_note=f"{action_text}失败返还",
+        )
+        return
+    raise ValueError("不支持的物品类型")
+
+
+def _rollback_consumed_item_or_raise(
+    tg: int,
+    item_kind: str,
+    item_ref_id: int,
+    quantity: int,
+    *,
+    action_text: str,
+    item_name: str,
+) -> None:
+    try:
+        _restore_inventory_item_after_failure(
+            tg,
+            item_kind,
+            item_ref_id,
+            quantity,
+            action_text=action_text,
+        )
+    except Exception as rollback_exc:
+        raise RuntimeError(f"{action_text}失败，且自动返还【{item_name}】时出错，请尽快联系管理员处理。") from rollback_exc
+
+
 def _ensure_default_official_shop_listings(
     *,
     settings: dict[str, Any],
@@ -6400,6 +6497,16 @@ def _mentorship_bond_label(value: int) -> str:
     return "初结师缘"
 
 
+def _mentorship_breakthrough_text(stage: str | None, upgraded_layers: list[int] | None) -> str:
+    layers = [max(int(layer or 0), 0) for layer in (upgraded_layers or []) if int(layer or 0) > 0]
+    if not layers:
+        return ""
+    normalized_stage = normalize_realm_stage(stage or FIRST_REALM_STAGE)
+    if len(layers) == 1:
+        return f"，并突破至 {normalized_stage}{layers[0]} 层"
+    return f"，并连破 {len(layers)} 层至 {normalized_stage}{layers[-1]} 层"
+
+
 def _mentorship_pending_expire_at() -> datetime:
     return utcnow() + timedelta(hours=MENTORSHIP_REQUEST_EXPIRE_HOURS)
 
@@ -6982,6 +7089,12 @@ def respond_mentorship_request_for_user(tg: int, request_id: int, action: str) -
 
 def mentor_teach_for_user(tg: int, disciple_tg: int) -> dict[str, Any]:
     now = utcnow()
+    mentor_upgraded_layers: list[int] = []
+    disciple_upgraded_layers: list[int] = []
+    mentor_remaining = 0
+    disciple_remaining = 0
+    mentor_stage = FIRST_REALM_STAGE
+    disciple_stage = FIRST_REALM_STAGE
     with Session() as session:
         relation = _pair_mentorship(session, tg, disciple_tg, for_update=True)
         if relation is None or normalize_mentorship_status(relation.status) != "active":
@@ -7009,8 +7122,10 @@ def mentor_teach_for_user(tg: int, disciple_tg: int) -> dict[str, Any]:
         attribute_growth = _apply_activity_stat_growth_to_profile_row(disciple, "practice", disciple_bundle.get("stats"))
         bond_gain = min(8 + stage_gap * 2, 20)
 
-        _settle_profile_cultivation(mentor, mentor_gain)
-        _settle_profile_cultivation(disciple, disciple_gain)
+        mentor_stage = normalize_realm_stage(mentor.realm_stage or FIRST_REALM_STAGE)
+        disciple_stage = normalize_realm_stage(disciple.realm_stage or FIRST_REALM_STAGE)
+        _, _, mentor_upgraded_layers, mentor_remaining = _settle_profile_cultivation(mentor, mentor_gain)
+        _, _, disciple_upgraded_layers, disciple_remaining = _settle_profile_cultivation(disciple, disciple_gain)
         relation.bond_value = int(relation.bond_value or 0) + bond_gain
         relation.teach_count = int(relation.teach_count or 0) + 1
         relation.last_teach_at = now
@@ -7022,6 +7137,8 @@ def mentor_teach_for_user(tg: int, disciple_tg: int) -> dict[str, Any]:
 
     unlocks = record_achievement_progress(int(tg), {"mentor_teach_count": 1}, source="mentorship_teach")["unlocks"]
     disciple_name = _profile_display_label(serialize_profile(get_profile(int(disciple_tg), create=False)), "弟子")
+    disciple_breakthrough_text = _mentorship_breakthrough_text(disciple_stage, disciple_upgraded_layers)
+    mentor_breakthrough_text = _mentorship_breakthrough_text(mentor_stage, mentor_upgraded_layers)
     create_journal(int(tg), "mentorship", "传道授业", f"今日为 {disciple_name} 传道一次，师徒缘增加 {bond_gain}。")
     create_journal(int(disciple_tg), "mentorship", "得师尊传道", f"{_profile_display_label(serialize_profile(get_profile(int(tg), create=False)), '师尊')} 今日为你传道一次。")
     return {
@@ -7033,15 +7150,28 @@ def mentor_teach_for_user(tg: int, disciple_tg: int) -> dict[str, Any]:
         "bond_value": current_bond,
         "bond_label": _mentorship_bond_label(current_bond),
         "attribute_growth": attribute_growth.get("changes") or [],
+        "disciple_upgraded_layers": disciple_upgraded_layers,
+        "mentor_upgraded_layers": mentor_upgraded_layers,
+        "disciple_remaining": disciple_remaining,
+        "mentor_remaining": mentor_remaining,
         "disciple_gain_raw": disciple_meta.get("base_gain", raw_disciple_gain),
         "mentor_gain_raw": mentor_meta.get("base_gain", raw_mentor_gain),
         "achievement_unlocks": unlocks,
-        "message": f"你为 {disciple_name} 讲解一轮功法关窍，对方获得 {disciple_gain} 修为，你自身也沉淀了 {mentor_gain} 修为。",
+        "message": (
+            f"你为 {disciple_name} 讲解一轮功法关窍，对方获得 {disciple_gain} 修为{disciple_breakthrough_text}，"
+            f"你自身也沉淀了 {mentor_gain} 修为{mentor_breakthrough_text}。"
+        ),
     }
 
 
 def consult_mentor_for_user(tg: int) -> dict[str, Any]:
     now = utcnow()
+    mentor_upgraded_layers: list[int] = []
+    disciple_upgraded_layers: list[int] = []
+    mentor_remaining = 0
+    disciple_remaining = 0
+    mentor_stage = FIRST_REALM_STAGE
+    disciple_stage = FIRST_REALM_STAGE
     with Session() as session:
         relation = _active_mentorship_for_disciple(session, tg, for_update=True)
         if relation is None or normalize_mentorship_status(relation.status) != "active":
@@ -7068,8 +7198,10 @@ def consult_mentor_for_user(tg: int) -> dict[str, Any]:
             setattr(disciple, key, int(getattr(disciple, key, 0) or 0) + int(delta or 0))
 
         bond_gain = min(6 + stage_gap, 14)
-        _settle_profile_cultivation(disciple, disciple_gain)
-        _settle_profile_cultivation(mentor, mentor_gain)
+        disciple_stage = normalize_realm_stage(disciple.realm_stage or FIRST_REALM_STAGE)
+        mentor_stage = normalize_realm_stage(mentor.realm_stage or FIRST_REALM_STAGE)
+        _, _, disciple_upgraded_layers, disciple_remaining = _settle_profile_cultivation(disciple, disciple_gain)
+        _, _, mentor_upgraded_layers, mentor_remaining = _settle_profile_cultivation(mentor, mentor_gain)
         relation.bond_value = int(relation.bond_value or 0) + bond_gain
         relation.consult_count = int(relation.consult_count or 0) + 1
         relation.last_consult_at = now
@@ -7081,6 +7213,8 @@ def consult_mentor_for_user(tg: int) -> dict[str, Any]:
 
     unlocks = record_achievement_progress(int(tg), {"disciple_consult_count": 1}, source="mentorship_consult")["unlocks"]
     mentor_name = _profile_display_label(serialize_profile(get_profile(mentor_tg, create=False)), "师尊")
+    disciple_breakthrough_text = _mentorship_breakthrough_text(disciple_stage, disciple_upgraded_layers)
+    mentor_breakthrough_text = _mentorship_breakthrough_text(mentor_stage, mentor_upgraded_layers)
     create_journal(int(tg), "mentorship", "向师尊问道", f"今日向 {mentor_name} 问道一次，师徒缘增加 {bond_gain}。")
     create_journal(mentor_tg, "mentorship", "为弟子解惑", f"{_profile_display_label(serialize_profile(get_profile(int(tg), create=False)), '弟子')} 今日前来问道。")
     return {
@@ -7090,8 +7224,15 @@ def consult_mentor_for_user(tg: int) -> dict[str, Any]:
         "mentor_gain": mentor_gain,
         "bond_gain": bond_gain,
         "attribute_growth": growth.get("changes") or [],
+        "disciple_upgraded_layers": disciple_upgraded_layers,
+        "mentor_upgraded_layers": mentor_upgraded_layers,
+        "disciple_remaining": disciple_remaining,
+        "mentor_remaining": mentor_remaining,
         "achievement_unlocks": unlocks,
-        "message": f"你向 {mentor_name} 问清了几处修行疑难，获得 {disciple_gain} 修为，并在细节上有了新的体悟。",
+        "message": (
+            f"你向 {mentor_name} 问清了几处修行疑难，获得 {disciple_gain} 修为{disciple_breakthrough_text}，"
+            f"师尊也因点拨沉淀了 {mentor_gain} 修为{mentor_breakthrough_text}。"
+        ),
     }
 
 
@@ -8116,29 +8257,30 @@ def create_personal_shop_listing(
         raise ValueError("闭关期间无法上架个人商店。")
     assert_currency_operation_allowed(tg, "上架坊市", profile=profile)
 
+    normalized_kind = str(item_kind or "").strip()
     item_name = ""
-    if item_kind == "artifact":
+    if normalized_kind == "artifact":
         artifact = get_artifact(item_ref_id)
         if artifact is None:
             raise ValueError("未找到目标法宝。")
         if not use_user_artifact_listing_stock(tg, item_ref_id, quantity):
             raise ValueError("可交易的法宝数量不足，已绑定或已装备的法宝无法上架。")
         item_name = artifact.name
-    elif item_kind == "pill":
+    elif normalized_kind == "pill":
         pill = get_pill(item_ref_id)
         if pill is None:
             raise ValueError("未找到目标丹药。")
         if not use_user_pill_listing_stock(tg, item_ref_id, quantity):
             raise ValueError("背包里的丹药数量不足。")
         item_name = pill.name
-    elif item_kind == "material":
+    elif normalized_kind == "material":
         material = get_material(item_ref_id)
         if material is None:
             raise ValueError("未找到目标材料。")
         if not use_user_material_listing_stock(tg, item_ref_id, quantity):
             raise ValueError("背包里的材料数量不足。")
         item_name = material.name
-    elif item_kind == "talisman":
+    elif normalized_kind == "talisman":
         talisman = get_talisman(item_ref_id)
         if talisman is None:
             raise ValueError("未找到目标符箓。")
@@ -8157,35 +8299,64 @@ def create_personal_shop_listing(
 
     resolved_shop_name = str(shop_name or profile.shop_name or PERSONAL_SHOP_NAME).strip() or PERSONAL_SHOP_NAME
 
-    listing = create_shop_item(
-        owner_tg=tg,
-        shop_name=resolved_shop_name,
-        item_kind=item_kind,
-        item_ref_id=item_ref_id,
-        item_name=item_name,
-        quantity=quantity,
-        price_stone=price_stone,
-        is_official=False,
-    )
+    try:
+        listing = create_shop_item(
+            owner_tg=tg,
+            shop_name=resolved_shop_name,
+            item_kind=normalized_kind,
+            item_ref_id=item_ref_id,
+            item_name=item_name,
+            quantity=quantity,
+            price_stone=price_stone,
+            is_official=False,
+        )
+    except Exception:
+        _rollback_consumed_item_or_raise(
+            tg,
+            normalized_kind,
+            item_ref_id,
+            quantity,
+            action_text="上架坊市",
+            item_name=item_name or f"{normalized_kind}#{item_ref_id}",
+        )
+        raise
 
-    with Session() as session:
-        updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
-        if updated is None or not updated.consented:
-            raise ValueError("你还没有踏入仙途。")
-        if broadcast and final_broadcast_cost > 0:
-            apply_spiritual_stone_delta(
-                session,
-                tg,
-                -final_broadcast_cost,
-                action_text="支付坊市播报费用",
-                enforce_currency_lock=True,
-                allow_dead=False,
-                apply_tribute=False,
-            )
-        updated.shop_name = resolved_shop_name
-        updated.shop_broadcast = bool(broadcast)
-        updated.updated_at = utcnow()
-        session.commit()
+    try:
+        with Session() as session:
+            updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+            if updated is None or not updated.consented:
+                raise ValueError("你还没有踏入仙途。")
+            if broadcast and final_broadcast_cost > 0:
+                apply_spiritual_stone_delta(
+                    session,
+                    tg,
+                    -final_broadcast_cost,
+                    action_text="支付坊市播报费用",
+                    enforce_currency_lock=True,
+                    allow_dead=False,
+                    apply_tribute=False,
+                )
+            updated.shop_name = resolved_shop_name
+            updated.shop_broadcast = bool(broadcast)
+            updated.updated_at = utcnow()
+            session.commit()
+    except Exception:
+        listing_id = int((listing or {}).get("id") or 0)
+        try:
+            if listing_id > 0:
+                sql_cancel_personal_shop_item(tg, listing_id)
+            else:
+                _rollback_consumed_item_or_raise(
+                    tg,
+                    normalized_kind,
+                    item_ref_id,
+                    quantity,
+                    action_text="上架坊市",
+                    item_name=item_name or f"{normalized_kind}#{item_ref_id}",
+                )
+        except Exception as rollback_exc:
+            raise RuntimeError("上架坊市失败，且自动撤销上架时出错，请尽快联系管理员处理。") from rollback_exc
+        raise
 
     return {
         "listing": listing,
@@ -8211,36 +8382,37 @@ def create_personal_auction_listing(
         raise ValueError("闭关期间无法发起拍卖。")
     assert_currency_operation_allowed(tg, "发起拍卖", profile=profile)
 
+    normalized_kind = str(item_kind or "").strip()
     item_name = ""
-    if item_kind == "artifact":
+    if normalized_kind == "artifact":
         artifact = get_artifact(item_ref_id)
         if artifact is None:
             raise ValueError("未找到目标法宝。")
         if not use_user_artifact_listing_stock(tg, item_ref_id, quantity):
             raise ValueError("可交易的法宝数量不足，已绑定或已装备的法宝无法拍卖。")
         item_name = artifact.name
-    elif item_kind == "pill":
+    elif normalized_kind == "pill":
         pill = get_pill(item_ref_id)
         if pill is None:
             raise ValueError("未找到目标丹药。")
         if not use_user_pill_listing_stock(tg, item_ref_id, quantity):
             raise ValueError("背包里的丹药数量不足。")
         item_name = pill.name
-    elif item_kind == "material":
+    elif normalized_kind == "material":
         material = get_material(item_ref_id)
         if material is None:
             raise ValueError("未找到目标材料。")
         if not use_user_material_listing_stock(tg, item_ref_id, quantity):
             raise ValueError("背包里的材料数量不足。")
         item_name = material.name
-    elif item_kind == "talisman":
+    elif normalized_kind == "talisman":
         talisman = get_talisman(item_ref_id)
         if talisman is None:
             raise ValueError("未找到目标符箓。")
         if not use_user_talisman_listing_stock(tg, item_ref_id, quantity):
             raise ValueError("可交易的符箓数量不足，已绑定的符箓无法拍卖。")
         item_name = talisman.name
-    elif item_kind == "technique":
+    elif normalized_kind == "technique":
         technique = get_technique(item_ref_id)
         if technique is None or not technique.enabled:
             raise ValueError("未找到目标功法。")
@@ -8264,19 +8436,30 @@ def create_personal_auction_listing(
         or (f"@{profile.username}" if str(profile.username or "").strip() else f"TG {tg}")
     )
 
-    auction = create_auction_item(
-        owner_tg=tg,
-        owner_display_name=resolved_seller_name,
-        item_kind=item_kind,
-        item_ref_id=item_ref_id,
-        item_name=item_name,
-        quantity=quantity,
-        opening_price_stone=opening_price_stone,
-        bid_increment_stone=bid_increment_stone,
-        buyout_price_stone=buyout_price_stone,
-        fee_percent=fee_percent,
-        end_at=utcnow() + timedelta(minutes=duration_minutes),
-    )
+    try:
+        auction = create_auction_item(
+            owner_tg=tg,
+            owner_display_name=resolved_seller_name,
+            item_kind=normalized_kind,
+            item_ref_id=item_ref_id,
+            item_name=item_name,
+            quantity=quantity,
+            opening_price_stone=opening_price_stone,
+            bid_increment_stone=bid_increment_stone,
+            buyout_price_stone=buyout_price_stone,
+            fee_percent=fee_percent,
+            end_at=utcnow() + timedelta(minutes=duration_minutes),
+        )
+    except Exception:
+        _rollback_consumed_item_or_raise(
+            tg,
+            normalized_kind,
+            item_ref_id,
+            quantity,
+            action_text="发起拍卖",
+            item_name=item_name or f"{normalized_kind}#{item_ref_id}",
+        )
+        raise
     return {
         "auction": auction,
         "duration_minutes": duration_minutes,
@@ -8338,18 +8521,7 @@ def recycle_item_to_official_shop(
 
     normalized_kind = str(item_kind or "").strip()
     requested_quantity = max(int(quantity or 0), 1)
-    current_bundle = serialize_full_profile(tg)
-    current_bundle["materials"] = list_user_materials(tg)
-    quote_bundle = attach_official_recycle_quotes(current_bundle)
-    quote = next(
-        (
-            row
-            for row in quote_bundle.get("official_recycle", {}).get("items") or []
-            if str(row.get("item_kind") or "").strip() == normalized_kind
-            and int(row.get("item_ref_id") or 0) == int(item_ref_id)
-        ),
-        None,
-    )
+    quote = _find_official_recycle_quote_for_user(tg, normalized_kind, int(item_ref_id))
     insufficient_messages = {
         "artifact": "可归炉的法宝数量不足，已绑定或已装备的法宝无法归炉。",
         "pill": "背包里的丹药数量不足，无法完成归炉。",
@@ -8367,6 +8539,11 @@ def recycle_item_to_official_shop(
     available_quantity = max(int(quote.get("available_quantity") or 0), 0)
     if available_quantity < requested_quantity:
         raise ValueError(insufficient_messages.get(normalized_kind, "当前没有足够的可归炉物品。"))
+
+    unit_price = max(int(quote.get("unit_price_stone") or 0), 0)
+    total_price = unit_price * requested_quantity
+    if total_price <= 0:
+        raise ValueError("该物品当前无法归炉。")
 
     if normalized_kind == "artifact":
         if not use_user_artifact_listing_stock(tg, item_ref_id, requested_quantity):
@@ -8393,22 +8570,28 @@ def recycle_item_to_official_shop(
     else:
         raise ValueError("当前物品类型暂不支持万宝归炉。")
 
-    unit_price = max(int(quote.get("unit_price_stone") or 0), 0)
-    total_price = unit_price * requested_quantity
-    if total_price <= 0:
-        raise ValueError("该物品当前无法归炉。")
-
-    with Session() as session:
-        stone_result = apply_spiritual_stone_delta(
-            session,
+    try:
+        with Session() as session:
+            apply_spiritual_stone_delta(
+                session,
+                tg,
+                total_price,
+                action_text=OFFICIAL_RECYCLE_NAME,
+                enforce_currency_lock=True,
+                allow_dead=False,
+                apply_tribute=True,
+            )
+            session.commit()
+    except Exception:
+        _rollback_consumed_item_or_raise(
             tg,
-            total_price,
+            normalized_kind,
+            item_ref_id,
+            requested_quantity,
             action_text=OFFICIAL_RECYCLE_NAME,
-            enforce_currency_lock=True,
-            allow_dead=False,
-            apply_tribute=True,
+            item_name=quote.get("item_name") or f"{normalized_kind}#{item_ref_id}",
         )
-        session.commit()
+        raise
 
     return {
         "shop_name": OFFICIAL_RECYCLE_NAME,
