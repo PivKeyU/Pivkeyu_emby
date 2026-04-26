@@ -50,6 +50,14 @@ services:
       redis:
         condition: service_healthy
     environment:
+      PIVKEYU_BOT_TOKEN: ${PIVKEYU_BOT_TOKEN:-}
+      PIVKEYU_OWNER_API: ${PIVKEYU_OWNER_API:-}
+      PIVKEYU_OWNER_HASH: ${PIVKEYU_OWNER_HASH:-}
+      BOT_TOKEN: ${BOT_TOKEN:-}
+      OWNER_API: ${OWNER_API:-}
+      OWNER_HASH: ${OWNER_HASH:-}
+      API_ID: ${API_ID:-}
+      API_HASH: ${API_HASH:-}
       PIVKEYU_NOFILE_SOFT: 131072
       PIVKEYU_DB_STARTUP_MAX_RETRIES: 20
       PIVKEYU_DB_STARTUP_RETRY_DELAY: 3

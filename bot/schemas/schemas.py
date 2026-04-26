@@ -23,6 +23,7 @@ DEFAULT_DB_PORTS = {
 DEFAULT_CONFIG_PATH = Path("data/config.json")
 LEGACY_CONFIG_PATH = Path("config.json")
 CONFIG_EXAMPLE_PATH = Path("config_example.json")
+PLACEHOLDER_OWNER_API_VALUES = {0, 73711, 12345678}
 
 
 def _normalize_backend_name(value: str | None) -> str:
@@ -61,6 +62,58 @@ def _infer_backend_from_legacy_config(config: dict) -> str:
         return "postgresql"
 
     return DEFAULT_DB_BACKEND
+
+
+def _normalize_text(value) -> str:
+    return str(value or "").strip()
+
+
+def _is_placeholder_text(value) -> bool:
+    normalized = _normalize_text(value).lower()
+    if not normalized:
+        return True
+    return (
+        "replace_with" in normalized
+        or normalized == "your_bot_username_without_at"
+        or normalized == "your_main_group_username"
+        or normalized == "your_channel_username"
+        or normalized.startswith("1234567890:")
+        or normalized.startswith("5701:aa")
+    )
+
+
+def _is_placeholder_owner_api(value) -> bool:
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError):
+        return True
+    return normalized <= 0 or normalized in PLACEHOLDER_OWNER_API_VALUES
+
+
+def _read_env_text(*names: str) -> Optional[str]:
+    for name in names:
+        raw = os.getenv(name)
+        if raw is None:
+            continue
+        normalized = str(raw).strip()
+        if normalized:
+            return normalized
+    return None
+
+
+def _read_env_int(*names: str) -> Optional[int]:
+    for name in names:
+        raw = os.getenv(name)
+        if raw is None:
+            continue
+        normalized = str(raw).strip()
+        if not normalized:
+            continue
+        try:
+            return int(normalized)
+        except ValueError:
+            continue
+    return None
 
 class ExDate(BaseModel):
     mon: int = 30
@@ -297,6 +350,54 @@ class Config(BaseModel):
 
     @classmethod
     def apply_runtime_defaults(cls, config: dict) -> dict:
+        legacy_telegram_aliases = {
+            "owner_api": ("api_id",),
+            "owner_hash": ("api_hash",),
+        }
+
+        for target_key, alias_keys in legacy_telegram_aliases.items():
+            current_value = config.get(target_key)
+            needs_alias = (
+                _is_placeholder_owner_api(current_value)
+                if target_key == "owner_api"
+                else _is_placeholder_text(current_value)
+            )
+            if not needs_alias:
+                continue
+
+            for alias_key in alias_keys:
+                alias_value = config.get(alias_key)
+                alias_invalid = (
+                    _is_placeholder_owner_api(alias_value)
+                    if target_key == "owner_api"
+                    else _is_placeholder_text(alias_value)
+                )
+                if alias_invalid:
+                    continue
+                config[target_key] = int(alias_value) if target_key == "owner_api" else _normalize_text(alias_value)
+                break
+
+        telegram_env_candidates = {
+            "bot_token": ("PIVKEYU_BOT_TOKEN", "BOT_TOKEN", "TELEGRAM_BOT_TOKEN"),
+            "owner_api": ("PIVKEYU_OWNER_API", "OWNER_API", "API_ID"),
+            "owner_hash": ("PIVKEYU_OWNER_HASH", "OWNER_HASH", "API_HASH"),
+        }
+
+        if _is_placeholder_text(config.get("bot_token")):
+            env_bot_token = _read_env_text(*telegram_env_candidates["bot_token"])
+            if env_bot_token and not _is_placeholder_text(env_bot_token):
+                config["bot_token"] = env_bot_token
+
+        if _is_placeholder_owner_api(config.get("owner_api")):
+            env_owner_api = _read_env_int(*telegram_env_candidates["owner_api"])
+            if env_owner_api is not None and not _is_placeholder_owner_api(env_owner_api):
+                config["owner_api"] = env_owner_api
+
+        if _is_placeholder_text(config.get("owner_hash")):
+            env_owner_hash = _read_env_text(*telegram_env_candidates["owner_hash"])
+            if env_owner_hash and not _is_placeholder_text(env_owner_hash):
+                config["owner_hash"] = env_owner_hash
+
         defaults = {
             "db_backend": DEFAULT_DB_BACKEND,
             "db_host": DEFAULT_DB_HOST,
