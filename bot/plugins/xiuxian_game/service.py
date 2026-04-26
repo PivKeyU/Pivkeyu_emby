@@ -11275,6 +11275,7 @@ def consume_pill_for_user(tg: int, pill_id: int, quantity: int = 1) -> dict[str,
         raise ValueError("未找到可用的丹药。")
     pill_data = serialize_pill(pill)
     profile_data: dict[str, Any] = {}
+    profile_after: dict[str, Any] = {}
     effects: dict[str, Any] = {}
     requested_quantity = max(int(quantity or 0), 1)
     batch_usable = _pill_supports_batch_use(pill_data)
@@ -11319,8 +11320,8 @@ def consume_pill_for_user(tg: int, pill_id: int, quantity: int = 1) -> dict[str,
         profile.updated_at = now
         _queue_profile_cache_invalidation(session, tg)
         _queue_user_view_cache_invalidation(session, tg)
+        profile_after = serialize_profile(profile) or {}
         session.commit()
-    bundle = serialize_full_profile(tg)
     return {
         "pill": {
             **pill_data,
@@ -11328,8 +11329,8 @@ def consume_pill_for_user(tg: int, pill_id: int, quantity: int = 1) -> dict[str,
             "batch_usable": batch_usable,
             "batch_use_note": _pill_batch_use_note(pill_data),
         },
-        "profile": bundle,
-        "summary": _pill_effect_summary(profile_data, bundle["profile"]),
+        "profile": profile_after,
+        "summary": _pill_effect_summary(profile_data, profile_after),
         "used_quantity": requested_quantity,
         "batch_used": requested_quantity > 1,
     }

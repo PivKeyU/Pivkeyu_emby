@@ -1617,6 +1617,11 @@ function queueOpenLazyFoldCards() {
   deferUiWork(renderOpenLazyFoldCards);
 }
 
+function warmDeferredBundleForInteraction() {
+  if (!state.profileBundle || state.deferredBundleLoaded || state.deferredBundleLoading) return;
+  loadDeferredBundle({ silent: true }).catch(() => null);
+}
+
 function keepShortcutVisible(shortcuts, button) {
   if (!shortcuts || !button) return;
   if (shortcuts.scrollWidth <= shortcuts.clientWidth + 4) return;
@@ -1729,6 +1734,17 @@ function setupFoldToolbar() {
   document.querySelectorAll(".fold-card").forEach((card) => {
     if (card.dataset.foldToolbarBound) return;
     card.dataset.foldToolbarBound = "1";
+    const summary = card.querySelector("summary");
+    if (summary && !summary.dataset.deferredPrefetchBound) {
+      summary.dataset.deferredPrefetchBound = "1";
+      const prefetchDeferredBundle = () => {
+        if (DEFERRED_SECTION_IDS.has(card.id)) {
+          warmDeferredBundleForInteraction();
+        }
+      };
+      summary.addEventListener("pointerdown", prefetchDeferredBundle, { passive: true });
+      summary.addEventListener("focus", prefetchDeferredBundle);
+    }
     card.addEventListener("toggle", () => {
       syncFoldToolbar();
       if (card.open) {
@@ -2320,15 +2336,6 @@ function renderProfile(bundle) {
   ["#shop-item-kind", "#shop-item-ref", "#shop-quantity", "#shop-price", "#shop-name", "#shop-broadcast"]
     .forEach((selector) => setDisabled(document.querySelector(selector), retreating, shopDisabledReason));
   setDisabled(document.querySelector("#personal-shop-form button[type='submit']"), retreating, shopDisabledReason);
-
-  renderArtifactList(bundle.artifacts || [], retreating, equipLimit, equippedArtifacts.length);
-  renderTalismanList(bundle.talismans || [], retreating);
-  renderPillList(bundle.pills || [], retreating);
-  renderOfficialShop(bundle.official_shop || [], retreating);
-  renderPersonalShop(bundle.personal_shop || []);
-  renderCommunityShop(bundle.community_shop || [], retreating);
-  renderInventorySelect();
-  renderJournalArea(bundle);
 }
 
 function renderArtifactList(items, retreating, equipLimit, equippedCount) {
@@ -3733,7 +3740,7 @@ function scheduleDeferredBootstrapWork() {
   if (connection?.saveData || /2g/i.test(String(connection?.effectiveType || ""))) {
     return;
   }
-  window.setTimeout(() => deferUiWork(runner), 4200);
+  window.setTimeout(() => deferUiWork(runner), 1400);
 }
 
 async function refreshBundle({ background = false } = {}) {
@@ -3774,19 +3781,41 @@ async function refreshBundle({ background = false } = {}) {
   return state.bundleRefreshPromise;
 }
 
-function syncActionBundle(payload, { backgroundFallback = true } = {}) {
+function applyReturnedBundle(payload, { backgroundFallback = true } = {}) {
+  if (payload?.bundle_patch) {
+    const mergedBundle = mergeBundleData(state.profileBundle, payload.bundle_patch);
+    applyProfileBundle(mergedBundle);
+    return Promise.resolve(mergedBundle);
+  }
+
   const bundle = extractBundleCandidate(payload);
   if (bundle) {
+    if (payload?.bundle_mode === "core") {
+      const mergedBundle = state.profileBundle ? mergeBundleData(state.profileBundle, bundle) : bundle;
+      state.deferredBundleLoaded = false;
+      state.deferredBundlePromise = null;
+      applyProfileBundle(mergedBundle);
+      const deferredTask = loadDeferredBundle({ silent: backgroundFallback });
+      if (backgroundFallback) {
+        deferredTask.catch((error) => console.warn("xiuxian deferred bundle refresh failed", error));
+      }
+      return Promise.resolve(mergedBundle);
+    }
     state.deferredBundleLoaded = true;
     applyProfileBundle(bundle);
     return Promise.resolve(bundle);
   }
+
   const refreshTask = refreshBundle({ background: backgroundFallback });
   if (backgroundFallback) {
     refreshTask.catch((error) => console.warn("xiuxian bundle refresh failed", error));
     return Promise.resolve(null);
   }
   return refreshTask;
+}
+
+function syncActionBundle(payload, { backgroundFallback = true } = {}) {
+  return applyReturnedBundle(payload, { backgroundFallback });
 }
 
 function refreshLeaderboardInBackground(kind = state.leaderboard.kind, page = state.leaderboard.page) {
@@ -4828,7 +4857,7 @@ document.querySelector("#gender-set-form")?.addEventListener("submit", async (ev
     const payload = await runButtonAction(button, "设置中…", () => postJson("/plugins/xiuxian/api/gender/set", {
       gender,
     }));
-    if (payload.bundle) applyProfileBundle(payload.bundle);
+    applyReturnedBundle(payload);
     const result = payload.result || {};
     setStatus(result.message || "性别设置已更新。", "success");
     await popup("设置成功", result.message || "性别设置已更新。");
@@ -4911,7 +4940,7 @@ document.querySelector("#marriage-request-form")?.addEventListener("submit", asy
       target_tg: target.tg,
       message: document.querySelector("#marriage-request-message")?.value?.trim?.() || "",
     }));
-    if (payload.bundle) applyProfileBundle(payload.bundle);
+    applyReturnedBundle(payload);
     const result = payload.result || {};
     setMarriageTarget(null);
     const messageInput = document.querySelector("#marriage-request-message");
@@ -5002,7 +5031,7 @@ document.querySelector("#mentorship-request-form")?.addEventListener("submit", a
       sponsor_role: sponsorRole,
       message: document.querySelector("#mentorship-request-message")?.value?.trim?.() || "",
     }));
-    if (payload.bundle) applyProfileBundle(payload.bundle);
+    applyReturnedBundle(payload);
     setMentorshipTarget(null);
     const requestText = payload.result?.request?.sponsor_role_label || mentorshipRequestRoleLabel(sponsorRole);
     setStatus(`已向 ${target.display_label || `TG ${target.tg}`} 递出${requestText}。`, "success");
@@ -7155,7 +7184,7 @@ document.addEventListener("click", async (event) => {
     const payload = await runButtonAction(button, "采补中…", () => postJson("/plugins/xiuxian/api/furnace/harvest", {
       target_tg: targetTg,
     }));
-    if (payload.bundle) applyProfileBundle(payload.bundle);
+    applyReturnedBundle(payload);
     const result = payload.result || {};
     const lines = [String(result.message || "本次采补已完成。").trim()];
     lines.push(`主人修为 +${Number(result.master_gain || 0)}`);
@@ -7469,7 +7498,7 @@ document.querySelector("#farm-plant-form")?.addEventListener("submit", async (ev
       slot_index: slotIndex,
       material_id: materialId,
     }));
-    if (payload.bundle) applyProfileBundle(payload.bundle);
+    applyReturnedBundle(payload);
     const result = payload.result || {};
     const lines = [result.message || "灵药已经播入灵田。"];
     if (Number(result.seed_cost_stone || 0) > 0) {
@@ -7515,7 +7544,7 @@ document.querySelector("#farm-plot-list")?.addEventListener("click", async (even
 
   try {
     const payload = await runButtonAction(button, pendingText, () => postJson(path, body));
-    if (payload.bundle) applyProfileBundle(payload.bundle);
+    applyReturnedBundle(payload);
     const result = payload.result || {};
     const lines = [result.message || "灵田操作已完成。"];
     if (Number(result.quantity || 0) > 0) {
@@ -7625,12 +7654,7 @@ document.querySelector("#fishing-spot-list")?.addEventListener("click", async (e
     const payload = await runButtonAction(button, "抛竿中…", () => postJson("/plugins/xiuxian/api/fishing/cast", {
       spot_key: spotKey,
     }));
-    if (payload.bundle_patch) {
-      const mergedBundle = mergeBundleData(state.profileBundle, payload.bundle_patch);
-      applyProfileBundle(mergedBundle);
-    } else if (payload.bundle) {
-      applyProfileBundle(payload.bundle);
-    }
+    applyReturnedBundle(payload);
     const result = payload.result || {};
     const rewardName = result.reward_item?.name || "未知物品";
     const lines = [result.message || "你已经顺利完成本次垂钓。"];
@@ -7789,7 +7813,7 @@ document.addEventListener("click", async (event) => {
         request_id: requestId,
         action,
       }));
-      if (payload.bundle) applyProfileBundle(payload.bundle);
+      applyReturnedBundle(payload);
       const result = payload.result || {};
       const title = action === "accept" ? "已结为道侣" : action === "reject" ? "已婉拒" : "已撤回";
       setStatus(result.message || title, action === "accept" ? "success" : "warning");
@@ -7799,7 +7823,7 @@ document.addEventListener("click", async (event) => {
 
     if (dualButton) {
       const payload = await runButtonAction(dualButton, "双修中…", () => postJson("/plugins/xiuxian/api/marriage/dual-cultivate", {}));
-      if (payload.bundle) applyProfileBundle(payload.bundle);
+      applyReturnedBundle(payload);
       const result = payload.result || {};
       const lines = [result.message || "本次双修已完成。"];
       lines.push(`你获得修为 +${Number(result.actor_gain || 0)}`);
@@ -7812,7 +7836,7 @@ document.addEventListener("click", async (event) => {
 
     if (divorceButton) {
       const payload = await runButtonAction(divorceButton, "分家中…", () => postJson("/plugins/xiuxian/api/marriage/divorce", {}));
-      if (payload.bundle) applyProfileBundle(payload.bundle);
+      applyReturnedBundle(payload);
       const result = payload.result || {};
       const lines = [result.message || "双方已经和离。"];
       lines.push(`${result.husband_name || "男方"} 灵石 ${Number(result.husband_stone || 0)}`);
@@ -7844,7 +7868,7 @@ document.addEventListener("click", async (event) => {
         request_id: requestId,
         action,
       }));
-      if (payload.bundle) applyProfileBundle(payload.bundle);
+      applyReturnedBundle(payload);
       const result = payload.result || {};
       const title = action === "accept" ? "师徒已结成" : action === "reject" ? "已婉拒" : "已撤回";
       setStatus(result.message || title, action === "accept" ? "success" : "warning");
@@ -7857,7 +7881,7 @@ document.addEventListener("click", async (event) => {
       const payload = await runButtonAction(teachButton, "传道中…", () => postJson("/plugins/xiuxian/api/mentorship/teach", {
         disciple_tg: discipleTg,
       }));
-      if (payload.bundle) applyProfileBundle(payload.bundle);
+      applyReturnedBundle(payload);
       const result = payload.result || {};
       const growthText = attributeGrowthText(result.attribute_growth || [], "额外感悟");
       const message = result.message || `本次传道已完成，弟子修为 +${result.disciple_gain || 0}。`;
@@ -7871,7 +7895,7 @@ document.addEventListener("click", async (event) => {
 
     if (consultButton) {
       const payload = await runButtonAction(consultButton, "问道中…", () => postJson("/plugins/xiuxian/api/mentorship/consult", {}));
-      if (payload.bundle) applyProfileBundle(payload.bundle);
+      applyReturnedBundle(payload);
       const result = payload.result || {};
       const growthText = attributeGrowthText(result.attribute_growth || [], "额外领悟");
       const message = result.message || `本次问道已完成，修为 +${result.disciple_gain || 0}。`;
@@ -7888,7 +7912,7 @@ document.addEventListener("click", async (event) => {
       const payload = await runButtonAction(graduateButton, "出师中…", () => postJson("/plugins/xiuxian/api/mentorship/graduate", {
         target_tg: targetTg,
       }));
-      if (payload.bundle) applyProfileBundle(payload.bundle);
+      applyReturnedBundle(payload);
       const result = payload.result || {};
       const titleRewards = (result.title_rewards || [])
         .map((item) => item?.title?.name)
@@ -7908,7 +7932,7 @@ document.addEventListener("click", async (event) => {
       const payload = await runButtonAction(dissolveButton, "处理中…", () => postJson("/plugins/xiuxian/api/mentorship/dissolve", {
         target_tg: targetTg,
       }));
-      if (payload.bundle) applyProfileBundle(payload.bundle);
+      applyReturnedBundle(payload);
       const result = payload.result || {};
       setStatus(result.message || "师徒关系已解除。", "warning");
       await popup("关系已解除", result.message || "师徒关系已解除。", "warning");
