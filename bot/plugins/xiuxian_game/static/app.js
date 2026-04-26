@@ -4236,7 +4236,10 @@ document.querySelector("#official-recycle-form")?.addEventListener("submit", asy
       quantity: Number(document.querySelector("#official-recycle-quantity")?.value || 1),
     }));
     const result = payload?.result || {};
-    const message = `已归炉 ${result.item_name || "物品"} x${Number(result.quantity || 0)}，到账 ${Number(result.total_price_stone || 0)} 灵石。`;
+    const receivedStone = Number(result.net_stone_gain ?? result.total_price_stone ?? 0);
+    const quotedStone = Number(result.total_price_stone || 0);
+    const quoteSuffix = receivedStone !== quotedStone ? `（报价 ${quotedStone} 灵石）` : "";
+    const message = `已归炉 ${result.item_name || "物品"} x${Number(result.quantity || 0)}，到账 ${receivedStone} 灵石${quoteSuffix}。`;
     setStatus(message, "success");
     syncActionBundle(payload);
     await popup("归炉成功", message);

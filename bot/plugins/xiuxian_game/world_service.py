@@ -125,6 +125,12 @@ from bot.plugins.xiuxian_game.achievement_service import (
 )
 
 
+def _legacy_service():
+    from bot.plugins.xiuxian_game import service as legacy_service
+
+    return legacy_service
+
+
 RARITY_LEVEL_MAP = {
     **QUALITY_LABEL_LEVELS,
     "黄品": 2,

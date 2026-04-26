@@ -5693,7 +5693,8 @@ def _settle_retreat_progress(tg: int) -> dict[str, Any] | None:
     if profile is None or not _is_retreating(profile):
         return None
 
-    now = datetime.now(available_at.tzinfo) if available_at is not None and available_at.tzinfo is not None else utcnow()
+    retreat_end_at = profile.retreat_end_at
+    now = datetime.now(retreat_end_at.tzinfo) if retreat_end_at is not None and retreat_end_at.tzinfo is not None else utcnow()
     end_at = profile.retreat_end_at or now
     started_at = profile.retreat_started_at or now
     total_minutes = max(int(profile.retreat_minutes_total or 0), 0)
@@ -8572,7 +8573,7 @@ def recycle_item_to_official_shop(
 
     try:
         with Session() as session:
-            apply_spiritual_stone_delta(
+            stone_result = apply_spiritual_stone_delta(
                 session,
                 tg,
                 total_price,
@@ -8609,7 +8610,7 @@ def recycle_item_to_official_shop(
         "total_price_stone": total_price,
         "quote_note": quote.get("quote_note") or "",
         "spiritual_stone_after": int(getattr(stone_result.get("profile"), "spiritual_stone", 0) or 0),
-        "net_stone_gain": int(stone_result.get("net_delta") or total_price),
+        "net_stone_gain": int(stone_result.get("net_delta") if stone_result.get("net_delta") is not None else total_price),
     }
 
 

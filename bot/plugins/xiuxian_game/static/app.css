@@ -1468,6 +1468,41 @@ button.is-blocked:not(:disabled) {
     padding: 0 10px 12px;
   }
 
+  .fold-card[open] {
+    border-radius: 14px;
+  }
+
+  .fold-card[open] .fold-body,
+  .fold-card[open] .mini-form,
+  .fold-card[open] .stack-list,
+  .fold-card[open] .compact-grid,
+  .fold-card[open] .action-grid,
+  .fold-card[open] .inventory-columns {
+    gap: 8px;
+  }
+
+  .fold-card[open] .section-copy {
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(37, 41, 50, 0.52);
+  }
+
+  .fold-card[open] .mini-fold {
+    border-radius: 12px;
+  }
+
+  .fold-card[open] .stack-item p {
+    margin-top: 6px;
+    font-size: 12px;
+    line-height: 1.42;
+  }
+
+  .fold-card[open] .item-tags {
+    gap: 5px;
+    margin-top: 8px;
+  }
+
   .mini-fold-body {
     gap: 10px;
     padding: 0 14px 14px;
@@ -1633,6 +1668,21 @@ button.is-blocked:not(:disabled) {
   .mini-fold-body {
     gap: 8px;
     padding: 0 11px 11px;
+  }
+
+  .fold-card[open] .fold-body,
+  .fold-card[open] .mini-form,
+  .fold-card[open] .stack-list,
+  .fold-card[open] .compact-grid,
+  .fold-card[open] .action-grid,
+  .fold-card[open] .inventory-columns {
+    gap: 7px;
+  }
+
+  .fold-card[open] .section-copy {
+    padding: 7px 8px;
+    font-size: 12px;
+    line-height: 1.38;
   }
 
   .profile-item,

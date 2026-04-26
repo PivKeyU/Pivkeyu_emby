@@ -5905,11 +5905,13 @@ def register_web(app) -> None:
             item_ref_id=payload.item_ref_id,
             quantity=payload.quantity,
         )
+        net_stone_gain = result.get("net_stone_gain")
+        received_stone = net_stone_gain if net_stone_gain is not None else result.get("total_price_stone") or 0
         _remember_journal(
             telegram_user["id"],
             "shop",
             "万宝归炉",
-            f"归炉了【{result.get('item_name') or '未知物品'}】x{result.get('quantity') or 0}，到账 {result.get('total_price_stone') or 0} 灵石",
+            f"归炉了【{result.get('item_name') or '未知物品'}】x{result.get('quantity') or 0}，到账 {received_stone} 灵石",
         )
         return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
