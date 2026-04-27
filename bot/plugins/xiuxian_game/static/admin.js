@@ -110,6 +110,7 @@ const ADMIN_SECTION_LABELS = {
   settings: "\u57fa\u7840\u8bbe\u5b9a",
   "duel-settings": "\u6597\u6cd5\u8bbe\u5b9a",
   artifacts: "\u6cd5\u5b9d",
+  "artifact-sets": "套装",
   talismans: "符箓",
   pills: "\u4e39\u836f",
   techniques: "\u529f\u6cd5",
@@ -118,13 +119,44 @@ const ADMIN_SECTION_LABELS = {
   recipes: "\u914d\u65b9",
   scenes: "\u573a\u666f",
   encounters: "奇遇",
+  bosses: "Boss",
   tasks: "\u4efb\u52a1",
+  titles: "称号",
+  achievements: "成就",
   auctions: "拍卖行",
   grant: "\u624b\u52a8\u53d1\u653e",
   "official shop": "\u5b98\u65b9\u5546\u5e97",
   players: "\u89d2\u8272\u7ba1\u7406",
 };
 const ADMIN_CORE_SECTION_KEYS = new Set(["settings", "duel-settings", "tasks", "grant", "official shop", "players"]);
+const ADMIN_ENTITY_DEFINITIONS = {
+  artifact: { collection: "artifacts", label: "法宝", section: "artifacts", formId: "artifact-form", idField: "artifact-id", endpoint: "artifact", editable: true },
+  "artifact-set": { collection: "artifact_sets", label: "套装", section: "artifact-sets", formId: "artifact-set-form", idField: "artifact-set-record-id", endpoint: "artifact-set", editable: true },
+  talisman: { collection: "talismans", label: "符箓", section: "talismans", formId: "talisman-form", idField: "talisman-id", endpoint: "talisman", editable: true },
+  pill: { collection: "pills", label: "丹药", section: "pills", formId: "pill-form", idField: "pill-id", endpoint: "pill", editable: true },
+  technique: { collection: "techniques", label: "功法", section: "techniques", formId: "technique-form", idField: "technique-id", endpoint: "technique", editable: true },
+  sect: { collection: "sects", label: "宗门", section: "sects", formId: "sect-form", idField: "sect-id", endpoint: "sect", editable: true },
+  material: { collection: "materials", label: "材料", section: "materials", formId: "material-form", idField: "material-id", endpoint: "material", editable: true },
+  recipe: { collection: "recipes", label: "配方", section: "recipes", formId: "recipe-form", idField: "recipe-id", endpoint: "recipe", editable: true },
+  scene: { collection: "scenes", label: "场景", section: "scenes", formId: "scene-form", idField: "scene-id", endpoint: "scene", editable: true },
+  encounter: { collection: "encounters", label: "奇遇", section: "encounters", formId: "encounter-form", idField: "encounter-id", endpoint: "encounter", editable: true },
+  boss: { collection: "bosses", label: "Boss", section: "bosses", formId: "boss-form", idField: "boss-id", endpoint: "boss", editable: true },
+  title: { collection: "titles", label: "称号", section: "titles", formId: "title-form", idField: "title-id", endpoint: "title", editable: true },
+  achievement: { collection: "achievements", label: "成就", section: "achievements", formId: "achievement-form", idField: "achievement-id", endpoint: "achievement", editable: true },
+  task: { collection: "tasks", label: "任务", section: "tasks", editable: false },
+  "official-shop": { collection: "official_shop", label: "官方商品", section: "official shop", editable: false },
+  auction: { collection: "auctions", label: "拍卖", section: "auctions", editable: false },
+};
+const ADMIN_ENTITY_LOADERS = {};
+
+const BOSS_LOOT_FIELDS = [
+  ["loot_pills_json", "boss-loot-pills", "pill", "丹药"],
+  ["loot_materials_json", "boss-loot-materials", "material", "材料"],
+  ["loot_artifacts_json", "boss-loot-artifacts", "artifact", "法宝"],
+  ["loot_talismans_json", "boss-loot-talismans", "talisman", "符箓"],
+  ["loot_recipes_json", "boss-loot-recipes", "recipe", "配方"],
+  ["loot_techniques_json", "boss-loot-techniques", "technique", "功法"],
+];
 
 const ITEM_AFFIX_FIELDS = [
   ["attack", "攻击"],
@@ -525,6 +557,7 @@ function adminSectionMeta(card, index = 0) {
 function adminSectionCount(key) {
   const bundle = state.bundle || {};
   if (key === "artifacts") return bundle.artifacts?.length || 0;
+  if (key === "artifact-sets") return bundle.artifact_sets?.length || 0;
   if (key === "talismans") return bundle.talismans?.length || 0;
   if (key === "pills") return bundle.pills?.length || 0;
   if (key === "techniques") return bundle.techniques?.length || 0;
@@ -533,9 +566,12 @@ function adminSectionCount(key) {
   if (key === "recipes") return bundle.recipes?.length || 0;
   if (key === "scenes") return bundle.scenes?.length || 0;
   if (key === "encounters") return bundle.encounters?.length || 0;
+  if (key === "bosses") return bundle.bosses?.length || 0;
   if (key === "tasks") return bundle.tasks?.length || 0;
   if (key === "auctions") return bundle.auctions?.length || 0;
   if (key === "official shop") return bundle.official_shop?.length || 0;
+  if (key === "titles") return bundle.titles?.length || 0;
+  if (key === "achievements") return bundle.achievements?.length || 0;
   if (key === "grant") return bundle.upload_permissions?.length || 0;
   return null;
 }
@@ -575,7 +611,7 @@ function ensureAdminNavigator() {
       <div>
         <p class="eyebrow">\u5feb\u6377\u5bfc\u822a</p>
         <h2>\u5feb\u901f\u5b9a\u4f4d\u8981\u4fee\u6539\u7684\u7248\u5757</h2>
-        <p class="muted">\u652f\u6301\u641c\u7d22\u3001\u5e38\u7528\u7b5b\u9009\u3001\u4e00\u952e\u5c55\u5f00\u6216\u76f4\u8fbe\u533a\u5757\u3002</p>
+        <p class="muted">支持搜索区块、搜索具体条目、快速定位或进入编辑。</p>
       </div>
       <div class="control-actions">
         <button type="button" class="secondary" data-admin-core>\u53ea\u770b\u5e38\u7528</button>
@@ -584,10 +620,17 @@ function ensureAdminNavigator() {
         <button type="button" class="secondary" data-admin-clear-filter>\u6e05\u7a7a\u7b5b\u9009</button>
       </div>
     </div>
-    <label class="control-search">
-      <span>\u641c\u7d22\u533a\u5757</span>
-      <input id="admin-section-search" type="search" placeholder="\u4f8b\u5982\uff1a\u4efb\u52a1\u3001\u5546\u5e97\u3001\u6cd5\u5b9d\u3001\u6750\u6599">
-    </label>
+    <div class="control-search-grid">
+      <label class="control-search">
+        <span>搜索区块</span>
+        <input id="admin-section-search" type="search" placeholder="例如：任务、商店、法宝、材料">
+      </label>
+      <label class="control-search">
+        <span>搜索条目</span>
+        <input id="admin-entity-search" type="search" placeholder="输入名称、ID、描述或类型">
+      </label>
+    </div>
+    <div id="admin-entity-results" class="admin-entity-results hidden"></div>
     <div id="admin-section-pills" class="control-pills"></div>
     <p id="admin-section-empty" class="muted control-empty hidden">\u6ca1\u6709\u627e\u5230\u5339\u914d\u7684\u7ba1\u7406\u533a\u5757\u3002</p>
   `;
@@ -598,7 +641,10 @@ function ensureAdminNavigator() {
   deck.querySelector("[data-admin-clear-filter]")?.addEventListener("click", () => {
     const input = $("admin-section-search");
     if (input) input.value = "";
+    const entityInput = $("admin-entity-search");
+    if (entityInput) entityInput.value = "";
     applyAdminSectionFilter("");
+    renderAdminEntitySearchResults("");
   });
   deck.querySelector("[data-admin-core]")?.addEventListener("click", () => {
     const input = $("admin-section-search");
@@ -607,6 +653,9 @@ function ensureAdminNavigator() {
   });
   $("admin-section-search")?.addEventListener("input", (event) => {
     applyAdminSectionFilter(event.currentTarget?.value || "");
+  });
+  $("admin-entity-search")?.addEventListener("input", (event) => {
+    renderAdminEntitySearchResults(event.currentTarget?.value || "");
   });
 }
 
@@ -628,6 +677,178 @@ function renderAdminNavigator() {
     button.addEventListener("click", () => focusAdminSection(button.dataset.adminSection));
   });
   applyAdminSectionFilter($("admin-section-search")?.value || "");
+  renderAdminEntitySearchResults($("admin-entity-search")?.value || "");
+}
+
+function adminEntityRows(entity) {
+  const def = ADMIN_ENTITY_DEFINITIONS[entity];
+  if (!def?.collection) return [];
+  const rows = state.bundle?.[def.collection] || [];
+  return Array.isArray(rows) ? rows : [];
+}
+
+function adminEntityName(entity, item = {}) {
+  if (entity === "task") return item.title || `任务 #${item.id || "?"}`;
+  if (entity === "official-shop") return item.item_name || `商品 #${item.id || "?"}`;
+  if (entity === "auction") return item.item_name || `拍卖 #${item.id || "?"}`;
+  return item.name || item.title || item.item_name || `${ADMIN_ENTITY_DEFINITIONS[entity]?.label || "条目"} #${item.id || "?"}`;
+}
+
+function adminEntityMeta(entity, item = {}) {
+  const pieces = [`ID ${item.id || "-"}`];
+  if (item.rarity) pieces.push(item.rarity);
+  if (item.quality_label) pieces.push(item.quality_label);
+  if (item.pill_type_label || item.pill_type) pieces.push(item.pill_type_label || item.pill_type);
+  if (item.technique_type_label || item.technique_type) pieces.push(item.technique_type_label || item.technique_type);
+  if (item.recipe_kind_label || item.recipe_kind) pieces.push(item.recipe_kind_label || item.recipe_kind);
+  if (item.task_scope_label || item.task_scope) pieces.push(item.task_scope_label || item.task_scope);
+  if (item.boss_type) pieces.push(bossTypeLabel(item.boss_type));
+  if (item.status_label || item.status) pieces.push(item.status_label || item.status);
+  if (item.enabled === false) pieces.push("停用");
+  if (item.enabled === true) pieces.push("启用");
+  return pieces.filter(Boolean).join(" · ");
+}
+
+function adminEntitySearchText(entity, item = {}) {
+  const def = ADMIN_ENTITY_DEFINITIONS[entity] || {};
+  const primitiveValues = Object.values(item)
+    .filter((value) => ["string", "number", "boolean"].includes(typeof value))
+    .map((value) => String(value));
+  const nestedNames = [
+    item.result_item?.name,
+    item.required_item?.name,
+    item.reward_item?.name,
+    item.material?.name,
+    item.owner_display_name,
+    item.shop_name,
+  ];
+  return [
+    def.label,
+    def.section,
+    adminEntityName(entity, item),
+    adminEntityMeta(entity, item),
+    item.description,
+    item.achievement_key,
+    item.metric_key,
+    ...primitiveValues,
+    ...nestedNames,
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function adminEntityAttrs(entity, id) {
+  return `data-admin-entity="${escapeHtml(entity)}" data-admin-id="${escapeHtml(id || 0)}"`;
+}
+
+function buildAdminEntitySearchResults(rawQuery = "") {
+  const query = String(rawQuery || "").trim().toLowerCase();
+  if (!query) return [];
+  const rows = [];
+  Object.entries(ADMIN_ENTITY_DEFINITIONS).forEach(([entity, def]) => {
+    adminEntityRows(entity).forEach((item) => {
+      const id = Number(item.id || 0);
+      if (!id) return;
+      const text = adminEntitySearchText(entity, item);
+      if (!text.includes(query)) return;
+      rows.push({
+        entity,
+        id,
+        label: def.label,
+        section: ADMIN_SECTION_LABELS[def.section] || def.section || def.label,
+        editable: Boolean(def.editable && ADMIN_ENTITY_LOADERS[entity]),
+        name: adminEntityName(entity, item),
+        meta: adminEntityMeta(entity, item),
+      });
+    });
+  });
+  return rows.sort((left, right) => (
+    String(left.label).localeCompare(String(right.label), "zh-Hans-CN")
+    || String(left.name).localeCompare(String(right.name), "zh-Hans-CN")
+    || left.id - right.id
+  ));
+}
+
+function renderAdminEntitySearchResults(rawQuery = "") {
+  const root = $("admin-entity-results");
+  if (!root) return;
+  const query = String(rawQuery || "").trim();
+  if (!query) {
+    root.classList.add("hidden");
+    root.innerHTML = "";
+    return;
+  }
+  const rows = buildAdminEntitySearchResults(query);
+  const visibleRows = rows.slice(0, 24);
+  root.classList.remove("hidden");
+  if (!visibleRows.length) {
+    root.innerHTML = `<article class="entity-search-empty">没有找到匹配条目。</article>`;
+    return;
+  }
+  root.innerHTML = `
+    <div class="entity-search-head">
+      <strong>条目搜索结果</strong>
+      <span>${escapeHtml(rows.length > visibleRows.length ? `显示前 ${visibleRows.length}/${rows.length} 项` : `共 ${rows.length} 项`)}</span>
+    </div>
+    <div class="entity-search-list">
+      ${visibleRows.map((row) => `
+        <article class="entity-search-item">
+          <div>
+            <span class="tag">${escapeHtml(row.label)}</span>
+            <strong>${escapeHtml(row.name)}</strong>
+            <p>${escapeHtml(row.section)} · ${escapeHtml(row.meta)}</p>
+          </div>
+          <div class="entity-search-actions">
+            <button type="button" class="secondary" data-admin-search-locate="${escapeHtml(row.entity)}" data-id="${escapeHtml(row.id)}">定位</button>
+            ${row.editable ? `<button type="button" data-admin-search-edit="${escapeHtml(row.entity)}" data-id="${escapeHtml(row.id)}">编辑</button>` : ""}
+          </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function findAdminEntity(entity, id) {
+  const targetId = Number(id || 0);
+  if (!targetId) return null;
+  return adminEntityRows(entity).find((row) => Number(row.id || 0) === targetId) || null;
+}
+
+function focusAdminEntity(entity, id) {
+  const def = ADMIN_ENTITY_DEFINITIONS[entity];
+  if (!def?.section) return;
+  const input = $("admin-section-search");
+  if (input?.value) input.value = "";
+  applyAdminSectionFilter("");
+  focusAdminSection(def.section);
+  window.requestAnimationFrame(() => {
+    const node = document.querySelector(`[data-admin-entity="${entity}"][data-admin-id="${Number(id || 0)}"]`);
+    if (!node) return;
+    scrollAdminTargetIntoView(node);
+    pulseTarget(node);
+  });
+}
+
+async function editAdminEntity(entity, id) {
+  const def = ADMIN_ENTITY_DEFINITIONS[entity];
+  const loader = ADMIN_ENTITY_LOADERS[entity];
+  if (!def?.editable || typeof loader !== "function") {
+    await popup("暂不支持编辑", "该模块当前只支持搜索和定位。", "warning");
+    return;
+  }
+  const item = findAdminEntity(entity, id);
+  if (!item) {
+    await popup("编辑失败", `未找到目标${def.label || "条目"}。`, "error");
+    return;
+  }
+  loader(item);
+  const input = $("admin-section-search");
+  if (input?.value) input.value = "";
+  applyAdminSectionFilter("");
+  focusAdminSection(def.section);
+  window.requestAnimationFrame(() => {
+    const form = $(def.formId);
+    scrollAdminTargetIntoView(form || document.querySelector(`[data-admin-entity="${entity}"][data-admin-id="${Number(id || 0)}"]`));
+    pulseTarget(form || document.querySelector(`[data-admin-entity="${entity}"][data-admin-id="${Number(id || 0)}"]`));
+  });
 }
 
 function applyAdminSectionFilter(rawQuery = "", allowedKeys = null) {
@@ -897,6 +1118,200 @@ function sectRows() {
 
 function materialRows() {
   return (state.bundle?.materials || []).map((row) => ({ value: row.id, label: `${row.id} · ${row.name}` }));
+}
+
+function catalogRowsByKind(kind) {
+  const bundle = state.bundle || {};
+  const key = kind === "artifact"
+    ? "artifacts"
+    : kind === "pill"
+      ? "pills"
+      : kind === "talisman"
+        ? "talismans"
+        : kind === "material"
+          ? "materials"
+          : kind === "recipe"
+            ? "recipes"
+            : kind === "technique"
+              ? "techniques"
+              : "";
+  return key ? (bundle[key] || []) : [];
+}
+
+function catalogItemName(kind, refId) {
+  const id = Number(refId || 0);
+  if (!id) return "";
+  const row = catalogRowsByKind(kind).find((item) => Number((item.material || item).id || 0) === id);
+  const payload = row?.material || row;
+  return payload?.name || `${kind}#${id}`;
+}
+
+function bossTypeLabel(type) {
+  return String(type || "personal") === "world" ? "世界 Boss" : "个人 Boss";
+}
+
+function bossLootRows(field, item = {}) {
+  return Array.isArray(item[field]) ? item[field] : [];
+}
+
+function bossLootSummary(item = {}) {
+  const parts = [];
+  for (const [field, , , label] of BOSS_LOOT_FIELDS) {
+    const rows = bossLootRows(field, item);
+    if (rows.length) parts.push(`${label} ${rows.length} 项`);
+  }
+  return parts.join(" · ") || "未配置掉落";
+}
+
+function bossRewardSummary(item = {}) {
+  const stoneMin = Number(item.stone_reward_min || 0);
+  const stoneMax = Number(item.stone_reward_max || 0);
+  const parts = [];
+  if (stoneMax > 0) parts.push(`灵石 ${stoneMin}-${stoneMax}`);
+  if (Number(item.cultivation_reward || 0) > 0) parts.push(`修为 ${item.cultivation_reward}`);
+  parts.push(`门票 ${Number(item.ticket_cost_stone || 0)}`);
+  parts.push(`每日 ${Number(item.daily_attempt_limit || 0)} 次`);
+  return parts.join(" · ");
+}
+
+function bossLootDetailSummary(item = {}) {
+  const lines = [];
+  for (const [field, , kind, label] of BOSS_LOOT_FIELDS) {
+    const rows = bossLootRows(field, item);
+    if (!rows.length) continue;
+    const detail = rows.slice(0, 3).map((row) => {
+      const name = catalogItemName(kind, row.ref_id) || `${kind}#${row.ref_id}`;
+      return `${name} ${row.chance || 0}%`;
+    }).join("、");
+    lines.push(`${label}: ${detail}${rows.length > 3 ? ` 等 ${rows.length} 项` : ""}`);
+  }
+  return lines.join("；") || "掉落为空";
+}
+
+function bossSubmitButton() {
+  return document.querySelector("#boss-form button[type='submit']");
+}
+
+function parseBossLootInput(nodeId) {
+  const raw = $(nodeId)?.value || "";
+  const rows = parseJsonInput(raw, []);
+  if (!Array.isArray(rows)) {
+    throw new Error("Boss 掉落配置必须是 JSON 数组。");
+  }
+  return rows;
+}
+
+function collectBossPayload() {
+  const payload = {
+    name: $("boss-name")?.value.trim() || "",
+    boss_type: $("boss-type")?.value || "personal",
+    realm_stage: $("boss-stage")?.value || "炼气",
+    description: $("boss-description")?.value.trim() || "",
+    image_url: $("boss-image")?.value.trim() || "",
+    hp: Number($("boss-hp")?.value || 500),
+    attack_power: Number($("boss-attack")?.value || 30),
+    defense_power: Number($("boss-defense")?.value || 15),
+    body_movement: Number($("boss-body-movement")?.value || 10),
+    divine_sense: Number($("boss-divine-sense")?.value || 10),
+    fortune: Number($("boss-fortune")?.value || 10),
+    qi_blood: Number($("boss-qi-blood")?.value || $("boss-hp")?.value || 500),
+    true_yuan: Number($("boss-true-yuan")?.value || 200),
+    skill_name: $("boss-skill-name")?.value.trim() || null,
+    skill_ratio_percent: Number($("boss-skill-ratio")?.value || 30),
+    skill_hit_bonus: Number($("boss-skill-hit")?.value || 0),
+    passive_name: $("boss-passive-name")?.value.trim() || null,
+    passive_effect_kind: $("boss-passive-kind")?.value || null,
+    passive_ratio_percent: Number($("boss-passive-ratio")?.value || 0),
+    passive_chance: Number($("boss-passive-chance")?.value || 25),
+    stone_reward_min: Number($("boss-stone-min")?.value || 0),
+    stone_reward_max: Number($("boss-stone-max")?.value || 0),
+    cultivation_reward: Number($("boss-cultivation")?.value || 0),
+    daily_attempt_limit: Number($("boss-daily-limit")?.value || 3),
+    ticket_cost_stone: Number($("boss-ticket-cost")?.value || 100),
+    flavor_text: $("boss-flavor")?.value.trim() || "",
+    sort_order: Number($("boss-sort")?.value || 0),
+    enabled: $("boss-enabled")?.checked !== false,
+  };
+  for (const [field, nodeId] of BOSS_LOOT_FIELDS) {
+    payload[field] = parseBossLootInput(nodeId);
+  }
+  return payload;
+}
+
+function formatBossLootValue(value) {
+  return Array.isArray(value) && value.length ? JSON.stringify(value, null, 2) : "";
+}
+
+function resetBossForm() {
+  setAdminInputValue("boss-id", "");
+  setAdminInputValue("boss-name", "");
+  setAdminInputValue("boss-description", "");
+  setAdminInputValue("boss-image", "");
+  setAdminInputValue("boss-hp", 500);
+  setAdminInputValue("boss-attack", 30);
+  setAdminInputValue("boss-defense", 15);
+  setAdminInputValue("boss-body-movement", 10);
+  setAdminInputValue("boss-divine-sense", 10);
+  setAdminInputValue("boss-fortune", 10);
+  setAdminInputValue("boss-qi-blood", 500);
+  setAdminInputValue("boss-true-yuan", 200);
+  setAdminInputValue("boss-skill-name", "");
+  setAdminInputValue("boss-skill-ratio", 30);
+  setAdminInputValue("boss-skill-hit", 0);
+  setAdminInputValue("boss-passive-name", "");
+  setAdminInputValue("boss-passive-ratio", 0);
+  setAdminInputValue("boss-passive-chance", 25);
+  setAdminInputValue("boss-stone-min", 0);
+  setAdminInputValue("boss-stone-max", 0);
+  setAdminInputValue("boss-cultivation", 0);
+  setAdminInputValue("boss-daily-limit", 3);
+  setAdminInputValue("boss-ticket-cost", 100);
+  setAdminInputValue("boss-flavor", "");
+  setAdminInputValue("boss-sort", 0);
+  BOSS_LOOT_FIELDS.forEach(([, nodeId]) => setAdminInputValue(nodeId, ""));
+  if ($("boss-type")) $("boss-type").value = "personal";
+  if ($("boss-stage")) $("boss-stage").value = "炼气";
+  if ($("boss-passive-kind")) $("boss-passive-kind").value = "";
+  if ($("boss-enabled")) $("boss-enabled").checked = true;
+  const submit = bossSubmitButton();
+  if (submit) submit.textContent = "保存 Boss";
+}
+
+function loadBossForm(item = {}) {
+  setAdminInputValue("boss-id", item.id || "");
+  setAdminInputValue("boss-name", item.name || "");
+  setAdminInputValue("boss-description", item.description || "");
+  setAdminInputValue("boss-image", item.image_url || "");
+  setAdminInputValue("boss-hp", item.hp || 500);
+  setAdminInputValue("boss-attack", item.attack_power || 30);
+  setAdminInputValue("boss-defense", item.defense_power || 15);
+  setAdminInputValue("boss-body-movement", item.body_movement || 10);
+  setAdminInputValue("boss-divine-sense", item.divine_sense || 10);
+  setAdminInputValue("boss-fortune", item.fortune || 10);
+  setAdminInputValue("boss-qi-blood", item.qi_blood || item.hp || 500);
+  setAdminInputValue("boss-true-yuan", item.true_yuan || 200);
+  setAdminInputValue("boss-skill-name", item.skill_name || "");
+  setAdminInputValue("boss-skill-ratio", item.skill_ratio_percent || 30);
+  setAdminInputValue("boss-skill-hit", item.skill_hit_bonus || 0);
+  setAdminInputValue("boss-passive-name", item.passive_name || "");
+  setAdminInputValue("boss-passive-ratio", item.passive_ratio_percent || 0);
+  setAdminInputValue("boss-passive-chance", item.passive_chance || 25);
+  setAdminInputValue("boss-stone-min", item.stone_reward_min || 0);
+  setAdminInputValue("boss-stone-max", item.stone_reward_max || 0);
+  setAdminInputValue("boss-cultivation", item.cultivation_reward || 0);
+  setAdminInputValue("boss-daily-limit", item.daily_attempt_limit || 3);
+  setAdminInputValue("boss-ticket-cost", item.ticket_cost_stone || 0);
+  setAdminInputValue("boss-flavor", item.flavor_text || "");
+  setAdminInputValue("boss-sort", item.sort_order || 0);
+  for (const [field, nodeId] of BOSS_LOOT_FIELDS) {
+    setAdminInputValue(nodeId, formatBossLootValue(item[field]));
+  }
+  if ($("boss-type")) $("boss-type").value = item.boss_type || "personal";
+  if ($("boss-stage")) $("boss-stage").value = item.realm_stage || "炼气";
+  if ($("boss-passive-kind")) $("boss-passive-kind").value = item.passive_effect_kind || "";
+  if ($("boss-enabled")) $("boss-enabled").checked = item.enabled !== false;
+  const submit = bossSubmitButton();
+  if (submit) submit.textContent = "保存 Boss";
 }
 
 function grantUserRows(items = []) {
@@ -1241,6 +1656,699 @@ function loadArtifactForm(item = {}) {
   const submit = artifactSubmitButton();
   if (submit) submit.textContent = "保存法宝";
 }
+
+function setAdminCheckedValue(target, checked) {
+  const node = typeof target === "string" ? $(target) : target;
+  if (node) node.checked = Boolean(checked);
+}
+
+function setAdminSubmitText(formId, text) {
+  const button = document.querySelector(`#${formId} button[type='submit']`);
+  if (button) button.textContent = text;
+}
+
+function resetAffixForm(prefix, includeCultivation = false) {
+  ITEM_AFFIX_FIELDS.forEach(([key]) => setAdminInputValue(`${prefix}-${key}`, 0));
+  if (includeCultivation) setAdminInputValue(`${prefix}-cultivation`, 0);
+}
+
+function loadAffixForm(prefix, item = {}, includeCultivation = false) {
+  const fieldMap = {
+    attack: "attack_bonus",
+    defense: "defense_bonus",
+    bone: "bone_bonus",
+    comprehension: "comprehension_bonus",
+    "divine-sense": "divine_sense_bonus",
+    fortune: "fortune_bonus",
+    "qi-blood": "qi_blood_bonus",
+    "true-yuan": "true_yuan_bonus",
+    "body-movement": "body_movement_bonus",
+  };
+  Object.entries(fieldMap).forEach(([key, field]) => setAdminInputValue(`${prefix}-${key}`, item[field] || 0));
+  if (includeCultivation) setAdminInputValue(`${prefix}-cultivation`, item.cultivation_bonus || 0);
+}
+
+function jsonInputValue(value) {
+  return value && Object.keys(value || {}).length ? JSON.stringify(value, null, 2) : "";
+}
+
+function adminEntityFormId(entity) {
+  return ADMIN_ENTITY_DEFINITIONS[entity]?.formId || "";
+}
+
+function adminEntityCurrentId(entity) {
+  const idField = ADMIN_ENTITY_DEFINITIONS[entity]?.idField;
+  return Number($(idField)?.value || 0);
+}
+
+function adminEntityEndpoint(entity, id = 0) {
+  const endpoint = ADMIN_ENTITY_DEFINITIONS[entity]?.endpoint || entity;
+  return id > 0 ? `/plugins/xiuxian/admin-api/${endpoint}/${id}` : `/plugins/xiuxian/admin-api/${endpoint}`;
+}
+
+async function submitEditableAdminEntity(entity, payload, labels = {}) {
+  const id = adminEntityCurrentId(entity);
+  const isEdit = id > 0;
+  return submitAndRefresh(
+    () => request(isEdit ? "PATCH" : "POST", adminEntityEndpoint(entity, id), payload),
+    isEdit ? (labels.updateTitle || "保存成功") : (labels.createTitle || "创建成功"),
+    isEdit ? (labels.updateMessage || "条目已更新。") : (labels.createMessage || "条目已创建。"),
+  );
+}
+
+function collectArtifactSetPayload() {
+  return {
+    name: $("artifact-set-name")?.value.trim() || "",
+    description: $("artifact-set-description")?.value.trim() || "",
+    required_count: Number($("artifact-set-required-count")?.value || 2),
+    attack_bonus: Number($("artifact-set-attack")?.value || 0),
+    defense_bonus: Number($("artifact-set-defense")?.value || 0),
+    bone_bonus: Number($("artifact-set-bone")?.value || 0),
+    comprehension_bonus: Number($("artifact-set-comprehension")?.value || 0),
+    divine_sense_bonus: Number($("artifact-set-divine-sense")?.value || 0),
+    fortune_bonus: Number($("artifact-set-fortune")?.value || 0),
+    qi_blood_bonus: Number($("artifact-set-qi-blood")?.value || 0),
+    true_yuan_bonus: Number($("artifact-set-true-yuan")?.value || 0),
+    body_movement_bonus: Number($("artifact-set-body-movement")?.value || 0),
+    duel_rate_bonus: Number($("artifact-set-duel")?.value || 0),
+    cultivation_bonus: Number($("artifact-set-cultivation")?.value || 0),
+    breakthrough_bonus: Number($("artifact-set-breakthrough")?.value || 0),
+    enabled: $("artifact-set-enabled")?.checked !== false,
+  };
+}
+
+function resetArtifactSetForm() {
+  setAdminInputValue("artifact-set-record-id", "");
+  setAdminInputValue("artifact-set-name", "");
+  setAdminInputValue("artifact-set-description", "");
+  setAdminInputValue("artifact-set-required-count", 2);
+  ["attack", "defense", "bone", "comprehension", "divine-sense", "fortune", "qi-blood", "true-yuan", "body-movement", "duel", "cultivation", "breakthrough"]
+    .forEach((field) => setAdminInputValue(`artifact-set-${field}`, 0));
+  setAdminCheckedValue("artifact-set-enabled", true);
+  setAdminSubmitText("artifact-set-form", "新增套装");
+}
+
+function loadArtifactSetForm(item = {}) {
+  setAdminInputValue("artifact-set-record-id", item.id || "");
+  setAdminInputValue("artifact-set-name", item.name || "");
+  setAdminInputValue("artifact-set-description", item.description || "");
+  setAdminInputValue("artifact-set-required-count", item.required_count || 2);
+  setAdminInputValue("artifact-set-attack", item.attack_bonus || 0);
+  setAdminInputValue("artifact-set-defense", item.defense_bonus || 0);
+  setAdminInputValue("artifact-set-bone", item.bone_bonus || 0);
+  setAdminInputValue("artifact-set-comprehension", item.comprehension_bonus || 0);
+  setAdminInputValue("artifact-set-divine-sense", item.divine_sense_bonus || 0);
+  setAdminInputValue("artifact-set-fortune", item.fortune_bonus || 0);
+  setAdminInputValue("artifact-set-qi-blood", item.qi_blood_bonus || 0);
+  setAdminInputValue("artifact-set-true-yuan", item.true_yuan_bonus || 0);
+  setAdminInputValue("artifact-set-body-movement", item.body_movement_bonus || 0);
+  setAdminInputValue("artifact-set-duel", item.duel_rate_bonus || 0);
+  setAdminInputValue("artifact-set-cultivation", item.cultivation_bonus || 0);
+  setAdminInputValue("artifact-set-breakthrough", item.breakthrough_bonus || 0);
+  setAdminCheckedValue("artifact-set-enabled", item.enabled !== false);
+  setAdminSubmitText("artifact-set-form", "保存套装");
+}
+
+function collectTalismanPayload() {
+  return {
+    name: $("talisman-name")?.value.trim() || "",
+    rarity: $("talisman-rarity")?.value || "凡品",
+    image_url: $("talisman-image")?.value.trim() || "",
+    description: $("talisman-description")?.value.trim() || "",
+    ...affixPayload("talisman"),
+    duel_rate_bonus: Number($("talisman-duel")?.value || 0),
+    effect_uses: Number($("talisman-effect-uses")?.value || 1),
+    combat_config: parseJsonInput($("talisman-combat-config")?.value || "{}", {}),
+    min_realm_stage: $("talisman-stage")?.value || null,
+    min_realm_layer: Number($("talisman-layer")?.value || 1),
+    enabled: $("talisman-enabled")?.checked !== false,
+  };
+}
+
+function resetTalismanForm() {
+  setAdminInputValue("talisman-id", "");
+  setAdminInputValue("talisman-name", "");
+  setAdminInputValue("talisman-image", "");
+  setAdminInputValue("talisman-description", "");
+  resetAffixForm("talisman");
+  setAdminInputValue("talisman-duel", 0);
+  setAdminInputValue("talisman-effect-uses", 1);
+  setAdminInputValue("talisman-combat-config", "");
+  setAdminInputValue("talisman-layer", 1);
+  if ($("talisman-rarity")) $("talisman-rarity").value = "凡品";
+  if ($("talisman-stage")) $("talisman-stage").value = "";
+  setAdminCheckedValue("talisman-enabled", true);
+  setAdminSubmitText("talisman-form", "新增符箓");
+}
+
+function loadTalismanForm(item = {}) {
+  setAdminInputValue("talisman-id", item.id || "");
+  setAdminInputValue("talisman-name", item.name || "");
+  setAdminInputValue("talisman-image", item.image_url || "");
+  setAdminInputValue("talisman-description", item.description || "");
+  loadAffixForm("talisman", item);
+  setAdminInputValue("talisman-duel", item.duel_rate_bonus || 0);
+  setAdminInputValue("talisman-effect-uses", item.effect_uses || 1);
+  setAdminInputValue("talisman-combat-config", jsonInputValue(item.combat_config || {}));
+  setAdminInputValue("talisman-layer", item.min_realm_layer || 1);
+  if ($("talisman-rarity")) $("talisman-rarity").value = item.rarity || "凡品";
+  if ($("talisman-stage")) $("talisman-stage").value = item.min_realm_stage || "";
+  setAdminCheckedValue("talisman-enabled", item.enabled !== false);
+  setAdminSubmitText("talisman-form", "保存符箓");
+}
+
+function collectPillPayload() {
+  return {
+    name: $("pill-name")?.value.trim() || "",
+    rarity: $("pill-rarity")?.value || "凡品",
+    pill_type: $("pill-type")?.value || "foundation",
+    image_url: $("pill-image")?.value.trim() || "",
+    description: $("pill-description")?.value.trim() || "",
+    effect_value: Number($("pill-effect")?.value || 0),
+    poison_delta: Number($("pill-poison")?.value || 0),
+    ...affixPayload("pill"),
+    min_realm_stage: $("pill-stage")?.value || null,
+    min_realm_layer: Number($("pill-layer")?.value || 1),
+    enabled: $("pill-enabled")?.checked !== false,
+  };
+}
+
+function resetPillForm() {
+  setAdminInputValue("pill-id", "");
+  setAdminInputValue("pill-name", "");
+  setAdminInputValue("pill-image", "");
+  setAdminInputValue("pill-description", "");
+  setAdminInputValue("pill-effect", 0);
+  setAdminInputValue("pill-poison", 0);
+  resetAffixForm("pill");
+  setAdminInputValue("pill-layer", 1);
+  if ($("pill-rarity")) $("pill-rarity").value = "凡品";
+  if ($("pill-type")) $("pill-type").value = "foundation";
+  if ($("pill-stage")) $("pill-stage").value = "";
+  setAdminCheckedValue("pill-enabled", true);
+  updatePillEffectLabel();
+  setAdminSubmitText("pill-form", "新增丹药");
+}
+
+function loadPillForm(item = {}) {
+  setAdminInputValue("pill-id", item.id || "");
+  setAdminInputValue("pill-name", item.name || "");
+  setAdminInputValue("pill-image", item.image_url || "");
+  setAdminInputValue("pill-description", item.description || "");
+  setAdminInputValue("pill-effect", item.effect_value || 0);
+  setAdminInputValue("pill-poison", item.poison_delta || 0);
+  loadAffixForm("pill", item);
+  setAdminInputValue("pill-layer", item.min_realm_layer || 1);
+  if ($("pill-rarity")) $("pill-rarity").value = item.rarity || "凡品";
+  if ($("pill-type")) $("pill-type").value = item.pill_type || "foundation";
+  if ($("pill-stage")) $("pill-stage").value = item.min_realm_stage || "";
+  setAdminCheckedValue("pill-enabled", item.enabled !== false);
+  updatePillEffectLabel();
+  setAdminSubmitText("pill-form", "保存丹药");
+}
+
+function collectTechniquePayload() {
+  return {
+    name: $("technique-name")?.value.trim() || "",
+    rarity: $("technique-rarity")?.value || "凡品",
+    technique_type: $("technique-type")?.value || "balanced",
+    image_url: $("technique-image")?.value.trim() || "",
+    description: $("technique-description")?.value.trim() || "",
+    ...affixPayload("technique"),
+    duel_rate_bonus: Number($("technique-duel")?.value || 0),
+    cultivation_bonus: Number($("technique-cultivation")?.value || 0),
+    breakthrough_bonus: Number($("technique-breakthrough")?.value || 0),
+    combat_config: parseJsonInput($("technique-combat-config")?.value || "{}", {}),
+    min_realm_stage: $("technique-stage")?.value || null,
+    min_realm_layer: Number($("technique-layer")?.value || 1),
+    enabled: $("technique-enabled")?.checked !== false,
+  };
+}
+
+function resetTechniqueForm() {
+  setAdminInputValue("technique-id", "");
+  setAdminInputValue("technique-name", "");
+  setAdminInputValue("technique-image", "");
+  setAdminInputValue("technique-description", "");
+  resetAffixForm("technique", true);
+  setAdminInputValue("technique-duel", 0);
+  setAdminInputValue("technique-breakthrough", 0);
+  setAdminInputValue("technique-combat-config", "");
+  setAdminInputValue("technique-layer", 1);
+  if ($("technique-rarity")) $("technique-rarity").value = "凡品";
+  if ($("technique-type")) $("technique-type").value = "balanced";
+  if ($("technique-stage")) $("technique-stage").value = "";
+  setAdminCheckedValue("technique-enabled", true);
+  setAdminSubmitText("technique-form", "新增功法");
+}
+
+function loadTechniqueForm(item = {}) {
+  setAdminInputValue("technique-id", item.id || "");
+  setAdminInputValue("technique-name", item.name || "");
+  setAdminInputValue("technique-image", item.image_url || "");
+  setAdminInputValue("technique-description", item.description || "");
+  loadAffixForm("technique", item, true);
+  setAdminInputValue("technique-duel", item.duel_rate_bonus || 0);
+  setAdminInputValue("technique-breakthrough", item.breakthrough_bonus || 0);
+  setAdminInputValue("technique-combat-config", jsonInputValue(item.combat_config || {}));
+  setAdminInputValue("technique-layer", item.min_realm_layer || 1);
+  if ($("technique-rarity")) $("technique-rarity").value = item.rarity || "凡品";
+  if ($("technique-type")) $("technique-type").value = item.technique_type || "balanced";
+  if ($("technique-stage")) $("technique-stage").value = item.min_realm_stage || "";
+  setAdminCheckedValue("technique-enabled", item.enabled !== false);
+  setAdminSubmitText("technique-form", "保存功法");
+}
+
+function collectSectPayload() {
+  return {
+    name: $("sect-name")?.value.trim() || "",
+    description: $("sect-description")?.value.trim() || "",
+    image_url: $("sect-image")?.value.trim() || "",
+    camp: $("sect-camp")?.value || "orthodox",
+    min_realm_stage: $("sect-stage")?.value || null,
+    min_realm_layer: Number($("sect-layer")?.value || 1),
+    min_stone: Number($("sect-stone")?.value || 0),
+    min_bone: Number($("sect-bone")?.value || 0),
+    min_comprehension: Number($("sect-comprehension")?.value || 0),
+    min_divine_sense: Number($("sect-divine-sense")?.value || 0),
+    min_fortune: Number($("sect-fortune")?.value || 0),
+    min_willpower: Number($("sect-willpower")?.value || 0),
+    min_charisma: Number($("sect-charisma")?.value || 0),
+    min_karma: Number($("sect-karma")?.value || 0),
+    min_body_movement: Number($("sect-min-body-movement")?.value || 0),
+    min_combat_power: Number($("sect-min-combat-power")?.value || 0),
+    attack_bonus: Number($("sect-attack")?.value || 0),
+    defense_bonus: Number($("sect-defense")?.value || 0),
+    duel_rate_bonus: Number($("sect-duel")?.value || 0),
+    cultivation_bonus: Number($("sect-cultivation")?.value || 0),
+    fortune_bonus: Number($("sect-fortune-bonus")?.value || 0),
+    body_movement_bonus: Number($("sect-body-movement")?.value || 0),
+    salary_min_stay_days: Number($("sect-salary-stay-days")?.value || 30),
+    entry_hint: $("sect-entry-hint")?.value.trim() || "",
+    roles: collectSectRoles(),
+  };
+}
+
+function resetSectRoles(roles = null, fallbackToPresets = true) {
+  const root = $("sect-role-rows");
+  if (!root) return;
+  root.innerHTML = "";
+  const rows = Array.isArray(roles)
+    ? roles
+    : [];
+  const finalRows = rows.length || !fallbackToPresets
+    ? rows
+    : ROLE_PRESETS.map(([role_key, role_name]) => ({ role_key, role_name }));
+  finalRows.forEach((role) => addSectRoleRow(role));
+}
+
+function resetSectForm() {
+  setAdminInputValue("sect-id", "");
+  setAdminInputValue("sect-name", "");
+  setAdminInputValue("sect-image", "");
+  setAdminInputValue("sect-description", "");
+  setAdminInputValue("sect-layer", 1);
+  ["stone", "bone", "comprehension", "divine-sense", "fortune", "willpower", "charisma", "karma", "min-body-movement", "min-combat-power", "attack", "defense", "duel", "cultivation", "fortune-bonus", "body-movement"]
+    .forEach((field) => setAdminInputValue(`sect-${field}`, 0));
+  setAdminInputValue("sect-salary-stay-days", state.bundle?.settings?.sect_salary_min_stay_days ?? 30);
+  setAdminInputValue("sect-entry-hint", "");
+  if ($("sect-camp")) $("sect-camp").value = "orthodox";
+  if ($("sect-stage")) $("sect-stage").value = "";
+  resetSectRoles();
+  setAdminSubmitText("sect-form", "创建宗门");
+}
+
+function loadSectForm(item = {}) {
+  setAdminInputValue("sect-id", item.id || "");
+  setAdminInputValue("sect-name", item.name || "");
+  setAdminInputValue("sect-image", item.image_url || "");
+  setAdminInputValue("sect-description", item.description || "");
+  setAdminInputValue("sect-layer", item.min_realm_layer || 1);
+  setAdminInputValue("sect-stone", item.min_stone || 0);
+  setAdminInputValue("sect-bone", item.min_bone || 0);
+  setAdminInputValue("sect-comprehension", item.min_comprehension || 0);
+  setAdminInputValue("sect-divine-sense", item.min_divine_sense || 0);
+  setAdminInputValue("sect-fortune", item.min_fortune || 0);
+  setAdminInputValue("sect-willpower", item.min_willpower || 0);
+  setAdminInputValue("sect-charisma", item.min_charisma || 0);
+  setAdminInputValue("sect-karma", item.min_karma || 0);
+  setAdminInputValue("sect-min-body-movement", item.min_body_movement || 0);
+  setAdminInputValue("sect-min-combat-power", item.min_combat_power || 0);
+  setAdminInputValue("sect-attack", item.attack_bonus || 0);
+  setAdminInputValue("sect-defense", item.defense_bonus || 0);
+  setAdminInputValue("sect-duel", item.duel_rate_bonus || 0);
+  setAdminInputValue("sect-cultivation", item.cultivation_bonus || 0);
+  setAdminInputValue("sect-fortune-bonus", item.fortune_bonus || 0);
+  setAdminInputValue("sect-body-movement", item.body_movement_bonus || 0);
+  setAdminInputValue("sect-salary-stay-days", item.salary_min_stay_days || 30);
+  setAdminInputValue("sect-entry-hint", item.entry_hint || "");
+  if ($("sect-camp")) $("sect-camp").value = item.camp || "orthodox";
+  if ($("sect-stage")) $("sect-stage").value = item.min_realm_stage || "";
+  resetSectRoles(item.roles || [], false);
+  setAdminSubmitText("sect-form", "保存宗门");
+}
+
+function collectMaterialPayload() {
+  const quality = $("material-quality")?.value || QUALITY_OPTIONS[0];
+  const current = findAdminEntity("material", adminEntityCurrentId("material")) || {};
+  return {
+    name: $("material-name")?.value.trim() || "",
+    quality_level: Math.max(QUALITY_OPTIONS.indexOf(quality) + 1, 1),
+    image_url: $("material-image")?.value.trim() || "",
+    description: $("material-description")?.value.trim() || "",
+    can_plant: Boolean(current.can_plant),
+    seed_price_stone: Number(current.seed_price_stone || 0),
+    growth_minutes: Number(current.growth_minutes || 0),
+    yield_min: Number(current.yield_min || 0),
+    yield_max: Number(current.yield_max || 0),
+    unlock_realm_stage: current.unlock_realm_stage || null,
+    unlock_realm_layer: Number(current.unlock_realm_layer || 1),
+    enabled: $("material-enabled")?.checked !== false,
+  };
+}
+
+function resetMaterialForm() {
+  setAdminInputValue("material-id", "");
+  setAdminInputValue("material-name", "");
+  setAdminInputValue("material-image", "");
+  setAdminInputValue("material-description", "");
+  if ($("material-quality")) $("material-quality").value = QUALITY_OPTIONS[0];
+  setAdminCheckedValue("material-enabled", true);
+  setAdminSubmitText("material-form", "新增材料");
+}
+
+function loadMaterialForm(item = {}) {
+  setAdminInputValue("material-id", item.id || "");
+  setAdminInputValue("material-name", item.name || "");
+  setAdminInputValue("material-image", item.image_url || "");
+  setAdminInputValue("material-description", item.description || item.quality_description || "");
+  if ($("material-quality")) $("material-quality").value = item.quality_label || QUALITY_OPTIONS[Math.max(Number(item.quality_level || 1) - 1, 0)] || QUALITY_OPTIONS[0];
+  setAdminCheckedValue("material-enabled", item.enabled !== false);
+  setAdminSubmitText("material-form", "保存材料");
+}
+
+function collectRecipePayload() {
+  return {
+    name: $("recipe-name")?.value.trim() || "",
+    recipe_kind: $("recipe-kind")?.value || "pill",
+    result_kind: $("recipe-result-kind")?.value || "pill",
+    result_ref_id: Number($("recipe-result-id")?.value || 0),
+    result_quantity: Number($("recipe-result-quantity")?.value || 1),
+    base_success_rate: Number($("recipe-success")?.value || 60),
+    broadcast_on_success: $("recipe-broadcast")?.checked || false,
+    ingredients: collectRecipeIngredients(),
+  };
+}
+
+function resetRecipeRows(ingredients = null) {
+  const root = $("recipe-ingredient-rows");
+  if (!root) return;
+  root.innerHTML = "";
+  const rows = Array.isArray(ingredients) && ingredients.length ? ingredients : [{}];
+  rows.forEach((row) => addRecipeIngredientRow({
+    material_id: row.material_id || row.material?.id || 0,
+    quantity: row.quantity || 1,
+  }));
+}
+
+function resetRecipeForm() {
+  setAdminInputValue("recipe-id", "");
+  setAdminInputValue("recipe-name", "");
+  if ($("recipe-kind")) $("recipe-kind").value = "pill";
+  if ($("recipe-result-kind")) $("recipe-result-kind").value = "pill";
+  syncSelects();
+  setAdminInputValue("recipe-result-id", "");
+  setAdminInputValue("recipe-result-quantity", 1);
+  setAdminInputValue("recipe-success", 60);
+  setAdminCheckedValue("recipe-broadcast", false);
+  resetRecipeRows();
+  setAdminSubmitText("recipe-form", "新增配方");
+}
+
+function loadRecipeForm(item = {}) {
+  setAdminInputValue("recipe-id", item.id || "");
+  setAdminInputValue("recipe-name", item.name || "");
+  if ($("recipe-kind")) $("recipe-kind").value = item.recipe_kind || "pill";
+  if ($("recipe-result-kind")) $("recipe-result-kind").value = item.result_kind || "pill";
+  syncSelects();
+  setAdminInputValue("recipe-result-id", item.result_ref_id || "");
+  setAdminInputValue("recipe-result-quantity", item.result_quantity || 1);
+  setAdminInputValue("recipe-success", item.base_success_rate || 60);
+  setAdminCheckedValue("recipe-broadcast", item.broadcast_on_success);
+  resetRecipeRows(item.ingredients || []);
+  setAdminSubmitText("recipe-form", "保存配方");
+}
+
+function collectScenePayload() {
+  return {
+    name: $("scene-name")?.value.trim() || "",
+    description: $("scene-description")?.value.trim() || "",
+    image_url: $("scene-image")?.value.trim() || "",
+    max_minutes: Number($("scene-max-minutes")?.value || 60),
+    min_realm_stage: $("scene-stage")?.value || null,
+    min_realm_layer: Number($("scene-layer")?.value || 1),
+    min_combat_power: Number($("scene-power")?.value || 0),
+    event_pool: collectSceneEvents(),
+    drops: collectSceneDrops(),
+  };
+}
+
+function resetSceneRows(events = null, drops = null) {
+  const eventRoot = $("scene-event-rows");
+  const dropRoot = $("scene-drop-rows");
+  if (eventRoot) {
+    eventRoot.innerHTML = "";
+    const rows = Array.isArray(events) && events.length ? events : [{}];
+    rows.forEach((row) => addSceneEventRow(row));
+  }
+  if (dropRoot) {
+    dropRoot.innerHTML = "";
+    const rows = Array.isArray(drops) && drops.length ? drops : [{}];
+    rows.forEach((row) => addSceneDropRow(row));
+  }
+}
+
+function resetSceneForm() {
+  setAdminInputValue("scene-id", "");
+  setAdminInputValue("scene-name", "");
+  setAdminInputValue("scene-image", "");
+  setAdminInputValue("scene-description", "");
+  setAdminInputValue("scene-max-minutes", 60);
+  setAdminInputValue("scene-layer", 1);
+  setAdminInputValue("scene-power", 0);
+  if ($("scene-stage")) $("scene-stage").value = "";
+  resetSceneRows();
+  setAdminSubmitText("scene-form", "新增场景");
+}
+
+function loadSceneForm(item = {}) {
+  setAdminInputValue("scene-id", item.id || "");
+  setAdminInputValue("scene-name", item.name || "");
+  setAdminInputValue("scene-image", item.image_url || "");
+  setAdminInputValue("scene-description", item.description || "");
+  setAdminInputValue("scene-max-minutes", item.max_minutes || 60);
+  setAdminInputValue("scene-layer", item.min_realm_layer || 1);
+  setAdminInputValue("scene-power", item.min_combat_power || 0);
+  if ($("scene-stage")) $("scene-stage").value = item.min_realm_stage || "";
+  resetSceneRows(item.event_pool || [], item.drops || []);
+  setAdminSubmitText("scene-form", "保存场景");
+}
+
+function collectEncounterPayload() {
+  return {
+    name: $("encounter-name")?.value.trim() || "",
+    description: $("encounter-description")?.value.trim() || "",
+    image_url: $("encounter-image")?.value.trim() || "",
+    button_text: $("encounter-button-text")?.value.trim() || "争抢机缘",
+    success_text: $("encounter-success-text")?.value.trim() || "",
+    broadcast_text: $("encounter-broadcast-text")?.value.trim() || "",
+    weight: Number($("encounter-weight")?.value || 1),
+    active_seconds: Number($("encounter-active-seconds")?.value || 90),
+    min_realm_stage: $("encounter-stage")?.value || null,
+    min_realm_layer: Number($("encounter-layer")?.value || 1),
+    min_combat_power: Number($("encounter-power")?.value || 0),
+    reward_stone_min: Number($("encounter-stone-min")?.value || 0),
+    reward_stone_max: Number($("encounter-stone-max")?.value || 0),
+    reward_cultivation_min: Number($("encounter-cultivation-min")?.value || 0),
+    reward_cultivation_max: Number($("encounter-cultivation-max")?.value || 0),
+    reward_item_kind: $("encounter-item-kind")?.value || null,
+    reward_item_ref_id: Number($("encounter-item-id")?.value || 0) || null,
+    reward_item_quantity_min: Number($("encounter-item-quantity-min")?.value || 1),
+    reward_item_quantity_max: Number($("encounter-item-quantity-max")?.value || 1),
+    enabled: $("encounter-enabled")?.checked !== false,
+  };
+}
+
+function resetEncounterForm() {
+  setAdminInputValue("encounter-id", "");
+  setAdminInputValue("encounter-name", "");
+  setAdminInputValue("encounter-button-text", "争抢机缘");
+  setAdminInputValue("encounter-weight", 1);
+  setAdminInputValue("encounter-active-seconds", 90);
+  setAdminInputValue("encounter-layer", 1);
+  setAdminInputValue("encounter-power", 0);
+  setAdminInputValue("encounter-image", "");
+  setAdminInputValue("encounter-description", "");
+  setAdminInputValue("encounter-broadcast-text", "");
+  setAdminInputValue("encounter-success-text", "");
+  setAdminInputValue("encounter-stone-min", 0);
+  setAdminInputValue("encounter-stone-max", 0);
+  setAdminInputValue("encounter-cultivation-min", 0);
+  setAdminInputValue("encounter-cultivation-max", 0);
+  setAdminInputValue("encounter-item-quantity-min", 1);
+  setAdminInputValue("encounter-item-quantity-max", 1);
+  if ($("encounter-stage")) $("encounter-stage").value = "";
+  if ($("encounter-item-kind")) $("encounter-item-kind").value = "";
+  syncSelects();
+  setAdminInputValue("encounter-item-id", "");
+  setAdminCheckedValue("encounter-enabled", true);
+  setAdminSubmitText("encounter-form", "新增奇遇");
+}
+
+function loadEncounterForm(item = {}) {
+  setAdminInputValue("encounter-id", item.id || "");
+  setAdminInputValue("encounter-name", item.name || "");
+  setAdminInputValue("encounter-button-text", item.button_text || "争抢机缘");
+  setAdminInputValue("encounter-weight", item.weight || 1);
+  setAdminInputValue("encounter-active-seconds", item.active_seconds || 90);
+  setAdminInputValue("encounter-layer", item.min_realm_layer || 1);
+  setAdminInputValue("encounter-power", item.min_combat_power || 0);
+  setAdminInputValue("encounter-image", item.image_url || "");
+  setAdminInputValue("encounter-description", item.description || "");
+  setAdminInputValue("encounter-broadcast-text", item.broadcast_text || "");
+  setAdminInputValue("encounter-success-text", item.success_text || "");
+  setAdminInputValue("encounter-stone-min", item.reward_stone_min || 0);
+  setAdminInputValue("encounter-stone-max", item.reward_stone_max || 0);
+  setAdminInputValue("encounter-cultivation-min", item.reward_cultivation_min || 0);
+  setAdminInputValue("encounter-cultivation-max", item.reward_cultivation_max || 0);
+  setAdminInputValue("encounter-item-quantity-min", item.reward_item_quantity_min || 1);
+  setAdminInputValue("encounter-item-quantity-max", item.reward_item_quantity_max || 1);
+  if ($("encounter-stage")) $("encounter-stage").value = item.min_realm_stage || "";
+  if ($("encounter-item-kind")) $("encounter-item-kind").value = item.reward_item_kind || "";
+  syncSelects();
+  setAdminInputValue("encounter-item-id", item.reward_item_ref_id || "");
+  setAdminCheckedValue("encounter-enabled", item.enabled !== false);
+  setAdminSubmitText("encounter-form", "保存奇遇");
+}
+
+function collectTitlePayload() {
+  return {
+    name: $("title-name")?.value.trim() || "",
+    description: $("title-description")?.value.trim() || "",
+    color: $("title-color")?.value.trim() || "",
+    image_url: setAdminInputValue("title-image", $("title-image")?.value || ""),
+    attack_bonus: Number($("title-attack")?.value || 0),
+    defense_bonus: Number($("title-defense")?.value || 0),
+    bone_bonus: Number($("title-bone")?.value || 0),
+    comprehension_bonus: Number($("title-comprehension")?.value || 0),
+    divine_sense_bonus: Number($("title-divine-sense")?.value || 0),
+    fortune_bonus: Number($("title-fortune")?.value || 0),
+    qi_blood_bonus: Number($("title-qi-blood")?.value || 0),
+    true_yuan_bonus: Number($("title-true-yuan")?.value || 0),
+    body_movement_bonus: Number($("title-body-movement")?.value || 0),
+    duel_rate_bonus: Number($("title-duel")?.value || 0),
+    cultivation_bonus: Number($("title-cultivation")?.value || 0),
+    breakthrough_bonus: Number($("title-breakthrough")?.value || 0),
+    enabled: $("title-enabled")?.checked !== false,
+  };
+}
+
+function resetTitleForm() {
+  setAdminInputValue("title-id", "");
+  setAdminInputValue("title-name", "");
+  setAdminInputValue("title-color", "");
+  setAdminInputValue("title-image", "");
+  setAdminInputValue("title-description", "");
+  ["attack", "defense", "bone", "comprehension", "divine-sense", "fortune", "qi-blood", "true-yuan", "body-movement", "duel", "cultivation", "breakthrough"]
+    .forEach((field) => setAdminInputValue(`title-${field}`, 0));
+  setAdminCheckedValue("title-enabled", true);
+  refreshTitleColorEditor();
+  setAdminSubmitText("title-form", "创建称号");
+}
+
+function loadTitleForm(item = {}) {
+  setAdminInputValue("title-id", item.id || "");
+  setAdminInputValue("title-name", item.name || "");
+  setAdminInputValue("title-color", item.color || "");
+  setAdminInputValue("title-image", item.image_url || "");
+  setAdminInputValue("title-description", item.description || "");
+  setAdminInputValue("title-attack", item.attack_bonus || 0);
+  setAdminInputValue("title-defense", item.defense_bonus || 0);
+  setAdminInputValue("title-bone", item.bone_bonus || 0);
+  setAdminInputValue("title-comprehension", item.comprehension_bonus || 0);
+  setAdminInputValue("title-divine-sense", item.divine_sense_bonus || 0);
+  setAdminInputValue("title-fortune", item.fortune_bonus || 0);
+  setAdminInputValue("title-qi-blood", item.qi_blood_bonus || 0);
+  setAdminInputValue("title-true-yuan", item.true_yuan_bonus || 0);
+  setAdminInputValue("title-body-movement", item.body_movement_bonus || 0);
+  setAdminInputValue("title-duel", item.duel_rate_bonus || 0);
+  setAdminInputValue("title-cultivation", item.cultivation_bonus || 0);
+  setAdminInputValue("title-breakthrough", item.breakthrough_bonus || 0);
+  setAdminCheckedValue("title-enabled", item.enabled !== false);
+  refreshTitleColorEditor();
+  setAdminSubmitText("title-form", "保存称号");
+}
+
+function collectAchievementPayload() {
+  return {
+    achievement_key: $("achievement-key")?.value.trim() || null,
+    name: $("achievement-name")?.value.trim() || "",
+    description: $("achievement-description")?.value.trim() || "",
+    metric_key: $("achievement-metric-key")?.value.trim() || "",
+    target_value: Number($("achievement-target")?.value || 1),
+    reward_config: parseRewardConfigInput(),
+    notify_group: $("achievement-notify-group")?.checked !== false,
+    notify_private: $("achievement-notify-private")?.checked !== false,
+    enabled: $("achievement-enabled")?.checked !== false,
+    sort_order: Number($("achievement-sort")?.value || 0),
+  };
+}
+
+function resetAchievementForm() {
+  setAdminInputValue("achievement-id", "");
+  setAdminInputValue("achievement-key", "");
+  setAdminInputValue("achievement-name", "");
+  setAdminInputValue("achievement-metric-key", "");
+  setAdminInputValue("achievement-target", 1);
+  setAdminInputValue("achievement-sort", 0);
+  setAdminInputValue("achievement-description", "");
+  setAdminInputValue("achievement-reward-config", "");
+  setAdminCheckedValue("achievement-notify-group", true);
+  setAdminCheckedValue("achievement-notify-private", true);
+  setAdminCheckedValue("achievement-enabled", true);
+  setAdminSubmitText("achievement-form", "创建成就");
+}
+
+function loadAchievementForm(item = {}) {
+  setAdminInputValue("achievement-id", item.id || "");
+  setAdminInputValue("achievement-key", item.achievement_key || "");
+  setAdminInputValue("achievement-name", item.name || "");
+  setAdminInputValue("achievement-metric-key", item.metric_key || "");
+  setAdminInputValue("achievement-target", item.target_value || 1);
+  setAdminInputValue("achievement-sort", item.sort_order || 0);
+  setAdminInputValue("achievement-description", item.description || "");
+  setAdminInputValue("achievement-reward-config", item.reward_config && Object.keys(item.reward_config || {}).length ? JSON.stringify(item.reward_config, null, 2) : "");
+  setAdminCheckedValue("achievement-notify-group", item.notify_group !== false);
+  setAdminCheckedValue("achievement-notify-private", item.notify_private !== false);
+  setAdminCheckedValue("achievement-enabled", item.enabled !== false);
+  setAdminSubmitText("achievement-form", "保存成就");
+}
+
+Object.assign(ADMIN_ENTITY_LOADERS, {
+  artifact: loadArtifactForm,
+  "artifact-set": loadArtifactSetForm,
+  talisman: loadTalismanForm,
+  pill: loadPillForm,
+  technique: loadTechniqueForm,
+  sect: loadSectForm,
+  material: loadMaterialForm,
+  recipe: loadRecipeForm,
+  scene: loadSceneForm,
+  encounter: loadEncounterForm,
+  boss: loadBossForm,
+  title: loadTitleForm,
+  achievement: loadAchievementForm,
+});
 
 function bindUploadButtons() {
   document.querySelectorAll("[data-upload-file]").forEach((button) => {
@@ -2231,56 +3339,68 @@ function renderWorld() {
   renderErrorLogs(bundle.error_logs || []);
 
   renderStack("artifact-list", (bundle.artifacts || []).map((item) => `
-    <article class="stack-item"><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml(item.equip_category_label || item.artifact_type_label || item.artifact_type)}</span></div>
+    <article class="stack-item" ${adminEntityAttrs("artifact", item.id)}><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml(item.equip_category_label || item.artifact_type_label || item.artifact_type)}</span></div>
     <p>品质 ${escapeHtml(item.rarity)} · 分类 ${escapeHtml(item.equip_category_label || "未分类")} · 槽位 ${escapeHtml(item.equip_slot_label || item.equip_slot || "未知槽位")} · 攻击 ${escapeHtml(item.attack_bonus)} · 防御 ${escapeHtml(item.defense_bonus)} · 斗法 ${escapeHtml(item.duel_rate_bonus)}% · 修炼 ${escapeHtml(item.cultivation_bonus)}</p>
     <p>${escapeHtml(combatConfigSummary(item.combat_config || {}))}</p>
     <p>境界限制：${escapeHtml(item.min_realm_stage || "无限制")} ${escapeHtml(item.min_realm_layer || 1)} 层</p>
     <div class="inline-action-buttons">${deleteButton("artifact", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无法宝</strong></article>`);
 
   renderStack("talisman-list", (bundle.talismans || []).map((item) => `
-    <article class="stack-item"><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml(item.rarity)}</span></div>
+    <article class="stack-item" ${adminEntityAttrs("talisman", item.id)}><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml(item.rarity)}</span></div>
     <p>攻击 ${escapeHtml(item.attack_bonus)} · 防御 ${escapeHtml(item.defense_bonus)} · 斗法 ${escapeHtml(item.duel_rate_bonus)}%</p><p>${escapeHtml(combatConfigSummary(item.combat_config || {}))}</p>
     <div class="inline-action-buttons">${deleteButton("talisman", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无符箓</strong></article>`);
 
   renderStack("pill-list", (bundle.pills || []).map((item) => `
-    <article class="stack-item"><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml(item.pill_type_label || item.pill_type)}</span></div>
+    <article class="stack-item" ${adminEntityAttrs("pill", item.id)}><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml(item.pill_type_label || item.pill_type)}</span></div>
     <p>${escapeHtml(item.effect_value_label || "效果值")} ${escapeHtml(item.effect_value)} · 丹毒 ${escapeHtml(item.poison_delta)}</p>
     <div class="inline-action-buttons">${deleteButton("pill", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无丹药</strong></article>`);
 
   renderStack("material-list", (bundle.materials || []).map((item) => `
-    <article class="stack-item"><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml(item.quality_label || item.quality_level)}</span></div>
+    <article class="stack-item" ${adminEntityAttrs("material", item.id)}><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml(item.quality_label || item.quality_level)}</span></div>
     <p>${escapeHtml(item.description || "暂无描述")}</p><div class="inline-action-buttons">${deleteButton("material", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无材料</strong></article>`);
 
   renderStack("recipe-list", (bundle.recipes || []).map((item) => `
-    <article class="stack-item"><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml(item.recipe_kind_label || item.recipe_kind)}</span></div>
+    <article class="stack-item" ${adminEntityAttrs("recipe", item.id)}><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml(item.recipe_kind_label || item.recipe_kind)}</span></div>
     <p>产出：${escapeHtml(item.result_item?.name || item.result_kind_label || item.result_kind)} × ${escapeHtml(item.result_quantity)} · 成功率 ${escapeHtml(item.base_success_rate)}%</p>
     <p>材料：${escapeHtml((item.ingredients || []).map((row) => `${row.material?.name || row.material_id}×${row.quantity}`).join("、") || "未配置")}</p>
-    <div class="inline-action-buttons">${deleteButton("recipe", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无配方</strong></article>`);
+    <div class="inline-action-buttons">${editButton("recipe", item.id)}${deleteButton("recipe", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无配方</strong></article>`);
 
   renderStack("scene-list", (bundle.scenes || []).map((item) => `
-    <article class="stack-item"><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">最多 ${escapeHtml(item.max_minutes)} 分钟</span></div>
+    <article class="stack-item" ${adminEntityAttrs("scene", item.id)}><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">最多 ${escapeHtml(item.max_minutes)} 分钟</span></div>
     <p>${escapeHtml(item.description || "暂无描述")}</p><p>门槛：${escapeHtml(item.min_realm_stage ? `${item.min_realm_stage}${item.min_realm_layer || 1}层` : "无限制")} · 战力 ${escapeHtml(item.min_combat_power || 0)}</p><p>掉落 ${escapeHtml((item.drops || []).length)} 项 · 事件 ${escapeHtml((item.event_pool || []).length)} 条</p><p>${escapeHtml((item.event_pool || []).map((event) => `${event.name || "未命名事件"}(${event.event_type || "encounter"})`).slice(0, 3).join("、") || "暂无事件详情")}</p>
-    <div class="inline-action-buttons">${deleteButton("scene", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无场景</strong></article>`);
+    <div class="inline-action-buttons">${editButton("scene", item.id)}${deleteButton("scene", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无场景</strong></article>`);
 
   renderStack("encounter-list", (bundle.encounters || []).map((item) => `
-    <article class="stack-item"><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml(item.weight || 1)} 权重</span></div>
+    <article class="stack-item" ${adminEntityAttrs("encounter", item.id)}><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml(item.weight || 1)} 权重</span></div>
     <p>${escapeHtml(item.description || "暂无描述")}</p>
     <p>门槛：${escapeHtml(item.min_realm_stage ? `${item.min_realm_stage}${item.min_realm_layer || 1}层` : "无限制")} · 战力 ${escapeHtml(item.min_combat_power || 0)} · 持续 ${escapeHtml(item.active_seconds || 90)} 秒</p>
     <p>奖励：灵石 ${escapeHtml(item.reward_stone_min || 0)}-${escapeHtml(item.reward_stone_max || 0)} · 修为 ${escapeHtml(item.reward_cultivation_min || 0)}-${escapeHtml(item.reward_cultivation_max || 0)}${item.reward_item_kind ? ` · 物品 ${escapeHtml(item.reward_item_kind)} × ${escapeHtml(item.reward_item_quantity_min || 1)}-${escapeHtml(item.reward_item_quantity_max || 1)}` : ""}</p>
-    <div class="inline-action-buttons">${encounterDispatchButton(item.id)}${deleteButton("encounter", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无奇遇</strong></article>`);
+    <div class="inline-action-buttons">${encounterDispatchButton(item.id)}${editButton("encounter", item.id)}${deleteButton("encounter", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无奇遇</strong></article>`);
+
+  renderStack("boss-list", (bundle.bosses || []).map((item) => `
+    <article class="stack-item" ${adminEntityAttrs("boss", item.id)}>
+      <div class="stack-item-head">
+        <strong>${escapeHtml(item.name || "未命名Boss")}</strong>
+        <span class="badge badge--normal">${escapeHtml(bossTypeLabel(item.boss_type))} · ${item.enabled ? "启用" : "停用"}</span>
+      </div>
+      <p>境界 ${escapeHtml(item.realm_stage || "炼气")} · 生命 ${escapeHtml(item.hp || 0)} · 攻击 ${escapeHtml(item.attack_power || 0)} · 防御 ${escapeHtml(item.defense_power || 0)} · 排序 ${escapeHtml(item.sort_order || 0)}</p>
+      <p>${escapeHtml(bossRewardSummary(item))}</p>
+      <p>${escapeHtml(bossLootSummary(item))}；${escapeHtml(bossLootDetailSummary(item))}</p>
+      <div class="inline-action-buttons">${editButton("boss", item.id)}${deleteButton("boss", item.id)}</div>
+    </article>`).join("") || `<article class="stack-item"><strong>暂无 Boss 配置</strong></article>`);
 
   renderStack("sect-list", (bundle.sects || []).map((item) => `
-    <article class="stack-item"><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml((item.roles || []).length)} 个职位</span></div>
+    <article class="stack-item" ${adminEntityAttrs("sect", item.id)}><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">${escapeHtml((item.roles || []).length)} 个职位</span></div>
     <p>${escapeHtml(item.description || "暂无宗门简介")}</p><p>门槛：${escapeHtml(item.min_realm_stage || "无限制")} ${escapeHtml(item.min_realm_layer || 1)} 层 · 战力 ${escapeHtml(item.min_combat_power || 0)} · 灵石 ${escapeHtml(item.min_stone)}</p><p>考察期：${escapeHtml(item.salary_min_stay_days || 30)} 天</p>
-    <div class="inline-action-buttons">${deleteButton("sect", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无宗门</strong></article>`);
+    <div class="inline-action-buttons">${editButton("sect", item.id)}${deleteButton("sect", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无宗门</strong></article>`);
 
   renderStack("task-list", (bundle.tasks || []).map((item) => `
-    <article class="stack-item"><div class="stack-item-head"><strong>${escapeHtml(item.title)}</strong><span class="badge badge--normal">${escapeHtml(item.task_scope_label || item.task_scope)}</span></div>
+    <article class="stack-item" ${adminEntityAttrs("task", item.id)}><div class="stack-item-head"><strong>${escapeHtml(item.title)}</strong><span class="badge badge--normal">${escapeHtml(item.task_scope_label || item.task_scope)}</span></div>
     <p>${escapeHtml(item.task_type_label || item.task_type)} · 领取 ${escapeHtml(item.claimants_count || 0)}/${escapeHtml(item.max_claimants || 1)} · 状态 ${escapeHtml(item.status)}</p>
     <div class="inline-action-buttons">${deleteButton("task", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无任务</strong></article>`);
 
   renderStack("official-shop-list", (bundle.official_shop || []).map((item) => `
-    <article class="stack-item">
+    <article class="stack-item" ${adminEntityAttrs("official-shop", item.id)}>
       <div class="stack-item-head"><strong>${escapeHtml(item.item_name)}</strong><span class="badge badge--normal">${escapeHtml(item.price_stone)} 灵石</span></div>
       <p>${escapeHtml(item.shop_name)} · 库存 ${escapeHtml(item.quantity)} · ${item.enabled ? "上架中" : "已下架"}</p>
       <div class="inline-action-buttons">
@@ -2289,7 +3409,7 @@ function renderWorld() {
     </article>`).join("") || `<article class="stack-item"><strong>暂无官方商品</strong></article>`);
 
   renderStack("auction-list", (bundle.auctions || []).map((item) => `
-    <article class="stack-item">
+    <article class="stack-item" ${adminEntityAttrs("auction", item.id)}>
       <div class="stack-item-head">
         <strong>${escapeHtml(item.item_name)} × ${escapeHtml(item.quantity)}</strong>
         <span class="badge badge--normal">${escapeHtml(item.status_label || item.status || "未知状态")}</span>
@@ -2306,7 +3426,7 @@ function syncSelects() {
   setOptions($("technique-rarity"), qualityRows(), $("technique-rarity")?.value);
   setOptions($("talisman-rarity"), qualityRows(), $("talisman-rarity")?.value);
   setOptions($("material-quality"), qualityRows(), $("material-quality")?.value);
-  ["artifact-stage", "talisman-stage", "pill-stage", "sect-stage", "technique-stage", "scene-stage", "encounter-stage"].forEach((id) => setOptions($(id), realmRows(), $(id)?.value, "无限制"));
+  ["artifact-stage", "talisman-stage", "pill-stage", "sect-stage", "technique-stage", "scene-stage", "encounter-stage", "boss-stage"].forEach((id) => setOptions($(id), realmRows(), $(id)?.value, "无限制"));
   setOptions($("sect-assign-id"), sectRows(), $("sect-assign-id")?.value);
   setOptions($("admin-task-sect-id"), [{ value: "", label: "无" }, ...sectRows()], $("admin-task-sect-id")?.value);
   setOptions($("recipe-result-id"), itemRows($("recipe-result-kind")?.value || "pill"), $("recipe-result-id")?.value);
@@ -2813,6 +3933,20 @@ function bindEvents() {
     syncSelects();
   });
 
+  $("artifact-set-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      await submitEditableAdminEntity("artifact-set", collectArtifactSetPayload(), {
+        createMessage: "法宝套装已加入套装库。",
+        updateMessage: "法宝套装已更新。",
+      });
+      resetArtifactSetForm();
+      syncSelects();
+    } catch (error) {
+      await popup("提交失败", String(error.message || error), "error");
+    }
+  });
+
   $("talisman-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -2843,15 +3977,16 @@ function bindEvents() {
 
   $("sect-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const form = event.currentTarget;
-    await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/sect", {
-      name: $("sect-name").value.trim(), description: $("sect-description").value.trim(), image_url: $("sect-image").value.trim(),
-      min_realm_stage: $("sect-stage").value || null, min_realm_layer: Number($("sect-layer").value || 1),
-      min_stone: Number($("sect-stone").value || 0), roles: collectSectRoles(),
-    }), "创建成功", "宗门已建立。");
-    form?.reset?.();
-    $("sect-role-rows").innerHTML = "";
-    ROLE_PRESETS.forEach(([role_key, role_name]) => addSectRoleRow({ role_key, role_name }));
+    try {
+      await submitEditableAdminEntity("sect", collectSectPayload(), {
+        createMessage: "宗门已建立。",
+        updateMessage: "宗门资料与职位配置已更新。",
+      });
+      resetSectForm();
+      syncSelects();
+    } catch (error) {
+      await popup("提交失败", String(error.message || error), "error");
+    }
   });
 
   $("sect-assign-form")?.addEventListener("submit", async (event) => {
@@ -2863,75 +3998,102 @@ function bindEvents() {
 
   $("material-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const form = event.currentTarget;
-    await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/material", {
-      name: $("material-name").value.trim(), quality_level: QUALITY_OPTIONS.indexOf($("material-quality").value) + 1,
-      image_url: $("material-image").value.trim(), description: $("material-description").value.trim(),
-    }), "创建成功", "材料已加入资源库。");
-    form?.reset?.();
+    try {
+      await submitEditableAdminEntity("material", collectMaterialPayload(), {
+        createMessage: "材料已加入资源库。",
+        updateMessage: "材料已更新。",
+      });
+      resetMaterialForm();
+      syncSelects();
+    } catch (error) {
+      await popup("提交失败", String(error.message || error), "error");
+    }
   });
 
   $("recipe-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const form = event.currentTarget;
-    await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/recipe", {
-      name: $("recipe-name").value.trim(), recipe_kind: $("recipe-kind").value, result_kind: $("recipe-result-kind").value,
-      result_ref_id: Number($("recipe-result-id").value || 0), result_quantity: Number($("recipe-result-quantity").value || 1),
-      base_success_rate: Number($("recipe-success").value || 60),
-      broadcast_on_success: $("recipe-broadcast").checked, ingredients: collectRecipeIngredients(),
-    }), "创建成功", "配方已保存。");
-    form?.reset?.();
-    $("recipe-ingredient-rows").innerHTML = "";
-    addRecipeIngredientRow();
+    try {
+      await submitEditableAdminEntity("recipe", collectRecipePayload(), {
+        createMessage: "配方已保存。",
+        updateMessage: "配方已更新。",
+      });
+      resetRecipeForm();
+      syncSelects();
+    } catch (error) {
+      await popup("提交失败", String(error.message || error), "error");
+    }
   });
 
   $("scene-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const form = event.currentTarget;
-    await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/scene", {
-      name: $("scene-name").value.trim(), description: $("scene-description").value.trim(), image_url: $("scene-image").value.trim(),
-      max_minutes: Number($("scene-max-minutes").value || 60),
-      min_realm_stage: $("scene-stage").value || null,
-      min_realm_layer: Number($("scene-layer").value || 1),
-      min_combat_power: Number($("scene-power").value || 0),
-      event_pool: collectSceneEvents(),
-      drops: collectSceneDrops(),
-    }), "创建成功", "探索场景已保存。");
-    form?.reset?.();
-    $("scene-event-rows").innerHTML = "";
-    $("scene-drop-rows").innerHTML = "";
-    addSceneEventRow();
-    addSceneDropRow();
+    try {
+      await submitEditableAdminEntity("scene", collectScenePayload(), {
+        createMessage: "探索场景已保存。",
+        updateMessage: "探索场景已更新。",
+      });
+      resetSceneForm();
+      syncSelects();
+    } catch (error) {
+      await popup("提交失败", String(error.message || error), "error");
+    }
   });
 
   $("encounter-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const form = event.currentTarget;
-    await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/encounter", {
-      name: $("encounter-name").value.trim(),
-      description: $("encounter-description").value.trim(),
-      image_url: $("encounter-image").value.trim(),
-      button_text: $("encounter-button-text").value.trim() || "争抢机缘",
-      success_text: $("encounter-success-text").value.trim(),
-      broadcast_text: $("encounter-broadcast-text").value.trim(),
-      weight: Number($("encounter-weight").value || 1),
-      active_seconds: Number($("encounter-active-seconds").value || 90),
-      min_realm_stage: $("encounter-stage").value || null,
-      min_realm_layer: Number($("encounter-layer").value || 1),
-      min_combat_power: Number($("encounter-power").value || 0),
-      reward_stone_min: Number($("encounter-stone-min").value || 0),
-      reward_stone_max: Number($("encounter-stone-max").value || 0),
-      reward_cultivation_min: Number($("encounter-cultivation-min").value || 0),
-      reward_cultivation_max: Number($("encounter-cultivation-max").value || 0),
-      reward_item_kind: $("encounter-item-kind").value || null,
-      reward_item_ref_id: Number($("encounter-item-id").value || 0) || null,
-      reward_item_quantity_min: Number($("encounter-item-quantity-min").value || 1),
-      reward_item_quantity_max: Number($("encounter-item-quantity-max").value || 1),
-      enabled: $("encounter-enabled").checked,
-    }), "创建成功", "群内奇遇已保存。");
-    form?.reset?.();
-    syncSelects();
+    try {
+      await submitEditableAdminEntity("encounter", collectEncounterPayload(), {
+        createMessage: "群内奇遇已保存。",
+        updateMessage: "群内奇遇已更新。",
+      });
+      resetEncounterForm();
+      syncSelects();
+    } catch (error) {
+      await popup("提交失败", String(error.message || error), "error");
+    }
   });
+
+  $("boss-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const bossId = Number($("boss-id")?.value || 0);
+    let payload;
+    try {
+      payload = collectBossPayload();
+    } catch (error) {
+      await popup("Boss配置错误", String(error.message || error), "error");
+      return;
+    }
+    try {
+      await submitAndRefresh(
+        () => request(
+          bossId > 0 ? "PATCH" : "POST",
+          bossId > 0 ? `/plugins/xiuxian/admin-api/boss/${bossId}` : "/plugins/xiuxian/admin-api/boss",
+          payload,
+        ),
+        bossId > 0 ? "保存成功" : "创建成功",
+        bossId > 0 ? "Boss 配置已更新。" : "Boss 已加入讨伐系统。",
+      );
+      resetBossForm();
+      syncSelects();
+    } catch (error) {
+      await popup("提交失败", String(error.message || error), "error");
+    }
+  });
+
+  $("boss-reset-btn")?.addEventListener("click", () => {
+    resetBossForm();
+  });
+
+  $("artifact-set-reset-btn")?.addEventListener("click", resetArtifactSetForm);
+  $("talisman-reset-btn")?.addEventListener("click", resetTalismanForm);
+  $("pill-reset-btn")?.addEventListener("click", resetPillForm);
+  $("sect-reset-btn")?.addEventListener("click", resetSectForm);
+  $("material-reset-btn")?.addEventListener("click", resetMaterialForm);
+  $("recipe-reset-btn")?.addEventListener("click", resetRecipeForm);
+  $("scene-reset-btn")?.addEventListener("click", resetSceneForm);
+  $("encounter-reset-btn")?.addEventListener("click", resetEncounterForm);
+  $("technique-reset-btn")?.addEventListener("click", resetTechniqueForm);
+  $("title-reset-btn")?.addEventListener("click", resetTitleForm);
+  $("achievement-reset-btn")?.addEventListener("click", resetAchievementForm);
 
   $("grant-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -2964,6 +4126,16 @@ function bindEvents() {
   });
 
   document.body.addEventListener("click", async (event) => {
+    const locate = event.target.closest("[data-admin-search-locate]");
+    if (locate) {
+      focusAdminEntity(locate.dataset.adminSearchLocate, Number(locate.dataset.id || 0));
+      return;
+    }
+    const searchEdit = event.target.closest("[data-admin-search-edit]");
+    if (searchEdit) {
+      await editAdminEntity(searchEdit.dataset.adminSearchEdit, Number(searchEdit.dataset.id || 0));
+      return;
+    }
     const del = event.target.closest("[data-delete]");
     if (del) {
       const entity = del.dataset.delete;
@@ -2979,15 +4151,7 @@ function bindEvents() {
     if (edit) {
       const entity = edit.dataset.edit;
       const id = Number(edit.dataset.id || 0);
-      if (entity === "artifact") {
-        const item = (state.bundle?.artifacts || []).find((row) => Number(row.id || 0) === id);
-        if (!item) {
-          await popup("编辑失败", "未找到目标法宝。", "error");
-          return;
-        }
-        loadArtifactForm(item);
-        scrollAdminTargetIntoView($("artifact-form"));
-      }
+      await editAdminEntity(entity, id);
       return;
     }
     const dispatch = event.target.closest("[data-encounter-dispatch]");
@@ -3143,21 +4307,12 @@ function bindAttributeAwareSubmitters() {
   $("talisman-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     event.stopImmediatePropagation();
-    const form = event.currentTarget;
     try {
-      await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/talisman", {
-        name: $("talisman-name").value.trim(),
-        rarity: $("talisman-rarity")?.value || "凡品",
-        image_url: $("talisman-image")?.value.trim() || "",
-        description: $("talisman-description")?.value.trim() || "",
-        ...affixPayload("talisman"),
-        duel_rate_bonus: Number($("talisman-duel")?.value || 0),
-        effect_uses: Number($("talisman-effect-uses")?.value || 1),
-        combat_config: parseJsonInput($("talisman-combat-config")?.value || "{}", {}),
-        min_realm_stage: $("talisman-stage")?.value || null,
-        min_realm_layer: Number($("talisman-layer")?.value || 1),
-      }), "创建成功", "符箓已经录入修仙体系。");
-      form?.reset?.();
+      await submitEditableAdminEntity("talisman", collectTalismanPayload(), {
+        createMessage: "符箓已经录入修仙体系。",
+        updateMessage: "符箓配置已更新。",
+      });
+      resetTalismanForm();
       syncSelects();
     } catch (error) {
       await popup("提交失败", String(error.message || error), "error");
@@ -3167,44 +4322,28 @@ function bindAttributeAwareSubmitters() {
   $("pill-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     event.stopImmediatePropagation();
-    const form = event.currentTarget;
-    await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/pill", {
-      name: $("pill-name").value.trim(),
-      rarity: $("pill-rarity")?.value || "凡品",
-      pill_type: $("pill-type")?.value || "foundation",
-      image_url: $("pill-image")?.value.trim() || "",
-      description: $("pill-description")?.value.trim() || "",
-      effect_value: Number($("pill-effect")?.value || 0),
-      poison_delta: Number($("pill-poison")?.value || 0),
-      ...affixPayload("pill"),
-      min_realm_stage: $("pill-stage")?.value || null,
-      min_realm_layer: Number($("pill-layer")?.value || 1),
-    }), "创建成功", "丹药已经录入修仙体系。");
-    form?.reset?.();
-    syncSelects();
-    updatePillEffectLabel();
+    try {
+      await submitEditableAdminEntity("pill", collectPillPayload(), {
+        createMessage: "丹药已经录入修仙体系。",
+        updateMessage: "丹药配置已更新。",
+      });
+      resetPillForm();
+      syncSelects();
+      updatePillEffectLabel();
+    } catch (error) {
+      await popup("提交失败", String(error.message || error), "error");
+    }
   }, true);
 
   $("technique-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     event.stopImmediatePropagation();
-    const form = event.currentTarget;
     try {
-      await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/technique", {
-        name: $("technique-name").value.trim(),
-        rarity: $("technique-rarity")?.value || "凡品",
-        technique_type: $("technique-type")?.value || "balanced",
-        image_url: $("technique-image")?.value.trim() || "",
-        description: $("technique-description")?.value.trim() || "",
-        ...affixPayload("technique"),
-        duel_rate_bonus: Number($("technique-duel")?.value || 0),
-        cultivation_bonus: Number($("technique-cultivation")?.value || 0),
-        breakthrough_bonus: Number($("technique-breakthrough")?.value || 0),
-        combat_config: parseJsonInput($("technique-combat-config")?.value || "{}", {}),
-        min_realm_stage: $("technique-stage")?.value || null,
-        min_realm_layer: Number($("technique-layer")?.value || 1),
-      }), "创建成功", "功法已经录入修仙体系。");
-      form?.reset?.();
+      await submitEditableAdminEntity("technique", collectTechniquePayload(), {
+        createMessage: "功法已经录入修仙体系。",
+        updateMessage: "功法配置已更新。",
+      });
+      resetTechniqueForm();
       syncSelects();
     } catch (error) {
       await popup("提交失败", String(error.message || error), "error");
@@ -3288,7 +4427,7 @@ renderWorld = function renderWorldEnhanced() {
   if (!bundle) return;
 
   renderStack("artifact-list", (bundle.artifacts || []).map((item) => `
-    <article class="stack-item">
+    <article class="stack-item" ${adminEntityAttrs("artifact", item.id)}>
       <div class="stack-item-head">
         <strong>${escapeHtml(item.name)}</strong>
         <span class="badge badge--normal">${escapeHtml(item.artifact_type_label || item.artifact_type)}</span>
@@ -3299,8 +4438,19 @@ renderWorld = function renderWorldEnhanced() {
       <div class="inline-action-buttons">${editButton("artifact", item.id)}${deleteButton("artifact", item.id)}</div>
     </article>`).join("") || `<article class="stack-item"><strong>暂无法宝</strong></article>`);
 
+  renderStack("artifact-set-list", (bundle.artifact_sets || []).map((item) => `
+    <article class="stack-item" ${adminEntityAttrs("artifact-set", item.id)}>
+      <div class="stack-item-head">
+        <strong>${escapeHtml(item.name)}</strong>
+        <span class="badge badge--normal">${item.enabled ? "启用中" : "已停用"}</span>
+      </div>
+      <p>生效件数 ${escapeHtml(item.required_count || 2)} · ${escapeHtml(affixSummary(item))}</p>
+      <p>${escapeHtml(item.description || "暂无套装描述")}</p>
+      <div class="inline-action-buttons">${editButton("artifact-set", item.id)}${deleteButton("artifact-set", item.id)}</div>
+    </article>`).join("") || `<article class="stack-item"><strong>暂无套装</strong></article>`);
+
   renderStack("talisman-list", (bundle.talismans || []).map((item) => `
-    <article class="stack-item">
+    <article class="stack-item" ${adminEntityAttrs("talisman", item.id)}>
       <div class="stack-item-head">
         <strong>${escapeHtml(item.name)}</strong>
         ${qualityBadgeHtml(item.rarity || "凡品", item.quality_color)}
@@ -3308,32 +4458,32 @@ renderWorld = function renderWorldEnhanced() {
       <p>${escapeHtml(affixSummary(item))}</p>
       <p>斗法内最多显化 ${escapeHtml(item.effect_uses || 1)} 次</p>
       <p>${escapeHtml(combatConfigSummary(item.combat_config || {}))}</p>
-      <div class="inline-action-buttons">${deleteButton("talisman", item.id)}</div>
+      <div class="inline-action-buttons">${editButton("talisman", item.id)}${deleteButton("talisman", item.id)}</div>
     </article>`).join("") || `<article class="stack-item"><strong>暂无符箓</strong></article>`);
 
   renderStack("pill-list", (bundle.pills || []).map((item) => `
-    <article class="stack-item">
+    <article class="stack-item" ${adminEntityAttrs("pill", item.id)}>
       <div class="stack-item-head">
         <strong>${escapeHtml(item.name)}</strong>
         ${qualityBadgeHtml(item.rarity || "凡品", item.quality_color)}
       </div>
       <p>${escapeHtml(item.pill_type_label || item.pill_type)} · ${escapeHtml(item.effect_value_label || "主效果")} ${escapeHtml(item.effect_value)} · 丹毒 ${escapeHtml(item.poison_delta)}</p>
       <p>${escapeHtml(affixSummary(item))}</p>
-      <div class="inline-action-buttons">${deleteButton("pill", item.id)}</div>
+      <div class="inline-action-buttons">${editButton("pill", item.id)}${deleteButton("pill", item.id)}</div>
     </article>`).join("") || `<article class="stack-item"><strong>暂无丹药</strong></article>`);
 
   renderStack("material-list", (bundle.materials || []).map((item) => `
-    <article class="stack-item">
+    <article class="stack-item" ${adminEntityAttrs("material", item.id)}>
       <div class="stack-item-head">
         <strong>${escapeHtml(item.name)}</strong>
         ${qualityBadgeHtml(item.quality_label || item.quality_level, item.quality_color)}
       </div>
       <p>${escapeHtml(item.quality_feature || item.quality_description || item.description || "暂无描述")}</p>
-      <div class="inline-action-buttons">${deleteButton("material", item.id)}</div>
+      <div class="inline-action-buttons">${editButton("material", item.id)}${deleteButton("material", item.id)}</div>
     </article>`).join("") || `<article class="stack-item"><strong>暂无材料</strong></article>`);
 
   renderStack("technique-list", (bundle.techniques || []).map((item) => `
-    <article class="stack-item">
+    <article class="stack-item" ${adminEntityAttrs("technique", item.id)}>
       <div class="stack-item-head">
         <strong>${escapeHtml(item.name)}</strong>
         ${qualityBadgeHtml(item.rarity || "凡品", item.quality_color)}
@@ -3341,7 +4491,7 @@ renderWorld = function renderWorldEnhanced() {
       <p>${escapeHtml(item.technique_type_label || item.technique_type)} · ${escapeHtml(affixSummary(item))}</p>
       <p>${escapeHtml(combatConfigSummary(item.combat_config || {}))}</p>
       <p>境界限制：${escapeHtml(item.min_realm_stage || "无限制")} ${escapeHtml(item.min_realm_layer || 1)} 层</p>
-      <div class="inline-action-buttons">${deleteButton("technique", item.id)}</div>
+      <div class="inline-action-buttons">${editButton("technique", item.id)}${deleteButton("technique", item.id)}</div>
     </article>`).join("") || `<article class="stack-item"><strong>暂无功法</strong></article>`);
 
   renderStack("task-list", (bundle.tasks || []).map((item) => {
@@ -3359,7 +4509,7 @@ renderWorld = function renderWorldEnhanced() {
     }
     const rewardText = rewardParts.join(" · ") || "无奖励";
     return `
-      <article class="stack-item">
+      <article class="stack-item" ${adminEntityAttrs("task", item.id)}>
         <div class="stack-item-head"><strong>${escapeHtml(item.title)}</strong><span class="badge badge--normal">${escapeHtml(item.task_scope_label || item.task_scope)}</span></div>
         <p>${escapeHtml(item.task_type_label || item.task_type)} · 领取 ${escapeHtml(item.claimants_count || 0)}/${escapeHtml(item.max_claimants || 1)} · 状态 ${escapeHtml(item.status)}</p>
         <p>${escapeHtml(requiredText)}</p>
@@ -4257,7 +5407,7 @@ syncSelects = function syncSelectsWithAchievementTitle() {
 
 function renderTitleAdminList() {
   renderStack("title-list", (state.bundle?.titles || []).map((item) => `
-    <article class="stack-item">
+    <article class="stack-item" ${adminEntityAttrs("title", item.id)}>
       <div class="stack-item-head">
         <strong>${titleColoredNameHtml(item.name, item.color)}</strong>
         <span class="badge badge--normal">${item.enabled ? "启用中" : "已停用"}</span>
@@ -4265,14 +5415,14 @@ function renderTitleAdminList() {
       <p>${escapeHtml(item.description || "暂无称号描述")}</p>
       <p>${escapeHtml(adminTitleEffectSummary(item))}</p>
       <p class="quality-line">${titleColorBadgeHtml(item.color ? "称号预览" : "默认配色", item.color || "")}<span class="field-note">颜色 ${escapeHtml(summarizeDecorColor(item.color))} · ID ${escapeHtml(item.id)}</span></p>
-      <div class="inline-action-buttons">${deleteButton("title", item.id)}</div>
+      <div class="inline-action-buttons">${editButton("title", item.id)}${deleteButton("title", item.id)}</div>
     </article>
   `).join("") || `<article class="stack-item"><strong>暂无称号</strong></article>`);
 }
 
 function renderAchievementAdminList() {
   renderStack("achievement-list", (state.bundle?.achievements || []).map((item) => `
-    <article class="stack-item">
+    <article class="stack-item" ${adminEntityAttrs("achievement", item.id)}>
       <div class="stack-item-head">
         <strong>${escapeHtml(item.name)}</strong>
         <span class="badge badge--normal">${item.enabled ? "启用中" : "已停用"}</span>
@@ -4281,7 +5431,7 @@ function renderAchievementAdminList() {
       <p>${escapeHtml(item.description || "暂无成就描述")}</p>
       <p>奖励：${escapeHtml(adminRewardSummary(item.reward_config || {}))}</p>
       <p>通知：群 ${item.notify_group ? "开" : "关"} / 私 ${item.notify_private ? "开" : "关"}</p>
-      <div class="inline-action-buttons">${deleteButton("achievement", item.id)}</div>
+      <div class="inline-action-buttons">${editButton("achievement", item.id)}${deleteButton("achievement", item.id)}</div>
     </article>
   `).join("") || `<article class="stack-item"><strong>暂无成就</strong></article>`);
 }
@@ -4302,31 +5452,18 @@ function parseRewardConfigInput() {
 document.getElementById("title-form")?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const name = $("title-name")?.value.trim() || "";
-  const imageUrl = setAdminInputValue("title-image", $("title-image")?.value || "");
   if (!name) {
     await popup("提交失败", "请先填写称号名称。", "error");
     return;
   }
   try {
-    await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/title", {
-      name,
-      description: $("title-description").value.trim(),
-      color: $("title-color").value.trim(),
-      image_url: imageUrl,
-      attack_bonus: Number($("title-attack").value || 0),
-      defense_bonus: Number($("title-defense").value || 0),
-      bone_bonus: Number($("title-bone").value || 0),
-      comprehension_bonus: Number($("title-comprehension").value || 0),
-      divine_sense_bonus: Number($("title-divine-sense").value || 0),
-      fortune_bonus: Number($("title-fortune").value || 0),
-      qi_blood_bonus: Number($("title-qi-blood").value || 0),
-      true_yuan_bonus: Number($("title-true-yuan").value || 0),
-      body_movement_bonus: Number($("title-body-movement").value || 0),
-      duel_rate_bonus: Number($("title-duel").value || 0),
-      cultivation_bonus: Number($("title-cultivation").value || 0),
-      breakthrough_bonus: Number($("title-breakthrough").value || 0),
-      enabled: $("title-enabled").checked,
-    }), "保存成功", "称号已写入修仙系统。");
+    await submitEditableAdminEntity("title", collectTitlePayload(), {
+      createTitle: "保存成功",
+      updateTitle: "保存成功",
+      createMessage: "称号已写入修仙系统。",
+      updateMessage: "称号已更新。",
+    });
+    resetTitleForm();
   } catch (error) {
     await popup("提交失败", String(error.message || error), "error");
   }
@@ -4343,25 +5480,22 @@ document.getElementById("title-grant-form")?.addEventListener("submit", async (e
 
 document.getElementById("achievement-form")?.addEventListener("submit", async (event) => {
   event.preventDefault();
-  let rewardConfig = {};
+  let payload;
   try {
-    rewardConfig = parseRewardConfigInput();
+    payload = collectAchievementPayload();
   } catch (error) {
     await popup("奖励配置错误", "奖励 JSON 不是合法格式。", "error");
     return;
   }
-  await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/achievement", {
-    achievement_key: $("achievement-key").value.trim() || null,
-    name: $("achievement-name").value.trim(),
-    description: $("achievement-description").value.trim(),
-    metric_key: $("achievement-metric-key").value.trim(),
-    target_value: Number($("achievement-target").value || 1),
-    reward_config: rewardConfig,
-    notify_group: $("achievement-notify-group").checked,
-    notify_private: $("achievement-notify-private").checked,
-    enabled: $("achievement-enabled").checked,
-    sort_order: Number($("achievement-sort").value || 0),
-  }), "创建成功", "成就规则已经保存。");
+  try {
+    await submitEditableAdminEntity("achievement", payload, {
+      createMessage: "成就规则已经保存。",
+      updateMessage: "成就规则已更新。",
+    });
+    resetAchievementForm();
+  } catch (error) {
+    await popup("提交失败", String(error.message || error), "error");
+  }
 });
 
 document.getElementById("achievement-progress-form")?.addEventListener("submit", async (event) => {

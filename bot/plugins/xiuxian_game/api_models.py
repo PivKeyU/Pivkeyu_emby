@@ -723,6 +723,43 @@ class EncounterDispatchPayload(BaseModel):
     group_chat_id: int | None = None
 
 
+class BossPayload(BaseModel):
+    name: str
+    boss_type: str = "personal"
+    realm_stage: str = "炼气"
+    description: str = ""
+    image_url: str = ""
+    hp: int = 500
+    attack_power: int = 30
+    defense_power: int = 15
+    body_movement: int = 10
+    divine_sense: int = 10
+    fortune: int = 10
+    qi_blood: int = 500
+    true_yuan: int = 200
+    skill_name: str | None = None
+    skill_ratio_percent: int = 30
+    skill_hit_bonus: int = 0
+    passive_name: str | None = None
+    passive_effect_kind: str | None = None
+    passive_ratio_percent: int = 0
+    passive_chance: int = 25
+    loot_pills_json: list[dict[str, Any]] = Field(default_factory=list)
+    loot_materials_json: list[dict[str, Any]] = Field(default_factory=list)
+    loot_artifacts_json: list[dict[str, Any]] = Field(default_factory=list)
+    loot_talismans_json: list[dict[str, Any]] = Field(default_factory=list)
+    loot_recipes_json: list[dict[str, Any]] = Field(default_factory=list)
+    loot_techniques_json: list[dict[str, Any]] = Field(default_factory=list)
+    stone_reward_min: int = 0
+    stone_reward_max: int = 0
+    cultivation_reward: int = 0
+    daily_attempt_limit: int = 3
+    ticket_cost_stone: int = 100
+    flavor_text: str = ""
+    sort_order: int = 0
+    enabled: bool = True
+
+
 class UploadPermissionPayload(BaseModel):
     tg: int
 

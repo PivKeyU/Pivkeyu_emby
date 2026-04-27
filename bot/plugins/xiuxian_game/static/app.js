@@ -13,6 +13,7 @@ const state = {
   deferredBundleLoading: false,
   deferredBundleLoaded: false,
   deferredBundlePromise: null,
+  deferredBootstrapTimer: null,
   retreatTimingTimer: null,
   wikiFilter: "all",
   wikiSearchQuery: "",
@@ -959,11 +960,11 @@ const DEFERRED_SECTION_IDS = new Set([
   "marriage-card",
   "fishing-card",
   "gambling-card",
-  "boss-card",
 ]);
 
 const LAZY_SECTION_IDS = [
   ...DEFERRED_SECTION_IDS,
+  "boss-card",
   "leaderboard-card",
 ];
 
@@ -3779,6 +3780,10 @@ function mergeBundleData(baseBundle, patchBundle) {
 async function loadDeferredBundle({ silent = false } = {}) {
   if (state.deferredBundleLoaded) return state.profileBundle;
   if (state.deferredBundlePromise) return state.deferredBundlePromise;
+  if (state.deferredBootstrapTimer) {
+    window.clearTimeout(state.deferredBootstrapTimer);
+    state.deferredBootstrapTimer = null;
+  }
   state.deferredBundleLoading = true;
   state.deferredBundlePromise = (async () => {
     const deferred = await postJson("/plugins/xiuxian/api/bootstrap/deferred");
@@ -3799,14 +3804,28 @@ async function loadDeferredBundle({ silent = false } = {}) {
 }
 
 function scheduleDeferredBootstrapWork() {
+  if (state.deferredBundleLoaded || state.deferredBundleLoading) return;
+  if (state.deferredBootstrapTimer) {
+    window.clearTimeout(state.deferredBootstrapTimer);
+    state.deferredBootstrapTimer = null;
+  }
   const runner = () => {
+    state.deferredBootstrapTimer = null;
     loadDeferredBundle({ silent: true }).catch(() => null);
   };
   const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
   if (connection?.saveData || /2g/i.test(String(connection?.effectiveType || ""))) {
     return;
   }
-  window.setTimeout(() => deferUiWork(runner), 1400);
+  const delay = /3g/i.test(String(connection?.effectiveType || "")) ? 4200 : 2800;
+  state.deferredBootstrapTimer = window.setTimeout(() => {
+    state.deferredBootstrapTimer = null;
+    if (typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(runner, { timeout: 3000 });
+      return;
+    }
+    window.setTimeout(runner, 96);
+  }, delay);
 }
 
 async function refreshBundle({ background = false } = {}) {
@@ -3861,9 +3880,10 @@ function applyReturnedBundle(payload, { backgroundFallback = true } = {}) {
       state.deferredBundleLoaded = false;
       state.deferredBundlePromise = null;
       applyProfileBundle(mergedBundle);
-      const deferredTask = loadDeferredBundle({ silent: backgroundFallback });
       if (backgroundFallback) {
-        deferredTask.catch((error) => console.warn("xiuxian deferred bundle refresh failed", error));
+        scheduleDeferredBootstrapWork();
+      } else {
+        return loadDeferredBundle({ silent: false });
       }
       return Promise.resolve(mergedBundle);
     }
@@ -7827,20 +7847,98 @@ function renderGamblingArea(bundle) {
 }
 
 // ---- Boss 讨伐 ----
+const BOSS_DATA_CACHE_TTL_MS = 15000;
 let _bossDataCache = null;
+let _bossDataPromise = null;
 
-async function fetchBossData() {
-  try {
-    const [personal, world] = await Promise.all([
+function fallbackBossData() {
+  return { personal: { bosses: [] }, world: { active: false }, ts: 0 };
+}
+
+async function fetchBossData({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && _bossDataCache && now - Number(_bossDataCache.ts || 0) < BOSS_DATA_CACHE_TTL_MS) {
+    return _bossDataCache;
+  }
+  if (_bossDataPromise) return _bossDataPromise;
+  _bossDataPromise = (async () => {
+    const [personalResult, worldResult] = await Promise.allSettled([
       postJson("/plugins/xiuxian/api/boss/list", {}),
       postJson("/plugins/xiuxian/api/boss/world/status", {}),
     ]);
-    _bossDataCache = { personal, world, ts: Date.now() };
+    const allFailed = personalResult.status === "rejected" && worldResult.status === "rejected";
+    if (allFailed && _bossDataCache) return _bossDataCache;
+    _bossDataCache = {
+      personal: personalResult.status === "fulfilled" ? personalResult.value : (_bossDataCache?.personal || { bosses: [] }),
+      world: worldResult.status === "fulfilled" ? worldResult.value : (_bossDataCache?.world || { active: false }),
+      ts: Date.now(),
+    };
     return _bossDataCache;
-  } catch (e) {
-    if (_bossDataCache) return _bossDataCache;
-    return { personal: { bosses: [] }, world: { active: false }, ts: 0 };
+  })()
+    .catch(() => _bossDataCache || fallbackBossData())
+    .finally(() => {
+      _bossDataPromise = null;
+    });
+  return _bossDataPromise;
+}
+
+function renderBossData(data) {
+  renderBossSummary(data);
+  renderBossPersonalTab(data);
+  renderBossWorldTab(data);
+}
+
+function renderBossLoadingState() {
+  const summaryRoot = document.querySelector("#boss-summary");
+  const personalNote = document.querySelector("#boss-personal-note");
+  const personalList = document.querySelector("#boss-personal-list");
+  const worldNote = document.querySelector("#boss-world-note");
+  const worldStatus = document.querySelector("#boss-world-status");
+  const worldRankings = document.querySelector("#boss-world-rankings");
+  if (summaryRoot) {
+    summaryRoot.innerHTML = `
+      <article class="boss-metric"><span>Boss 数据</span><strong>同步中</strong><small>首次打开时加载</small></article>
+      <article class="boss-metric"><span>世界 Boss</span><strong>检测中</strong><small>独立接口刷新</small></article>
+    `;
   }
+  if (personalNote) personalNote.textContent = "正在读取个人 Boss 列表。";
+  if (personalList) personalList.innerHTML = `<article class="stack-item boss-empty-card"><strong>加载中</strong><p>正在同步可挑战目标。</p></article>`;
+  if (worldNote) worldNote.textContent = "正在检测世界 Boss 状态。";
+  if (worldStatus) worldStatus.innerHTML = `<article class="stack-item boss-empty-card"><strong>加载中</strong><p>正在查看当前是否有世界 Boss 降临。</p></article>`;
+  if (worldRankings) worldRankings.innerHTML = "";
+}
+
+function bossNumber(value) {
+  const number = Number(value || 0);
+  if (number >= 100000000) return `${(number / 100000000).toFixed(1).replace(/\.0$/, "")}亿`;
+  if (number >= 10000) return `${(number / 10000).toFixed(1).replace(/\.0$/, "")}万`;
+  return String(Math.round(number));
+}
+
+function bossHpPercent(current, max) {
+  const maximum = Math.max(Number(max || 0), 1);
+  return Math.max(Math.min(Math.round(Number(current || 0) / maximum * 100), 100), 0);
+}
+
+function bossLootCount(boss = {}) {
+  return [
+    boss.loot_pills_json,
+    boss.loot_materials_json,
+    boss.loot_artifacts_json,
+    boss.loot_talismans_json,
+    boss.loot_recipes_json,
+    boss.loot_techniques_json,
+  ].reduce((total, rows) => total + (Array.isArray(rows) ? rows.length : 0), 0);
+}
+
+function bossRewardText(boss = {}) {
+  const parts = [];
+  const stoneMax = Number(boss.stone_reward_max || 0);
+  if (stoneMax > 0) parts.push(`灵石 ${bossNumber(boss.stone_reward_min)}-${bossNumber(stoneMax)}`);
+  if (Number(boss.cultivation_reward || 0) > 0) parts.push(`修为 +${bossNumber(boss.cultivation_reward)}`);
+  const lootCount = bossLootCount(boss);
+  if (lootCount > 0) parts.push(`掉落 ${lootCount} 项`);
+  return parts.join(" · ") || "暂无额外奖励";
 }
 
 function renderBossSummary(bossData) {
@@ -7850,11 +7948,25 @@ function renderBossSummary(bossData) {
   const world = bossData?.world || {};
   const bosses = Array.isArray(personal.bosses) ? personal.bosses : [];
   const beatenCount = bosses.filter((b) => b.beaten).length;
-  root.innerHTML = [
-    `<article class="info-chip"><span>已征服Boss</span><strong>${beatenCount} / ${bosses.length}</strong></article>`,
-    `<article class="info-chip"><span>世界Boss</span><strong>${world.active ? "进行中" : "未激活"}</strong></article>`,
-    `<article class="info-chip"><span>玩法提示</span><strong>个人+世界</strong></article>`,
-  ].join("");
+  const unlockedCount = bosses.filter((b) => b.unlocked).length;
+  const remainingAttempts = bosses.reduce((total, boss) => total + Math.max(Number(boss.daily_attempts_remaining || 0), 0), 0);
+  root.innerHTML = `
+    <article class="boss-metric">
+      <span>个人进度</span>
+      <strong>${escapeHtml(beatenCount)} / ${escapeHtml(bosses.length)}</strong>
+      <small>已征服 Boss</small>
+    </article>
+    <article class="boss-metric">
+      <span>可挑战</span>
+      <strong>${escapeHtml(unlockedCount)}</strong>
+      <small>今日剩余 ${escapeHtml(remainingAttempts)} 次</small>
+    </article>
+    <article class="boss-metric ${world.active ? "is-hot" : ""}">
+      <span>世界 Boss</span>
+      <strong>${world.active ? "降临中" : "未降临"}</strong>
+      <small>${world.active ? "切到世界页参战" : "等待下一次刷新"}</small>
+    </article>
+  `;
 }
 
 function renderBossPersonalTab(bossData) {
@@ -7862,35 +7974,39 @@ function renderBossPersonalTab(bossData) {
   const listRoot = document.querySelector("#boss-personal-list");
   if (!noteRoot || !listRoot) return;
   const bosses = Array.isArray(bossData?.personal?.bosses) ? bossData.personal.bosses : [];
-  noteRoot.textContent = bosses.length ? "境界越高，可挑战的Boss越多。击败当前Boss后方可重复挑战获取奖励。" : "暂无个人Boss数据。";
+  noteRoot.textContent = bosses.length ? "选择已解锁 Boss 发起挑战。移动端卡片已压缩关键属性、门票、次数与奖励，减少来回滚动。" : "暂无个人 Boss 数据。";
   if (!bosses.length) {
-    listRoot.innerHTML = `<article class="stack-item"><strong>暂无Boss</strong><p>天地一片安宁。</p></article>`;
+    listRoot.innerHTML = `<article class="stack-item boss-empty-card"><strong>暂无 Boss</strong><p>天地一片安宁。</p></article>`;
     return;
   }
   listRoot.innerHTML = bosses.map((boss) => {
-    const hpPercent = Math.min(Math.round((boss.hp || 1) / Math.max(boss.hp || 1, 1) * 100), 100);
-    const statusLabel = !boss.unlocked ? "🔒 境界未至" : boss.beaten ? "已击败" : "可挑战";
+    const statusLabel = !boss.unlocked ? "境界未至" : boss.beaten ? "已击败" : "可挑战";
     const statusClass = !boss.unlocked ? "badge badge--unknown" : boss.beaten ? "badge badge--safe" : "badge badge--warn";
     const canChallenge = boss.unlocked && boss.daily_attempts_remaining > 0;
     const disabledReason = !boss.unlocked ? `需达到 ${escapeHtml(boss.realm_stage || "未知境界")}` : boss.daily_attempts_remaining <= 0 ? "今日次数已尽" : "";
+    const firstChar = String(boss.name || "Boss").trim().slice(0, 1) || "B";
     return `
-      <article class="stack-item">
-        <div class="stack-item-head">
-          <strong>${escapeHtml(boss.name || "未命名Boss")}</strong>
+      <article class="stack-item boss-personal-card ${canChallenge ? "is-ready" : ""}">
+        <div class="boss-card-top">
+          <div class="boss-emblem">${escapeHtml(firstChar)}</div>
+          <div class="boss-title-block">
+            <strong>${escapeHtml(boss.name || "未命名 Boss")}</strong>
+            <span>${escapeHtml(boss.realm_stage || "未知境界")} · 门票 ${escapeHtml(boss.ticket_cost_stone || 0)} 灵石</span>
+          </div>
           <span class="${statusClass}">${statusLabel}</span>
         </div>
-        <p>${escapeHtml(boss.description || "暂无描述")}</p>
-        <div class="item-tags">
-          <span class="tag">境界 ${escapeHtml(boss.realm_stage || "未知")}</span>
-          <span class="tag">生命 ${escapeHtml(boss.hp || 0)}</span>
-          <span class="tag">攻击 ${escapeHtml(boss.attack_power || 0)}</span>
-          <span class="tag">防御 ${escapeHtml(boss.defense_power || 0)}</span>
-          ${boss.skill_name ? `<span class="tag">技能 ${escapeHtml(boss.skill_name)}</span>` : ""}
-          <span class="tag">门票 ${escapeHtml(boss.ticket_cost_stone || 0)} 灵石</span>
-          <span class="tag">今日 ${escapeHtml(boss.daily_attempts_remaining || 0)}/${escapeHtml(boss.daily_attempt_limit || 0)} 次</span>
+        <p class="boss-desc">${escapeHtml(boss.description || "暂无描述")}</p>
+        <div class="boss-stat-grid">
+          <span><small>生命</small><strong>${escapeHtml(bossNumber(boss.hp))}</strong></span>
+          <span><small>攻击</small><strong>${escapeHtml(boss.attack_power || 0)}</strong></span>
+          <span><small>防御</small><strong>${escapeHtml(boss.defense_power || 0)}</strong></span>
+          <span><small>今日</small><strong>${escapeHtml(boss.daily_attempts_remaining || 0)}/${escapeHtml(boss.daily_attempt_limit || 0)}</strong></span>
         </div>
-        ${boss.stone_reward_max ? `<p class="reward-hint">灵石奖励 ${escapeHtml(boss.stone_reward_min || 0)}-${escapeHtml(boss.stone_reward_max || 0)} · 修为 +${escapeHtml(boss.cultivation_reward || 0)}</p>` : ""}
-        <button type="button" data-boss-challenge="${escapeHtml(boss.id || 0)}" ${canChallenge ? "" : "disabled"}>${canChallenge ? "发起挑战" : (boss.unlocked ? "次数已尽" : "境界未至")}</button>
+        <div class="boss-reward-row">
+          <span>${escapeHtml(bossRewardText(boss))}</span>
+          ${boss.skill_name ? `<span>技能 ${escapeHtml(boss.skill_name)}</span>` : ""}
+        </div>
+        <button class="boss-action-btn" type="button" data-boss-challenge="${escapeHtml(boss.id || 0)}" ${canChallenge ? "" : "disabled"}>${canChallenge ? "发起挑战" : (boss.unlocked ? "次数已尽" : "境界未至")}</button>
         ${disabledReason ? `<p class="reason-text">${escapeHtml(disabledReason)}</p>` : ""}
       </article>
     `;
@@ -7905,7 +8021,7 @@ function renderBossWorldTab(bossData) {
   const world = bossData?.world || {};
   if (!world.active) {
     noteRoot.textContent = "当前没有活跃的世界Boss，请静待下次降临。";
-    statusRoot.innerHTML = `<article class="stack-item"><strong>暂无世界Boss</strong><p>世界Boss每 ${6} 小时刷新一次，届时全服公告。</p></article>`;
+    statusRoot.innerHTML = `<article class="stack-item boss-empty-card"><strong>暂无世界 Boss</strong><p>世界 Boss 每 6 小时尝试刷新，降临后会在群内公告。</p></article>`;
     rankingRoot.innerHTML = "";
     return;
   }
@@ -7914,62 +8030,68 @@ function renderBossWorldTab(bossData) {
   const player = world.player_damage || {};
   const cooldown = Number(world.cooldown_seconds_remaining || 0);
   const ranking = Array.isArray(world.ranking) ? world.ranking : [];
-  const hpPercent = Math.max(Math.round((instance.current_hp || 1) / Math.max(instance.max_hp || 1, 1) * 100), 0);
-  const hpBarColor = hpPercent > 50 ? "var(--color-success)" : hpPercent > 20 ? "var(--color-warn)" : "var(--color-error)";
+  const hpPercent = bossHpPercent(instance.current_hp, instance.max_hp);
+  const hpBarColor = hpPercent > 50 ? "var(--success)" : hpPercent > 20 ? "var(--warning)" : "var(--danger)";
   const canAttack = cooldown <= 0 && (instance.status === "active");
   const statusText = instance.status === "defeated" ? "已击败" : instance.status === "escaped" ? "已遁走" : "活跃中";
 
-  noteRoot.textContent = `${escapeHtml(boss.name || "未知Boss")} · 状态：${statusText}`;
+  noteRoot.textContent = `${boss.name || "未知 Boss"} · 状态：${statusText} · 结束时间 ${formatDate(instance.expires_at)}`;
   statusRoot.innerHTML = `
-    <article class="stack-item">
-      <div class="stack-item-head">
-        <strong>${escapeHtml(boss.name || "世界Boss")}</strong>
+    <article class="stack-item boss-world-card">
+      <div class="boss-world-head">
+        <div>
+          <strong>${escapeHtml(boss.name || "世界 Boss")}</strong>
+          <p>${escapeHtml(boss.description || "全服共伐目标。")}</p>
+        </div>
         <span class="badge ${instance.status === "active" ? "badge--warn" : "badge--unknown"}">${statusText}</span>
       </div>
-      <p>${escapeHtml(boss.description || "")}</p>
-      <div class="hp-bar-wrap">
+      <div class="hp-bar-wrap boss-hp-bar">
         <div class="hp-bar" style="width:${hpPercent}%; background:${hpBarColor};"></div>
-        <span class="hp-bar-text">${escapeHtml(instance.current_hp || 0)} / ${escapeHtml(instance.max_hp || 0)} (${hpPercent}%)</span>
+        <span class="hp-bar-text">${escapeHtml(bossNumber(instance.current_hp))} / ${escapeHtml(bossNumber(instance.max_hp))} (${hpPercent}%)</span>
       </div>
-      <div class="item-tags">
-        <span class="tag">攻击 ${escapeHtml(boss.attack_power || 0)}</span>
-        <span class="tag">防御 ${escapeHtml(boss.defense_power || 0)}</span>
-        ${boss.skill_name ? `<span class="tag">技能 ${escapeHtml(boss.skill_name)}</span>` : ""}
+      <div class="boss-stat-grid boss-world-stats">
+        <span><small>我的伤害</small><strong>${escapeHtml(bossNumber(player.total_damage))}</strong></span>
+        <span><small>攻击次数</small><strong>${escapeHtml(player.attack_count || 0)}</strong></span>
+        <span><small>冷却</small><strong>${cooldown > 0 ? `${cooldown}秒` : "就绪"}</strong></span>
+        <span><small>防御</small><strong>${escapeHtml(boss.defense_power || 0)}</strong></span>
       </div>
       ${instance.status === "active" ? `
-      <div class="info-grid" style="margin-top:8px;">
-        <article class="info-chip"><span>我的伤害</span><strong>${escapeHtml(player.total_damage || 0)}</strong></article>
-        <article class="info-chip"><span>攻击次数</span><strong>${escapeHtml(player.attack_count || 0)}</strong></article>
-        <article class="info-chip"><span>冷却</span><strong>${cooldown > 0 ? cooldown + "秒" : "就绪"}</strong></article>
-      </div>
-      <button type="button" data-boss-world-attack ${canAttack ? "" : "disabled"}>${canAttack ? "攻击世界Boss" : (cooldown > 0 ? `冷却中 (${cooldown}秒)` : "不可攻击")}</button>
+      <button class="boss-action-btn" type="button" data-boss-world-attack ${canAttack ? "" : "disabled"}>${canAttack ? "攻击世界 Boss" : (cooldown > 0 ? `冷却中 (${cooldown}秒)` : "不可攻击")}</button>
       ` : ""}
     </article>
   `;
 
   if (ranking.length) {
-    rankingRoot.innerHTML = `<h4 style="margin-top:12px;">伤害排名</h4>` + ranking.map((r) => {
-      const tierBadge = r.tier === "mvp" ? "🥇" : r.tier === "top3" ? "🥈" : r.tier === "top10" ? "🥉" : "";
+    rankingRoot.innerHTML = `
+      <article class="stack-item boss-ranking-card">
+        <div class="boss-ranking-head">
+          <strong>伤害排名</strong>
+          <span class="summary-tip">前 10 名</span>
+        </div>
+        <div class="boss-ranking-list">
+          ${ranking.map((r) => {
+      const tierBadge = r.tier === "mvp" ? "MVP" : r.tier === "top3" ? "前三" : r.tier === "top10" ? "前十" : "参与";
       return `
-        <article class="stack-item">
-          <span><strong>#${r.rank} ${tierBadge}</strong> ${escapeHtml(r.display_name || "?")}</span>
-          <span>${escapeHtml(r.total_damage || 0)} 伤害</span>
-        </article>
+            <div class="boss-rank-row">
+              <span><strong>#${escapeHtml(r.rank)} ${escapeHtml(tierBadge)}</strong>${escapeHtml(r.display_name || "?")}</span>
+              <b>${escapeHtml(bossNumber(r.total_damage))}</b>
+            </div>
       `;
-    }).join("");
+    }).join("")}
+        </div>
+      </article>
+    `;
   } else {
-    rankingRoot.innerHTML = "";
+    rankingRoot.innerHTML = `<article class="stack-item boss-ranking-card"><strong>暂无伤害记录</strong><p>成为第一个出手的道友。</p></article>`;
   }
 }
 
 function renderBossArea(bundle) {
   const consented = Boolean(bundle?.profile?.consented);
   if (!consented) return;
-  fetchBossData().then((data) => {
-    renderBossSummary(data);
-    renderBossPersonalTab(data);
-    renderBossWorldTab(data);
-  });
+  if (_bossDataCache) renderBossData(_bossDataCache);
+  else renderBossLoadingState();
+  fetchBossData().then(renderBossData);
 }
 
 // Boss action event handlers
@@ -7997,10 +8119,7 @@ document.querySelector("#boss-personal-list")?.addEventListener("click", async (
     if (result.summary) lines.push("", result.summary);
     setStatus(won ? `击败${bossName}！` : `挑战${bossName}失败`, won ? "success" : "warn");
     await popup(won ? "讨伐胜利" : "讨伐失败", lines.join("\n"));
-    fetchBossData().then((data) => {
-      renderBossSummary(data);
-      renderBossPersonalTab(data);
-    });
+    fetchBossData({ force: true }).then(renderBossData);
   } catch (error) {
     const message = normalizeError(error, "挑战失败。");
     setStatus(message, "error");
@@ -8024,10 +8143,7 @@ document.querySelector("#boss-world-status")?.addEventListener("click", async (e
     }
     setStatus(`造成 ${result.damage_dealt || 0} 点伤害`, "success");
     await popup("攻击世界Boss", lines.join("\n"));
-    fetchBossData().then((data) => {
-      renderBossSummary(data);
-      renderBossWorldTab(data);
-    });
+    fetchBossData({ force: true }).then(renderBossData);
   } catch (error) {
     const message = normalizeError(error, "攻击失败。");
     setStatus(message, "error");
@@ -8045,6 +8161,12 @@ document.querySelector("#boss-tabs")?.addEventListener("click", (event) => {
   const worldPanel = document.querySelector("#boss-world-panel");
   if (personalPanel) personalPanel.classList.toggle("hidden", tabName !== "personal");
   if (worldPanel) worldPanel.classList.toggle("hidden", tabName !== "world");
+  if (tabName === "world") {
+    fetchBossData({ force: true }).then((data) => {
+      renderBossSummary(data);
+      renderBossWorldTab(data);
+    });
+  }
 });
 
 // World boss HP auto-refresh (every 10s when world tab is visible)
@@ -8052,9 +8174,13 @@ let _bossWorldPollTimer = null;
 function startBossWorldPolling() {
   stopBossWorldPolling();
   _bossWorldPollTimer = setInterval(() => {
+    const bossCard = document.querySelector("#boss-card");
     const worldPanel = document.querySelector("#boss-world-panel");
-    if (!worldPanel || worldPanel.classList.contains("hidden")) return;
-    fetchBossData().then((data) => renderBossWorldTab(data));
+    if (!bossCard?.open || !worldPanel || worldPanel.classList.contains("hidden")) return;
+    fetchBossData({ force: true }).then((data) => {
+      renderBossSummary(data);
+      renderBossWorldTab(data);
+    });
   }, 10000);
 }
 function stopBossWorldPolling() {
@@ -8064,6 +8190,15 @@ document.querySelector("#boss-tabs")?.addEventListener("click", () => {
   const worldTab = document.querySelector("[data-boss-tab='world']");
   if (worldTab && worldTab.classList.contains("is-active")) startBossWorldPolling();
   else stopBossWorldPolling();
+});
+
+document.querySelector("#boss-card")?.addEventListener("toggle", (event) => {
+  if (!event.currentTarget?.open) {
+    stopBossWorldPolling();
+    return;
+  }
+  const worldTab = document.querySelector("[data-boss-tab='world']");
+  if (worldTab && worldTab.classList.contains("is-active")) startBossWorldPolling();
 });
 
 const renderProfileWithBossBase = renderProfile;

@@ -8368,18 +8368,157 @@ def get_latest_group_encounter_time(group_chat_id: int):
 # ── Boss CRUD ──────────────────────────────────────────────────
 
 
+_BOSS_LOOT_FIELDS = (
+    "loot_pills_json",
+    "loot_materials_json",
+    "loot_artifacts_json",
+    "loot_talismans_json",
+    "loot_recipes_json",
+    "loot_techniques_json",
+)
+
+
+def _normalize_boss_loot_list(raw: Any) -> list[dict[str, int]]:
+    rows: list[dict[str, int]] = []
+    if not isinstance(raw, (list, tuple)):
+        return rows
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        ref_id = max(_coerce_int(item.get("ref_id"), 0), 0)
+        if ref_id <= 0:
+            continue
+        chance = min(max(_coerce_int(item.get("chance"), 0), 0), 100)
+        if chance <= 0:
+            continue
+        quantity_min = max(_coerce_int(item.get("quantity_min"), 1), 1)
+        quantity_max = max(_coerce_int(item.get("quantity_max"), quantity_min), quantity_min)
+        rows.append(
+            {
+                "ref_id": ref_id,
+                "chance": chance,
+                "quantity_min": quantity_min,
+                "quantity_max": quantity_max,
+            }
+        )
+    return rows[:50]
+
+
+def _normalize_boss_config_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    name = str(fields.get("name") or "").strip()
+    if not name:
+        raise ValueError("Boss名称不能为空")
+    boss_type = str(fields.get("boss_type") or "personal").strip().lower()
+    if boss_type not in {"personal", "world"}:
+        boss_type = "personal"
+    stone_min = max(_coerce_int(fields.get("stone_reward_min"), 0), 0)
+    stone_max = max(_coerce_int(fields.get("stone_reward_max"), stone_min), stone_min)
+    payload: dict[str, Any] = {
+        "name": name,
+        "boss_type": boss_type,
+        "realm_stage": normalize_realm_stage(fields.get("realm_stage")),
+        "description": str(fields.get("description") or "").strip() or None,
+        "image_url": str(fields.get("image_url") or "").strip() or None,
+        "hp": max(_coerce_int(fields.get("hp"), 500), 1),
+        "attack_power": max(_coerce_int(fields.get("attack_power"), 30), 0),
+        "defense_power": max(_coerce_int(fields.get("defense_power"), 15), 0),
+        "body_movement": max(_coerce_int(fields.get("body_movement"), 10), 0),
+        "divine_sense": max(_coerce_int(fields.get("divine_sense"), 10), 0),
+        "fortune": max(_coerce_int(fields.get("fortune"), 10), 0),
+        "qi_blood": max(_coerce_int(fields.get("qi_blood"), fields.get("hp") or 500), 1),
+        "true_yuan": max(_coerce_int(fields.get("true_yuan"), 200), 0),
+        "skill_name": str(fields.get("skill_name") or "").strip() or None,
+        "skill_ratio_percent": min(max(_coerce_int(fields.get("skill_ratio_percent"), 30), 0), 500),
+        "skill_hit_bonus": _coerce_int(fields.get("skill_hit_bonus"), 0),
+        "passive_name": str(fields.get("passive_name") or "").strip() or None,
+        "passive_effect_kind": str(fields.get("passive_effect_kind") or "").strip() or None,
+        "passive_ratio_percent": min(max(_coerce_int(fields.get("passive_ratio_percent"), 0), 0), 500),
+        "passive_chance": min(max(_coerce_int(fields.get("passive_chance"), 25), 0), 100),
+        "stone_reward_min": stone_min,
+        "stone_reward_max": stone_max,
+        "cultivation_reward": max(_coerce_int(fields.get("cultivation_reward"), 0), 0),
+        "daily_attempt_limit": max(_coerce_int(fields.get("daily_attempt_limit"), 3), 0),
+        "ticket_cost_stone": max(_coerce_int(fields.get("ticket_cost_stone"), 100), 0),
+        "flavor_text": str(fields.get("flavor_text") or "").strip() or None,
+        "sort_order": _coerce_int(fields.get("sort_order"), 0),
+        "enabled": _coerce_bool(fields.get("enabled"), True),
+    }
+    for field in _BOSS_LOOT_FIELDS:
+        payload[field] = _normalize_boss_loot_list(fields.get(field))
+    return payload
+
+
 def get_boss_config(boss_id: int) -> XiuxianBossConfig | None:
     with Session() as session:
         return session.query(XiuxianBossConfig).filter(XiuxianBossConfig.id == boss_id).first()
 
 
-def list_boss_configs(boss_type: str | None = None) -> list[dict[str, Any]]:
+def list_boss_configs(boss_type: str | None = None, *, enabled_only: bool = True) -> list[dict[str, Any]]:
+    normalized_type = str(boss_type or "").strip().lower()
+    if normalized_type not in {"personal", "world"}:
+        normalized_type = ""
+
+    def _loader() -> list[dict[str, Any]]:
+        with Session() as session:
+            query = session.query(XiuxianBossConfig)
+            if enabled_only:
+                query = query.filter(XiuxianBossConfig.enabled.is_(True))
+            if normalized_type:
+                query = query.filter(XiuxianBossConfig.boss_type == normalized_type)
+            query = query.order_by(XiuxianBossConfig.sort_order.asc(), XiuxianBossConfig.id.asc())
+            return [serialize_boss_config(row) for row in query.all()]
+
+    return xiuxian_cache.load_versioned_json(
+        version_parts=("catalog", "bosses"),
+        cache_parts=(
+            "catalog",
+            "bosses",
+            normalized_type or "all",
+            "enabled" if enabled_only else "all",
+        ),
+        ttl=xiuxian_cache.CATALOG_TTL,
+        loader=_loader,
+    )
+
+
+def create_boss_config(**fields) -> dict[str, Any]:
+    payload = _normalize_boss_config_fields(dict(fields))
     with Session() as session:
-        q = session.query(XiuxianBossConfig).filter(XiuxianBossConfig.enabled.is_(True))
-        if boss_type:
-            q = q.filter(XiuxianBossConfig.boss_type == boss_type)
-        q = q.order_by(XiuxianBossConfig.sort_order.asc(), XiuxianBossConfig.id.asc())
-        return [serialize_boss_config(row) for row in q.all()]
+        row = XiuxianBossConfig(**payload)
+        session.add(row)
+        _queue_catalog_cache_invalidation(session, "bosses")
+        session.commit()
+        session.refresh(row)
+        return serialize_boss_config(row)
+
+
+def patch_boss_config(boss_id: int, **fields) -> dict[str, Any] | None:
+    patch = dict(fields)
+    with Session() as session:
+        row = session.query(XiuxianBossConfig).filter(XiuxianBossConfig.id == boss_id).first()
+        if row is None:
+            return None
+        current = serialize_boss_config(row) or {}
+        current.update(patch)
+        payload = _normalize_boss_config_fields(current)
+        for key, value in payload.items():
+            setattr(row, key, value)
+        row.updated_at = utcnow()
+        _queue_catalog_cache_invalidation(session, "bosses")
+        session.commit()
+        session.refresh(row)
+        return serialize_boss_config(row)
+
+
+def delete_boss_config(boss_id: int) -> bool:
+    with Session() as session:
+        row = session.query(XiuxianBossConfig).filter(XiuxianBossConfig.id == boss_id).first()
+        if row is None:
+            return False
+        session.delete(row)
+        _queue_catalog_cache_invalidation(session, "bosses")
+        session.commit()
+        return True
 
 
 def sync_boss_config_by_name(name: str, **fields) -> dict[str, Any]:
@@ -8391,11 +8530,13 @@ def sync_boss_config_by_name(name: str, **fields) -> dict[str, Any]:
     payload.pop("loot_talismans_json_refs", None)
     payload.pop("loot_recipes_json_refs", None)
     payload.pop("loot_techniques_json_refs", None)
+    payload = _normalize_boss_config_fields(payload)
     with Session() as session:
-        row = session.query(XiuxianBossConfig).filter(XiuxianBossConfig.name == name).first()
+        row = session.query(XiuxianBossConfig).filter(XiuxianBossConfig.name == payload["name"]).first()
         if row is None:
             row = XiuxianBossConfig(**payload)
             session.add(row)
+            _queue_catalog_cache_invalidation(session, "bosses")
             session.commit()
             session.refresh(row)
             return serialize_boss_config(row)
@@ -8406,6 +8547,7 @@ def sync_boss_config_by_name(name: str, **fields) -> dict[str, Any]:
                 changed = True
         if changed:
             row.updated_at = utcnow()
+            _queue_catalog_cache_invalidation(session, "bosses")
             session.commit()
             session.refresh(row)
         return serialize_boss_config(row)

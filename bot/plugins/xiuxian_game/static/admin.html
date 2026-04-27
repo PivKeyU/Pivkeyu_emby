@@ -677,7 +677,7 @@
       </summary>
       <div class="fold-body">
         <form id="artifact-set-form" class="grid-form">
-          <input id="artifact-set-id" type="hidden">
+          <input id="artifact-set-record-id" type="hidden">
           <label>
             套装名称
             <input id="artifact-set-name" type="text" placeholder="例如：青霄巡天套">
@@ -706,8 +706,9 @@
           <label>斗法加成（%） <input id="artifact-set-duel" type="number" value="0"></label>
           <label>修炼加成 <input id="artifact-set-cultivation" type="number" value="0"></label>
           <label>突破加成 <input id="artifact-set-breakthrough" type="number" value="0"></label>
-          <div class="form-actions">
+          <div class="form-actions form-actions--split">
             <button type="submit">新增套装</button>
+            <button id="artifact-set-reset-btn" type="button" class="ghost">重置表单</button>
           </div>
         </form>
         <div id="artifact-set-list" class="stack-list"></div>
@@ -777,8 +778,9 @@
             <input id="talisman-enabled" type="checkbox" checked>
             启用符箓
           </label>
-          <div class="form-actions">
+          <div class="form-actions form-actions--split">
             <button type="submit">新增符箓</button>
+            <button id="talisman-reset-btn" type="button" class="ghost">重置表单</button>
           </div>
         </form>
         <div id="talisman-list" class="stack-list"></div>
@@ -860,8 +862,9 @@
             <input id="pill-enabled" type="checkbox" checked>
             启用丹药
           </label>
-          <div class="form-actions">
+          <div class="form-actions form-actions--split">
             <button type="submit">新增丹药</button>
+            <button id="pill-reset-btn" type="button" class="ghost">重置表单</button>
           </div>
         </form>
         <div id="pill-list" class="stack-list"></div>
@@ -971,8 +974,9 @@
             </div>
             <div id="sect-role-rows" class="builder-list"></div>
           </div>
-          <div class="form-actions">
+          <div class="form-actions form-actions--split">
             <button type="submit">创建宗门</button>
+            <button id="sect-reset-btn" type="button" class="ghost">重置表单</button>
           </div>
         </form>
         <form id="sect-assign-form" class="grid-form">
@@ -1111,8 +1115,9 @@
             <input id="technique-enabled" type="checkbox" checked>
             启用功法
           </label>
-          <div class="form-actions">
+          <div class="form-actions form-actions--split">
             <button type="submit">新增功法</button>
+            <button id="technique-reset-btn" type="button" class="ghost">重置表单</button>
           </div>
         </form>
         <div id="technique-list" class="stack-list"></div>
@@ -1212,8 +1217,9 @@
           <label>斗法加成（%） <input id="title-duel" type="number" value="0"></label>
           <label>修炼加成 <input id="title-cultivation" type="number" value="0"></label>
           <label>突破加成 <input id="title-breakthrough" type="number" value="0"></label>
-          <div class="form-actions">
+          <div class="form-actions form-actions--split">
             <button type="submit">创建称号</button>
+            <button id="title-reset-btn" type="button" class="ghost">重置表单</button>
           </div>
         </form>
         <form id="title-grant-form" class="grid-form">
@@ -1289,8 +1295,9 @@
             奖励配置 JSON
             <textarea id="achievement-reward-config" rows="6" placeholder='{"spiritual_stone":100,"cultivation":50,"titles":[1],"items":[{"kind":"pill","ref_id":1,"quantity":2}]}'></textarea>
           </label>
-          <div class="form-actions">
+          <div class="form-actions form-actions--split">
             <button type="submit">创建成就</button>
+            <button id="achievement-reset-btn" type="button" class="ghost">重置表单</button>
           </div>
         </form>
         <form id="achievement-progress-form" class="grid-form">
@@ -1353,8 +1360,9 @@
             <input id="material-enabled" type="checkbox" checked>
             启用材料
           </label>
-          <div class="form-actions">
+          <div class="form-actions form-actions--split">
             <button type="submit">新增材料</button>
+            <button id="material-reset-btn" type="button" class="ghost">重置表单</button>
           </div>
         </form>
         <div id="material-list" class="stack-list"></div>
@@ -1415,8 +1423,9 @@
             </div>
             <div id="recipe-ingredient-rows" class="builder-list"></div>
           </div>
-          <div class="form-actions">
+          <div class="form-actions form-actions--split">
             <button type="submit">新增配方</button>
+            <button id="recipe-reset-btn" type="button" class="ghost">重置表单</button>
           </div>
         </form>
         <div id="recipe-list" class="stack-list"></div>
@@ -1481,8 +1490,9 @@
             </div>
             <div id="scene-drop-rows" class="builder-list"></div>
           </div>
-          <div class="form-actions">
+          <div class="form-actions form-actions--split">
             <button type="submit">新增场景</button>
+            <button id="scene-reset-btn" type="button" class="ghost">重置表单</button>
           </div>
         </form>
         <div id="scene-list" class="stack-list"></div>
@@ -1674,11 +1684,94 @@
             <input id="encounter-enabled" type="checkbox" checked>
             启用奇遇
           </label>
-          <div class="form-actions">
+          <div class="form-actions form-actions--split">
             <button type="submit">新增奇遇</button>
+            <button id="encounter-reset-btn" type="button" class="ghost">重置表单</button>
           </div>
         </form>
         <div id="encounter-list" class="stack-list"></div>
+      </div>
+    </details>
+
+    <details class="card fold-card">
+      <summary class="fold-summary">
+        <div>
+          <p class="eyebrow" data-section-key="bosses">Boss</p>
+          <h2>Boss 讨伐配置</h2>
+        </div>
+        <span class="summary-tip">配置个人 Boss、世界 Boss、战斗属性和掉落奖励</span>
+      </summary>
+      <div class="fold-body">
+        <form id="boss-form" class="grid-form">
+          <input id="boss-id" type="hidden">
+          <label>Boss 名称 <input id="boss-name" type="text" placeholder="例如：黑水玄蛇"></label>
+          <label>
+            Boss 类型
+            <select id="boss-type">
+              <option value="personal">个人 Boss</option>
+              <option value="world">世界 Boss</option>
+            </select>
+          </label>
+          <label>
+            境界门槛
+            <select id="boss-stage"></select>
+          </label>
+          <label>排序 <input id="boss-sort" type="number" value="0"></label>
+          <label>生命 <input id="boss-hp" type="number" min="1" value="500"></label>
+          <label>攻击 <input id="boss-attack" type="number" min="0" value="30"></label>
+          <label>防御 <input id="boss-defense" type="number" min="0" value="15"></label>
+          <label>身法 <input id="boss-body-movement" type="number" min="0" value="10"></label>
+          <label>神识 <input id="boss-divine-sense" type="number" min="0" value="10"></label>
+          <label>机缘 <input id="boss-fortune" type="number" min="0" value="10"></label>
+          <label>气血 <input id="boss-qi-blood" type="number" min="1" value="500"></label>
+          <label>真元 <input id="boss-true-yuan" type="number" min="0" value="200"></label>
+          <label>主动技能 <input id="boss-skill-name" type="text" placeholder="例如：毒雾噬体"></label>
+          <label>技能倍率 % <input id="boss-skill-ratio" type="number" min="0" value="30"></label>
+          <label>技能命中加成 <input id="boss-skill-hit" type="number" value="0"></label>
+          <label>被动名称 <input id="boss-passive-name" type="text" placeholder="例如：玄鳞甲"></label>
+          <label>
+            被动类型
+            <select id="boss-passive-kind">
+              <option value="">无</option>
+              <option value="guard">减伤</option>
+              <option value="heal">回复</option>
+              <option value="dodge">闪避</option>
+              <option value="armor_break">破甲</option>
+            </select>
+          </label>
+          <label>被动倍率 % <input id="boss-passive-ratio" type="number" min="0" value="0"></label>
+          <label>被动触发率 % <input id="boss-passive-chance" type="number" min="0" max="100" value="25"></label>
+          <label>灵石奖励最小值 <input id="boss-stone-min" type="number" min="0" value="0"></label>
+          <label>灵石奖励最大值 <input id="boss-stone-max" type="number" min="0" value="0"></label>
+          <label>修为奖励 <input id="boss-cultivation" type="number" min="0" value="0"></label>
+          <label>每日挑战次数 <input id="boss-daily-limit" type="number" min="0" value="3"></label>
+          <label>门票灵石 <input id="boss-ticket-cost" type="number" min="0" value="100"></label>
+          <label>
+            图片地址
+            <input id="boss-image" type="url" placeholder="https://...">
+            <div class="upload-inline">
+              <input id="boss-image-file" type="file" accept="image/*">
+              <button type="button" data-upload-file="boss-image-file" data-upload-target="boss-image" data-upload-folder="bosses">上传图片</button>
+            </div>
+          </label>
+          <label class="wide-field">Boss 描述 <textarea id="boss-description" rows="2" placeholder="前台展示的 Boss 背景说明"></textarea></label>
+          <label class="wide-field">胜利文案 <textarea id="boss-flavor" rows="2" placeholder="击败后展示的氛围文案"></textarea></label>
+          <label class="wide-field">丹药掉落 JSON <textarea id="boss-loot-pills" rows="3" placeholder='[{"ref_id":1,"chance":60,"quantity_min":1,"quantity_max":2}]'></textarea></label>
+          <label class="wide-field">材料掉落 JSON <textarea id="boss-loot-materials" rows="3" placeholder='[{"ref_id":1,"chance":70,"quantity_min":1,"quantity_max":3}]'></textarea></label>
+          <label class="wide-field">法宝掉落 JSON <textarea id="boss-loot-artifacts" rows="3" placeholder='[{"ref_id":1,"chance":12,"quantity_min":1,"quantity_max":1}]'></textarea></label>
+          <label class="wide-field">符箓掉落 JSON <textarea id="boss-loot-talismans" rows="3" placeholder="[]"></textarea></label>
+          <label class="wide-field">配方掉落 JSON <textarea id="boss-loot-recipes" rows="3" placeholder="[]"></textarea></label>
+          <label class="wide-field">功法掉落 JSON <textarea id="boss-loot-techniques" rows="3" placeholder="[]"></textarea></label>
+          <label class="inline-check">
+            <input id="boss-enabled" type="checkbox" checked>
+            启用 Boss
+          </label>
+          <div class="form-actions form-actions--split">
+            <button type="submit">保存 Boss</button>
+            <button id="boss-reset-btn" type="button" class="ghost">清空表单</button>
+          </div>
+        </form>
+        <div id="boss-list" class="stack-list"></div>
       </div>
     </details>
 

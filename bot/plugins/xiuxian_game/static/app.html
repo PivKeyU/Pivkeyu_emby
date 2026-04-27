@@ -994,19 +994,19 @@
           <span class="summary-tip">个人挑战·世界共伐，击败Boss获取稀有掉落</span>
         </summary>
         <div class="fold-body">
-          <div id="boss-summary" class="info-grid"></div>
-          <div id="boss-tabs" class="tab-bar">
+          <div id="boss-summary" class="boss-overview"></div>
+          <div id="boss-tabs" class="tab-bar boss-tab-row">
             <button type="button" class="tab-btn is-active" data-boss-tab="personal">个人Boss</button>
             <button type="button" class="tab-btn" data-boss-tab="world">世界Boss</button>
           </div>
-          <div id="boss-personal-panel">
+          <div id="boss-personal-panel" class="boss-panel">
             <p id="boss-personal-note" class="section-copy"></p>
-            <div id="boss-personal-list" class="stack-list"></div>
+            <div id="boss-personal-list" class="stack-list boss-list"></div>
           </div>
-          <div id="boss-world-panel" class="hidden">
+          <div id="boss-world-panel" class="boss-panel hidden">
             <p id="boss-world-note" class="section-copy"></p>
-            <div id="boss-world-status" class="stack-list"></div>
-            <div id="boss-world-rankings" class="stack-list"></div>
+            <div id="boss-world-status" class="stack-list boss-world-status"></div>
+            <div id="boss-world-rankings" class="stack-list boss-ranking-wrap"></div>
           </div>
         </div>
       </details>

@@ -37,6 +37,7 @@ from bot.plugins.xiuxian_game.api_models import (
     ArtifactPayload,
     ArtifactSetPayload,
     BossChallengePayload,
+    BossPayload,
     BreakthroughPayload,
     ConsumePillPayload,
     CommissionClaimPayload,
@@ -292,6 +293,7 @@ from bot.sql_helper.sql_xiuxian import (
     create_achievement,
     create_artifact,
     create_artifact_set,
+    create_boss_config,
     create_error_log,
     create_journal,
     create_material,
@@ -300,6 +302,7 @@ from bot.sql_helper.sql_xiuxian import (
     delete_artifact,
     delete_artifact_set,
     delete_achievement,
+    delete_boss_config,
     delete_material,
     delete_pill,
     delete_recipe,
@@ -320,6 +323,7 @@ from bot.sql_helper.sql_xiuxian import (
     list_achievements,
     list_artifact_sets,
     list_auction_items,
+    list_boss_configs,
     list_error_logs,
     list_pill_type_options,
     list_image_upload_permissions,
@@ -341,6 +345,7 @@ from bot.sql_helper.sql_xiuxian import (
     patch_achievement,
     patch_artifact,
     patch_artifact_set,
+    patch_boss_config,
     patch_material,
     patch_pill,
     patch_sect,
@@ -3332,6 +3337,7 @@ def _admin_world_snapshot() -> dict[str, Any]:
         "recipes": recipes,
         "scenes": scenes,
         "encounters": list_encounter_templates(),
+        "bosses": list_boss_configs(enabled_only=False),
         "tasks": list_tasks(),
         "auctions": list_auction_items(include_inactive=True, limit=100),
         "techniques": list_techniques(),
@@ -6474,6 +6480,23 @@ def register_web(app) -> None:
         message_payload = await _push_group_encounter_notice(encounter_payload)
         return {"code": 200, "data": {"encounter": encounter_payload, "message": message_payload}}
 
+    @admin_router.post("/boss")
+    async def xiuxian_admin_boss_api(payload: BossPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        return {"code": 200, "data": create_boss_config(**payload.model_dump())}
+
+    @admin_router.patch("/boss/{boss_id}")
+    async def xiuxian_admin_boss_patch_api(boss_id: int, payload: BossPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        result = patch_boss_config(boss_id, **payload.model_dump())
+        if result is None:
+            raise HTTPException(status_code=404, detail="Boss不存在")
+        return {"code": 200, "data": result}
+
     @admin_router.post("/task")
     async def xiuxian_admin_task_api(payload: AdminTaskPayload, request: Request):
         token = request.headers.get("x-admin-token")
@@ -6591,6 +6614,13 @@ def register_web(app) -> None:
         if not delete_achievement(achievement_id):
             raise HTTPException(status_code=404, detail="Achievement not found")
         return {"code": 200, "data": {"deleted": True, "id": achievement_id}}
+
+    @admin_router.delete("/boss/{boss_id}")
+    async def xiuxian_delete_boss_api(boss_id: int, request: Request):
+        _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
+        if not delete_boss_config(boss_id):
+            raise HTTPException(status_code=404, detail="Boss not found")
+        return {"code": 200, "data": {"deleted": True, "id": boss_id}}
 
     @admin_router.delete("/sect/{sect_id}")
     async def xiuxian_delete_sect_api(sect_id: int, request: Request):
