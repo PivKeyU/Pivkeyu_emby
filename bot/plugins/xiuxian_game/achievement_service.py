@@ -56,6 +56,9 @@ ACHIEVEMENT_METRIC_PRESETS: list[dict[str, str]] = [
     {"key": "arena_crowned_count", "label": "成为擂主次数", "description": "累计登上擂台并成为当期擂主的次数。"},
     {"key": "arena_defend_win_count", "label": "守擂成功次数", "description": "累计在擂台中成功击退挑战者的次数。"},
     {"key": "arena_final_win_count", "label": "终局夺魁次数", "description": "累计在擂台结束时以最终擂主身份完成结算的次数。"},
+    {"key": "boss_kill_count", "label": "Boss击杀次数", "description": "累计击败个人Boss的次数。"},
+    {"key": "boss_world_damage_total", "label": "世界Boss伤害总量", "description": "累计对世界Boss造成的总伤害值。"},
+    {"key": "boss_world_mvp_count", "label": "世界Boss MVP次数", "description": "累计在世界Boss讨伐中获得伤害排名第一的次数。"},
 ]
 ACHIEVEMENT_METRIC_LABELS = {item["key"]: item["label"] for item in ACHIEVEMENT_METRIC_PRESETS}
 
@@ -360,6 +363,25 @@ def record_exploration_metrics(
         },
         source="exploration",
     )
+    return result["unlocks"]
+
+
+def record_boss_metrics(
+    tg: int,
+    *,
+    kill: int = 0,
+    world_damage: int = 0,
+    world_mvp: int = 0,
+) -> list[dict[str, Any]]:
+    increments = {
+        "boss_kill_count": max(int(kill or 0), 0),
+        "boss_world_damage_total": max(int(world_damage or 0), 0),
+        "boss_world_mvp_count": max(int(world_mvp or 0), 0),
+    }
+    increments = {key: value for key, value in increments.items() if value > 0}
+    if not increments:
+        return []
+    result = record_achievement_progress(tg, increments, source="boss")
     return result["unlocks"]
 
 

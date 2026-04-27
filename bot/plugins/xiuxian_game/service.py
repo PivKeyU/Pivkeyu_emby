@@ -147,6 +147,7 @@ from bot.sql_helper.sql_xiuxian import (
     sync_official_shop_name,
     sync_artifact_by_name,
     sync_artifact_set_by_name,
+    sync_boss_config_by_name,
     sync_encounter_template_by_name,
     sync_material_by_name,
     sync_pill_by_name,
@@ -1246,7 +1247,7 @@ DEFAULT_RECIPES = [
 DEFAULT_SCENES = [
     {
         "name": "黑风山谷",
-        "description": "山风终年不散，适合初入仙途的修士历练与采集。",
+        "description": "黑风终年呜咽如兽，谷底碎石间埋着散修遗落的家当，正是新手磨砺胆气的好去处。",
         "max_minutes": 30,
         "min_combat_power": 0,
         "event_pool": [
@@ -1262,7 +1263,7 @@ DEFAULT_SCENES = [
     },
     {
         "name": "断剑崖",
-        "description": "崖底堆满断剑残兵，剑修常来此寻觅旧器余辉。",
+        "description": "万剑折戟之处，残兵断刃堆积如丘。夜深时可闻旧主剑意低鸣，若有缘，或可唤回一缕剑魂认你为主。",
         "max_minutes": 45,
         "min_realm_stage": "炼气",
         "min_realm_layer": 5,
@@ -1280,7 +1281,7 @@ DEFAULT_SCENES = [
     },
     {
         "name": "迷雾药园",
-        "description": "雾气缭绕的废弃药园，药性温和却不失灵气。",
+        "description": "不知哪位丹道前辈遗下的药圃，雾中灵草自生自灭百余年，药性虽柔但年份极足。",
         "max_minutes": 40,
         "min_realm_stage": "炼气",
         "min_realm_layer": 3,
@@ -1298,7 +1299,7 @@ DEFAULT_SCENES = [
     },
     {
         "name": "雷火符窟",
-        "description": "窟内常有雷火共振，十分适合寻符材，但稍不留神就会被反噬。",
+        "description": "天然雷火交加之穴，石壁上残留上古符师刻下的试符痕迹——寻材虽易，雷火却不通人情，稍有不慎便会反噬。",
         "max_minutes": 50,
         "min_realm_stage": "筑基",
         "min_realm_layer": 1,
@@ -1316,7 +1317,7 @@ DEFAULT_SCENES = [
     },
     {
         "name": "玄龟古潭",
-        "description": "潭水极深，潭底不时浮出古盾残片与地脉灵气。",
+        "description": "潭深不见底，传有千年玄龟沉眠其中。每逢月圆，潭底便会浮起被水压碾碎的古盾残片与丝丝地脉灵息。",
         "max_minutes": 50,
         "min_realm_stage": "筑基",
         "min_realm_layer": 2,
@@ -1758,6 +1759,334 @@ TALISMAN_BLUEPRINTS = [
     {"name": "太初神雷符", "rarity": "先天至宝", "attack_bonus": 36, "divine_sense_bonus": 24, "duel_rate_bonus": 8, "description": "以先天紫气配合大罗神铁绘制，符成时天降异象、雷声滚滚。引动可召唤太初神雷，令天地失色、鬼神辟易，是为绝杀之术。", "combat_config": {"skills": [{"name": "太初雷殛", "kind": "extra_damage", "chance": 36, "flat_damage": 36, "ratio_percent": 30, "text": "太初神雷符撕裂苍穹，一道蕴含先天之威的雷芒从天而降，雷声震百里，令天地万物尽皆失色。"}]}, "materials": [("太初紫气晶", 1), ("大罗神铁", 1), ("周天星核", 1)], "success": 22},
 ]
 
+DEFAULT_BOSS_CONFIGS = [
+    # ========== 个人Boss ==========
+    {
+        "name": "噬灵鼠王",
+        "boss_type": "personal",
+        "realm_stage": "炼气",
+        "description": "盘踞于灵脉矿洞深处的鼠妖之王，体型如牛犊般大小，双目赤红如血，浑身毛发坚硬如铁。它以灵脉矿石为食，修行百年已通灵智，可驱使鼠群淹没来犯之敌。",
+        "hp": 400,
+        "attack_power": 22,
+        "defense_power": 12,
+        "body_movement": 8,
+        "divine_sense": 8,
+        "qi_blood": 400,
+        "true_yuan": 150,
+        "skill_name": "鼠群啮咬",
+        "skill_ratio_percent": 24,
+        "skill_hit_bonus": 0,
+        "passive_name": "铁毛护体",
+        "passive_effect_kind": "guard",
+        "passive_ratio_percent": 14,
+        "passive_chance": 22,
+        "loot_pills_json": [{"name": "聚气丹", "chance": 60, "quantity_min": 1, "quantity_max": 2},
+                            {"name": "培元丹", "chance": 25, "quantity_min": 1, "quantity_max": 1}],
+        "loot_materials_json": [{"name": "灵脉碎晶", "chance": 70, "quantity_min": 1, "quantity_max": 3},
+                                {"name": "凡铁锭", "chance": 40, "quantity_min": 1, "quantity_max": 2}],
+        "stone_reward_min": 30,
+        "stone_reward_max": 80,
+        "cultivation_reward": 30,
+        "daily_attempt_limit": 5,
+        "ticket_cost_stone": 30,
+        "flavor_text": "鼠王临死前发出凄厉尖啸，千万鼠群随之四散溃逃。",
+        "sort_order": 1,
+    },
+    {
+        "name": "黑水玄蛇",
+        "boss_type": "personal",
+        "realm_stage": "筑基",
+        "description": "潜伏在黑水潭底千年的玄鳞巨蛇，身长十丈有余，鳞甲黝黑发亮似玄铁铸成。口中喷吐的毒雾可销金蚀骨，寻常修士沾之即亡。",
+        "hp": 800,
+        "attack_power": 38,
+        "defense_power": 22,
+        "body_movement": 14,
+        "divine_sense": 14,
+        "qi_blood": 800,
+        "true_yuan": 300,
+        "skill_name": "毒雾噬体",
+        "skill_ratio_percent": 26,
+        "skill_hit_bonus": 4,
+        "passive_name": "玄鳞甲",
+        "passive_effect_kind": "guard",
+        "passive_ratio_percent": 16,
+        "passive_chance": 24,
+        "loot_pills_json": [{"name": "培元丹", "chance": 55, "quantity_min": 1, "quantity_max": 2},
+                            {"name": "筑基丹", "chance": 20, "quantity_min": 1, "quantity_max": 1}],
+        "loot_materials_json": [{"name": "玄蛇毒囊", "chance": 75, "quantity_min": 1, "quantity_max": 2},
+                                {"name": "黑水玄鳞", "chance": 50, "quantity_min": 1, "quantity_max": 2}],
+        "stone_reward_min": 60,
+        "stone_reward_max": 150,
+        "cultivation_reward": 60,
+        "daily_attempt_limit": 4,
+        "ticket_cost_stone": 60,
+        "flavor_text": "玄蛇轰然倒下，黑水潭掀起滔天巨浪，千年毒雾缓缓散去。",
+        "sort_order": 2,
+    },
+    {
+        "name": "九幽魔蛛",
+        "boss_type": "personal",
+        "realm_stage": "金丹",
+        "description": "栖息于九幽秘境深处的巨型魔蛛，八足展开似一座小山，背上生有诡异的人面花纹。蛛丝坚韧胜似法宝，利爪可撕碎护体灵光，更擅以幻术扰乱神魂。",
+        "hp": 1500,
+        "attack_power": 58,
+        "defense_power": 35,
+        "body_movement": 22,
+        "divine_sense": 22,
+        "qi_blood": 1500,
+        "true_yuan": 500,
+        "skill_name": "魔蛛噬魂",
+        "skill_ratio_percent": 30,
+        "skill_hit_bonus": 6,
+        "passive_name": "蛛丝陷阱",
+        "passive_effect_kind": "armor_break",
+        "passive_ratio_percent": 16,
+        "passive_chance": 26,
+        "loot_pills_json": [{"name": "培元丹", "chance": 50, "quantity_min": 1, "quantity_max": 3},
+                            {"name": "金丹", "chance": 15, "quantity_min": 1, "quantity_max": 1}],
+        "loot_materials_json": [{"name": "九幽蛛丝", "chance": 70, "quantity_min": 1, "quantity_max": 3},
+                                {"name": "人面蛛壳", "chance": 45, "quantity_min": 1, "quantity_max": 1}],
+        "loot_artifacts_json": [{"name": "玄铁重剑", "chance": 15, "quantity_min": 1, "quantity_max": 1}],
+        "stone_reward_min": 120,
+        "stone_reward_max": 280,
+        "cultivation_reward": 120,
+        "daily_attempt_limit": 3,
+        "ticket_cost_stone": 100,
+        "flavor_text": "魔蛛八足抽搐、人面花纹渐渐褪去，九幽深处传来凄厉的回声。",
+        "sort_order": 3,
+    },
+    {
+        "name": "焚天妖鹏",
+        "boss_type": "personal",
+        "realm_stage": "元婴",
+        "description": "翱翔于九天罡风层中的远古妖鹏，双翼展开遮天蔽日，浑身燃着不灭的妖火。翎羽如利刃般锋利，振翅可掀起烈焰风暴，所过之处化为焦土。",
+        "hp": 2800,
+        "attack_power": 85,
+        "defense_power": 52,
+        "body_movement": 32,
+        "divine_sense": 32,
+        "qi_blood": 2800,
+        "true_yuan": 800,
+        "skill_name": "焚天妖火",
+        "skill_ratio_percent": 32,
+        "skill_hit_bonus": 10,
+        "passive_name": "涅槃余烬",
+        "passive_effect_kind": "heal",
+        "passive_ratio_percent": 18,
+        "passive_chance": 20,
+        "loot_pills_json": [{"name": "培元丹", "chance": 45, "quantity_min": 2, "quantity_max": 4},
+                            {"name": "元婴丹", "chance": 18, "quantity_min": 1, "quantity_max": 1}],
+        "loot_materials_json": [{"name": "妖鹏火羽", "chance": 70, "quantity_min": 1, "quantity_max": 3},
+                                {"name": "焚天妖火种", "chance": 35, "quantity_min": 1, "quantity_max": 1}],
+        "loot_artifacts_json": [{"name": "青霜剑", "chance": 15, "quantity_min": 1, "quantity_max": 1}],
+        "stone_reward_min": 200,
+        "stone_reward_max": 500,
+        "cultivation_reward": 200,
+        "daily_attempt_limit": 3,
+        "ticket_cost_stone": 160,
+        "flavor_text": "妖鹏发出最后一声哀鸣，从九天坠落，漫天妖火渐渐熄灭。",
+        "sort_order": 4,
+    },
+    {
+        "name": "万载玄龟",
+        "boss_type": "personal",
+        "realm_stage": "化神",
+        "description": "沉睡于北海冰渊万载的上古玄龟，背甲如山岳般巍峨，其上铭刻着先天八卦纹路。行动虽缓，但防御力冠绝同阶，口中喷吐的玄冥寒气可冻结万物。",
+        "hp": 5000,
+        "attack_power": 120,
+        "defense_power": 80,
+        "body_movement": 18,
+        "divine_sense": 45,
+        "qi_blood": 5000,
+        "true_yuan": 1200,
+        "skill_name": "玄冥吐息",
+        "skill_ratio_percent": 34,
+        "skill_hit_bonus": 12,
+        "passive_name": "八卦龟甲",
+        "passive_effect_kind": "guard",
+        "passive_ratio_percent": 24,
+        "passive_chance": 32,
+        "loot_pills_json": [{"name": "培元丹", "chance": 40, "quantity_min": 3, "quantity_max": 5},
+                            {"name": "化神丹", "chance": 15, "quantity_min": 1, "quantity_max": 1}],
+        "loot_materials_json": [{"name": "玄龟甲片", "chance": 75, "quantity_min": 1, "quantity_max": 3},
+                                {"name": "万载冰晶", "chance": 40, "quantity_min": 1, "quantity_max": 2}],
+        "loot_artifacts_json": [{"name": "玄冥护甲", "chance": 14, "quantity_min": 1, "quantity_max": 1}],
+        "loot_recipes_json": [{"name": "九转还魂丹方", "chance": 12, "quantity_min": 1, "quantity_max": 1}],
+        "stone_reward_min": 350,
+        "stone_reward_max": 800,
+        "cultivation_reward": 350,
+        "daily_attempt_limit": 3,
+        "ticket_cost_stone": 250,
+        "flavor_text": "玄龟背上的八卦纹路寸寸碎裂，庞大的身躯缓缓沉入冰渊之中。",
+        "sort_order": 5,
+    },
+    {
+        "name": "太阴幽狼",
+        "boss_type": "personal",
+        "realm_stage": "炼虚",
+        "description": "游走于阴阳两界缝隙中的太阴狼王，身披月华银毫，双瞳一阴一阳。它无声无息穿行于虚实之间，利爪可撕裂法则，嚎叫能勾魂夺魄。",
+        "hp": 8500,
+        "attack_power": 170,
+        "defense_power": 115,
+        "body_movement": 62,
+        "divine_sense": 62,
+        "qi_blood": 8500,
+        "true_yuan": 1800,
+        "skill_name": "太阴裂虚",
+        "skill_ratio_percent": 36,
+        "skill_hit_bonus": 16,
+        "passive_name": "虚实穿梭",
+        "passive_effect_kind": "dodge",
+        "passive_ratio_percent": 20,
+        "passive_chance": 28,
+        "loot_pills_json": [{"name": "培元丹", "chance": 35, "quantity_min": 3, "quantity_max": 6},
+                            {"name": "炼虚丹", "chance": 12, "quantity_min": 1, "quantity_max": 1}],
+        "loot_materials_json": [{"name": "太阴月华", "chance": 70, "quantity_min": 1, "quantity_max": 3},
+                                {"name": "幽狼银毫", "chance": 45, "quantity_min": 1, "quantity_max": 2}],
+        "loot_artifacts_json": [{"name": "太阴破虚刃", "chance": 12, "quantity_min": 1, "quantity_max": 1}],
+        "loot_recipes_json": [{"name": "太清玉液丹方", "chance": 10, "quantity_min": 1, "quantity_max": 1}],
+        "stone_reward_min": 550,
+        "stone_reward_max": 1200,
+        "cultivation_reward": 550,
+        "daily_attempt_limit": 3,
+        "ticket_cost_stone": 350,
+        "flavor_text": "幽狼的虚影渐渐消散，月光洒落之处只余一缕银毫随风飘逝。",
+        "sort_order": 6,
+    },
+    {
+        "name": "九首妖龙",
+        "boss_type": "personal",
+        "realm_stage": "合体",
+        "description": "自上古封魔之地破印而出的九首妖龙，每个头颅各掌一种元素之力——风火雷电冰毒光暗血，九龙齐出毁天灭地。龙威之下，万物俯首。",
+        "hp": 14000,
+        "attack_power": 240,
+        "defense_power": 165,
+        "body_movement": 85,
+        "divine_sense": 85,
+        "qi_blood": 14000,
+        "true_yuan": 2600,
+        "skill_name": "九龙灭世",
+        "skill_ratio_percent": 40,
+        "skill_hit_bonus": 20,
+        "passive_name": "龙威压迫",
+        "passive_effect_kind": "armor_break",
+        "passive_ratio_percent": 22,
+        "passive_chance": 30,
+        "loot_pills_json": [{"name": "培元丹", "chance": 30, "quantity_min": 4, "quantity_max": 8},
+                            {"name": "合体丹", "chance": 12, "quantity_min": 1, "quantity_max": 1}],
+        "loot_materials_json": [{"name": "妖龙逆鳞", "chance": 65, "quantity_min": 1, "quantity_max": 3},
+                                {"name": "九龙精血", "chance": 35, "quantity_min": 1, "quantity_max": 2}],
+        "loot_artifacts_json": [{"name": "龙魂战甲", "chance": 12, "quantity_min": 1, "quantity_max": 1}],
+        "loot_techniques_json": [{"name": "九龙驭天诀", "chance": 8, "quantity_min": 1, "quantity_max": 1}],
+        "stone_reward_min": 800,
+        "stone_reward_max": 1800,
+        "cultivation_reward": 800,
+        "daily_attempt_limit": 2,
+        "ticket_cost_stone": 500,
+        "flavor_text": "九颗龙头逐一爆开，妖龙庞大身躯化为漫天血雨洒落封魔之地。",
+        "sort_order": 7,
+    },
+    {
+        "name": "混元天魔",
+        "boss_type": "personal",
+        "realm_stage": "大乘",
+        "description": "域外天魔中的混元级存在，无形无相却又无处不在，唯有神识可捕捉其踪迹。它吞噬修士道心为食，能幻化出对手最深层的恐惧，令大乘修士亦闻之色变。",
+        "hp": 22000,
+        "attack_power": 330,
+        "defense_power": 230,
+        "body_movement": 115,
+        "divine_sense": 115,
+        "qi_blood": 22000,
+        "true_yuan": 3600,
+        "skill_name": "心魔噬道",
+        "skill_ratio_percent": 44,
+        "skill_hit_bonus": 24,
+        "passive_name": "无形天魔",
+        "passive_effect_kind": "dodge",
+        "passive_ratio_percent": 24,
+        "passive_chance": 32,
+        "loot_pills_json": [{"name": "培元丹", "chance": 25, "quantity_min": 5, "quantity_max": 10},
+                            {"name": "大乘丹", "chance": 10, "quantity_min": 1, "quantity_max": 1}],
+        "loot_materials_json": [{"name": "天魔残魂", "chance": 60, "quantity_min": 1, "quantity_max": 3},
+                                {"name": "混元魔晶", "chance": 30, "quantity_min": 1, "quantity_max": 2}],
+        "loot_artifacts_json": [{"name": "破魔仙剑", "chance": 10, "quantity_min": 1, "quantity_max": 1}],
+        "loot_techniques_json": [{"name": "混元镇魔经", "chance": 8, "quantity_min": 1, "quantity_max": 1}],
+        "stone_reward_min": 1200,
+        "stone_reward_max": 2500,
+        "cultivation_reward": 1200,
+        "daily_attempt_limit": 2,
+        "ticket_cost_stone": 700,
+        "flavor_text": "天魔发出刺耳的尖啸，无形身躯寸寸崩解，散为漫天黑雾渐渐消弭。",
+        "sort_order": 8,
+    },
+    # ========== 世界Boss ==========
+    {
+        "name": "噬日魔鲲",
+        "boss_type": "world",
+        "realm_stage": "金丹",
+        "description": "自北冥深渊苏醒的上古魔鲲，体型之大堪比一座浮岛，张口可吞日月精华。传说其体内自成一方洞天世界，无数修士陨落后遗留的宝物尽在其中。",
+        "hp": 20000,
+        "attack_power": 65,
+        "defense_power": 40,
+        "body_movement": 20,
+        "divine_sense": 20,
+        "qi_blood": 20000,
+        "true_yuan": 800,
+        "skill_name": "吞天噬日",
+        "skill_ratio_percent": 28,
+        "skill_hit_bonus": 8,
+        "passive_name": "北冥寒气",
+        "passive_effect_kind": "guard",
+        "passive_ratio_percent": 16,
+        "passive_chance": 24,
+        "loot_pills_json": [{"name": "培元丹", "chance": 60, "quantity_min": 1, "quantity_max": 3},
+                            {"name": "金丹", "chance": 20, "quantity_min": 1, "quantity_max": 1}],
+        "loot_materials_json": [{"name": "魔鲲鳞甲", "chance": 75, "quantity_min": 1, "quantity_max": 3},
+                                {"name": "北冥冰晶", "chance": 50, "quantity_min": 1, "quantity_max": 2}],
+        "loot_artifacts_json": [{"name": "鲲骨法杖", "chance": 15, "quantity_min": 1, "quantity_max": 1}],
+        "stone_reward_min": 100,
+        "stone_reward_max": 300,
+        "cultivation_reward": 150,
+        "daily_attempt_limit": 10,
+        "ticket_cost_stone": 0,
+        "flavor_text": "魔鲲发出震天动地的哀鸣，庞大身躯缓缓沉入北冥深渊，激起万丈狂澜。",
+        "sort_order": 100,
+    },
+    {
+        "name": "万劫不朽真魔",
+        "boss_type": "world",
+        "realm_stage": "化神",
+        "description": "渡万劫而不灭的古老真魔，曾以一己之力屠灭数个仙门。他身披不朽魔甲、手持灭世战戟，每一次现身都令天地变色、日月无光。唯有全服修士联手，方有一线生机。",
+        "hp": 50000,
+        "attack_power": 130,
+        "defense_power": 75,
+        "body_movement": 50,
+        "divine_sense": 50,
+        "qi_blood": 50000,
+        "true_yuan": 2000,
+        "skill_name": "万劫魔威",
+        "skill_ratio_percent": 38,
+        "skill_hit_bonus": 16,
+        "passive_name": "不朽魔甲",
+        "passive_effect_kind": "guard",
+        "passive_ratio_percent": 20,
+        "passive_chance": 30,
+        "loot_pills_json": [{"name": "培元丹", "chance": 50, "quantity_min": 2, "quantity_max": 5},
+                            {"name": "化神丹", "chance": 18, "quantity_min": 1, "quantity_max": 1}],
+        "loot_materials_json": [{"name": "不朽魔晶", "chance": 70, "quantity_min": 1, "quantity_max": 3},
+                                {"name": "真魔残甲", "chance": 40, "quantity_min": 1, "quantity_max": 2}],
+        "loot_artifacts_json": [{"name": "灭世战戟", "chance": 12, "quantity_min": 1, "quantity_max": 1}],
+        "loot_recipes_json": [{"name": "九转还魂丹方", "chance": 12, "quantity_min": 1, "quantity_max": 1}],
+        "stone_reward_min": 250,
+        "stone_reward_max": 600,
+        "cultivation_reward": 300,
+        "daily_attempt_limit": 10,
+        "ticket_cost_stone": 0,
+        "flavor_text": "真魔发出不甘的怒吼，不朽魔甲寸寸崩碎，万年魔威终告消散。天地间回荡着他最后的诅咒。",
+        "sort_order": 101,
+    },
+]
+
 TECHNIQUE_BLUEPRINTS = [
     {"name": "青霄御风诀", "rarity": "下品", "technique_type": "movement", "description": "正道轻灵身法，讲究剑步合一。", "body_movement_bonus": 16, "duel_rate_bonus": 4, "combat_config": {"skills": [{"name": "御风借势", "kind": "dodge", "chance": 24, "dodge_bonus": 18, "duration": 1, "cost_true_yuan": 10, "text": "青霄御风诀顺势带起一阵清风，整个人贴着灵压边缘滑开。"}]}, "min_realm_stage": "炼气", "min_realm_layer": 7},
     {"name": "玄岳不动经", "rarity": "中品", "technique_type": "defense", "description": "以地脉沉息淬体，最适合硬接重手。", "defense_bonus": 18, "qi_blood_bonus": 52, "breakthrough_bonus": 4, "combat_config": {"skills": [{"name": "不动如岳", "kind": "guard", "chance": 28, "defense_ratio_percent": 24, "duration": 1, "cost_true_yuan": 14, "text": "玄岳不动经一沉，周身气机瞬间稳如山岳。"}]}, "min_realm_stage": "筑基", "min_realm_layer": 2},
@@ -1919,7 +2248,7 @@ DEFAULT_SECTS = [
     {
         "name": "太玄剑宗",
         "camp": "orthodox",
-        "description": "以剑问道、以护苍生为宗旨，重视根骨、悟性与敢战之心。",
+        "description": "剑不出鞘则已，出鞘必断因果。太玄宗训：剑心不正者不传，不敢正面迎敌者不收。",
         "min_realm_stage": "炼气",
         "min_realm_layer": 4,
         "min_bone": 22,
@@ -1929,7 +2258,13 @@ DEFAULT_SECTS = [
         "attack_bonus": 8,
         "body_movement_bonus": 6,
         "duel_rate_bonus": 3,
-        "entry_hint": "赠入门功法《太玄剑经》，只收剑心端正、敢于正面斗法之人。",
+        "pill_poison_resist": 0.0,
+        "pill_poison_cap_bonus": 0,
+        "farm_growth_speed": 0.0,
+        "explore_drop_rate": 0,
+        "craft_success_rate": 0,
+        "death_penalty_reduce": 0.0,
+        "entry_hint": "授《太玄剑经》一卷。入宗试炼：以剑意劈开山门前的试剑石——心不正则剑锋自折。",
         "roles": [
             {"role_key": "leader", "role_name": "剑主", "attack_bonus": 14, "defense_bonus": 8, "duel_rate_bonus": 6, "cultivation_bonus": 5, "monthly_salary": 360, "can_publish_tasks": True, "sort_order": 1},
             {"role_key": "elder", "role_name": "镇峰长老", "attack_bonus": 10, "defense_bonus": 7, "duel_rate_bonus": 4, "cultivation_bonus": 4, "monthly_salary": 250, "can_publish_tasks": True, "sort_order": 2},
@@ -1943,7 +2278,7 @@ DEFAULT_SECTS = [
     {
         "name": "药王谷",
         "camp": "orthodox",
-        "description": "专研灵药、丹火与养元之道，讲究稳健续航与长期成长。",
+        "description": "一丹一世界，百草即苍生。谷中只传稳中求进之道——不求一朝破境惊天下，但求百年丹火暖仙途。",
         "min_realm_stage": "炼气",
         "min_realm_layer": 3,
         "min_comprehension": 20,
@@ -1953,7 +2288,13 @@ DEFAULT_SECTS = [
         "defense_bonus": 7,
         "cultivation_bonus": 12,
         "fortune_bonus": 6,
-        "entry_hint": "赠入门功法《青木长生诀》，不收浮躁好战之人，更看重悟性与药理天赋。",
+        "pill_poison_resist": 0.25,
+        "pill_poison_cap_bonus": 30,
+        "farm_growth_speed": 0.20,
+        "explore_drop_rate": 0,
+        "craft_success_rate": 0,
+        "death_penalty_reduce": 0.0,
+        "entry_hint": "授《青木长生诀》一卷。入谷考验：以掌心灵息催开枯木上的嫩芽——催不活者请回。",
         "roles": [
             {"role_key": "leader", "role_name": "谷主", "attack_bonus": 5, "defense_bonus": 12, "duel_rate_bonus": 2, "cultivation_bonus": 9, "monthly_salary": 340, "can_publish_tasks": True, "sort_order": 1},
             {"role_key": "elder", "role_name": "丹堂长老", "attack_bonus": 4, "defense_bonus": 9, "duel_rate_bonus": 1, "cultivation_bonus": 7, "monthly_salary": 240, "can_publish_tasks": True, "sort_order": 2},
@@ -1967,7 +2308,7 @@ DEFAULT_SECTS = [
     {
         "name": "天机阁",
         "camp": "orthodox",
-        "description": "洞察天机与神识妙用并重，擅长推演、布局与把握机缘。",
+        "description": "观星可知兴替，推演可避死劫。阁中弟子未必最能打，但一定最懂什么时候该做什么事。",
         "min_realm_stage": "炼气",
         "min_realm_layer": 6,
         "min_comprehension": 26,
@@ -1978,7 +2319,13 @@ DEFAULT_SECTS = [
         "cultivation_bonus": 9,
         "fortune_bonus": 8,
         "body_movement_bonus": 4,
-        "entry_hint": "赠入门功法《天机观星术》，只有悟性与神识都足够出众者，才看得懂门前第一幅星图。",
+        "pill_poison_resist": 0.0,
+        "pill_poison_cap_bonus": 0,
+        "farm_growth_speed": 0.0,
+        "explore_drop_rate": 10,
+        "craft_success_rate": 4,
+        "death_penalty_reduce": 0.0,
+        "entry_hint": "授《天机观星术》一卷。入阁资格：读懂门前星壁上第一幅推演图——迷惘者连图上第一颗星都看不见。",
         "roles": [
             {"role_key": "leader", "role_name": "阁主", "attack_bonus": 8, "defense_bonus": 8, "duel_rate_bonus": 6, "cultivation_bonus": 8, "monthly_salary": 380, "can_publish_tasks": True, "sort_order": 1},
             {"role_key": "elder", "role_name": "星盘长老", "attack_bonus": 6, "defense_bonus": 6, "duel_rate_bonus": 5, "cultivation_bonus": 6, "monthly_salary": 260, "can_publish_tasks": True, "sort_order": 2},
@@ -1992,7 +2339,7 @@ DEFAULT_SECTS = [
     {
         "name": "血煞魔宫",
         "camp": "heterodox",
-        "description": "以战养煞，重视血气、胆魄与持续压制的斗法风格。",
+        "description": "煞气即道行，血光即修行。敢在众目睽睽之下踏血而行之人，方能参透魔宫第一页战典。",
         "min_realm_stage": "炼气",
         "min_realm_layer": 5,
         "min_bone": 22,
@@ -2001,7 +2348,13 @@ DEFAULT_SECTS = [
         "min_combat_power": 0,
         "attack_bonus": 12,
         "duel_rate_bonus": 5,
-        "entry_hint": "赠入门功法《血煞战典》，不怕见血、不怕被围，方能踏入魔宫大门。",
+        "pill_poison_resist": 0.0,
+        "pill_poison_cap_bonus": 0,
+        "farm_growth_speed": 0.0,
+        "explore_drop_rate": 0,
+        "craft_success_rate": 0,
+        "death_penalty_reduce": 0.20,
+        "entry_hint": "授《血煞战典》一卷。入宫考验：从血雾中走到殿前——脚步不停者即为我辈中人。",
         "roles": [
             {"role_key": "leader", "role_name": "宫主", "attack_bonus": 16, "defense_bonus": 7, "duel_rate_bonus": 8, "cultivation_bonus": 4, "monthly_salary": 370, "can_publish_tasks": True, "sort_order": 1},
             {"role_key": "elder", "role_name": "血煞长老", "attack_bonus": 12, "defense_bonus": 5, "duel_rate_bonus": 6, "cultivation_bonus": 3, "monthly_salary": 250, "can_publish_tasks": True, "sort_order": 2},
@@ -2015,7 +2368,7 @@ DEFAULT_SECTS = [
     {
         "name": "幽冥鬼府",
         "camp": "heterodox",
-        "description": "行事诡谲，最擅影遁、摄魂与夜袭，要求身法与神识兼修。",
+        "description": "暗处之刃最为致命。鬼府弟子行走于阴阳之间，看不见的敌人比看得见的可怕百倍。",
         "min_realm_stage": "炼气",
         "min_realm_layer": 6,
         "min_divine_sense": 22,
@@ -2025,7 +2378,13 @@ DEFAULT_SECTS = [
         "body_movement_bonus": 10,
         "duel_rate_bonus": 5,
         "fortune_bonus": 4,
-        "entry_hint": "赠入门功法《幽冥夜行录》，看得见夜色中的第二层影子，才有资格敲响鬼府阴门。",
+        "pill_poison_resist": 0.0,
+        "pill_poison_cap_bonus": 0,
+        "farm_growth_speed": 0.0,
+        "explore_drop_rate": 6,
+        "craft_success_rate": 0,
+        "death_penalty_reduce": 0.15,
+        "entry_hint": "授《幽冥夜行录》一卷。入府资格：能在无月之夜看出自己身后多了几道影子——看不透之人连府门都摸不到。",
         "roles": [
             {"role_key": "leader", "role_name": "府君", "attack_bonus": 13, "defense_bonus": 8, "duel_rate_bonus": 8, "cultivation_bonus": 5, "monthly_salary": 360, "can_publish_tasks": True, "sort_order": 1},
             {"role_key": "elder", "role_name": "夜巡长老", "attack_bonus": 10, "defense_bonus": 6, "duel_rate_bonus": 6, "cultivation_bonus": 4, "monthly_salary": 246, "can_publish_tasks": True, "sort_order": 2},
@@ -2039,7 +2398,7 @@ DEFAULT_SECTS = [
     {
         "name": "万毒崖",
         "camp": "heterodox",
-        "description": "百毒并修，重视耐性、机缘与反制节奏，越拖越显凶险。",
+        "description": "毒道之妙在于后发制人。你若能在第一波瘴雾中睁开眼，崖顶的万毒经便会为你翻开下一章。",
         "min_realm_stage": "炼气",
         "min_realm_layer": 5,
         "min_comprehension": 18,
@@ -2048,7 +2407,13 @@ DEFAULT_SECTS = [
         "min_combat_power": 0,
         "defense_bonus": 7,
         "fortune_bonus": 8,
-        "entry_hint": "赠入门功法《万毒归元经》，若连崖前第一缕毒雾都撑不过，就不必再往上走了。",
+        "pill_poison_resist": 0.40,
+        "pill_poison_cap_bonus": 50,
+        "farm_growth_speed": 0.0,
+        "explore_drop_rate": 0,
+        "craft_success_rate": 0,
+        "death_penalty_reduce": 0.0,
+        "entry_hint": "授《万毒归元经》一卷。入崖试炼：穿过崖脚第一道毒瘴而不运功相抗——熬不住的请原路折返。",
         "roles": [
             {"role_key": "leader", "role_name": "崖主", "attack_bonus": 7, "defense_bonus": 12, "duel_rate_bonus": 5, "cultivation_bonus": 5, "monthly_salary": 350, "can_publish_tasks": True, "sort_order": 1},
             {"role_key": "elder", "role_name": "毒师长老", "attack_bonus": 5, "defense_bonus": 9, "duel_rate_bonus": 4, "cultivation_bonus": 4, "monthly_salary": 240, "can_publish_tasks": True, "sort_order": 2},
@@ -2062,7 +2427,7 @@ DEFAULT_SECTS = [
     {
         "name": "星罗海阁",
         "camp": "orthodox",
-        "description": "临海观潮、夜观群星的海阁，擅长平衡攻守与把握机缘。",
+        "description": "临海观潮、夜观群星，潮声与星轨交织成最古老的道韵——海阁弟子以平衡之道立于天地之间。",
         "min_realm_stage": "炼气",
         "min_realm_layer": 5,
         "min_comprehension": 22,
@@ -2072,7 +2437,13 @@ DEFAULT_SECTS = [
         "attack_bonus": 6,
         "defense_bonus": 6,
         "fortune_bonus": 6,
-        "entry_hint": "赠入门功法《星罗潮生诀》，需在静观潮声与夜色星轨中都能守住心神。",
+        "pill_poison_resist": 0.0,
+        "pill_poison_cap_bonus": 0,
+        "farm_growth_speed": 0.0,
+        "explore_drop_rate": 5,
+        "craft_success_rate": 6,
+        "death_penalty_reduce": 0.0,
+        "entry_hint": "授《星罗潮生诀》一卷。入阁试炼：在潮声轰鸣中端坐观星一刻而不动心神——心浮者浪涛自会劝退。",
         "roles": [
             {"role_key": "leader", "role_name": "海阁之主", "attack_bonus": 10, "defense_bonus": 10, "duel_rate_bonus": 5, "cultivation_bonus": 6, "monthly_salary": 350, "can_publish_tasks": True, "sort_order": 1},
             {"role_key": "elder", "role_name": "观潮长老", "attack_bonus": 8, "defense_bonus": 8, "duel_rate_bonus": 4, "cultivation_bonus": 5, "monthly_salary": 238, "can_publish_tasks": True, "sort_order": 2},
@@ -2086,7 +2457,7 @@ DEFAULT_SECTS = [
     {
         "name": "灵傀山",
         "camp": "orthodox",
-        "description": "擅制灵傀与机关，重耐心、悟性与真元的细腻运转。",
+        "description": "擅制灵傀与机关，每一根傀丝都是心神的延伸——重耐心、重悟性，更重真元的细腻运转。",
         "min_realm_stage": "炼气",
         "min_realm_layer": 4,
         "min_comprehension": 22,
@@ -2096,7 +2467,13 @@ DEFAULT_SECTS = [
         "defense_bonus": 8,
         "cultivation_bonus": 8,
         "body_movement_bonus": 4,
-        "entry_hint": "赠入门功法《灵傀百炼篇》，心志不稳者连第一根傀丝都牵不住。",
+        "pill_poison_resist": 0.0,
+        "pill_poison_cap_bonus": 0,
+        "farm_growth_speed": 0.12,
+        "explore_drop_rate": 0,
+        "craft_success_rate": 12,
+        "death_penalty_reduce": 0.0,
+        "entry_hint": "授《灵傀百炼篇》一卷。入山考验：以心神牵起桌上最短的那根傀丝——手抖半分则丝断不收。",
         "roles": [
             {"role_key": "leader", "role_name": "山主", "attack_bonus": 8, "defense_bonus": 12, "duel_rate_bonus": 4, "cultivation_bonus": 7, "monthly_salary": 346, "can_publish_tasks": True, "sort_order": 1},
             {"role_key": "elder", "role_name": "百炼长老", "attack_bonus": 6, "defense_bonus": 10, "duel_rate_bonus": 3, "cultivation_bonus": 5, "monthly_salary": 236, "can_publish_tasks": True, "sort_order": 2},
@@ -2110,7 +2487,7 @@ DEFAULT_SECTS = [
     {
         "name": "栖凰山",
         "camp": "orthodox",
-        "description": "山中离火常明，擅长以温烈并济的方式兼顾修炼与斗法。",
+        "description": "山中离火终年不熄，温烈并济方为上乘——栖凰之道不在爆发，在将烈意养成风骨。",
         "min_realm_stage": "炼气",
         "min_realm_layer": 5,
         "min_comprehension": 20,
@@ -2120,7 +2497,13 @@ DEFAULT_SECTS = [
         "attack_bonus": 10,
         "cultivation_bonus": 6,
         "fortune_bonus": 4,
-        "entry_hint": "赠入门功法《栖凰离火录》，火脉不只看爆发，也看你能否将烈意养成风骨。",
+        "pill_poison_resist": 0.0,
+        "pill_poison_cap_bonus": 0,
+        "farm_growth_speed": 0.0,
+        "explore_drop_rate": 0,
+        "craft_success_rate": 0,
+        "death_penalty_reduce": 0.30,
+        "entry_hint": "授《栖凰离火录》一卷。入门试炼：将掌心离火维持一炷香而不灭——火脉不只看爆发，更看重持恒。",
         "roles": [
             {"role_key": "leader", "role_name": "凰主", "attack_bonus": 14, "defense_bonus": 6, "duel_rate_bonus": 6, "cultivation_bonus": 5, "monthly_salary": 352, "can_publish_tasks": True, "sort_order": 1},
             {"role_key": "elder", "role_name": "焰羽长老", "attack_bonus": 11, "defense_bonus": 5, "duel_rate_bonus": 5, "cultivation_bonus": 4, "monthly_salary": 240, "can_publish_tasks": True, "sort_order": 2},
@@ -2137,7 +2520,7 @@ DEFAULT_SCENES.extend(
     [
         {
             "name": "青木秘林",
-            "description": "灵风流转的下品秘林，最适合打基础与寻觅轻灵材料。",
+            "description": "林间灵风自有轨迹，轻灵草木随风摇曳。传说曾有一株青木在此化形离去，留下满林木息供后人采撷。",
             "max_minutes": 36,
             "event_pool": [
                 {"name": "旧剑匣遗痕", "description": "林间旧剑匣里压着一卷残旧炼图。", "event_type": "recipe", "weight": 3, "bonus_reward_kind": "recipe", "bonus_reward_ref_id_name": "青霄巡天剑炼制图", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 42},
@@ -2148,7 +2531,7 @@ DEFAULT_SCENES.extend(
         },
         {
             "name": "玄潮古窟",
-            "description": "中品矿窟深处有潮鸣回响，矿料与护身材料极多。",
+            "description": "中品矿窟深处有潮鸣回响，壁间矿脉层层叠叠，随手一凿都可能挖出上好护身材料。",
             "max_minutes": 42,
             "event_pool": [
                 {"name": "枪胚残图", "description": "矿壁夹层里卡着一张沉重枪图。", "event_type": "recipe", "weight": 3, "bonus_reward_kind": "recipe", "bonus_reward_ref_id_name": "玄岳镇海枪炼制图", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 38},
@@ -2159,7 +2542,7 @@ DEFAULT_SCENES.extend(
         },
         {
             "name": "魇月裂谷",
-            "description": "上品裂谷常年被幻月照着，适合寻找暗袭与神魂材料。",
+            "description": "上品裂谷终年被一轮幻月笼罩，月光照不到的地方藏着暗袭与神魂类天材，唯胆大心细者方可取之。",
             "max_minutes": 48,
             "event_pool": [
                 {"name": "夜刃图卷", "description": "裂谷深处漂着一页诡异刀图。", "event_type": "recipe", "weight": 3, "bonus_reward_kind": "recipe", "bonus_reward_ref_id_name": "夜魇夺命刃炼制图", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 34},
@@ -2170,7 +2553,7 @@ DEFAULT_SCENES.extend(
         },
         {
             "name": "星阙残庭",
-            "description": "极品层级的残破仙庭，最容易捡到周天与归元类材料。",
+            "description": "极品层级的残破仙庭废墟，断柱残垣间散落着周天与归元类天材，仿佛天道崩塌时遗落的私藏。",
             "max_minutes": 54,
             "event_pool": [
                 {"name": "星袍织图", "description": "残庭石座上压着一页法袍织图。", "event_type": "recipe", "weight": 3, "bonus_reward_kind": "recipe", "bonus_reward_ref_id_name": "星河归元袍炼制图", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 30},
@@ -2181,7 +2564,7 @@ DEFAULT_SCENES.extend(
         },
         {
             "name": "紫宸天遗",
-            "description": "仙品遗迹，常有裂空异象，出产天阙旧材。",
+            "description": "上古仙庭崩塌后的一角废墟，苍穹时有裂痕如蛛网蔓延，散落的天阙旧材历经万劫而不朽。",
             "max_minutes": 58,
             "event_pool": [
                 {"name": "天刀遗图", "description": "一截断碑后压着完整的仙刀炼图。", "event_type": "recipe", "weight": 3, "bonus_reward_kind": "recipe", "bonus_reward_ref_id_name": "紫宸天刀炼制图", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 26},
@@ -2192,7 +2575,7 @@ DEFAULT_SCENES.extend(
         },
         {
             "name": "鸿蒙源海",
-            "description": "先天至宝层级秘境，只在极少数机缘下才会开启。",
+            "description": "混沌未分之地，大道法则尚呈液态流转。有缘者仅凭一息感应便能踏足，无缘者穷尽一生也寻不到入口。",
             "max_minutes": 60,
             "event_pool": [
                 {"name": "大道剑图", "description": "源海之上浮起一卷大道剑图，转瞬又要散去。", "event_type": "recipe", "weight": 3, "bonus_reward_kind": "recipe", "bonus_reward_ref_id_name": "太初道剑炼制图", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 18},
@@ -2261,7 +2644,7 @@ DEFAULT_SCENES.extend(
     [
         {
             "name": "太玄剑冢",
-            "description": "旧剑意未散的山门剑冢，适合炼气修士磨剑与悟势。",
+            "description": "旧剑意未散的山门剑冢，残剑虽朽，余势犹存——最适合炼气剑修磨砺锋芒、参悟剑势。",
             "max_minutes": 38,
             "min_realm_stage": "炼气",
             "min_realm_layer": 4,
@@ -2277,7 +2660,7 @@ DEFAULT_SCENES.extend(
         },
         {
             "name": "百草灵圃",
-            "description": "药王谷旧药圃灵气温和，兼产草木药材与养元心得。",
+            "description": "药王谷废弃的旧药圃，灵雾终年不散，草木自行繁衍百代——遍地是年份扎实的药料与养元心得。",
             "max_minutes": 38,
             "min_realm_stage": "炼气",
             "min_realm_layer": 3,
@@ -2293,7 +2676,7 @@ DEFAULT_SCENES.extend(
         },
         {
             "name": "观星残台",
-            "description": "天机阁废弃观星台仍保留些许星图痕迹，适合悟性高的修士参悟。",
+            "description": "天机阁废弃观星台虽已残破，石壁上仍残留大半星图——悟性高者或能在残图中看出几分天机流转。",
             "max_minutes": 42,
             "min_realm_stage": "炼气",
             "min_realm_layer": 6,
@@ -2310,7 +2693,7 @@ DEFAULT_SCENES.extend(
         },
         {
             "name": "血煞试炼场",
-            "description": "魔宫外门旧试炼场血气未散，专为好战修士磨砺胆魄。",
+            "description": "魔宫外门旧试炼场血气未散，遍地是打斗残痕——专为好战修士磨砺胆魄、以战养煞。",
             "max_minutes": 42,
             "min_realm_stage": "炼气",
             "min_realm_layer": 5,
@@ -2326,7 +2709,7 @@ DEFAULT_SCENES.extend(
         },
         {
             "name": "夜影回廊",
-            "description": "幽冥鬼府外的回廊层层叠影，身法稍慢就会被黑影反扑。",
+            "description": "幽冥鬼府外的回廊层层叠影，每走一步都似被人暗中盯着——身法稍慢就会被黑影反扑，鬼修最爱在此练身法。",
             "max_minutes": 44,
             "min_realm_stage": "炼气",
             "min_realm_layer": 6,
@@ -2342,7 +2725,7 @@ DEFAULT_SCENES.extend(
         },
         {
             "name": "毒瘴古泽",
-            "description": "古泽瘴气层叠，耐性不够的修士很难久留。",
+            "description": "古泽瘴气层叠如纱，毒雾深处藏有旁人不敢采的奇材——耐性不够者走不过三步，但撑住了就是遍地机缘。",
             "max_minutes": 44,
             "min_realm_stage": "炼气",
             "min_realm_layer": 5,
@@ -2358,7 +2741,7 @@ DEFAULT_SCENES.extend(
         },
         {
             "name": "潮音洞天",
-            "description": "洞天潮声日夜不绝，最适合参悟潮汐转换与攻守平衡。",
+            "description": "洞天潮声日夜不绝，如天地呼吸——最适合参悟潮汐转换、攻守交替的自然道韵。",
             "max_minutes": 46,
             "min_realm_stage": "炼气",
             "min_realm_layer": 5,
@@ -2374,7 +2757,7 @@ DEFAULT_SCENES.extend(
         },
         {
             "name": "傀丝遗坊",
-            "description": "遗坊里遍布断线机关与旧灵傀残件，考验耐心与细致操控。",
+            "description": "遗坊遍布断线机关与旧灵傀残件，满地都是前人留下的半成品——考验耐心与细致操控，傀修复原的绝佳试场。",
             "max_minutes": 46,
             "min_realm_stage": "炼气",
             "min_realm_layer": 4,
@@ -2390,7 +2773,7 @@ DEFAULT_SCENES.extend(
         },
         {
             "name": "栖凰焰谷",
-            "description": "焰谷火意灵动，比纯粹爆裂更重节奏与火势回转。",
+            "description": "焰谷火意灵动不暴戾，讲究节奏与火势回转——正如栖凰山一脉的修行之道，温烈并济方为上乘。",
             "max_minutes": 48,
             "min_realm_stage": "炼气",
             "min_realm_layer": 5,
@@ -2970,7 +3353,7 @@ def build_spirit_stone_commissions(tg: int) -> list[dict[str, Any]]:
             if profile_data.get("is_dead"):
                 reason = "角色已死亡，只能重新踏出仙途。"
             elif retreating:
-                reason = "闭关期间无法承接灵石委托。"
+                reason = "闭关之中，无暇承接凡尘委托，待出关后再议。"
             elif duel_lock:
                 reason = duel_lock.get("duel_mode_label", "斗法") + "结算前，禁止灵石操作"
             elif not unlocked:
@@ -3006,11 +3389,11 @@ def build_spirit_stone_commissions(tg: int) -> list[dict[str, Any]]:
 def claim_spirit_stone_commission(tg: int, commission_key: str) -> dict[str, Any]:
     config = SPIRIT_STONE_COMMISSIONS.get(str(commission_key or "").strip())
     if config is None:
-        raise ValueError("未找到对应的灵石委托。")
+        raise ValueError("未寻得此委托，或已被他人先行接下。")
 
     profile = _require_alive_profile_obj(tg, f"处理{config['name']}")
     if _is_retreating(profile):
-        raise ValueError("闭关期间无法承接灵石委托。")
+        raise ValueError("闭关之中，无暇承接凡尘委托，待出关后再议。")
 
     profile_data = serialize_profile(profile) or {}
     if not realm_requirement_met(profile_data, config.get("min_realm_stage"), config.get("min_realm_layer")):
@@ -3042,10 +3425,10 @@ def claim_spirit_stone_commission(tg: int, commission_key: str) -> dict[str, Any
     with Session() as session:
         row = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if row is None or not row.consented:
-            raise ValueError("你还没有踏入仙途。")
+            raise ValueError("你尚未踏入仙途，道基未立。")
         assert_profile_alive(row, config["name"])
         if _is_retreating(row):
-            raise ValueError("闭关期间无法承接灵石委托。")
+            raise ValueError("闭关之中，无暇承接凡尘委托，待出关后再议。")
         last_entry = _commission_latest_entry(session, tg, config["name"])
         now = utcnow()
         if last_entry is not None:
@@ -4175,7 +4558,7 @@ def build_user_artifact_rows(
             reason = f"当前最多只能装备 {equip_limit} 件法宝"
         if retreating:
             usable = False
-            reason = "闭关期间无法切换法宝"
+            reason = "闭关之中，法宝已与心神相系，不可轻换。"
         item["usable"] = usable or item["equipped"]
         item["unusable_reason"] = "" if item["equipped"] else reason
         item["action_label"] = "卸下法宝" if item["equipped"] else f"装备到{item.get('equip_slot_label') or '槽位'}"
@@ -5010,10 +5393,10 @@ def build_official_recycle_quote(
     payload = dict(item_payload or {})
     item_ref_id = int(payload.get("id") or 0)
     if item_ref_id <= 0:
-        raise ValueError("未找到可归炉物品。")
+        raise ValueError("未曾寻得可供归炉之物。")
     available = max(int(available_quantity or 0), 0)
     if available <= 0:
-        raise ValueError("当前没有可归炉库存。")
+        raise ValueError("囊中空空，无可归炉之物。")
     requested = max(int(quantity or 0), 1)
     quality_level = _official_payload_quality_level(normalized_kind, payload)
     quality_label = _official_payload_quality_label(normalized_kind, payload, quality_level)
@@ -5506,6 +5889,30 @@ def ensure_seed_data(force: bool = False) -> None:
                 ]
                 achievement_payload["reward_config"] = reward_config
                 sync_achievement_by_key(**achievement_payload)
+
+            for payload in DEFAULT_BOSS_CONFIGS:
+                boss_payload = dict(payload)
+                for loot_field, name_map in [
+                    ("loot_pills_json", pill_map),
+                    ("loot_materials_json", material_map),
+                    ("loot_artifacts_json", artifact_map),
+                    ("loot_talismans_json", talisman_map),
+                    ("loot_recipes_json", recipe_map),
+                    ("loot_techniques_json", technique_map),
+                ]:
+                    raw = boss_payload.pop(loot_field, None) or []
+                    resolved = []
+                    for entry in raw:
+                        entry_name = str(entry.get("name") or "").strip()
+                        if entry_name and entry_name in name_map:
+                            resolved.append({
+                                "ref_id": int(name_map[entry_name]["id"]),
+                                "chance": int(entry.get("chance") or 0),
+                                "quantity_min": int(entry.get("quantity_min") or 1),
+                                "quantity_max": int(entry.get("quantity_max") or 1),
+                            })
+                    boss_payload[loot_field] = resolved
+                sync_boss_config_by_name(**boss_payload)
 
             purge_removed_pill_types()
             set_xiuxian_settings({"seed_data_version": SEED_DATA_VERSION})
@@ -6006,7 +6413,7 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         row["tradeable_quantity"] = row["unbound_quantity"]
         item["usable"] = usable and not retreating
         item["active"] = profile_data.get("active_talisman_id") == item["id"]
-        item["unusable_reason"] = "闭关期间无法启用符箓" if usable and not item["active"] and retreating else reason
+        item["unusable_reason"] = "闭关之中，法力内收，不宜引动符箓外力。" if usable and not item["active"] and retreating else reason
         item["bound"] = bound_quantity > 0
         item["bound_quantity"] = bound_quantity
         talismans.append(row)
@@ -6120,7 +6527,7 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
             else (
                 "角色已死亡，只能重新踏出仙途"
                 if profile_data["is_dead"]
-                else ("" if not retreating and not is_same_china_day(profile.last_train_at, utcnow()) else ("闭关期间无法吐纳修炼" if retreating else "今日已经完成过吐纳修炼了"))
+                else ("" if not retreating and not is_same_china_day(profile.last_train_at, utcnow()) else ("闭关之中，心神内敛，无暇吐纳外气。" if retreating else "今日吐纳已毕，经脉已盈，再行运气恐伤道基。"))
             )
         ),
         "can_breakthrough": profile_data["consented"] and not profile_data["is_dead"] and not gender_locked and not retreating and int(profile_data["realm_layer"] or 0) >= 9 and bool(progress["breakthrough_ready"]),
@@ -6130,7 +6537,7 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
             else (
                 "角色已死亡，只能重新踏出仙途"
                 if profile_data["is_dead"]
-                else ("" if not retreating and int(profile_data["realm_layer"] or 0) >= 9 and progress["breakthrough_ready"] else ("闭关期间无法突破" if retreating else "只有达到当前境界九层且满修为后才能突破"))
+                else ("" if not retreating and int(profile_data["realm_layer"] or 0) >= 9 and progress["breakthrough_ready"] else ("闭关之中，气机未满，尚难叩问破境之机。" if retreating else "只有达到当前境界九层且满修为后才能突破"))
             )
         ),
         "required_breakthrough_pill_name": (breakthrough_requirement or {}).get("pill_name"),
@@ -6253,7 +6660,7 @@ def _assert_gender_ready(profile: XiuxianProfile | dict[str, Any] | None, action
 def _require_consented_profile_obj(tg: int, action_text: str) -> Any:
     profile = _repair_profile_realm_state(tg)
     if profile is None or not profile.consented:
-        raise ValueError("你还没有踏入仙途。")
+        raise ValueError("你尚未踏入仙途，道基未立。")
     assert_profile_alive(profile, action_text)
     return profile
 
@@ -6381,7 +6788,7 @@ def harvest_furnace_for_user(tg: int, furnace_tg: int) -> dict[str, Any]:
     with Session() as session:
         owner = session.query(XiuxianProfile).filter(XiuxianProfile.tg == actor_tg).with_for_update().first()
         if owner is None or not owner.consented:
-            raise ValueError("你还没有踏入仙途。")
+            raise ValueError("你尚未踏入仙途，道基未立。")
         assert_profile_alive(owner, "采补炉鼎")
         furnace = session.query(XiuxianProfile).filter(XiuxianProfile.tg == target_tg).with_for_update().first()
         if furnace is None or not furnace.consented:
@@ -6520,7 +6927,7 @@ def _mentorship_pending_expire_at() -> datetime:
 def _mentorship_profile_row(session: Session, tg: int, action_text: str) -> XiuxianProfile:
     row = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(tg)).with_for_update().first()
     if row is None or not row.consented:
-        raise ValueError("你还没有踏入仙途。")
+        raise ValueError("你尚未踏入仙途，道基未立。")
     assert_profile_alive(row, action_text)
     _assert_gender_ready(row, action_text)
     return row
@@ -7380,7 +7787,7 @@ def _marriage_pending_expire_at() -> datetime:
 def _marriage_profile_row(session: Session, tg: int, action_text: str) -> XiuxianProfile:
     row = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(tg)).with_for_update().first()
     if row is None or not row.consented:
-        raise ValueError("你还没有踏入仙途。")
+        raise ValueError("你尚未踏入仙途，道基未立。")
     assert_profile_alive(row, action_text)
     _assert_gender_ready(row, action_text)
     return row
@@ -7660,7 +8067,7 @@ def set_gender_for_user(tg: int, gender: str) -> dict[str, Any]:
     with Session() as session:
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(tg)).with_for_update().first()
         if profile is None or not profile.consented:
-            raise ValueError("你还没有踏入仙途。")
+            raise ValueError("你尚未踏入仙途，道基未立。")
         assert_profile_alive(profile, "设置性别")
         relation = _active_marriage_for_user_service(session, tg, for_update=True)
         current_gender = normalize_gender(profile.gender)
@@ -8098,7 +8505,7 @@ def equip_artifact_for_user(tg: int, artifact_id: int) -> dict[str, Any]:
         raise ValueError("你的背包里没有这件法宝。")
     artifact = get_artifact(artifact_id)
     if artifact is None:
-        raise ValueError("未找到目标法宝。")
+        raise ValueError("未寻得此宝踪迹，或许早已流失于岁月之中。")
     if not realm_requirement_met(profile, artifact.min_realm_stage, artifact.min_realm_layer):
         raise ValueError(f"需要达到 {format_realm_requirement(artifact.min_realm_stage, artifact.min_realm_layer)} 才能装备这件法宝。")
 
@@ -8117,7 +8524,7 @@ def bind_artifact_for_user(tg: int, artifact_id: int) -> dict[str, Any]:
     _require_alive_profile_obj(tg, "绑定法宝")
     artifact = get_artifact(artifact_id)
     if artifact is None:
-        raise ValueError("未找到目标法宝。")
+        raise ValueError("未寻得此宝踪迹，或许早已流失于岁月之中。")
     result = bind_user_artifact(tg, artifact_id, 1)
     return {
         "artifact": serialize_artifact(artifact),
@@ -8130,7 +8537,7 @@ def unbind_artifact_for_user(tg: int, artifact_id: int) -> dict[str, Any]:
     _require_alive_profile_obj(tg, "解绑法宝")
     artifact = get_artifact(artifact_id)
     if artifact is None:
-        raise ValueError("未找到目标法宝。")
+        raise ValueError("未寻得此宝踪迹，或许早已流失于岁月之中。")
     cost = max(int(get_xiuxian_settings().get("equipment_unbind_cost", DEFAULT_SETTINGS["equipment_unbind_cost"]) or 0), 0)
     result = unbind_user_artifact(tg, artifact_id, cost, 1)
     return {
@@ -8153,7 +8560,7 @@ def activate_talisman_for_user(tg: int, talisman_id: int) -> dict[str, Any]:
 
     talisman = get_talisman(talisman_id)
     if talisman is None or not talisman.enabled:
-        raise ValueError("未找到可用的符箓。")
+        raise ValueError("符匣空空，未觅得可启之符。")
     if not realm_requirement_met(serialize_profile(profile_obj), talisman.min_realm_stage, talisman.min_realm_layer):
         raise ValueError(f"需要达到 {format_realm_requirement(talisman.min_realm_stage, talisman.min_realm_layer)} 才能启用这张符箓。")
     if not consume_user_talisman(tg, talisman_id, 1):
@@ -8170,7 +8577,7 @@ def bind_talisman_for_user(tg: int, talisman_id: int) -> dict[str, Any]:
     _require_alive_profile_obj(tg, "绑定符箓")
     talisman = get_talisman(talisman_id)
     if talisman is None or not talisman.enabled:
-        raise ValueError("未找到可用的符箓。")
+        raise ValueError("符匣空空，未觅得可启之符。")
     result = bind_user_talisman(tg, talisman_id, 1)
     return {
         "talisman": serialize_talisman(talisman),
@@ -8183,7 +8590,7 @@ def unbind_talisman_for_user(tg: int, talisman_id: int) -> dict[str, Any]:
     _require_alive_profile_obj(tg, "解绑符箓")
     talisman = get_talisman(talisman_id)
     if talisman is None or not talisman.enabled:
-        raise ValueError("未找到可用的符箓。")
+        raise ValueError("符匣空空，未觅得可启之符。")
     cost = max(int(get_xiuxian_settings().get("equipment_unbind_cost", DEFAULT_SETTINGS["equipment_unbind_cost"]) or 0), 0)
     result = unbind_user_talisman(tg, talisman_id, cost, 1)
     return {
@@ -8205,7 +8612,7 @@ def activate_technique_for_user(tg: int, technique_id: int) -> dict[str, Any]:
         raise ValueError("你尚未获得这门功法，需要先通过探索或机缘参悟。")
     technique = get_technique(technique_id)
     if technique is None or not technique.enabled:
-        raise ValueError("未找到可用的功法。")
+        raise ValueError("识海之中未存此法，需先通过秘境或机缘参悟。")
     profile_data = serialize_profile(profile_obj)
     if not realm_requirement_met(profile_data, technique.min_realm_stage, technique.min_realm_layer):
         raise ValueError(f"需要达到 {format_realm_requirement(technique.min_realm_stage, technique.min_realm_layer)} 才能参悟这门功法。")
@@ -8229,14 +8636,14 @@ def start_retreat_for_user(tg: int, hours: int) -> dict[str, Any]:
     profile = _require_alive_profile_obj(tg, "开始闭关")
     assert_currency_operation_allowed(tg, "开始闭关", profile=profile)
     if _is_retreating(profile):
-        raise ValueError("你已经在闭关中。")
+        raise ValueError("你已入定闭关，心神内守，莫再扰动。")
 
     retreat_hours = max(min(int(hours or 0), 4), 1)
     plan = _compute_retreat_plan(profile)
     total_minutes = retreat_hours * 60
     total_cost = plan["cost_per_minute"] * total_minutes
     if max(int(get_shared_spiritual_stone_total(tg) or 0), 0) < total_cost:
-        raise ValueError(f"灵石不足，闭关 {retreat_hours} 小时预计需要 {total_cost} 灵石。")
+        raise ValueError(f"囊中灵石不足，闭关 {retreat_hours} 时辰共计需 {total_cost} 灵石。")
 
     now = utcnow()
     updated = upsert_profile(
@@ -8261,7 +8668,7 @@ def finish_retreat_for_user(tg: int) -> dict[str, Any]:
     assert_currency_operation_allowed(tg, "结束闭关", profile=profile)
     result = _settle_retreat_progress(tg)
     if result is None and not _is_retreating(profile):
-        raise ValueError("你当前并未处于闭关状态。")
+        raise ValueError("你此刻并未处于闭关之中，何来出关之说？")
 
     upsert_profile(
         tg,
@@ -8290,7 +8697,7 @@ def create_personal_shop_listing(
 ) -> dict[str, Any]:
     profile = _require_alive_profile_obj(tg, "上架坊市")
     if _is_retreating(profile):
-        raise ValueError("闭关期间无法上架个人商店。")
+        raise ValueError("闭关之中，俗务暂搁，出关后方可打理坊市。")
     assert_currency_operation_allowed(tg, "上架坊市", profile=profile)
 
     normalized_kind = str(item_kind or "").strip()
@@ -8298,28 +8705,28 @@ def create_personal_shop_listing(
     if normalized_kind == "artifact":
         artifact = get_artifact(item_ref_id)
         if artifact is None:
-            raise ValueError("未找到目标法宝。")
+            raise ValueError("未寻得此宝踪迹，或许早已流失于岁月之中。")
         if not use_user_artifact_listing_stock(tg, item_ref_id, quantity):
             raise ValueError("可交易的法宝数量不足，已绑定或已装备的法宝无法上架。")
         item_name = artifact.name
     elif normalized_kind == "pill":
         pill = get_pill(item_ref_id)
         if pill is None:
-            raise ValueError("未找到目标丹药。")
+            raise ValueError("未寻得此丹踪迹，或许已化作药尘散去。")
         if not use_user_pill_listing_stock(tg, item_ref_id, quantity):
             raise ValueError("背包里的丹药数量不足。")
         item_name = pill.name
     elif normalized_kind == "material":
         material = get_material(item_ref_id)
         if material is None:
-            raise ValueError("未找到目标材料。")
+            raise ValueError("未寻得此物踪迹，或已消散于天地之间。")
         if not use_user_material_listing_stock(tg, item_ref_id, quantity):
             raise ValueError("背包里的材料数量不足。")
         item_name = material.name
     elif normalized_kind == "talisman":
         talisman = get_talisman(item_ref_id)
         if talisman is None:
-            raise ValueError("未找到目标符箓。")
+            raise ValueError("未寻得此符踪迹，灵纹或已黯淡消逝。")
         if not use_user_talisman_listing_stock(tg, item_ref_id, quantity):
             raise ValueError("可交易的符箓数量不足，已绑定的符箓无法上架。")
         item_name = talisman.name
@@ -8331,7 +8738,7 @@ def create_personal_shop_listing(
     charisma_discount = min(max(int(profile.charisma or 0) - 10, 0) // 4, broadcast_cost)
     final_broadcast_cost = max(broadcast_cost - charisma_discount, 0)
     if broadcast and max(int(get_shared_spiritual_stone_total(tg) or 0), 0) < final_broadcast_cost:
-        raise ValueError("灵石不足，无法支付全群播报费用。")
+        raise ValueError("囊中灵石不足，无力支付灵鹤传讯之费。")
 
     resolved_shop_name = str(shop_name or profile.shop_name or PERSONAL_SHOP_NAME).strip() or PERSONAL_SHOP_NAME
 
@@ -8361,7 +8768,7 @@ def create_personal_shop_listing(
         with Session() as session:
             updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
             if updated is None or not updated.consented:
-                raise ValueError("你还没有踏入仙途。")
+                raise ValueError("你尚未踏入仙途，道基未立。")
             if broadcast and final_broadcast_cost > 0:
                 apply_spiritual_stone_delta(
                     session,
@@ -8415,7 +8822,7 @@ def create_personal_auction_listing(
 ) -> dict[str, Any]:
     profile = _require_alive_profile_obj(tg, "发起拍卖")
     if _is_retreating(profile):
-        raise ValueError("闭关期间无法发起拍卖。")
+        raise ValueError("闭关之中，心神内守，出关后再行拍卖之事。")
     assert_currency_operation_allowed(tg, "发起拍卖", profile=profile)
 
     normalized_kind = str(item_kind or "").strip()
@@ -8423,35 +8830,35 @@ def create_personal_auction_listing(
     if normalized_kind == "artifact":
         artifact = get_artifact(item_ref_id)
         if artifact is None:
-            raise ValueError("未找到目标法宝。")
+            raise ValueError("未寻得此宝踪迹，或许早已流失于岁月之中。")
         if not use_user_artifact_listing_stock(tg, item_ref_id, quantity):
             raise ValueError("可交易的法宝数量不足，已绑定或已装备的法宝无法拍卖。")
         item_name = artifact.name
     elif normalized_kind == "pill":
         pill = get_pill(item_ref_id)
         if pill is None:
-            raise ValueError("未找到目标丹药。")
+            raise ValueError("未寻得此丹踪迹，或许已化作药尘散去。")
         if not use_user_pill_listing_stock(tg, item_ref_id, quantity):
             raise ValueError("背包里的丹药数量不足。")
         item_name = pill.name
     elif normalized_kind == "material":
         material = get_material(item_ref_id)
         if material is None:
-            raise ValueError("未找到目标材料。")
+            raise ValueError("未寻得此物踪迹，或已消散于天地之间。")
         if not use_user_material_listing_stock(tg, item_ref_id, quantity):
             raise ValueError("背包里的材料数量不足。")
         item_name = material.name
     elif normalized_kind == "talisman":
         talisman = get_talisman(item_ref_id)
         if talisman is None:
-            raise ValueError("未找到目标符箓。")
+            raise ValueError("未寻得此符踪迹，灵纹或已黯淡消逝。")
         if not use_user_talisman_listing_stock(tg, item_ref_id, quantity):
             raise ValueError("可交易的符箓数量不足，已绑定的符箓无法拍卖。")
         item_name = talisman.name
     elif normalized_kind == "technique":
         technique = get_technique(item_ref_id)
         if technique is None or not technique.enabled:
-            raise ValueError("未找到目标功法。")
+            raise ValueError("未寻得此功法，或许藏于某处秘境待君探索。")
         if int(quantity or 0) != 1:
             raise ValueError("功法拍卖数量固定为 1。")
         if not revoke_technique_from_user(tg, item_ref_id):
@@ -8516,18 +8923,18 @@ def create_official_shop_listing(
     payload = _official_seed_item_payload(item_kind, item_ref_id)
     if payload is None:
         if item_kind == "artifact":
-            raise ValueError("未找到目标法宝。")
+            raise ValueError("未寻得此宝踪迹，或许早已流失于岁月之中。")
         if item_kind == "pill":
-            raise ValueError("未找到目标丹药。")
+            raise ValueError("未寻得此丹踪迹，或许已化作药尘散去。")
         if item_kind == "talisman":
-            raise ValueError("未找到目标符箓。")
+            raise ValueError("未寻得此符踪迹，灵纹或已黯淡消逝。")
         if item_kind == "material":
-            raise ValueError("未找到目标材料。")
+            raise ValueError("未寻得此物踪迹，或已消散于天地之间。")
         raise ValueError("不支持的官方商店物品类型。")
     if item_kind == "artifact":
         artifact = get_artifact(item_ref_id)
         if artifact is None:
-            raise ValueError("未找到目标法宝。")
+            raise ValueError("未寻得此宝踪迹，或许早已流失于岁月之中。")
         if bool(getattr(artifact, "unique_item", False)) and int(quantity or 0) > 1:
             raise ValueError(f"唯一法宝【{getattr(artifact, 'name', item_ref_id)}】在官方商店最多只能上架 1 件。")
     item_name = str(payload.get("name") or item_ref_id)
@@ -8560,9 +8967,9 @@ def recycle_item_to_official_shop(
     quote = _find_official_recycle_quote_for_user(tg, normalized_kind, int(item_ref_id))
     insufficient_messages = {
         "artifact": "可归炉的法宝数量不足，已绑定或已装备的法宝无法归炉。",
-        "pill": "背包里的丹药数量不足，无法完成归炉。",
+        "pill": "囊中药丹不足，难以引动归炉之火。",
         "talisman": "可归炉的符箓数量不足，已绑定的符箓无法归炉。",
-        "material": "背包里的材料数量不足，无法完成归炉。",
+        "material": "囊中灵材不足，难以引动归炉之火。",
         "technique": "未掌握该功法，无法归炉。",
         "recipe": "未掌握该配方，无法归炉。",
     }
@@ -11227,9 +11634,9 @@ def init_path_for_user(tg: int) -> dict[str, Any]:
 def practice_for_user(tg: int) -> dict[str, Any]:
     profile = _require_alive_profile_obj(tg, "吐纳修炼")
     if _is_retreating(profile):
-        raise ValueError("闭关期间无法吐纳修炼。")
+        raise ValueError("闭关之中，心神内敛，无暇吐纳外气。")
     if is_same_china_day(profile.last_train_at, utcnow()):
-        raise ValueError("今日已经完成过吐纳修炼了。")
+        raise ValueError("今日吐纳已毕，经脉已盈，再行运气恐伤道基。")
 
     profile_data = serialize_profile(profile)
     artifact_effects = merge_artifact_effects(profile_data, collect_equipped_artifacts(tg))
@@ -11283,13 +11690,13 @@ def practice_for_user(tg: int) -> dict[str, Any]:
     with Session() as session:
         updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if updated is None or not updated.consented:
-            raise ValueError("你还没有踏入仙途。")
+            raise ValueError("你尚未踏入仙途，道基未立。")
         if _is_retreating(updated):
-            raise ValueError("闭关期间无法吐纳修炼。")
+            raise ValueError("闭关之中，心神内敛，无暇吐纳外气。")
         now = utcnow()
         # 再次在行锁内校验，避免双击或并发请求绕过“每日一次”的限制。
         if is_same_china_day(updated.last_train_at, now):
-            raise ValueError("今日已经完成过吐纳修炼了。")
+            raise ValueError("今日吐纳已毕，经脉已盈，再行运气恐伤道基。")
         gain, cultivation_meta = adjust_cultivation_gain_for_social_mode(updated, raw_gain)
         layer, cultivation, upgraded_layers, remaining = apply_cultivation_gain(
             normalize_realm_stage(updated.realm_stage or FIRST_REALM_STAGE),
@@ -11320,7 +11727,7 @@ def practice_for_user(tg: int) -> dict[str, Any]:
 def breakthrough_for_user(tg: int, use_pill: bool = False) -> dict[str, Any]:
     profile = _require_alive_profile_obj(tg, "突破境界")
     if _is_retreating(profile):
-        raise ValueError("闭关期间无法突破。")
+        raise ValueError("闭关之中，气机未满，尚难叩问破境之机。")
     if int(profile.realm_layer or 0) < 9:
         raise ValueError("只有达到当前大境界九层后才能尝试突破。")
 
@@ -11366,7 +11773,7 @@ def breakthrough_for_user(tg: int, use_pill: bool = False) -> dict[str, Any]:
     if use_pill and required_pill_name:
         pill_row = _find_pill_in_inventory_by_name(tg, required_pill_name)
         if pill_row is None:
-            raise ValueError(f"你还没有对应的破境丹【{required_pill_name}】。")
+            raise ValueError(f"你还未备好对应的破境丹【{required_pill_name}】。")
         used_pill_name = pill_row["pill"]["name"]
         pill_effects = resolve_pill_effects(profile_data, pill_row["pill"], {"base_success_rate": success_rate})
         base_bonus = max(int((requirement or {}).get("success_floor") or 0) - success_rate, 12)
@@ -11438,10 +11845,15 @@ def _apply_pill_effect_once(
     if usage_reason:
         raise ValueError(usage_reason)
     effects = resolve_pill_effects(profile_data, pill_data)
+    sect_effects = get_sect_effects(profile_data)
+    poison_cap = 100 + int(sect_effects.get("pill_poison_cap_bonus", 0))
+    poison_resist = float(sect_effects.get("pill_poison_resist", 0.0))
     bone_resistance = min((float(profile.bone or 0) / 200), 0.45)
     realm_bonus_resistance = min(realm_index(profile.realm_stage or FIRST_REALM_STAGE) * 0.02, 0.20)
     total_resistance = min(bone_resistance + realm_bonus_resistance, 0.55)
-    dan_poison = min(int(profile.dan_poison or 0) + int(round(float(effects.get("poison_delta", 0) or 0) * (1 - total_resistance))), 100)
+    raw_poison_delta = float(effects.get("poison_delta", 0) or 0)
+    effective_poison = raw_poison_delta * (1 - total_resistance) * (1 - poison_resist)
+    dan_poison = min(int(profile.dan_poison or 0) + int(round(effective_poison)), poison_cap)
     # Per-realm stat caps to prevent infinite pill stacking
     _max_base = {0: 300, 1: 600, 2: 1200, 3: 2500, 4: 5000, 5: 10000, 6: 20000, 7: 40000, 8: 80000}
     stat_cap = _max_base.get(realm_index(profile.realm_stage or FIRST_REALM_STAGE), 100000)
@@ -11503,7 +11915,7 @@ def _apply_pill_effect_once(
 def consume_pill_for_user(tg: int, pill_id: int, quantity: int = 1) -> dict[str, Any]:
     pill = get_pill(pill_id)
     if pill is None or not pill.enabled:
-        raise ValueError("未找到可用的丹药。")
+        raise ValueError("丹囊空空，未觅得可服之丹。")
     pill_data = serialize_pill(pill)
     profile_data: dict[str, Any] = {}
     profile_after: dict[str, Any] = {}
@@ -11513,7 +11925,7 @@ def consume_pill_for_user(tg: int, pill_id: int, quantity: int = 1) -> dict[str,
     with Session() as session:
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if profile is None or not profile.consented:
-            raise ValueError("你还没有踏入仙途。")
+            raise ValueError("你尚未踏入仙途，道基未立。")
         assert_profile_alive(profile, "服用丹药")
         _assert_gender_ready(profile, "服用丹药")
 
@@ -13241,7 +13653,7 @@ def open_group_arena_for_user(
     with Session() as session:
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == actor_tg).with_for_update().first()
         if profile is None or not profile.consented:
-            raise ValueError("你还没有踏入仙途。")
+            raise ValueError("你尚未踏入仙途，道基未立。")
         assert_currency_operation_allowed(actor_tg, "开设擂台", session=session, profile=profile)
         if is_profile_secluded(profile):
             raise ValueError("你当前处于避世状态，无法开设擂台。")
@@ -13350,7 +13762,7 @@ def challenge_group_arena_for_user(
 
         challenger = session.query(XiuxianProfile).filter(XiuxianProfile.tg == actor_tg).with_for_update().first()
         if challenger is None or not challenger.consented:
-            raise ValueError("你还没有踏入仙途。")
+            raise ValueError("你尚未踏入仙途，道基未立。")
         assert_currency_operation_allowed(actor_tg, "攻擂", session=session, profile=challenger)
         if is_profile_secluded(challenger):
             raise ValueError("你当前处于避世状态，无法攻擂。")

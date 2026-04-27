@@ -445,7 +445,7 @@ def _metric_task_progress_payload(
 def _require_alive_profile_data(tg: int, action_text: str) -> tuple[XiuxianProfile, dict[str, Any]]:
     profile_obj = get_profile(tg, create=False)
     if profile_obj is None or not profile_obj.consented:
-        raise ValueError("你还没有踏入仙途")
+        raise ValueError("你尚未踏入仙途，道基未立")
     assert_profile_alive(profile_obj, action_text)
     return profile_obj, serialize_profile(profile_obj)
 
@@ -501,6 +501,12 @@ def get_sect_effects(profile_data: dict[str, Any] | None) -> dict[str, int]:
         effects["cultivation_bonus"] += int(sect.get("cultivation_bonus", 0) or 0)
         effects["fortune_bonus"] += int(sect.get("fortune_bonus", 0) or 0)
         effects["body_movement_bonus"] += int(sect.get("body_movement_bonus", 0) or 0)
+        effects["pill_poison_resist"] = float(sect.get("pill_poison_resist") or 0.0)
+        effects["pill_poison_cap_bonus"] = int(sect.get("pill_poison_cap_bonus") or 0)
+        effects["farm_growth_speed"] = float(sect.get("farm_growth_speed") or 0.0)
+        effects["explore_drop_rate"] = int(sect.get("explore_drop_rate") or 0)
+        effects["craft_success_rate"] = int(sect.get("craft_success_rate") or 0)
+        effects["death_penalty_reduce"] = float(sect.get("death_penalty_reduce") or 0.0)
     if role:
         effects["attack_bonus"] += int(role.get("attack_bonus", 0) or 0)
         effects["defense_bonus"] += int(role.get("defense_bonus", 0) or 0)
@@ -892,7 +898,7 @@ def _repair_missing_sect_membership(tg: int, profile_data: dict[str, Any] | None
         sect_betrayal_until=None,
         last_salary_claim_at=None,
     )
-    create_journal(tg, "sect", "宗门记录修复", f"原宗门记录（ID {int(profile.get('sect_id') or 0)}）已失效，系统已自动清理残留归属。")
+    create_journal(tg, "sect", "因果重理", f"旧日宗门契印（ID {int(profile.get('sect_id') or 0)}）已消散，天道已抹去残留的归属因果。")
     return serialize_profile(get_profile(tg, create=False)), None
 
 
@@ -1033,7 +1039,7 @@ def join_sect_for_user(tg: int, sect_id: int) -> dict[str, Any]:
             )
         except ValueError:
             pass
-    create_journal(tg, "sect", "加入宗门", f"重整衣冠，拜入宗门【{sect['name']}】门下。")
+    create_journal(tg, "sect", "拜入山门", f"整顿衣冠，焚香三拜，正式拜入【{sect['name']}】门下，从此仙途有依。")
     return get_current_sect_bundle(tg)
 
 
@@ -1066,7 +1072,7 @@ def leave_sect_for_user(tg: int) -> dict[str, Any]:
     with Session() as session:
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if profile is None or not profile.consented:
-            raise ValueError("你还没有踏入仙途")
+            raise ValueError("你尚未踏入仙途，道基未立")
         assert_profile_alive(profile, "叛出宗门")
         assert_currency_operation_allowed(tg, "叛出宗门", session=session, profile=profile)
         if not profile.sect_id:
@@ -1114,11 +1120,11 @@ def leave_sect_for_user(tg: int) -> dict[str, Any]:
     create_journal(
         tg,
         "sect",
-        "叛出宗门",
+        "背离山门",
         (
-            f"叛出宗门【{sect_name}】，被收回 {penalty} 灵石供奉，清空 {previous_contribution} 点宗门贡献，并禁投山门至 {cooldown_until.isoformat()}。"
+            f"斩断与【{sect_name}】的因果羁绊，被追回 {penalty} 灵石供奉，{previous_contribution} 点宗门贡献尽数归零，禁投山门至 {cooldown_until.isoformat()}。"
             if penalty > 0
-            else f"叛出宗门【{sect_name}】，未曾领取宗门俸禄，本次未扣除灵石，清空 {previous_contribution} 点宗门贡献，并禁投山门至 {cooldown_until.isoformat()}。"
+            else f"自断与【{sect_name}】的宗门因果，未曾领取俸禄故未扣灵石，{previous_contribution} 点宗门贡献随风散去，禁投山门至 {cooldown_until.isoformat()}。"
         ),
     )
     return {
@@ -1181,12 +1187,12 @@ def claim_sect_salary_for_user(tg: int) -> dict[str, Any]:
     with Session() as session:
         updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if updated is None or not updated.consented:
-            raise ValueError("你还没有踏入仙途")
+            raise ValueError("你尚未踏入仙途，道基未立")
         apply_spiritual_stone_delta(session, tg, salary, action_text="领取宗门俸禄", apply_tribute=True)
         updated.last_salary_claim_at = now
         updated.updated_at = now
         session.commit()
-    create_journal(tg, "sect", "领取俸禄", f"领取了 {salary} 灵石的宗门俸禄")
+    create_journal(tg, "sect", "领取月俸", f"自宗门执事手中接过 {salary} 灵石的月例供奉")
     return {"salary": salary, "profile": _full_profile_bundle(tg)["profile"], "role": role}
 
 
@@ -1196,7 +1202,7 @@ def perform_sect_attendance(tg: int) -> dict[str, Any]:
     with Session() as session:
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if profile is None or not profile.consented:
-            raise ValueError("你还没有踏入仙途")
+            raise ValueError("你尚未踏入仙途，道基未立")
         assert_profile_alive(profile, "宗门签到")
         if not profile.sect_id:
             raise ValueError("你尚未加入宗门")
@@ -1219,8 +1225,8 @@ def perform_sect_attendance(tg: int) -> dict[str, Any]:
     create_journal(
         tg,
         "sect",
-        "宗门签到",
-        f"完成今日宗门点卯签到，获得 {contribution_gain} 点宗门贡献。",
+        "山门点卯",
+        f"晨钟声中完成今日山门点卯，宗门贡献 +{contribution_gain}。",
     )
     return {
         "method": "attendance",
@@ -1239,7 +1245,7 @@ def perform_sect_teach(tg: int, cultivation_amount: int) -> dict[str, Any]:
     with Session() as session:
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if profile is None or not profile.consented:
-            raise ValueError("你还没有踏入仙途")
+            raise ValueError("你尚未踏入仙途，道基未立")
         assert_profile_alive(profile, "宗门传功")
         if not profile.sect_id:
             raise ValueError("你尚未加入宗门")
@@ -1264,8 +1270,8 @@ def perform_sect_teach(tg: int, cultivation_amount: int) -> dict[str, Any]:
     create_journal(
         tg,
         "sect",
-        "宗门传功",
-        f"向宗门传功 {amount} 修为，获得 {contribution_gain} 点宗门贡献。",
+        "传功山门",
+        f"将 {amount} 点修为灌入宗门传功阁，宗门贡献 +{contribution_gain}。",
     )
     return {
         "method": "teach",
@@ -1291,7 +1297,7 @@ def donate_item_to_sect_treasury(tg: int, item_kind: str, item_ref_id: int, quan
     with Session() as session:
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if profile is None or not profile.consented:
-            raise ValueError("你还没有踏入仙途")
+            raise ValueError("你尚未踏入仙途，道基未立")
         assert_profile_alive(profile, "捐赠宗门宝库")
         if not profile.sect_id:
             raise ValueError("你尚未加入宗门")
@@ -1340,8 +1346,8 @@ def donate_item_to_sect_treasury(tg: int, item_kind: str, item_ref_id: int, quan
     create_journal(
         tg,
         "sect",
-        "宗门捐赠",
-        f"向宗门宝库提交 {item_name} × {amount}，获得 {contribution_gain} 点宗门贡献。",
+        "宝库纳贡",
+        f"将 {item_name} × {amount} 送入宗门宝库，宗门贡献 +{contribution_gain}。",
     )
     return {
         "method": "donate",
@@ -1526,7 +1532,7 @@ def create_bounty_task(
             # 发布时对玩家记录加锁，防止并发发任务导致灵石重复扣减或余额穿透。
             publisher = session.query(XiuxianProfile).filter(XiuxianProfile.tg == actor_tg).with_for_update().first()
             if publisher is None or not publisher.consented:
-                raise ValueError("你还没有踏入仙途")
+                raise ValueError("你尚未踏入仙途，道基未立")
             if publish_cost > 0:
                 apply_spiritual_stone_delta(
                     session,
@@ -1623,7 +1629,7 @@ def list_tasks_for_user(tg: int) -> list[dict[str, Any]]:
 def cancel_task_for_user(tg: int, task_id: int) -> dict[str, Any]:
     profile = serialize_profile(get_profile(tg, create=False))
     if not profile or not profile.get("consented"):
-        raise ValueError("你还没有踏入仙途")
+        raise ValueError("你尚未踏入仙途，道基未立")
     with Session() as session:
         task = session.query(XiuxianTask).filter(XiuxianTask.id == task_id).with_for_update().first()
         if task is None or not task.enabled:
@@ -1650,7 +1656,7 @@ def cancel_task_for_user(tg: int, task_id: int) -> dict[str, Any]:
         session.commit()
         session.refresh(task)
         serialized = _decorate_task_payload(serialize_task(task))
-    create_journal(tg, "task", "撤销任务", f"主动撤销了任务【{serialized['title']}】")
+    create_journal(tg, "task", "撤销委托", f"自行撤回了悬赏委托【{serialized['title']}】")
     return {"task": serialized}
 
 
@@ -2244,7 +2250,7 @@ def synthesize_recipe_fragment_for_user(tg: int, recipe_id: int) -> dict[str, An
         raise ValueError("配方不存在")
     profile = serialize_profile(get_profile(tg, create=False))
     if not profile or not profile.get("consented"):
-        raise ValueError("你还没有踏入仙途")
+        raise ValueError("你尚未踏入仙途，道基未立")
     if any(int((row.get("recipe") or {}).get("id") or 0) == int(recipe_id) for row in list_user_recipes(tg)):
         raise ValueError("你已掌握这张配方，无需再次参悟")
     fragment_requirement = _recipe_fragment_requirement(int(recipe_id))
@@ -2301,8 +2307,8 @@ def synthesize_recipe_fragment_for_user(tg: int, recipe_id: int) -> dict[str, An
     create_journal(
         tg,
         "craft",
-        "参悟配方",
-        f"消耗【{material.get('name') or '残页'}】×{required_quantity}，参悟出配方【{recipe_payload.get('name') or '未知配方'}】。",
+        "配方参悟",
+        f"以【{material.get('name') or '残页'}】×{required_quantity} 为引，神识贯通，参悟出配方【{recipe_payload.get('name') or '未知配方'}】。",
     )
     return {
         "recipe": recipe_payload,
@@ -2596,7 +2602,7 @@ def craft_recipe_for_user(tg: int, recipe_id: int, quantity: int = 1) -> dict[st
         raise ValueError("当前仅丹药配方支持批量炼制")
     profile = serialize_profile(get_profile(tg, create=False))
     if not profile or not profile.get("consented"):
-        raise ValueError("你还没有踏入仙途")
+        raise ValueError("你尚未踏入仙途，道基未立")
     ingredients = list_recipe_ingredients(recipe_id)
     if not ingredients:
         raise ValueError("该配方还没有配置材料")
@@ -2659,21 +2665,21 @@ def craft_recipe_for_user(tg: int, recipe_id: int, quantity: int = 1) -> dict[st
             create_journal(
                 tg,
                 "craft",
-                "批量炼制成功",
-                f"连续开炉 {requested_quantity} 次，成功 {success_count} 次，炼成【{(result_item or {}).get('name', '成品')}】×{total_reward_quantity}",
+                "批量炼制有成",
+                f"连开 {requested_quantity} 炉，成丹 {success_count} 次，炼得【{(result_item or {}).get('name', '成品')}】×{total_reward_quantity}",
             )
         else:
-            create_journal(tg, "craft", "炼制成功", f"成功炼制【{(result_item or {}).get('name', '成品')}】")
+            create_journal(tg, "craft", "开炉成丹", f"炉火纯青，成功炼得【{(result_item or {}).get('name', '成品')}】")
     else:
         if requested_quantity > 1:
             create_journal(
                 tg,
                 "craft",
-                "批量炼制失败",
-                f"连续开炉 {requested_quantity} 次，尝试炼制【{(result_item or {}).get('name', '成品')}】但全部失败",
+                "批量炼制失利",
+                f"连开 {requested_quantity} 炉，尝试炼得【{(result_item or {}).get('name', '成品')}】，然全部化作飞灰",
             )
         else:
-            create_journal(tg, "craft", "炼制失败", f"尝试炼制【{(result_item or {}).get('name', '成品')}】但失败了")
+            create_journal(tg, "craft", "炼制失利", f"炉中火光大盛，然【{(result_item or {}).get('name', '成品')}】终究未能成形")
     ingredient_names = {str((item.get("material") or {}).get("name") or "") for item in ingredients}
     is_repair_recipe = any("破损" in name or "残片" in name for name in ingredient_names) or "修复" in str(recipe.get("name") or "")
     if requested_quantity == 1:
@@ -2698,7 +2704,7 @@ def craft_recipe_for_user(tg: int, recipe_id: int, quantity: int = 1) -> dict[st
         else:
             summary_text = f"连续炼制 {requested_quantity} 炉，全部失败，材料已消耗"
     else:
-        summary_text = "炼制成功，成品已发放。" if success else "炼制失败，材料已消耗。"
+        summary_text = "丹成炉开，成品已发放。" if success else "炉火未济，材料已消耗。"
     return {
         "success": success,
         "all_success": success_count == requested_quantity,
@@ -2756,6 +2762,7 @@ def _recipe_success_preview(
         + quality_bonus
         + attribute_bonus
         + int(sect_effects.get("cultivation_bonus", 0))
+        + int(sect_effects.get("craft_success_rate", 0))
     )
     if str(profile.get("root_quality") or "") == "天灵根":
         raw_success_rate += 4
@@ -2953,7 +2960,7 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
     with Session() as session:
         updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if updated is None or not updated.consented:
-            raise ValueError("你还没有踏入仙途")
+            raise ValueError("你尚未踏入仙途，道基未立")
         if total_stone_delta:
             apply_spiritual_stone_delta(
                 session,
@@ -2978,10 +2985,10 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
     create_journal(
         tg,
         "explore",
-        "探索结算",
+        "秘境归来",
         (
-            f"完成探索，灵石变化 {total_stone_delta:+d}。"
-            f"{' 另得机缘之物。' if bonus_reward else ''}"
+            f"此番探索尘埃落定，灵石{'增收' if total_stone_delta >= 0 else '净损'} {abs(total_stone_delta)}。"
+            f"{' 另有一缕机缘傍身。' if bonus_reward else ''}"
         ),
     )
     return {
@@ -3023,7 +3030,7 @@ def create_red_envelope_for_user(
     with Session() as session:
         updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if updated is None or not updated.consented:
-            raise ValueError("你还没有踏入仙途")
+            raise ValueError("你尚未踏入仙途，道基未立")
         if normalized_mode == "exclusive" and _is_active_spouse_pair(session, tg, exclusive_target_tg):
             raise ValueError("道侣之间灵石共享，不能互发专属红包。")
         apply_spiritual_stone_delta(
@@ -3054,7 +3061,7 @@ def create_red_envelope_for_user(
         session.commit()
         session.refresh(envelope)
         serialized = serialize_red_envelope(envelope)
-    create_journal(tg, "red_envelope", "发放红包", f"发放了 {amount_total} 灵石红包【{serialized.get('cover_text') or '福运临门'}】")
+    create_journal(tg, "red_envelope", "发放红包", f"洒出 {amount_total} 灵石红包，题曰【{serialized.get('cover_text') or '福运临门'}】")
     return {
         "envelope": serialized,
         "profile": serialize_profile(get_profile(tg, create=False)),
@@ -3081,7 +3088,7 @@ def claim_red_envelope_for_user(envelope_id: int, tg: int) -> dict[str, Any]:
     with Session() as session:
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if profile is None or not profile.consented:
-            raise ValueError("你还没有踏入仙途")
+            raise ValueError("你尚未踏入仙途，道基未立")
         assert_profile_alive(profile, "领取红包")
         assert_currency_operation_allowed(tg, "领取红包", session=session, profile=profile)
         envelope = session.query(XiuxianRedEnvelope).filter(XiuxianRedEnvelope.id == envelope_id).with_for_update().first()
@@ -3114,7 +3121,7 @@ def claim_red_envelope_for_user(envelope_id: int, tg: int) -> dict[str, Any]:
     with Session() as session:
         updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if updated is None or not updated.consented:
-            raise ValueError("你还没有踏入仙途")
+            raise ValueError("你尚未踏入仙途，道基未立")
         apply_spiritual_stone_delta(
             session,
             tg,
@@ -3125,7 +3132,7 @@ def claim_red_envelope_for_user(envelope_id: int, tg: int) -> dict[str, Any]:
             apply_tribute=True,
         )
         session.commit()
-    create_journal(tg, "red_envelope", "领取红包", f"领取了 {amount} 灵石红包")
+    create_journal(tg, "red_envelope", "喜抢红包", f"眼明手快，抢得 {amount} 灵石红包")
     return {
         "envelope": serialize_red_envelope(get_red_envelope(envelope_id)),
         "amount": amount,
@@ -3171,8 +3178,8 @@ def gift_spirit_stone(sender_tg: int, target_tg: int, amount: int) -> dict[str, 
         )
         session.commit()
 
-    create_journal(sender_tg, "gift", "赠送灵石", f"向 TG {target_tg} 赠送了 {amount} 灵石")
-    create_journal(target_tg, "gift", "收到灵石", f"收到 TG {sender_tg} 赠送的 {amount} 灵石")
+    create_journal(sender_tg, "gift", "赠送灵石", f"袖中取出 {amount} 灵石，赠与 TG {target_tg}")
+    create_journal(target_tg, "gift", "收到馈赠", f"收到 TG {sender_tg} 赠予的 {amount} 灵石")
     return {
         "amount": amount,
         "sender": serialize_profile(get_profile(sender_tg, create=False)),
@@ -3320,12 +3327,12 @@ def rob_player(attacker_tg: int, defender_tg: int, success_hint: float = 0.5) ->
                 artifact_plunder["artifact"] = payload.get("artifact")
                 artifact_plunder["was_equipped"] = bool(payload.get("was_equipped"))
                 artifact_name = artifact_plunder["artifact"].get("name", "未知法宝")
-                create_journal(attacker_tg, "rob", "顺手夺宝", f"抢劫得手后又夺得法宝【{artifact_name}】")
-                create_journal(defender_tg, "rob", "法宝被夺", f"抢劫失手后被夺走法宝【{artifact_name}】")
+                create_journal(attacker_tg, "rob", "顺手夺宝", f"下手得逞后又顺走法宝【{artifact_name}】")
+                create_journal(defender_tg, "rob", "法宝被夺", f"仓皇之际，法宝【{artifact_name}】已落入他人之手")
         defender_label = defender.get("display_label") or defender.get("display_name") or f"TG {defender_tg}"
         attacker_label = attacker.get("display_label") or attacker.get("display_name") or f"TG {attacker_tg}"
-        create_journal(attacker_tg, "rob", "抢劫得手", f"从 {defender_label} 手中夺得 {amount} 灵石。")
-        create_journal(defender_tg, "rob", "遭遇抢劫", f"被 {attacker_label} 抢走了 {amount} 灵石。")
+        create_journal(attacker_tg, "rob", "打劫得手", f"从 {defender_label} 手中夺走 {amount} 灵石，扬长而去。")
+        create_journal(defender_tg, "rob", "遭遇劫掠", f"被 {attacker_label} 劫走 {amount} 灵石，只恨修为不济。")
     else:
         counter_edge = max(min(defense_pressure / max(offense_pressure, 18.0), 1.8), 0.85)
         penalty_ratio = 0.035 + max(0.68 - rate, 0.0) * 0.09
@@ -3347,8 +3354,8 @@ def rob_player(attacker_tg: int, defender_tg: int, success_hint: float = 0.5) ->
             session.commit()
         defender_label = defender.get("display_label") or defender.get("display_name") or f"TG {defender_tg}"
         attacker_label = attacker.get("display_label") or attacker.get("display_name") or f"TG {attacker_tg}"
-        create_journal(attacker_tg, "rob", "抢劫失手", f"打劫 {defender_label} 失败，反赔 {penalty} 灵石。")
-        create_journal(defender_tg, "rob", "击退抢劫", f"击退了 {attacker_label}，获得对方赔付的 {penalty} 灵石。")
+        create_journal(attacker_tg, "rob", "打劫失手", f"出手劫掠 {defender_label} 不成，反赔 {penalty} 灵石，灰溜溜离去。")
+        create_journal(defender_tg, "rob", "击退来犯", f"将来犯者 {attacker_label} 击退，得对方赔付 {penalty} 灵石。")
     return {
         "success": success,
         "roll": round(roll, 4),
@@ -3412,7 +3419,7 @@ def place_duel_bet(pool_id: int, tg: int, side: str, amount: int) -> dict[str, A
             raise ValueError("斗法双方不能下注")
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if profile is None or not profile.consented:
-            raise ValueError("你还没有踏入仙途")
+            raise ValueError("你尚未踏入仙途，道基未立")
         assert_profile_alive(profile, "下注")
         assert_currency_operation_allowed(tg, "下注", session=session, profile=profile)
         amount = max(int(amount or 0), 1)
@@ -3643,7 +3650,7 @@ def format_duel_bet_board(pool_id: int) -> str:
 def claim_task_for_user(tg: int, task_id: int) -> dict[str, Any]:
     profile = serialize_profile(get_profile(tg, create=False))
     if not profile or not profile.get("consented"):
-        raise ValueError("你还没有踏入仙途")
+        raise ValueError("你尚未踏入仙途，道基未立")
     metric_progress_payload = None
     with Session() as session:
         completed_now = False
@@ -3697,7 +3704,7 @@ def claim_task_for_user(tg: int, task_id: int) -> dict[str, Any]:
                         progress_map,
                     )
                 )
-                create_journal(tg, "task", "接取任务", f"接取了计数任务【{serialized['title']}】")
+                create_journal(tg, "task", "接取任务", f"接取了计数委托【{serialized['title']}】")
                 return {"task": serialized, "reward": None, "submitted_item": None}
 
             if existing.status == "completed":
@@ -3760,7 +3767,7 @@ def claim_task_for_user(tg: int, task_id: int) -> dict[str, Any]:
             )
 
     if not completed_now:
-        create_journal(tg, "task", "接取任务", f"接取了任务【{serialized['title']}】")
+        create_journal(tg, "task", "接取任务", f"接取了委托【{serialized['title']}】")
         return {"task": serialized, "reward": None, "submitted_item": None}
 
     with Session() as session:
@@ -3779,8 +3786,8 @@ def claim_task_for_user(tg: int, task_id: int) -> dict[str, Any]:
                 create_journal(
                     tg,
                     "task",
-                    "完成计数任务",
-                    f"{metric_label} 达到 {int(refreshed_task.requirement_metric_target or 0)}，完成任务【{refreshed_task.title}】。",
+                    "完成计数委托",
+                    f"{metric_label} 已累计至 {int(refreshed_task.requirement_metric_target or 0)}，委托【{refreshed_task.title}】达成。",
                 )
             else:
                 item_name = _required_item_name(
@@ -3790,8 +3797,8 @@ def claim_task_for_user(tg: int, task_id: int) -> dict[str, Any]:
                 create_journal(
                     tg,
                     "task",
-                    "提交物品完成任务",
-                    f"提交了 {item_name} × {int(refreshed_task.required_item_quantity or 0)}，完成任务【{refreshed_task.title}】",
+                    "交付物品完成委托",
+                    f"奉上 {item_name} × {int(refreshed_task.required_item_quantity or 0)}，委托【{refreshed_task.title}】达成。",
                 )
         return {
             "task": _decorate_task_payload(serialize_task(refreshed_task)),
@@ -3853,7 +3860,7 @@ def resolve_quiz_answer(chat_id: int, tg: int, answer_text: str) -> dict[str, An
                 profile_obj = get_profile(tg, create=False)
                 if profile_obj is not None:
                     upsert_profile(tg, sect_contribution=int(profile_obj.sect_contribution or 0) + 1)
-            create_journal(tg, "task", "完成答题任务", f"第一个答对了【{task.title}】")
+            create_journal(tg, "task", "完成答题委托", f"福至心灵，第一个答出【{task.title}】")
             return {"task": _decorate_task_payload(serialize_task(task)), "reward": reward}
     return None
 

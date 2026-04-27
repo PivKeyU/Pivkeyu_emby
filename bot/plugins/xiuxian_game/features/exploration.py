@@ -197,7 +197,7 @@ def _assert_reward_item_receivable(tg: int, kind: str | None, ref_id: int, quant
         return
     artifact = serialize_artifact(get_artifact(int(ref_id)))
     if not artifact:
-        raise ValueError("未找到目标法宝。")
+        raise ValueError("未寻得此宝踪迹，或许早已流失于岁月之中。")
     if bool(artifact.get("unique_item")) and int(quantity or 0) > 1:
         raise ValueError(f"唯一法宝【{artifact.get('name') or ref_id}】每次只能获得 1 件。")
     assert_artifact_receivable_by_user(int(tg), int(ref_id), allow_existing_owner=False)
@@ -314,8 +314,8 @@ def _base_drop_success_rate(quality_level: int) -> int:
         3: 28,
         4: 20,
         5: 14,
-        6: 9,
-        7: 5,
+        6: 12,
+        7: 8,
     }.get(max(int(quality_level or 1), 1), 5)
 
 
@@ -330,17 +330,19 @@ def _drop_success_rate(
     combat_power: int,
     min_combat_power: int,
     requirements_met: bool,
+    sect_explore_drop_rate: int = 0,
 ) -> int:
     duration_ratio = max(min(float(duration) / float(max(max_minutes, 1)), 1.0), 0.05)
     rate = _base_drop_success_rate(quality_level)
     rate += int(round(duration_ratio * 16))
     rate += max(fortune - 10, 0) // 6
     rate += max(divine_sense - 10, 0) // 7
-    rate -= max(scene_quality - quality_level, 0) * 3
+    rate += int(sect_explore_drop_rate or 0)
+    rate -= max(scene_quality - quality_level, 0) * 2
     power_gap = max(int(min_combat_power or 0) - max(int(combat_power or 0), 0), 0)
     if power_gap > 0:
         gap_ratio = power_gap / max(int(min_combat_power or 0), 1)
-        rate -= 16 + min(int(round(gap_ratio * 34)), 26)
+        rate -= 8 + min(int(round(gap_ratio * 24)), 22)
     elif requirements_met:
         power_surplus = max(int(combat_power or 0) - max(int(min_combat_power or 0), 0), 0)
         surplus_ratio = power_surplus / max(int(min_combat_power or 0), 1) if int(min_combat_power or 0) > 0 else 1.0
@@ -639,19 +641,19 @@ def _scene_requirement_state(
 
     risk_score = 0.0
     if realm_gap_score > 0:
-        risk_score += 36 + min(realm_gap_score * 6.5, 34)
+        risk_score += 36 + min(realm_gap_score * 4.0, 34)
     elif required_stage is not None:
         risk_score += max(12 - min(realm_surplus_score * 2.6, 12), 0)
     if power_gap > 0:
-        risk_score += 24 + min(power_gap_ratio * 46, 34)
+        risk_score += 24 + min(power_gap_ratio * 32, 34)
     elif min_power > 0:
         risk_score += max(10 - min(power_surplus_ratio * 18, 10), 0)
     if not reasons:
         risk_score -= 18
     survival_offset = (
-        max(int(profile.get("willpower") or 0) - 10, 0) * 0.9
-        + max(int(profile.get("karma") or 0) - 10, 0) * 0.65
-        + max(int(profile.get("fortune") or 0) - 10, 0) * 0.35
+        max(int(profile.get("willpower") or 0) - 10, 0) * 1.5
+        + max(int(profile.get("karma") or 0) - 10, 0) * 1.1
+        + max(int(profile.get("fortune") or 0) - 10, 0) * 0.6
     )
     risk_score -= survival_offset
     if len(reasons) >= 2:
@@ -661,7 +663,7 @@ def _scene_requirement_state(
     event_volatility = _scene_event_volatility_state(scene)
     item_loss_risk = 0 if risk_percent < 20 else max(min(int(round(risk_percent * 0.55 + max(realm_gap_score - 1, 0) * 4)), 85), 8)
     cultivation_loss_risk = 0 if risk_percent < 10 else min(int(round(risk_percent * 0.42)), 70)
-    death_chance = 0 if risk_percent <= 0 else min(max(int(round(risk_percent * 0.82 + (18 if reasons else 0))), 3), 95)
+    death_chance = 0 if risk_percent <= 0 else min(max(int(round(risk_percent * 0.60 + (10 if reasons else 0))), 3), 95)
     requirement_rows = []
     if required_stage_name:
         requirement_rows.append(f"境界至少 {required_stage_name}{required_layer}层")
@@ -849,7 +851,7 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
     bundle = legacy_service.serialize_full_profile(tg)
     profile = bundle.get("profile") or {}
     if not profile or not profile.get("consented"):
-        raise ValueError("你还没有踏入仙途")
+        raise ValueError("你尚未踏入仙途，道基未立")
     if bundle.get("capabilities", {}).get("gender_required"):
         raise ValueError(str(bundle.get("capabilities", {}).get("gender_lock_reason") or "请先设置性别。"))
     active = _get_active_exploration(tg)
@@ -928,6 +930,8 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
         else None
     )
     effective_quality = _drop_effective_quality(chosen, chosen_payload, recipe_quality_map)
+    from bot.plugins.xiuxian_game.world_service import get_sect_effects
+    sect_explore_drop_rate = int((get_sect_effects(profile) or {}).get("explore_drop_rate", 0))
     drop_success_rate = _drop_success_rate(
         effective_quality,
         duration=duration,
@@ -938,6 +942,7 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
         combat_power=int(bundle.get("combat_power") or 0),
         min_combat_power=int(requirement_state.get("min_combat_power") or 0),
         requirements_met=bool(requirement_state.get("requirements_met")),
+        sect_explore_drop_rate=sect_explore_drop_rate,
     )
     drop_succeeded = roll_probability_percent(drop_success_rate)["success"]
     if not drop_succeeded:
@@ -949,11 +954,11 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
     outcome["drop_succeeded"] = drop_succeeded
     event_text = outcome.get("event_text") or chosen.get("event_text") or ""
     if not drop_succeeded:
-        miss_note = "你在秘境中有所收获，却没能真正带出那件材料。"
+        miss_note = "指尖方触到机缘一角，灵物却化作流光散去，终究没能带回手中。"
         event_text = _join_scene_fragments(event_text, miss_note)
 
     death_chance = int(requirement_state.get("death_chance") or 0)
-    death_chance = min(death_chance + max(scene_quality - 3, 0) * 4, 95)
+    death_chance = min(death_chance + max(scene_quality - 3, 0) * 2.5, 95)
     fatal_outcome = None
     if death_chance > 0:
         death_roll = random.randint(1, 100)
@@ -976,7 +981,7 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
         else:
             outcome["risk_note"] = _join_scene_fragments(
                 requirement_state.get("item_loss_warning"),
-                "你此次硬着头皮闯入高危秘境，侥幸活着撑了下来。",
+                "此番以命相搏闯入凶险之地，虽遍体鳞伤，终究捡回了一条命。",
             )
     outcome["requirement_state"] = requirement_state
 
@@ -1063,7 +1068,7 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
         if not fatal_outcome:
             updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
             if updated is None or not updated.consented:
-                raise ValueError("你还没有踏入仙途")
+                raise ValueError("你尚未踏入仙途，道基未立")
             event_stone_bonus = max(int(outcome.get("stone_bonus") or 0), 0)
             event_stone_loss = max(int(outcome.get("stone_loss") or 0), 0)
             current_stone = max(int(get_shared_spiritual_stone_total(tg) or 0), 0)
@@ -1104,11 +1109,14 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
         else:
             updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
             if updated is None or not updated.consented:
-                raise ValueError("你还没有踏入仙途")
+                raise ValueError("你尚未踏入仙途，道基未立")
             current_stone = max(int(get_shared_spiritual_stone_total(tg) or 0), 0)
             stone_loss_pct = int(fatal_outcome.get("stone_loss_percent") or 0)
+            from bot.plugins.xiuxian_game.world_service import get_sect_effects
+            death_penalty_reduce = float((get_sect_effects(serialize_profile(updated)) or {}).get("death_penalty_reduce", 0.0))
+            effective_stone_loss_pct = max(stone_loss_pct * (1.0 - death_penalty_reduce), 5.0)
             planned_stone_loss = max(
-                int(round(current_stone * stone_loss_pct / 100)),
+                int(round(current_stone * effective_stone_loss_pct / 100)),
                 12 if current_stone > 0 else 0,
             )
             # Cap absolute stone loss to prevent disproportionate punishment
@@ -1121,8 +1129,9 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
             current_cultivation = int(updated.cultivation or 0)
             threshold = legacy_service.cultivation_threshold(stage, current_layer)
             cultivation_loss_pct = int(fatal_outcome.get("cultivation_loss_percent") or 0)
+            effective_cultivation_loss_pct = max(cultivation_loss_pct * (1.0 - death_penalty_reduce), 3.0)
             planned_cultivation_loss = max(
-                int(round(max(current_cultivation, threshold // 3) * cultivation_loss_pct / 100)),
+                int(round(max(current_cultivation, threshold // 3) * effective_cultivation_loss_pct / 100)),
                 10,
             )
             # Cap at one layer worth of cultivation
@@ -1164,8 +1173,8 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
         create_journal(
             tg,
             "explore",
-            "探索阵亡",
-            f"{reason_text}，损失灵石 {actual_stone_loss}、修为 {actual_cultivation_loss}。",
+            "身陨秘境",
+            f"{reason_text}。一缕残魂遁回洞府，灵石折损 {actual_stone_loss}、修为跌落 {actual_cultivation_loss}。",
         )
         return {
             "exploration": exploration_payload,
@@ -1205,11 +1214,11 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
     create_journal(
         tg,
         "explore",
-        "探索结算",
+        "秘境归来",
         (
-            f"完成探索，灵石变化 {total_stone_delta:+d}。"
+            f"此番探索尘埃落定，灵石{'增收' if total_stone_delta >= 0 else '净损'} {abs(total_stone_delta)}。"
             f"{growth_text}"
-            f"{' 另得机缘之物。' if bonus_reward else ''}"
+            f"{' 另有一缕机缘傍身。' if bonus_reward else ''}"
         ),
     )
     return {

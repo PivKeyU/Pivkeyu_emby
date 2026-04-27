@@ -486,7 +486,7 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
     with Session() as session:
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(tg)).with_for_update().first()
         if profile is None or not profile.consented:
-            raise ValueError("你还没有踏入仙途")
+            raise ValueError("你尚未踏入仙途，道基未立")
         assert_profile_alive(profile, "前往钓鱼")
         if not _meets_realm_requirement(profile, spot.get("min_realm_stage"), int(spot.get("min_realm_layer") or 1)):
             raise ValueError(f"前往 {spot['name']} 需达到 {_spot_requirement_text(spot)}")
@@ -523,12 +523,12 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
             raise ValueError("当前钓场没有可用的奖励物品")
 
     if chosen is None:
-        message = f"你在 {spot['name']} 抛竿许久，水面只剩回荡的灵波，最终空手而归。"
+        message = f"灵波一圈圈荡开又收拢，竿尖始终没有半点动静——{spot['name']}之下，今日并无灵物愿上钩。"
         create_journal(
             tg,
             "fishing",
             "灵河垂钓",
-            f"在 {spot['name']} 空竿而归，本次轮空。",
+            f"在{spot['name']}守了半日，灵河无获——本次轮空。",
         )
         return {
             "spot_key": spot["key"],
@@ -569,10 +569,10 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
     quality = _quality_meta(quality_level)
     luck_note = ""
     if effective_fortune >= 18 and quality_level >= max(int(spot.get("quality_min") or 1) + 1, 3):
-        luck_note = "机缘牵引之下，钓线拽起了更高品阶的宝物。"
+        luck_note = "冥冥中似有气运加身，原本咬钩的不过寻常灵物，拉上来时却已蜕变成更高品阶的宝物。"
     elif quality_level >= 6:
-        luck_note = "浪潮深处只浮起一瞬异光，你险些错过这件重宝。"
-    message = f"你在 {spot['name']} 抛竿，钓起了 {quality['label']}{kind_label}【{reward_name}】"
+        luck_note = "水面忽然裂开一道灵光裂隙，转瞬便要合拢——你几乎是在最后一息抓住了那团光芒。"
+    message = f"竿身猛地一沉！{spot['name']}水底翻起一串灵泡，你收线拉起了{quality['label']}{kind_label}【{reward_name}】"
     if quantity > 1:
         message += f" ×{quantity}"
     message += "。"

@@ -22,8 +22,11 @@ def _legacy_service():
 
 def _pill_poison_lock_reason(profile: dict[str, Any], pill_type: str) -> str:
     current_poison = max(int(profile.get("dan_poison") or 0), 0)
-    if pill_type != "clear_poison" and current_poison >= 100:
-        return "丹毒已满，普通丹药药力会反噬，请先服用解毒丹。"
+    from bot.plugins.xiuxian_game.world_service import get_sect_effects
+    sect_effects = get_sect_effects(profile)
+    poison_cap = 100 + int(sect_effects.get("pill_poison_cap_bonus", 0))
+    if pill_type != "clear_poison" and current_poison >= poison_cap:
+        return f"丹毒已满（{poison_cap}/100上限），普通丹药药力会反噬，请先服用解毒丹。"
     return ""
 
 

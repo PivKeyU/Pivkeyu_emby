@@ -36,6 +36,7 @@ from bot.plugins.xiuxian_game.api_models import (
     ArtifactBindingPayload,
     ArtifactPayload,
     ArtifactSetPayload,
+    BossChallengePayload,
     BreakthroughPayload,
     ConsumePillPayload,
     CommissionClaimPayload,
@@ -272,6 +273,13 @@ from bot.plugins.xiuxian_game.features.ui import (
     leaderboard_keyboard,
     xiuxian_confirm_keyboard,
     xiuxian_profile_keyboard,
+)
+from bot.plugins.xiuxian_game.features.boss import (
+    attack_world_boss,
+    challenge_personal_boss,
+    get_world_boss_status_for_user,
+    list_personal_bosses_for_user,
+    try_spawn_world_boss,
 )
 from bot.plugins.xiuxian_game.features.world_bundle import build_world_bundle
 from bot.plugins.xiuxian_game.wiki_service import build_wiki_bundle
@@ -3863,6 +3871,33 @@ def register_bot(bot_instance) -> None:
         EVENT_SUMMARY_LOOP_TASK = loop.create_task(refresh_event_summary_loop())
     _queue_event_summary_refresh(delay_seconds=0.2, force_create=True)
 
+    # World boss scheduler
+    _WORLD_BOSS_LOOP_TASK = globals().get("_WORLD_BOSS_LOOP_TASK")
+    if _WORLD_BOSS_LOOP_TASK is None or _WORLD_BOSS_LOOP_TASK.done():
+        loop = asyncio.get_event_loop()
+
+        async def world_boss_loop() -> None:
+            # Wait before first spawn so the bot is fully ready
+            await asyncio.sleep(30)
+            while True:
+                try:
+                    from bot.plugins.xiuxian_game.features.boss import try_spawn_world_boss as _spawn
+                    result = _spawn()
+                    if result:
+                        instance = result.get("instance") or {}
+                        text = instance.get("broadcast_text")
+                        chat_id = instance.get("broadcast_chat_id")
+                        if text and chat_id:
+                            asyncio.create_task(_send_message(bot_instance, chat_id, text, persistent=True))
+                    await asyncio.sleep(60)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    LOGGER.warning(f"xiuxian world boss loop failed: {exc}")
+                    await asyncio.sleep(60)
+
+        globals()["_WORLD_BOSS_LOOP_TASK"] = loop.create_task(world_boss_loop())
+
     async def refresh_duel_bet_countdown(pool_id: int, message, bets_close_at: str | None) -> None:
         close_at = _parse_shanghai_datetime(bets_close_at)
         if close_at is None:
@@ -4145,7 +4180,7 @@ def register_bot(bot_instance) -> None:
             )
             profile = serialize_full_profile(msg.from_user.id)
             if not profile["profile"]["consented"]:
-                return await _reply_text(msg, "你还没有踏入仙途，先私聊机器人点击 /xiuxian 入道。")
+                return await _reply_text(msg, "道途未启，仙缘未至。请先私聊机器人点击 /xiuxian 踏入仙途。")
             fallback_name = msg.from_user.first_name or f"TG {msg.from_user.id}"
             await _reply_text(msg, _format_group_profile_showcase(profile, fallback_name), parse_mode=RICH_TEXT_MODE)
         finally:
@@ -5149,7 +5184,7 @@ def register_bot(bot_instance) -> None:
 
                 seeker = serialize_full_profile(actor.id)
                 if not seeker["profile"]["consented"]:
-                    return await _reply_text(msg, "你还没有踏入仙途，先私聊机器人点击 /xiuxian 入道。", quote=True)
+                    return await _reply_text(msg, "道途未启，仙缘未至。请先私聊机器人点击 /xiuxian 踏入仙途。", quote=True)
 
                 target = serialize_full_profile(msg.reply_to_message.from_user.id)
                 if not target["profile"]["consented"]:
@@ -5755,6 +5790,32 @@ def register_web(app) -> None:
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = unlock_farm_plot_for_user(telegram_user["id"], payload.slot_index)
         return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
+
+    # ── Boss API ──
+
+    @user_router.post("/api/boss/list")
+    async def xiuxian_boss_list_api(payload: InitDataPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = list_personal_bosses_for_user(telegram_user["id"])
+        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+
+    @user_router.post("/api/boss/challenge")
+    async def xiuxian_boss_challenge_api(payload: BossChallengePayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = challenge_personal_boss(telegram_user["id"], payload.boss_id)
+        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+
+    @user_router.post("/api/boss/world/status")
+    async def xiuxian_boss_world_status_api(payload: InitDataPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = get_world_boss_status_for_user(telegram_user["id"])
+        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+
+    @user_router.post("/api/boss/world/attack")
+    async def xiuxian_boss_world_attack_api(payload: InitDataPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = attack_world_boss(telegram_user["id"])
+        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/fishing/cast")
     async def xiuxian_fishing_cast_api(payload: FishingCastPayload):

@@ -208,7 +208,7 @@ def start_retreat_for_user(tg: int, hours: int) -> dict[str, Any]:
     profile = legacy_service._require_alive_profile_obj(tg, "开始闭关")
     assert_currency_operation_allowed(tg, "开始闭关", profile=profile)
     if is_retreating(profile):
-        raise ValueError("你已经在闭关中。")
+        raise ValueError("你已入定闭关，心神内守，莫再扰动。")
 
     retreat_hours = max(min(int(hours or 0), 4), 1)
     plan = _compute_retreat_plan(profile)
@@ -245,7 +245,7 @@ def finish_retreat_for_user(tg: int) -> dict[str, Any]:
     assert_currency_operation_allowed(tg, "结束闭关", profile=profile)
     result = settle_retreat_progress(tg)
     if result is None and not is_retreating(profile):
-        raise ValueError("你当前并未处于闭关状态。")
+        raise ValueError("你此刻并未处于闭关之中，何来出关之说？")
 
     upsert_profile(
         tg,

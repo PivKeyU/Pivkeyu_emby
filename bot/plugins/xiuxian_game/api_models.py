@@ -814,3 +814,7 @@ class PlayerBatchResourcePayload(BaseModel):
     operation: str = Field(default="grant")
     equip: bool = False
     announce_in_group: bool = False
+
+
+class BossChallengePayload(InitDataPayload):
+    boss_id: int = Field(default=0, ge=1)

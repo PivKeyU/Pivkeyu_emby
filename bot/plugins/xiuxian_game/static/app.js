@@ -959,6 +959,7 @@ const DEFERRED_SECTION_IDS = new Set([
   "marriage-card",
   "fishing-card",
   "gambling-card",
+  "boss-card",
 ]);
 
 const LAZY_SECTION_IDS = [
@@ -1640,6 +1641,9 @@ function renderLazyFoldCard(cardId, { force = false } = {}) {
       return true;
     case "fishing-card":
       renderFishingArea(bundle);
+      return true;
+    case "boss-card":
+      renderBossArea(bundle);
       return true;
     case "gambling-card": {
       renderGamblingArea(bundle);
@@ -7821,6 +7825,261 @@ function renderGamblingArea(bundle) {
     </article>
   `).join("");
 }
+
+// ---- Boss 讨伐 ----
+let _bossDataCache = null;
+
+async function fetchBossData() {
+  try {
+    const [personal, world] = await Promise.all([
+      postJson("/plugins/xiuxian/api/boss/list", {}),
+      postJson("/plugins/xiuxian/api/boss/world/status", {}),
+    ]);
+    _bossDataCache = { personal, world, ts: Date.now() };
+    return _bossDataCache;
+  } catch (e) {
+    if (_bossDataCache) return _bossDataCache;
+    return { personal: { bosses: [] }, world: { active: false }, ts: 0 };
+  }
+}
+
+function renderBossSummary(bossData) {
+  const root = document.querySelector("#boss-summary");
+  if (!root) return;
+  const personal = bossData?.personal || {};
+  const world = bossData?.world || {};
+  const bosses = Array.isArray(personal.bosses) ? personal.bosses : [];
+  const beatenCount = bosses.filter((b) => b.beaten).length;
+  root.innerHTML = [
+    `<article class="info-chip"><span>已征服Boss</span><strong>${beatenCount} / ${bosses.length}</strong></article>`,
+    `<article class="info-chip"><span>世界Boss</span><strong>${world.active ? "进行中" : "未激活"}</strong></article>`,
+    `<article class="info-chip"><span>玩法提示</span><strong>个人+世界</strong></article>`,
+  ].join("");
+}
+
+function renderBossPersonalTab(bossData) {
+  const noteRoot = document.querySelector("#boss-personal-note");
+  const listRoot = document.querySelector("#boss-personal-list");
+  if (!noteRoot || !listRoot) return;
+  const bosses = Array.isArray(bossData?.personal?.bosses) ? bossData.personal.bosses : [];
+  noteRoot.textContent = bosses.length ? "境界越高，可挑战的Boss越多。击败当前Boss后方可重复挑战获取奖励。" : "暂无个人Boss数据。";
+  if (!bosses.length) {
+    listRoot.innerHTML = `<article class="stack-item"><strong>暂无Boss</strong><p>天地一片安宁。</p></article>`;
+    return;
+  }
+  listRoot.innerHTML = bosses.map((boss) => {
+    const hpPercent = Math.min(Math.round((boss.hp || 1) / Math.max(boss.hp || 1, 1) * 100), 100);
+    const statusLabel = !boss.unlocked ? "🔒 境界未至" : boss.beaten ? "已击败" : "可挑战";
+    const statusClass = !boss.unlocked ? "badge badge--unknown" : boss.beaten ? "badge badge--safe" : "badge badge--warn";
+    const canChallenge = boss.unlocked && boss.daily_attempts_remaining > 0;
+    const disabledReason = !boss.unlocked ? `需达到 ${escapeHtml(boss.realm_stage || "未知境界")}` : boss.daily_attempts_remaining <= 0 ? "今日次数已尽" : "";
+    return `
+      <article class="stack-item">
+        <div class="stack-item-head">
+          <strong>${escapeHtml(boss.name || "未命名Boss")}</strong>
+          <span class="${statusClass}">${statusLabel}</span>
+        </div>
+        <p>${escapeHtml(boss.description || "暂无描述")}</p>
+        <div class="item-tags">
+          <span class="tag">境界 ${escapeHtml(boss.realm_stage || "未知")}</span>
+          <span class="tag">生命 ${escapeHtml(boss.hp || 0)}</span>
+          <span class="tag">攻击 ${escapeHtml(boss.attack_power || 0)}</span>
+          <span class="tag">防御 ${escapeHtml(boss.defense_power || 0)}</span>
+          ${boss.skill_name ? `<span class="tag">技能 ${escapeHtml(boss.skill_name)}</span>` : ""}
+          <span class="tag">门票 ${escapeHtml(boss.ticket_cost_stone || 0)} 灵石</span>
+          <span class="tag">今日 ${escapeHtml(boss.daily_attempts_remaining || 0)}/${escapeHtml(boss.daily_attempt_limit || 0)} 次</span>
+        </div>
+        ${boss.stone_reward_max ? `<p class="reward-hint">灵石奖励 ${escapeHtml(boss.stone_reward_min || 0)}-${escapeHtml(boss.stone_reward_max || 0)} · 修为 +${escapeHtml(boss.cultivation_reward || 0)}</p>` : ""}
+        <button type="button" data-boss-challenge="${escapeHtml(boss.id || 0)}" ${canChallenge ? "" : "disabled"}>${canChallenge ? "发起挑战" : (boss.unlocked ? "次数已尽" : "境界未至")}</button>
+        ${disabledReason ? `<p class="reason-text">${escapeHtml(disabledReason)}</p>` : ""}
+      </article>
+    `;
+  }).join("");
+}
+
+function renderBossWorldTab(bossData) {
+  const noteRoot = document.querySelector("#boss-world-note");
+  const statusRoot = document.querySelector("#boss-world-status");
+  const rankingRoot = document.querySelector("#boss-world-rankings");
+  if (!noteRoot || !statusRoot || !rankingRoot) return;
+  const world = bossData?.world || {};
+  if (!world.active) {
+    noteRoot.textContent = "当前没有活跃的世界Boss，请静待下次降临。";
+    statusRoot.innerHTML = `<article class="stack-item"><strong>暂无世界Boss</strong><p>世界Boss每 ${6} 小时刷新一次，届时全服公告。</p></article>`;
+    rankingRoot.innerHTML = "";
+    return;
+  }
+  const instance = world.instance || {};
+  const boss = world.boss || {};
+  const player = world.player_damage || {};
+  const cooldown = Number(world.cooldown_seconds_remaining || 0);
+  const ranking = Array.isArray(world.ranking) ? world.ranking : [];
+  const hpPercent = Math.max(Math.round((instance.current_hp || 1) / Math.max(instance.max_hp || 1, 1) * 100), 0);
+  const hpBarColor = hpPercent > 50 ? "var(--color-success)" : hpPercent > 20 ? "var(--color-warn)" : "var(--color-error)";
+  const canAttack = cooldown <= 0 && (instance.status === "active");
+  const statusText = instance.status === "defeated" ? "已击败" : instance.status === "escaped" ? "已遁走" : "活跃中";
+
+  noteRoot.textContent = `${escapeHtml(boss.name || "未知Boss")} · 状态：${statusText}`;
+  statusRoot.innerHTML = `
+    <article class="stack-item">
+      <div class="stack-item-head">
+        <strong>${escapeHtml(boss.name || "世界Boss")}</strong>
+        <span class="badge ${instance.status === "active" ? "badge--warn" : "badge--unknown"}">${statusText}</span>
+      </div>
+      <p>${escapeHtml(boss.description || "")}</p>
+      <div class="hp-bar-wrap">
+        <div class="hp-bar" style="width:${hpPercent}%; background:${hpBarColor};"></div>
+        <span class="hp-bar-text">${escapeHtml(instance.current_hp || 0)} / ${escapeHtml(instance.max_hp || 0)} (${hpPercent}%)</span>
+      </div>
+      <div class="item-tags">
+        <span class="tag">攻击 ${escapeHtml(boss.attack_power || 0)}</span>
+        <span class="tag">防御 ${escapeHtml(boss.defense_power || 0)}</span>
+        ${boss.skill_name ? `<span class="tag">技能 ${escapeHtml(boss.skill_name)}</span>` : ""}
+      </div>
+      ${instance.status === "active" ? `
+      <div class="info-grid" style="margin-top:8px;">
+        <article class="info-chip"><span>我的伤害</span><strong>${escapeHtml(player.total_damage || 0)}</strong></article>
+        <article class="info-chip"><span>攻击次数</span><strong>${escapeHtml(player.attack_count || 0)}</strong></article>
+        <article class="info-chip"><span>冷却</span><strong>${cooldown > 0 ? cooldown + "秒" : "就绪"}</strong></article>
+      </div>
+      <button type="button" data-boss-world-attack ${canAttack ? "" : "disabled"}>${canAttack ? "攻击世界Boss" : (cooldown > 0 ? `冷却中 (${cooldown}秒)` : "不可攻击")}</button>
+      ` : ""}
+    </article>
+  `;
+
+  if (ranking.length) {
+    rankingRoot.innerHTML = `<h4 style="margin-top:12px;">伤害排名</h4>` + ranking.map((r) => {
+      const tierBadge = r.tier === "mvp" ? "🥇" : r.tier === "top3" ? "🥈" : r.tier === "top10" ? "🥉" : "";
+      return `
+        <article class="stack-item">
+          <span><strong>#${r.rank} ${tierBadge}</strong> ${escapeHtml(r.display_name || "?")}</span>
+          <span>${escapeHtml(r.total_damage || 0)} 伤害</span>
+        </article>
+      `;
+    }).join("");
+  } else {
+    rankingRoot.innerHTML = "";
+  }
+}
+
+function renderBossArea(bundle) {
+  const consented = Boolean(bundle?.profile?.consented);
+  if (!consented) return;
+  fetchBossData().then((data) => {
+    renderBossSummary(data);
+    renderBossPersonalTab(data);
+    renderBossWorldTab(data);
+  });
+}
+
+// Boss action event handlers
+document.querySelector("#boss-personal-list")?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-boss-challenge]");
+  if (!button || button.disabled) return;
+  const bossId = Number(button.dataset.bossChallenge || 0);
+  if (!bossId) return;
+  try {
+    const payload = await runButtonAction(button, "挑战中…", () => postJson("/plugins/xiuxian/api/boss/challenge", { boss_id: bossId }));
+    applyReturnedBundle(payload);
+    const result = payload.result || {};
+    const won = Boolean(result.won);
+    const bossName = result.boss?.name || "Boss";
+    const lines = [won ? `成功击败【${bossName}】！` : `挑战【${bossName}】失败…`];
+    if (result.rewards) {
+      if (Number(result.rewards.stone || 0) > 0) lines.push(`获得灵石：${result.rewards.stone}`);
+      if (Number(result.rewards.cultivation || 0) > 0) lines.push(`获得修为：${result.rewards.cultivation}`);
+      const items = Array.isArray(result.rewards.items) ? result.rewards.items : [];
+      items.forEach((item) => {
+        const name = item.item?.name || `${item.kind}#${item.ref_id}`;
+        lines.push(`获得：${name}${Number(item.quantity || 0) > 1 ? ` ×${item.quantity}` : ""}`);
+      });
+    }
+    if (result.summary) lines.push("", result.summary);
+    setStatus(won ? `击败${bossName}！` : `挑战${bossName}失败`, won ? "success" : "warn");
+    await popup(won ? "讨伐胜利" : "讨伐失败", lines.join("\n"));
+    fetchBossData().then((data) => {
+      renderBossSummary(data);
+      renderBossPersonalTab(data);
+    });
+  } catch (error) {
+    const message = normalizeError(error, "挑战失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
+});
+
+document.querySelector("#boss-world-status")?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-boss-world-attack]");
+  if (!button || button.disabled) return;
+  try {
+    const payload = await runButtonAction(button, "攻击中…", () => postJson("/plugins/xiuxian/api/boss/world/attack", {}));
+    applyReturnedBundle(payload);
+    const result = payload.result || {};
+    const lines = [
+      `对【${result.boss?.name || "Boss"}】造成 ${result.damage_dealt || 0} 点伤害${result.crit ? "（暴击！）" : ""}`,
+      `累计伤害：${result.player_total_damage || 0} · 攻击次数：${result.player_attack_count || 0}`,
+    ];
+    if (result.boss_defeated) {
+      lines.push("", "Boss已被击败！查看伤害排名获取奖励。");
+    }
+    setStatus(`造成 ${result.damage_dealt || 0} 点伤害`, "success");
+    await popup("攻击世界Boss", lines.join("\n"));
+    fetchBossData().then((data) => {
+      renderBossSummary(data);
+      renderBossWorldTab(data);
+    });
+  } catch (error) {
+    const message = normalizeError(error, "攻击失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
+});
+
+// Tab switching
+document.querySelector("#boss-tabs")?.addEventListener("click", (event) => {
+  const tab = event.target.closest("[data-boss-tab]");
+  if (!tab) return;
+  const tabName = tab.dataset.bossTab || "personal";
+  document.querySelectorAll("#boss-tabs .tab-btn").forEach((btn) => btn.classList.toggle("is-active", btn === tab));
+  const personalPanel = document.querySelector("#boss-personal-panel");
+  const worldPanel = document.querySelector("#boss-world-panel");
+  if (personalPanel) personalPanel.classList.toggle("hidden", tabName !== "personal");
+  if (worldPanel) worldPanel.classList.toggle("hidden", tabName !== "world");
+});
+
+// World boss HP auto-refresh (every 10s when world tab is visible)
+let _bossWorldPollTimer = null;
+function startBossWorldPolling() {
+  stopBossWorldPolling();
+  _bossWorldPollTimer = setInterval(() => {
+    const worldPanel = document.querySelector("#boss-world-panel");
+    if (!worldPanel || worldPanel.classList.contains("hidden")) return;
+    fetchBossData().then((data) => renderBossWorldTab(data));
+  }, 10000);
+}
+function stopBossWorldPolling() {
+  if (_bossWorldPollTimer) { clearInterval(_bossWorldPollTimer); _bossWorldPollTimer = null; }
+}
+document.querySelector("#boss-tabs")?.addEventListener("click", () => {
+  const worldTab = document.querySelector("[data-boss-tab='world']");
+  if (worldTab && worldTab.classList.contains("is-active")) startBossWorldPolling();
+  else stopBossWorldPolling();
+});
+
+const renderProfileWithBossBase = renderProfile;
+renderProfile = function renderProfileWithBoss(bundle) {
+  renderProfileWithBossBase(bundle);
+  const consented = Boolean(bundle?.profile?.consented);
+  const genderLocked = Boolean(bundle?.capabilities?.gender_required);
+  const visible = consented && !genderLocked;
+  ensureSectionState("#boss-card", visible);
+  if (!visible) {
+    syncFoldToolbar();
+    return;
+  }
+  renderLazyFoldCard("boss-card");
+  syncFoldToolbar();
+};
 
 const renderProfileWithGamblingBase = renderProfile;
 renderProfile = function renderProfileWithGambling(bundle) {

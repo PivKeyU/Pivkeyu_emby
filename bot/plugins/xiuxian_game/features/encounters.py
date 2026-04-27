@@ -254,7 +254,7 @@ def _assert_encounter_reward_receivable(tg: int, reward_payload: dict[str, Any])
         return
     artifact = serialize_artifact(_legacy_service().get_artifact(reward_ref_id))
     if not artifact:
-        raise ValueError("未找到目标法宝。")
+        raise ValueError("未寻得此宝踪迹，或许早已流失于岁月之中。")
     if bool(artifact.get("unique_item")) and reward_quantity > 1:
         raise ValueError(f"唯一法宝【{artifact.get('name') or reward_ref_id}】每次只能获得 1 件。")
     assert_artifact_receivable_by_user(int(tg), reward_ref_id, allow_existing_owner=False)
@@ -265,7 +265,7 @@ def claim_group_encounter(instance_id: int, tg: int) -> dict[str, Any]:
     bundle = legacy_service.serialize_full_profile(tg)
     profile_data = bundle.get("profile") or {}
     if not profile_data.get("consented"):
-        raise ValueError("你还没有踏入仙途。")
+        raise ValueError("你尚未踏入仙途，道基未立。")
     if bundle.get("capabilities", {}).get("gender_required"):
         raise ValueError(str(bundle.get("capabilities", {}).get("gender_lock_reason") or "请先设置性别。"))
     # Daily encounter claim limit
@@ -318,7 +318,7 @@ def claim_group_encounter(instance_id: int, tg: int) -> dict[str, Any]:
         _assert_encounter_reward_receivable(tg, reward_payload)
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if profile is None or not profile.consented:
-            raise ValueError("你还没有踏入仙途。")
+            raise ValueError("你尚未踏入仙途，道基未立。")
 
         cultivation_gain = max(int(reward_payload.get("cultivation_reward") or 0), 0)
         raw_cultivation_gain = cultivation_gain

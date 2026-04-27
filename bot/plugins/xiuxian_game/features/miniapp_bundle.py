@@ -273,7 +273,7 @@ def _build_core_profile_bundle(tg: int) -> dict[str, Any]:
             else (
                 "角色已死亡，只能重新踏出仙途"
                 if profile["is_dead"]
-                else ("" if not retreating and not is_same_china_day(profile_obj.last_train_at if profile_obj else None, utcnow_placeholder()) else ("闭关期间无法吐纳修炼" if retreating else "今日已经完成过吐纳修炼了"))
+                else ("" if not retreating and not is_same_china_day(profile_obj.last_train_at if profile_obj else None, utcnow_placeholder()) else ("闭关之中，心神内敛，无暇吐纳外气。" if retreating else "今日吐纳已毕，经脉已盈，再行运气恐伤道基。"))
             )
         ),
         "can_breakthrough": profile["consented"] and not profile["is_dead"] and not gender_locked and not retreating and int(profile.get("realm_layer") or 0) >= 9 and bool(progress["breakthrough_ready"]),
@@ -283,7 +283,7 @@ def _build_core_profile_bundle(tg: int) -> dict[str, Any]:
             else (
                 "角色已死亡，只能重新踏出仙途"
                 if profile["is_dead"]
-                else ("" if not retreating and int(profile.get("realm_layer") or 0) >= 9 and progress["breakthrough_ready"] else ("闭关期间无法突破" if retreating else "只有达到当前境界九层且满修为后才能突破"))
+                else ("" if not retreating and int(profile.get("realm_layer") or 0) >= 9 and progress["breakthrough_ready"] else ("闭关之中，气机未满，尚难叩问破境之机。" if retreating else "只有达到当前境界九层且满修为后才能突破"))
             )
         ),
         "required_breakthrough_pill_name": (breakthrough_requirement or {}).get("pill_name"),

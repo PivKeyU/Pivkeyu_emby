@@ -264,12 +264,12 @@ DEFAULT_EXPLORATION_DROP_WEIGHT_RULES = {
 }
 DEFAULT_ITEM_QUALITY_VALUE_RULES = {
     "凡品": {"artifact_multiplier": 0.70, "pill_multiplier": 0.70, "talisman_multiplier": 0.65, "recipe_multiplier": 0.70},
-    "下品": {"artifact_multiplier": 0.85, "pill_multiplier": 0.85, "talisman_multiplier": 0.80, "recipe_multiplier": 0.85},
-    "中品": {"artifact_multiplier": 1.00, "pill_multiplier": 1.00, "talisman_multiplier": 1.00, "recipe_multiplier": 1.00},
-    "上品": {"artifact_multiplier": 1.20, "pill_multiplier": 1.20, "talisman_multiplier": 1.18, "recipe_multiplier": 1.20},
-    "极品": {"artifact_multiplier": 1.45, "pill_multiplier": 1.45, "talisman_multiplier": 1.40, "recipe_multiplier": 1.45},
-    "仙品": {"artifact_multiplier": 1.75, "pill_multiplier": 1.75, "talisman_multiplier": 1.68, "recipe_multiplier": 1.75},
-    "先天至宝": {"artifact_multiplier": 2.15, "pill_multiplier": 2.15, "talisman_multiplier": 2.05, "recipe_multiplier": 2.15},
+    "下品": {"artifact_multiplier": 0.90, "pill_multiplier": 0.90, "talisman_multiplier": 0.85, "recipe_multiplier": 0.90},
+    "中品": {"artifact_multiplier": 1.20, "pill_multiplier": 1.20, "talisman_multiplier": 1.15, "recipe_multiplier": 1.20},
+    "上品": {"artifact_multiplier": 1.60, "pill_multiplier": 1.60, "talisman_multiplier": 1.55, "recipe_multiplier": 1.60},
+    "极品": {"artifact_multiplier": 2.20, "pill_multiplier": 2.20, "talisman_multiplier": 2.10, "recipe_multiplier": 2.20},
+    "仙品": {"artifact_multiplier": 3.10, "pill_multiplier": 3.10, "talisman_multiplier": 2.95, "recipe_multiplier": 3.10},
+    "先天至宝": {"artifact_multiplier": 4.50, "pill_multiplier": 4.50, "talisman_multiplier": 4.25, "recipe_multiplier": 4.50},
 }
 DEFAULT_ACTIVITY_STAT_GROWTH_RULES = {
     "practice": {"chance_percent": 16, "gain_min": 1, "gain_max": 2, "attribute_count": 1},
@@ -279,21 +279,21 @@ DEFAULT_ACTIVITY_STAT_GROWTH_RULES = {
 }
 DEFAULT_GAMBLING_QUALITY_WEIGHT_RULES = {
     "凡品": {"weight_multiplier": 1.0},
-    "下品": {"weight_multiplier": 0.52},
-    "中品": {"weight_multiplier": 0.24},
-    "上品": {"weight_multiplier": 0.09},
-    "极品": {"weight_multiplier": 0.028},
-    "仙品": {"weight_multiplier": 0.007},
-    "先天至宝": {"weight_multiplier": 0.0015},
+    "下品": {"weight_multiplier": 0.55},
+    "中品": {"weight_multiplier": 0.28},
+    "上品": {"weight_multiplier": 0.12},
+    "极品": {"weight_multiplier": 0.045},
+    "仙品": {"weight_multiplier": 0.014},
+    "先天至宝": {"weight_multiplier": 0.004},
 }
 DEFAULT_FISHING_QUALITY_WEIGHT_RULES = {
     "凡品": {"weight_multiplier": 1.0},
-    "下品": {"weight_multiplier": 0.38},
-    "中品": {"weight_multiplier": 0.14},
-    "上品": {"weight_multiplier": 0.042},
-    "极品": {"weight_multiplier": 0.011},
-    "仙品": {"weight_multiplier": 0.0024},
-    "先天至宝": {"weight_multiplier": 0.0004},
+    "下品": {"weight_multiplier": 0.42},
+    "中品": {"weight_multiplier": 0.18},
+    "上品": {"weight_multiplier": 0.065},
+    "极品": {"weight_multiplier": 0.020},
+    "仙品": {"weight_multiplier": 0.0055},
+    "先天至宝": {"weight_multiplier": 0.0012},
 }
 
 
@@ -560,22 +560,22 @@ QUALITY_LEVEL_COLORS = {
     7: "linear-gradient(135deg, #fb7185 0%, #f59e0b 18%, #fde047 36%, #34d399 54%, #60a5fa 72%, #a78bfa 88%, #f472b6 100%)",
 }
 QUALITY_LEVEL_DESCRIPTIONS = {
-    1: "新手过渡基础货，例如破损木剑、粗制丹药。",
-    2: "前期主力，可通过简单任务或低级商店稳定获得。",
-    3: "中期主力，开始出现基础词条与明显属性加成。",
-    4: "后期主力，通常拥有 1-2 个实用词条或特效。",
-    5: "毕业级物品，固定拥有强力特效或完整战斗定位。",
-    6: "传说级稀有物，往往与事件、榜单或极低概率掉落绑定。",
-    7: "神话级至宝，通常具备唯一机制或全服级稀有度。",
+    1: "凡铁凡草，灵韵初生。多为刚入道途者随手可得的寻常之物，胜在稳妥。",
+    2: "略有打磨，已蕴一丝灵气。散修行走江湖时最常依仗的品阶，不求惊艳但求踏实。",
+    3: "锻火初成，器纹浮现。此阶宝物已能隐约引动天地灵气，入手便觉与凡物截然不同。",
+    4: "地脉滋养，百炼成器。或藏前辈心血，或吸一方灵气，已能隐约改变斗法走势。",
+    5: "天工开物，宝光自生。材取天地至纯，火候十年方成，持之如携一小天地在身。",
+    6: "见之如见传说。古籍里零星留下名字，能得一件便是气运加身，坊间数年未必现世一次。",
+    7: "先天之宝，道痕自生。混沌初开时便已存在，或从劫灭中幸存，天下仅此一件。",
 }
 QUALITY_LEVEL_FEATURES = {
-    1: "无词条或单一基础词条",
-    2: "单一基础词条，数值稳定",
-    3: "1 个属性词条，可能带低阶特效",
-    4: "1-2 个实用词条，开始出现百分比或机制词条",
-    5: "固定强词条或核心特效",
-    6: "强力特效，可能改变玩法节奏",
-    7: "唯一机制、套装或事件级特效",
+    1: "灵纹未显，胜在质朴稳妥",
+    2: "仅凝一道灵纹，妙用虽浅却实在可靠",
+    3: "灵纹渐明，偶有微末异象相随",
+    4: "灵纹交织，已能引动小范围灵潮变动",
+    5: "灵纹自成小周天，特效不卑不亢",
+    6: "宝纹通玄，御敌之时如臂使指，斗法节奏为之一变",
+    7: "混沌道纹，天地间仅此一缕，可逆转乾坤",
 }
 
 SOCIAL_MODE_LABELS = {
@@ -698,18 +698,18 @@ ATTRIBUTE_LABELS = {
     "defense_bonus": "防御",
 }
 ATTRIBUTE_EFFECT_HINTS = {
-    "bone": "影响吐纳收益、丹毒抗性与气血底子",
-    "comprehension": "影响吐纳收益、炼制与突破把握",
-    "divine_sense": "影响秘境判断、掉落权重与斗法洞察",
-    "fortune": "影响奇遇、夺宝与高品质掉落",
-    "willpower": "影响突破成功率与持久战韧性",
-    "charisma": "影响官坊成交折扣、坊市播报成本与部分身份门槛",
-    "karma": "影响突破把握、委托收益、秘境趋吉避凶与斗法综合评价",
-    "qi_blood": "影响斗法耐久上限",
-    "true_yuan": "影响斗法技能续航",
-    "body_movement": "影响斗法闪避与身法门槛",
-    "attack_power": "影响斗法输出",
-    "defense_power": "影响斗法承伤",
+    "bone": "道基之本，关乎吐纳周天快慢、丹毒化解之速与气血深浅",
+    "comprehension": "开窍之钥，决定功法参悟快慢、丹器炼制手感与那灵光一闪的破境时机",
+    "divine_sense": "灵台之眼，秘境中辨吉凶、斗法中窥破绽，全仗此念清明",
+    "fortune": "冥冥之中自有定数——影响奇遇临门、宝物品质与天道垂青的一线生机",
+    "willpower": "道心坚固则万劫不摧，冲击瓶颈时稳住灵台、持久战中不退反进",
+    "charisma": "影响坊市议价余地、播报花费与部分身份门面——行走修真界，人缘也是实力",
+    "karma": "因果之力最难捉摸，却暗中影响突破时机、委托回报与秘境凶吉",
+    "qi_blood": "影响斗法气血上限，血厚者方能在硬战中站到最后",
+    "true_yuan": "影响斗法真元续航，元力绵长者招招不断",
+    "body_movement": "影响斗法闪避与身法类门槛，身形如电者先手制敌",
+    "attack_power": "影响斗法攻击威能，一剑破万法全赖此力",
+    "defense_power": "影响斗法防御承伤，金身不破方能立于不败",
 }
 ROOT_QUALITY_LEVELS = {
     "废灵根": 1,
@@ -1243,6 +1243,12 @@ class XiuxianSect(Base):
     cultivation_bonus = Column(Integer, default=0, nullable=False)
     fortune_bonus = Column(Integer, default=0, nullable=False)
     body_movement_bonus = Column(Integer, default=0, nullable=False)
+    pill_poison_resist = Column(Float, default=0.0, nullable=False)
+    pill_poison_cap_bonus = Column(Integer, default=0, nullable=False)
+    farm_growth_speed = Column(Float, default=0.0, nullable=False)
+    explore_drop_rate = Column(Integer, default=0, nullable=False)
+    craft_success_rate = Column(Integer, default=0, nullable=False)
+    death_penalty_reduce = Column(Float, default=0.0, nullable=False)
     salary_min_stay_days = Column(Integer, default=30, nullable=False)
     entry_hint = Column(Text, nullable=True)
     enabled = Column(Boolean, default=True, nullable=False)
@@ -1904,6 +1910,96 @@ class XiuxianDuelRecord(Base):
     created_at = Column(DateTime, default=utcnow, nullable=False)
 
 
+class XiuxianBossConfig(Base):
+    __tablename__ = "xiuxian_boss_config"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False)
+    boss_type = Column(String(16), default="personal", nullable=False)
+    realm_stage = Column(String(32), nullable=False)
+    description = Column(Text, nullable=True)
+    image_url = Column(String(512), nullable=True)
+    hp = Column(Integer, default=500, nullable=False)
+    attack_power = Column(Integer, default=30, nullable=False)
+    defense_power = Column(Integer, default=15, nullable=False)
+    body_movement = Column(Integer, default=10, nullable=False)
+    divine_sense = Column(Integer, default=10, nullable=False)
+    fortune = Column(Integer, default=10, nullable=False)
+    qi_blood = Column(Integer, default=500, nullable=False)
+    true_yuan = Column(Integer, default=200, nullable=False)
+    skill_name = Column(String(64), nullable=True)
+    skill_ratio_percent = Column(Integer, default=30, nullable=False)
+    skill_hit_bonus = Column(Integer, default=0, nullable=False)
+    passive_name = Column(String(64), nullable=True)
+    passive_effect_kind = Column(String(16), nullable=True)
+    passive_ratio_percent = Column(Integer, default=0, nullable=False)
+    passive_chance = Column(Integer, default=25, nullable=False)
+    loot_pills_json = Column(JSON, nullable=True)
+    loot_materials_json = Column(JSON, nullable=True)
+    loot_artifacts_json = Column(JSON, nullable=True)
+    loot_talismans_json = Column(JSON, nullable=True)
+    loot_recipes_json = Column(JSON, nullable=True)
+    loot_techniques_json = Column(JSON, nullable=True)
+    stone_reward_min = Column(Integer, default=0, nullable=False)
+    stone_reward_max = Column(Integer, default=0, nullable=False)
+    cultivation_reward = Column(Integer, default=0, nullable=False)
+    daily_attempt_limit = Column(Integer, default=3, nullable=False)
+    ticket_cost_stone = Column(Integer, default=100, nullable=False)
+    flavor_text = Column(Text, nullable=True)
+    sort_order = Column(Integer, default=0, nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianBossDefeat(Base):
+    __tablename__ = "xiuxian_boss_defeats"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tg = Column(BigInteger, nullable=False)
+    boss_id = Column(Integer, nullable=False)
+    defeat_count = Column(Integer, default=1, nullable=False)
+    daily_attempts = Column(Integer, default=0, nullable=False)
+    day_key = Column(String(16), default="", nullable=False)
+    last_defeated_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+    __table_args__ = (UniqueConstraint("tg", "boss_id", name="uq_boss_defeat_tg_boss"),)
+
+
+class XiuxianWorldBossInstance(Base):
+    __tablename__ = "xiuxian_world_boss_instances"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    boss_id = Column(Integer, nullable=False)
+    current_hp = Column(Integer, nullable=False)
+    max_hp = Column(Integer, nullable=False)
+    status = Column(String(16), default="active", nullable=False)
+    spawned_at = Column(DateTime, default=utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    defeated_at = Column(DateTime, nullable=True)
+    notice_message_id = Column(Integer, nullable=True)
+    notice_group_chat_id = Column(BigInteger, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class XiuxianWorldBossDamage(Base):
+    __tablename__ = "xiuxian_world_boss_damages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    instance_id = Column(Integer, nullable=False)
+    tg = Column(BigInteger, nullable=False)
+    total_damage = Column(Integer, default=0, nullable=False)
+    attack_count = Column(Integer, default=0, nullable=False)
+    last_attack_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+    __table_args__ = (UniqueConstraint("instance_id", "tg", name="uq_world_boss_dmg_instance_tg"),)
+
+
 def realm_index(stage: str | None) -> int:
     try:
         return REALM_ORDER.index(normalize_realm_stage(stage))
@@ -2355,6 +2451,12 @@ def serialize_sect(sect: XiuxianSect | None) -> dict[str, Any] | None:
         "cultivation_bonus": sect.cultivation_bonus,
         "fortune_bonus": sect.fortune_bonus,
         "body_movement_bonus": sect.body_movement_bonus,
+        "pill_poison_resist": float(sect.pill_poison_resist or 0.0),
+        "pill_poison_cap_bonus": int(sect.pill_poison_cap_bonus or 0),
+        "farm_growth_speed": float(sect.farm_growth_speed or 0.0),
+        "explore_drop_rate": int(sect.explore_drop_rate or 0),
+        "craft_success_rate": int(sect.craft_success_rate or 0),
+        "death_penalty_reduce": float(sect.death_penalty_reduce or 0.0),
         "salary_min_stay_days": max(int(sect.salary_min_stay_days or 0), 1),
         "entry_hint": sect.entry_hint,
         "enabled": sect.enabled,
@@ -3014,6 +3116,103 @@ def serialize_emby_account(account: Emby | None) -> dict[str, Any] | None:
         "cr": serialize_datetime(account.cr),
         "ex": serialize_datetime(account.ex),
         "ch": serialize_datetime(account.ch),
+    }
+
+
+# ── Boss serializers ──────────────────────────────────────────
+
+
+def serialize_boss_config(boss: XiuxianBossConfig | None) -> dict[str, Any] | None:
+    if boss is None:
+        return None
+    return {
+        "id": int(boss.id),
+        "name": boss.name,
+        "boss_type": boss.boss_type,
+        "realm_stage": boss.realm_stage,
+        "description": boss.description,
+        "image_url": boss.image_url,
+        "hp": int(boss.hp or 0),
+        "attack_power": int(boss.attack_power or 0),
+        "defense_power": int(boss.defense_power or 0),
+        "body_movement": int(boss.body_movement or 0),
+        "divine_sense": int(boss.divine_sense or 0),
+        "fortune": int(boss.fortune or 0),
+        "qi_blood": int(boss.qi_blood or 0),
+        "true_yuan": int(boss.true_yuan or 0),
+        "skill_name": boss.skill_name,
+        "skill_ratio_percent": int(boss.skill_ratio_percent or 0),
+        "skill_hit_bonus": int(boss.skill_hit_bonus or 0),
+        "passive_name": boss.passive_name,
+        "passive_effect_kind": boss.passive_effect_kind,
+        "passive_ratio_percent": int(boss.passive_ratio_percent or 0),
+        "passive_chance": int(boss.passive_chance or 0),
+        "loot_pills_json": boss.loot_pills_json,
+        "loot_materials_json": boss.loot_materials_json,
+        "loot_artifacts_json": boss.loot_artifacts_json,
+        "loot_talismans_json": boss.loot_talismans_json,
+        "loot_recipes_json": boss.loot_recipes_json,
+        "loot_techniques_json": boss.loot_techniques_json,
+        "stone_reward_min": int(boss.stone_reward_min or 0),
+        "stone_reward_max": int(boss.stone_reward_max or 0),
+        "cultivation_reward": int(boss.cultivation_reward or 0),
+        "daily_attempt_limit": int(boss.daily_attempt_limit or 0),
+        "ticket_cost_stone": int(boss.ticket_cost_stone or 0),
+        "flavor_text": boss.flavor_text,
+        "sort_order": int(boss.sort_order or 0),
+        "enabled": bool(boss.enabled),
+        "created_at": serialize_datetime(boss.created_at),
+        "updated_at": serialize_datetime(boss.updated_at),
+    }
+
+
+def serialize_boss_defeat(row: XiuxianBossDefeat | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "id": int(row.id),
+        "tg": int(row.tg),
+        "boss_id": int(row.boss_id),
+        "defeat_count": int(row.defeat_count or 0),
+        "daily_attempts": int(row.daily_attempts or 0),
+        "day_key": row.day_key,
+        "last_defeated_at": serialize_datetime(row.last_defeated_at),
+        "created_at": serialize_datetime(row.created_at),
+        "updated_at": serialize_datetime(row.updated_at),
+    }
+
+
+def serialize_world_boss_instance(instance: XiuxianWorldBossInstance | None) -> dict[str, Any] | None:
+    if instance is None:
+        return None
+    return {
+        "id": int(instance.id),
+        "boss_id": int(instance.boss_id),
+        "current_hp": int(instance.current_hp or 0),
+        "max_hp": int(instance.max_hp or 0),
+        "status": instance.status,
+        "spawned_at": serialize_datetime(instance.spawned_at),
+        "expires_at": serialize_datetime(instance.expires_at),
+        "defeated_at": serialize_datetime(instance.defeated_at),
+        "notice_message_id": instance.notice_message_id,
+        "notice_group_chat_id": instance.notice_group_chat_id,
+        "created_at": serialize_datetime(instance.created_at),
+        "updated_at": serialize_datetime(instance.updated_at),
+    }
+
+
+def serialize_world_boss_damage(row: XiuxianWorldBossDamage | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "id": int(row.id),
+        "instance_id": int(row.instance_id),
+        "tg": int(row.tg),
+        "total_damage": int(row.total_damage or 0),
+        "attack_count": int(row.attack_count or 0),
+        "last_attack_at": serialize_datetime(row.last_attack_at),
+        "created_at": serialize_datetime(row.created_at),
+        "updated_at": serialize_datetime(row.updated_at),
     }
 
 
@@ -4402,6 +4601,12 @@ def _normalize_sect_fields(fields: dict[str, Any]) -> dict[str, Any]:
         "cultivation_bonus": _coerce_int(fields.get("cultivation_bonus"), 0),
         "fortune_bonus": _coerce_int(fields.get("fortune_bonus"), 0),
         "body_movement_bonus": _coerce_int(fields.get("body_movement_bonus"), 0),
+        "pill_poison_resist": max(min(float(fields.get("pill_poison_resist") or 0.0), 1.0), 0.0),
+        "pill_poison_cap_bonus": max(_coerce_int(fields.get("pill_poison_cap_bonus"), 0), 0),
+        "farm_growth_speed": max(min(float(fields.get("farm_growth_speed") or 0.0), 1.0), 0.0),
+        "explore_drop_rate": max(_coerce_int(fields.get("explore_drop_rate"), 0), 0),
+        "craft_success_rate": max(_coerce_int(fields.get("craft_success_rate"), 0), 0),
+        "death_penalty_reduce": max(min(float(fields.get("death_penalty_reduce") or 0.0), 1.0), 0.0),
         "salary_min_stay_days": max(_coerce_int(fields.get("salary_min_stay_days"), DEFAULT_SETTINGS["sect_salary_min_stay_days"]), 1),
         "entry_hint": str(fields.get("entry_hint") or "").strip(),
         "enabled": _coerce_bool(fields.get("enabled"), True),
@@ -8157,6 +8362,206 @@ def get_latest_group_encounter_time(group_chat_id: int):
             .first()
         )
         return row.created_at if row is not None else None
+
+
+# ── Boss CRUD ──────────────────────────────────────────────────
+
+
+def get_boss_config(boss_id: int) -> XiuxianBossConfig | None:
+    with Session() as session:
+        return session.query(XiuxianBossConfig).filter(XiuxianBossConfig.id == boss_id).first()
+
+
+def list_boss_configs(boss_type: str | None = None) -> list[dict[str, Any]]:
+    with Session() as session:
+        q = session.query(XiuxianBossConfig).filter(XiuxianBossConfig.enabled.is_(True))
+        if boss_type:
+            q = q.filter(XiuxianBossConfig.boss_type == boss_type)
+        q = q.order_by(XiuxianBossConfig.sort_order.asc(), XiuxianBossConfig.id.asc())
+        return [serialize_boss_config(row) for row in q.all()]
+
+
+def sync_boss_config_by_name(name: str, **fields) -> dict[str, Any]:
+    payload = dict(fields)
+    payload["name"] = name
+    payload.pop("loot_pills_json_refs", None)
+    payload.pop("loot_materials_json_refs", None)
+    payload.pop("loot_artifacts_json_refs", None)
+    payload.pop("loot_talismans_json_refs", None)
+    payload.pop("loot_recipes_json_refs", None)
+    payload.pop("loot_techniques_json_refs", None)
+    with Session() as session:
+        row = session.query(XiuxianBossConfig).filter(XiuxianBossConfig.name == name).first()
+        if row is None:
+            row = XiuxianBossConfig(**payload)
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            return serialize_boss_config(row)
+        changed = False
+        for key, value in payload.items():
+            if getattr(row, key) != value:
+                setattr(row, key, value)
+                changed = True
+        if changed:
+            row.updated_at = utcnow()
+            session.commit()
+            session.refresh(row)
+        return serialize_boss_config(row)
+
+
+def get_boss_defeat(tg: int, boss_id: int) -> dict[str, Any] | None:
+    with Session() as session:
+        row = (
+            session.query(XiuxianBossDefeat)
+            .filter(XiuxianBossDefeat.tg == tg, XiuxianBossDefeat.boss_id == boss_id)
+            .first()
+        )
+        return serialize_boss_defeat(row)
+
+
+def upsert_boss_defeat(tg: int, boss_id: int, won: bool) -> dict[str, Any]:
+    from datetime import date
+    today = date.today().strftime("%Y%m%d")
+    with Session() as session:
+        row = (
+            session.query(XiuxianBossDefeat)
+            .filter(XiuxianBossDefeat.tg == tg, XiuxianBossDefeat.boss_id == boss_id)
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            row = XiuxianBossDefeat(
+                tg=tg,
+                boss_id=boss_id,
+                defeat_count=1 if won else 0,
+                daily_attempts=1,
+                day_key=today,
+                last_defeated_at=utcnow() if won else None,
+            )
+            session.add(row)
+        else:
+            if row.day_key != today:
+                row.daily_attempts = 0
+                row.day_key = today
+            row.daily_attempts = max(int(row.daily_attempts or 0) + 1, 1)
+            if won:
+                row.defeat_count = max(int(row.defeat_count or 0) + 1, 1)
+                row.last_defeated_at = utcnow()
+            row.updated_at = utcnow()
+        session.commit()
+        session.refresh(row)
+        return serialize_boss_defeat(row)
+
+
+def get_active_world_boss() -> dict[str, Any] | None:
+    with Session() as session:
+        row = (
+            session.query(XiuxianWorldBossInstance)
+            .filter(
+                XiuxianWorldBossInstance.status == "active",
+                XiuxianWorldBossInstance.expires_at > utcnow(),
+            )
+            .order_by(XiuxianWorldBossInstance.id.desc())
+            .first()
+        )
+        return serialize_world_boss_instance(row)
+
+
+def create_world_boss_instance(boss_id: int, max_hp: int, expires_at: datetime, **kwargs) -> dict[str, Any]:
+    with Session() as session:
+        row = XiuxianWorldBossInstance(
+            boss_id=boss_id,
+            current_hp=max_hp,
+            max_hp=max_hp,
+            status="active",
+            expires_at=expires_at,
+            **kwargs,
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return serialize_world_boss_instance(row)
+
+
+def update_world_boss_hp(instance_id: int, hp_delta: int) -> dict[str, Any] | None:
+    with Session() as session:
+        row = (
+            session.query(XiuxianWorldBossInstance)
+            .filter(XiuxianWorldBossInstance.id == instance_id)
+            .with_for_update()
+            .first()
+        )
+        if row is None or row.status != "active":
+            return None
+        row.current_hp = max(int(row.current_hp or 0) + hp_delta, 0)
+        if row.current_hp <= 0:
+            row.status = "defeated"
+            row.defeated_at = utcnow()
+        row.updated_at = utcnow()
+        session.commit()
+        session.refresh(row)
+        return serialize_world_boss_instance(row)
+
+
+def settle_world_boss_instance(instance_id: int, status: str = "defeated") -> dict[str, Any] | None:
+    with Session() as session:
+        row = (
+            session.query(XiuxianWorldBossInstance)
+            .filter(XiuxianWorldBossInstance.id == instance_id)
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            return None
+        row.status = status
+        if status == "defeated":
+            row.defeated_at = utcnow()
+        row.updated_at = utcnow()
+        session.commit()
+        session.refresh(row)
+        return serialize_world_boss_instance(row)
+
+
+def upsert_world_boss_damage(instance_id: int, tg: int, damage: int) -> dict[str, Any]:
+    with Session() as session:
+        row = (
+            session.query(XiuxianWorldBossDamage)
+            .filter(
+                XiuxianWorldBossDamage.instance_id == instance_id,
+                XiuxianWorldBossDamage.tg == tg,
+            )
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            row = XiuxianWorldBossDamage(
+                instance_id=instance_id,
+                tg=tg,
+                total_damage=damage,
+                attack_count=1,
+                last_attack_at=utcnow(),
+            )
+            session.add(row)
+        else:
+            row.total_damage = max(int(row.total_damage or 0) + damage, 0)
+            row.attack_count = max(int(row.attack_count or 0) + 1, 1)
+            row.last_attack_at = utcnow()
+            row.updated_at = utcnow()
+        session.commit()
+        session.refresh(row)
+        return serialize_world_boss_damage(row)
+
+
+def list_world_boss_damages(instance_id: int) -> list[dict[str, Any]]:
+    with Session() as session:
+        rows = (
+            session.query(XiuxianWorldBossDamage)
+            .filter(XiuxianWorldBossDamage.instance_id == instance_id)
+            .order_by(XiuxianWorldBossDamage.total_damage.desc())
+            .all()
+        )
+        return [serialize_world_boss_damage(row) for row in rows]
 
 
 def get_task(task_id: int) -> XiuxianTask | None:

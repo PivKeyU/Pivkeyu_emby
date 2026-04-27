@@ -15,10 +15,12 @@ from bot.sql_helper.sql_xiuxian import (
     apply_spiritual_stone_delta,
     assert_profile_alive,
     create_journal,
+    get_profile,
     get_shared_spiritual_stone_total,
     realm_index,
     serialize_datetime,
     serialize_material,
+    serialize_profile,
     utcnow,
 )
 
@@ -112,7 +114,7 @@ def _meets_realm_requirement(profile: XiuxianProfile | dict[str, Any] | None, st
 def _load_profile_for_farm(session: Session, tg: int, action_text: str) -> XiuxianProfile:
     profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(tg)).with_for_update().first()
     if profile is None or not profile.consented:
-        raise ValueError("你还没有踏入仙途")
+        raise ValueError("你尚未踏入仙途，道基未立")
     assert_profile_alive(profile, action_text)
     return profile
 
@@ -595,12 +597,17 @@ def plant_crop_for_user(tg: int, slot_index: int, material_id: int) -> dict[str,
 
         now = utcnow()
         growth_minutes = max(int(material.growth_minutes or 0), 1)
+        from bot.plugins.xiuxian_game.world_service import get_sect_effects
+        profile_data = serialize_profile(get_profile(tg, create=False))
+        sect_effects = get_sect_effects(profile_data) if profile_data else {}
+        farm_speed = float(sect_effects.get("farm_growth_speed", 0.0))
+        effective_growth = max(int(growth_minutes * (1.0 - farm_speed)), 5)
         base_yield_min = max(int(material.yield_min or 0), 1)
         base_yield_max = max(int(material.yield_max or material.yield_min or 0), base_yield_min)
         plot.unlocked = True
         plot.current_material_id = int(material.id)
         plot.planted_at = now
-        plot.mature_at = now + timedelta(minutes=growth_minutes)
+        plot.mature_at = now + timedelta(minutes=effective_growth)
         plot.harvest_deadline_at = plot.mature_at + timedelta(minutes=_harvest_window_minutes(material))
         plot.base_yield = random.randint(base_yield_min, base_yield_max)
         plot.needs_watering = random.random() < _watering_chance(material)
@@ -627,7 +634,7 @@ def plant_crop_for_user(tg: int, slot_index: int, material_id: int) -> dict[str,
         "seed_cost_stone": seed_cost,
         "mature_at": mature_at,
         "harvest_deadline_at": harvest_deadline_at,
-        "message": f"{slot_index} 号灵田已播下 {material_name}，成熟后可作为丹方材料收取。",
+        "message": f"灵种落入田垄的刹那泛起一抹微光——{slot_index} 号灵田已种下{material_name}，待灵时圆满即可收取。",
     }
 
 
@@ -662,7 +669,7 @@ def tend_farm_plot_for_user(tg: int, slot_index: int, action: str) -> dict[str, 
             if plot.mature_at and now >= plot.mature_at:
                 raise ValueError("灵药已经成熟，无需再浇灌")
             if not plot.needs_watering:
-                raise ValueError("这一茬灵药地脉润泽，暂时无需浇灌")
+                raise ValueError("这一茬灵药根部已触到地下暗泉，水汽充盈，不必再添灵泉。")
             if plot.watered:
                 raise ValueError("这块灵田已经浇灌过了")
             plot.watered = True
@@ -673,14 +680,14 @@ def tend_farm_plot_for_user(tg: int, slot_index: int, action: str) -> dict[str, 
                 "action": normalized_action,
                 "yield_bonus": 1,
                 "stone_cost": 0,
-                "message": f"你为 {slot_index} 号灵田引来灵泉，收成预计 +1。",
+                "message": f"灵泉沿地脉渗入，{slot_index} 号灵田泛起淡淡水光，灵药根须又往下扎了几分——收成预计 +1。",
             }
 
         if normalized_action == "fertilize":
             if plot.mature_at and now >= plot.mature_at:
                 raise ValueError("灵药已经成熟，无需再施肥催熟")
             if plot.fertilized:
-                raise ValueError("这块灵田已经施过灵肥了")
+                raise ValueError("这块灵田已施过灵肥，肥力尚在，不必再添。")
             stone_cost = _fertilize_cost(material)
             if stone_cost > 0:
                 apply_spiritual_stone_delta(
@@ -704,13 +711,13 @@ def tend_farm_plot_for_user(tg: int, slot_index: int, action: str) -> dict[str, 
                 "yield_bonus": 1,
                 "stone_cost": stone_cost,
                 "mature_at": serialize_datetime(plot.mature_at),
-                "message": f"你为 {slot_index} 号灵田施下灵肥，成熟时间提前，收成预计 +1。",
+                "message": f"灵肥入土化为一团暖雾，{slot_index} 号灵田的叶片似又青翠了些，成熟之日比先前更近——收成预计 +1。",
             }
 
         if not plot.pest_risk:
-            raise ValueError("这块灵田当前没有虫害")
+            raise ValueError("这块灵田目前灵虫未至，不必驱虫。")
         if plot.pest_cleared:
-            raise ValueError("这块灵田的虫害已经处理过了")
+            raise ValueError("这块灵田的虫害已除，灵药正在恢复，无需重复驱虫。")
         plot.pest_cleared = True
         plot.updated_at = utcnow()
         session.commit()
@@ -719,7 +726,7 @@ def tend_farm_plot_for_user(tg: int, slot_index: int, action: str) -> dict[str, 
             "action": normalized_action,
             "yield_bonus": 0,
             "stone_cost": 0,
-            "message": f"{slot_index} 号灵田的虫害已清除，减产风险解除。",
+            "message": f"灵虫被一一引出田垄，{slot_index} 号灵田终于恢复了清净，灵药叶片重新舒展——减产风险解除。",
         }
 
 
