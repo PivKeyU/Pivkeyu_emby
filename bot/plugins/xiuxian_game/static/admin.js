@@ -2372,6 +2372,9 @@ function applySettings(settings = {}) {
   $("setting-chat-max").value = settings.chat_cultivation_max_gain ?? 2;
   $("setting-robbery-limit").value = settings.robbery_daily_limit ?? 3;
   $("setting-robbery-max").value = settings.robbery_max_steal ?? 180;
+  $("setting-exploration-limit").value = settings.exploration_daily_limit ?? 10;
+  $("setting-fishing-limit").value = settings.fishing_daily_limit ?? 30;
+  $("setting-encounter-limit").value = settings.encounter_claim_daily_limit ?? 5;
   $("setting-seclusion-efficiency").value = settings.seclusion_cultivation_efficiency_percent ?? 60;
   $("setting-quality-broadcast").value = settings.high_quality_broadcast_level ?? 4;
   $("setting-slave-tribute").value = settings.slave_tribute_percent ?? 20;
@@ -2383,6 +2386,7 @@ function applySettings(settings = {}) {
   $("setting-sect-salary-stay").value = settings.sect_salary_min_stay_days ?? 30;
   if ($("sect-salary-stay-days") && !$("sect-id")?.value) $("sect-salary-stay-days").value = settings.sect_salary_min_stay_days ?? 30;
   $("setting-sect-betrayal-cooldown").value = settings.sect_betrayal_cooldown_days ?? 7;
+  $("setting-divorce-cooldown").value = settings.marriage_divorce_cooldown_days ?? 7;
   $("setting-sect-betrayal-percent").value = settings.sect_betrayal_stone_percent ?? 10;
   $("setting-sect-betrayal-min").value = settings.sect_betrayal_stone_min ?? 20;
   $("setting-sect-betrayal-max").value = settings.sect_betrayal_stone_max ?? 300;
@@ -2662,6 +2666,9 @@ function bindEvents() {
         chat_cultivation_max_gain: Number($("setting-chat-max").value || 2),
         robbery_daily_limit: Number($("setting-robbery-limit").value || 3),
         robbery_max_steal: Number($("setting-robbery-max").value || 180),
+        exploration_daily_limit: Number($("setting-exploration-limit").value || 10),
+        fishing_daily_limit: Number($("setting-fishing-limit").value || 30),
+        encounter_claim_daily_limit: Number($("setting-encounter-limit").value || 5),
         seclusion_cultivation_efficiency_percent: Number($("setting-seclusion-efficiency").value || 60),
         gambling_exchange_cost_stone: Number($("setting-gambling-exchange-cost").value || 120),
         gambling_exchange_max_count: Number($("setting-gambling-exchange-max").value || 20),
@@ -2744,6 +2751,7 @@ function bindEvents() {
       rebirth_cooldown_increment_hours: Number($("setting-rebirth-cooldown-increment").value || 0),
       sect_salary_min_stay_days: Number($("setting-sect-salary-stay").value || 30),
       sect_betrayal_cooldown_days: Number($("setting-sect-betrayal-cooldown").value || 7),
+      marriage_divorce_cooldown_days: Number($("setting-divorce-cooldown").value || 7),
       sect_betrayal_stone_percent: Number($("setting-sect-betrayal-percent").value || 10),
       sect_betrayal_stone_min: Number($("setting-sect-betrayal-min").value || 20),
       sect_betrayal_stone_max: Number($("setting-sect-betrayal-max").value || 300),

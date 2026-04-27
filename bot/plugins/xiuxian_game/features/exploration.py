@@ -855,6 +855,13 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
     active = _get_active_exploration(tg)
     if active and not active.get("claimed"):
         raise ValueError("你还有未结算的探索")
+    # Daily exploration limit
+    from bot.plugins.xiuxian_game.world_service import _ensure_daily_limit, _bump_daily_counter
+    from bot.sql_helper.sql_xiuxian import get_profile as _get_profile
+
+    profile_obj = _get_profile(tg, create=False)
+    if profile_obj is not None:
+        _ensure_daily_limit(profile_obj, "explore_daily_count", "explore_day_key", "exploration_daily_limit", "探索")
     scene = serialize_scene(get_scene(scene_id))
     if not scene or not scene.get("enabled"):
         raise ValueError("场景不存在")
@@ -991,6 +998,8 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
         session.commit()
         session.refresh(exploration)
         scene["requirement_state"] = requirement_state
+        from bot.plugins.xiuxian_game.world_service import _bump_daily_counter
+        _bump_daily_counter(tg, "explore_daily_count")
         return {"scene": scene, "exploration": serialize_exploration(exploration)}
 
 
@@ -1097,10 +1106,13 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
             if updated is None or not updated.consented:
                 raise ValueError("你还没有踏入仙途")
             current_stone = max(int(get_shared_spiritual_stone_total(tg) or 0), 0)
+            stone_loss_pct = int(fatal_outcome.get("stone_loss_percent") or 0)
             planned_stone_loss = max(
-                int(round(current_stone * int(fatal_outcome.get("stone_loss_percent") or 0) / 100)),
+                int(round(current_stone * stone_loss_pct / 100)),
                 12 if current_stone > 0 else 0,
             )
+            # Cap absolute stone loss to prevent disproportionate punishment
+            planned_stone_loss = min(planned_stone_loss, 50000)
             actual_stone_loss = min(current_stone, planned_stone_loss)
             death_reasons = list(fatal_outcome.get("reasons") or [])
 
@@ -1108,10 +1120,13 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
             current_layer = int(updated.realm_layer or 1)
             current_cultivation = int(updated.cultivation or 0)
             threshold = legacy_service.cultivation_threshold(stage, current_layer)
+            cultivation_loss_pct = int(fatal_outcome.get("cultivation_loss_percent") or 0)
             planned_cultivation_loss = max(
-                int(round(max(current_cultivation, threshold // 3) * int(fatal_outcome.get("cultivation_loss_percent") or 0) / 100)),
+                int(round(max(current_cultivation, threshold // 3) * cultivation_loss_pct / 100)),
                 10,
             )
+            # Cap at one layer worth of cultivation
+            planned_cultivation_loss = min(planned_cultivation_loss, threshold)
             next_layer, next_cultivation, actual_cultivation_loss = _apply_cultivation_loss(
                 stage,
                 current_layer,

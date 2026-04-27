@@ -356,6 +356,9 @@ class AdminSettingPayload(BaseModel):
     chat_cultivation_max_gain: int | None = None
     robbery_daily_limit: int | None = None
     robbery_max_steal: int | None = None
+    exploration_daily_limit: int | None = None
+    fishing_daily_limit: int | None = None
+    encounter_claim_daily_limit: int | None = None
     high_quality_broadcast_level: int | None = None
     gambling_exchange_cost_stone: int | None = None
     gambling_exchange_max_count: int | None = None
@@ -374,6 +377,7 @@ class AdminSettingPayload(BaseModel):
     rebirth_cooldown_increment_hours: int | None = None
     sect_salary_min_stay_days: int | None = None
     sect_betrayal_cooldown_days: int | None = None
+    marriage_divorce_cooldown_days: int | None = None
     sect_betrayal_stone_percent: int | None = None
     sect_betrayal_stone_min: int | None = None
     sect_betrayal_stone_max: int | None = None

@@ -41,7 +41,7 @@ FISHING_SPOTS: dict[str, dict[str, Any]] = {
         "min_realm_layer": 1,
         "quality_min": 1,
         "quality_max": 3,
-        "tier_weights": {1: 620, 2: 220, 3: 60},
+        "tier_weights": {1: 580, 2: 260, 3: 80},
         "kind_weights": {"material": 1.0, "pill": 0.32, "talisman": 0.12, "recipe": 0.03, "technique": 0.02},
         "fortune_scale": 0.35,
     },
@@ -54,34 +54,34 @@ FISHING_SPOTS: dict[str, dict[str, Any]] = {
         "min_realm_layer": 2,
         "quality_min": 1,
         "quality_max": 4,
-        "tier_weights": {1: 420, 2: 250, 3: 110, 4: 28},
-        "kind_weights": {"material": 0.88, "pill": 0.45, "talisman": 0.24, "recipe": 0.05, "technique": 0.03},
+        "tier_weights": {1: 380, 2: 280, 3: 130, 4: 38},
+        "kind_weights": {"material": 0.82, "pill": 0.48, "talisman": 0.24, "recipe": 0.06, "technique": 0.04},
         "fortune_scale": 0.48,
     },
     "lava_pool": {
         "key": "lava_pool",
         "name": "火鳞熔潭",
         "description": "潭口热浪翻卷，偶尔会把高热药材、战斗丹与法宝胚胎卷上岸。",
-        "cast_cost_stone": 72,
+        "cast_cost_stone": 68,
         "min_realm_stage": "筑基",
         "min_realm_layer": 3,
         "quality_min": 2,
         "quality_max": 5,
-        "tier_weights": {2: 360, 3: 190, 4: 72, 5: 18},
-        "kind_weights": {"material": 0.72, "pill": 0.56, "talisman": 0.18, "artifact": 0.14, "recipe": 0.07, "technique": 0.05},
+        "tier_weights": {2: 340, 3: 210, 4: 80, 5: 22},
+        "kind_weights": {"material": 0.68, "pill": 0.58, "talisman": 0.20, "artifact": 0.16, "recipe": 0.08, "technique": 0.06},
         "fortune_scale": 0.62,
     },
     "star_sea": {
         "key": "star_sea",
         "name": "星渊古海",
         "description": "海眼与星潮相连，重宝虽少却并非绝迹，最吃机缘。",
-        "cast_cost_stone": 144,
+        "cast_cost_stone": 128,
         "min_realm_stage": "金丹",
         "min_realm_layer": 2,
         "quality_min": 3,
         "quality_max": 7,
-        "tier_weights": {3: 290, 4: 170, 5: 70, 6: 16, 7: 3},
-        "kind_weights": {"material": 0.65, "pill": 0.42, "talisman": 0.28, "artifact": 0.18, "recipe": 0.1, "technique": 0.08},
+        "tier_weights": {3: 260, 4: 180, 5: 80, 6: 22, 7: 5},
+        "kind_weights": {"material": 0.52, "pill": 0.48, "talisman": 0.28, "artifact": 0.22, "recipe": 0.12, "technique": 0.10},
         "fortune_scale": 0.82,
     },
 }
@@ -463,6 +463,14 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
     if not spot:
         raise ValueError("钓场不存在")
 
+    # Daily fishing limit
+    from bot.plugins.xiuxian_game.world_service import _ensure_daily_limit
+    from bot.sql_helper.sql_xiuxian import get_profile as _get_profile
+
+    profile_obj = _get_profile(tg, create=False)
+    if profile_obj is not None:
+        _ensure_daily_limit(profile_obj, "fish_daily_count", "fish_day_key", "fishing_daily_limit", "垂钓")
+
     full_bundle = _legacy_service().serialize_full_profile(tg)
     effective_stats = full_bundle.get("effective_stats") or {}
     effective_fortune = max(int(effective_stats.get("fortune") or full_bundle.get("profile", {}).get("fortune") or 0), 0)
@@ -492,6 +500,9 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
                 apply_tribute=False,
             )
         session.commit()
+
+    from bot.plugins.xiuxian_game.world_service import _bump_daily_counter
+    _bump_daily_counter(tg, "fish_daily_count")
 
     if random.random() >= empty_chance:
         tier_pick = _weighted_choice(

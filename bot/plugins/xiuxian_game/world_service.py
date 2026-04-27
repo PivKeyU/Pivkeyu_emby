@@ -165,7 +165,7 @@ SECT_ATTENDANCE_METHOD_LABELS = {
     "teach": "传功",
     "donate": "捐赠宝库",
 }
-SECT_DAILY_ATTENDANCE_CONTRIBUTION = 1
+SECT_DAILY_ATTENDANCE_CONTRIBUTION = 4
 SECT_PROMOTION_ROLE_ORDER = [
     "outer_disciple",
     "inner_disciple",
@@ -512,15 +512,51 @@ def get_sect_effects(profile_data: dict[str, Any] | None) -> dict[str, int]:
 def _default_role_payloads() -> list[dict[str, Any]]:
     rows = []
     for role_key, role_name, sort_order in SECT_ROLE_PRESETS:
+        salary = 0
+        cultivation_bonus = 0
+        attack_bonus = 0
+        defense_bonus = 0
+        if role_key == "outer_disciple":
+            salary = 50
+        elif role_key == "inner_disciple":
+            salary = 120
+            cultivation_bonus = 2
+        elif role_key == "outer_deacon":
+            salary = 200
+            attack_bonus = 3
+            defense_bonus = 3
+        elif role_key == "inner_deacon":
+            salary = 350
+            cultivation_bonus = 4
+            attack_bonus = 5
+            defense_bonus = 5
+        elif role_key == "core":
+            salary = 600
+            cultivation_bonus = 7
+            attack_bonus = 8
+            defense_bonus = 8
+            duel_rate_bonus = 2
+        elif role_key == "elder":
+            salary = 1000
+            cultivation_bonus = 12
+            attack_bonus = 12
+            defense_bonus = 12
+            duel_rate_bonus = 5
+        elif role_key == "leader":
+            salary = 2000
+            cultivation_bonus = 18
+            attack_bonus = 18
+            defense_bonus = 18
+            duel_rate_bonus = 8
         rows.append(
             {
                 "role_key": role_key,
                 "role_name": role_name,
-                "attack_bonus": 0,
-                "defense_bonus": 0,
-                "duel_rate_bonus": 0,
-                "cultivation_bonus": 0,
-                "monthly_salary": 0,
+                "attack_bonus": attack_bonus,
+                "defense_bonus": defense_bonus,
+                "duel_rate_bonus": duel_rate_bonus if role_key in {"core", "elder", "leader"} else 0,
+                "cultivation_bonus": cultivation_bonus,
+                "monthly_salary": salary,
                 "can_publish_tasks": role_key in {"leader", "elder", "inner_deacon", "outer_deacon"},
                 "sort_order": sort_order,
             }
@@ -2600,16 +2636,16 @@ def craft_recipe_for_user(tg: int, recipe_id: int, quantity: int = 1) -> dict[st
     rolls: list[int] = []
     success_count = 0
     failure_count = 0
+    raw_base_rate = float(success_rate)
     for _ in range(requested_quantity):
         success_roll = roll_probability_percent(
-            success_rate,
+            raw_base_rate,
             actor_fortune=fortune,
             actor_weight=0.25,
             minimum=5,
             maximum=95,
         )
         rolls.append(int(success_roll["roll"]))
-        success_rate = float(success_roll["chance"])
         if bool(success_roll["success"]):
             success_count += 1
         else:
@@ -3150,6 +3186,43 @@ def reset_robbery_counter_if_needed(profile_obj: XiuxianProfile) -> XiuxianProfi
     if profile_obj.robbery_day_key != today:
         return upsert_profile(profile_obj.tg, robbery_day_key=today, robbery_daily_count=0)
     return profile_obj
+
+
+def _ensure_daily_limit(
+    profile: XiuxianProfile,
+    count_attr: str,
+    key_attr: str,
+    limit_setting_key: str,
+    activity_label: str,
+    *,
+    session: Any = None,
+) -> XiuxianProfile:
+    """通用日限检查：若跨天则重置计数器，超出限制则抛异常。返回更新后的 profile。"""
+    from bot.sql_helper.sql_xiuxian import DEFAULT_SETTINGS, get_xiuxian_settings, upsert_profile
+
+    today = china_day_key()
+    current_key = getattr(profile, key_attr, None)
+    if current_key != today:
+        profile = upsert_profile(int(profile.tg), **{key_attr: today, count_attr: 0})
+        if session is not None:
+            session.expire(profile)
+            profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(profile.tg)).with_for_update().first()
+    settings = get_xiuxian_settings()
+    limit = max(int(settings.get(limit_setting_key, DEFAULT_SETTINGS.get(limit_setting_key, 999)) or 999), 0)
+    current_count = max(int(getattr(profile, count_attr, 0) or 0), 0)
+    if limit > 0 and current_count >= limit:
+        raise ValueError(f"今日{activity_label}次数已用完（每日 {limit} 次），请明日再来。")
+    return profile
+
+
+def _bump_daily_counter(tg: int, count_attr: str) -> None:
+    """递增日限计数器。"""
+    from bot.sql_helper.sql_xiuxian import upsert_profile
+
+    profile = get_profile(tg, create=False)
+    if profile is not None:
+        current = max(int(getattr(profile, count_attr, 0) or 0), 0)
+        upsert_profile(tg, **{count_attr: current + 1})
 
 
 def rob_player(attacker_tg: int, defender_tg: int, success_hint: float = 0.5) -> dict[str, Any]:

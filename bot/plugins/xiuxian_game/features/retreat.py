@@ -165,6 +165,12 @@ def settle_retreat_progress(tg: int) -> dict[str, Any] | None:
             )
         updated.cultivation = cultivation
         updated.realm_layer = layer
+        # Passive dan_poison decay during retreat: ~5 + bone//50 per in-game day (480 min)
+        in_game_days = max(affordable_minutes, 0) / 480.0
+        daily_decay = 5 + max(int(updated.bone or 0), 0) // 50
+        poison_decay = max(int(round(in_game_days * daily_decay)), 0)
+        if poison_decay > 0:
+            updated.dan_poison = max(int(updated.dan_poison or 0) - poison_decay, 0)
         updated.retreat_minutes_resolved = 0 if finished else settled_minutes
         updated.retreat_started_at = None if finished else updated.retreat_started_at
         updated.retreat_end_at = None if finished else updated.retreat_end_at

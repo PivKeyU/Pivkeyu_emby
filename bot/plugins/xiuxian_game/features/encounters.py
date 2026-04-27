@@ -268,6 +268,13 @@ def claim_group_encounter(instance_id: int, tg: int) -> dict[str, Any]:
         raise ValueError("你还没有踏入仙途。")
     if bundle.get("capabilities", {}).get("gender_required"):
         raise ValueError(str(bundle.get("capabilities", {}).get("gender_lock_reason") or "请先设置性别。"))
+    # Daily encounter claim limit
+    from bot.plugins.xiuxian_game.world_service import _ensure_daily_limit
+    from bot.sql_helper.sql_xiuxian import get_profile as _get_profile
+
+    profile_obj = _get_profile(tg, create=False)
+    if profile_obj is not None:
+        _ensure_daily_limit(profile_obj, "encounter_daily_count", "encounter_day_key", "encounter_claim_daily_limit", "奇遇领取")
 
     with Session() as session:
         instance = (
@@ -357,6 +364,8 @@ def claim_group_encounter(instance_id: int, tg: int) -> dict[str, Any]:
 
     legacy_service._apply_profile_growth_floor(tg)
     final_bundle = legacy_service.serialize_full_profile(tg)
+    from bot.plugins.xiuxian_game.world_service import _bump_daily_counter
+    _bump_daily_counter(tg, "encounter_daily_count")
     legacy_service.create_journal(
         tg,
         "encounter",

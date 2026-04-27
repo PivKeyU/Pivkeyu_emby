@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import random
 import re
+import secrets
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -237,7 +238,6 @@ PILL_BATCH_USE_TYPES = {
     "body_movement",
     "bone",
     "charisma",
-    "clear_poison",
     "comprehension",
     "cultivation",
     "defense",
@@ -248,6 +248,11 @@ PILL_BATCH_USE_TYPES = {
     "true_yuan",
     "willpower",
 }
+# clear_poison intentionally excluded from batch use to prevent
+# infinite stat stacking via the dan_poison cycling exploit:
+# 1. batch-use stat pills until dan_poison >= 100
+# 2. batch-use clear_poison pills to reset dan_poison to 0
+# 3. repeat — the only limit becomes inventory count
 ROOT_COMBAT_BASELINE_QUALITY = "中品灵根"
 ROOT_COMBAT_FACTOR_MIN = 0.97
 ROOT_COMBAT_FACTOR_MAX = 1.06
@@ -5668,7 +5673,7 @@ def _compute_retreat_plan(profile) -> dict[str, int]:
     )
     stage = normalize_realm_stage(profile.realm_stage or FIRST_REALM_STAGE)
     stage_rule = _realm_stage_rule(stage)
-    poison_penalty = min(int(profile.dan_poison or 0) // 3, 45)
+    poison_penalty = min(int(profile.dan_poison or 0) // 4, 25)
     gain_per_hour = max(
         int(stage_rule.get("retreat_hourly_base", 150))
         + int(profile.realm_layer or 1) * 18
@@ -6680,6 +6685,21 @@ def _mentorship_validate_pair(
     if _mentorship_chain_has_target(session, mentor_tg, disciple_tg):
         raise ValueError("当前传承链会形成循环师门，暂不允许这样结成师徒。")
 
+    # Block re-forming mentorship within cooldown period after graduation/dissolution
+    prior = (
+        session.query(XiuxianMentorship)
+        .filter(
+            XiuxianMentorship.mentor_tg.in_([mentor_tg, disciple_tg]),
+            XiuxianMentorship.disciple_tg.in_([mentor_tg, disciple_tg]),
+            XiuxianMentorship.status.in_(["graduated", "dissolved"]),
+            XiuxianMentorship.ended_at >= utcnow() - timedelta(days=30),
+        )
+        .first()
+    )
+    if prior is not None:
+        label = "已出师" if normalize_mentorship_status(prior.status) == "graduated" else "已解除"
+        raise ValueError(f"你们之间已有过师徒关系（{label}），请等待冷却期结束后再重新建立。")
+
     return {
         "mentor_score": mentor_score,
         "disciple_score": disciple_score,
@@ -7493,6 +7513,21 @@ def _marriage_validate_pair(session: Session, husband_profile: XiuxianProfile, w
         raise ValueError("女方当前已有道侣，需先和离。")
     if husband_relation is not None and wife_relation is not None:
         raise ValueError("双方当前已经是道侣，无需重复缔结。")
+    # Divorce cooldown: configurable days before remarrying anyone
+    divorce_cooldown_days = max(int(get_xiuxian_settings().get("marriage_divorce_cooldown_days", DEFAULT_SETTINGS.get("marriage_divorce_cooldown_days", 7)) or 0), 1)
+    cooldown_deadline = utcnow() - timedelta(days=divorce_cooldown_days)
+    for tg, label in [(husband_tg, "男方"), (wife_tg, "女方")]:
+        recent_divorce = (
+            session.query(XiuxianMarriage)
+            .filter(
+                (XiuxianMarriage.husband_tg == tg) | (XiuxianMarriage.wife_tg == tg),
+                XiuxianMarriage.status == "divorced",
+                XiuxianMarriage.ended_at >= cooldown_deadline,
+            )
+            .first()
+        )
+        if recent_divorce is not None:
+            raise ValueError(f"{label}刚经历了和离，请等待冷却期结束后再缔结新的姻缘。")
 
 
 def build_marriage_overview(tg: int, *, bundle: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -9386,10 +9421,10 @@ def open_immortal_stones(tg: int, count: int) -> dict[str, Any]:
             if not available_entries:
                 empty_count += 1
                 continue
-            if random.random() < empty_chance:
+            if secrets.SystemRandom().random() < empty_chance:
                 empty_count += 1
                 continue
-            chosen_entry = random.choices(
+            chosen_entry = secrets.SystemRandom().choices(
                 available_entries,
                 weights=[float(entry["effective_weight"]) for entry in available_entries],
                 k=1,
@@ -10804,7 +10839,7 @@ def _battle_bundle(bundle_or_profile: dict[str, Any], opponent_profile: dict[str
 
     stage_index = max(realm_index(profile.get("realm_stage")), 0)
     layer, progress_ratio, _ = _profile_layer_progress(profile)
-    realm_score = 560 + stage_index * 1750 + (layer + progress_ratio) * 96
+    realm_score = 560 + stage_index * 1750 + (layer + progress_ratio) * 200
     attribute_score = (
         stats["bone"] * 5.2
         + stats["comprehension"] * 5.8
@@ -11174,6 +11209,12 @@ def init_path_for_user(tg: int) -> dict[str, Any]:
         last_salary_claim_at=None,
         robbery_daily_count=0,
         robbery_day_key=None,
+        explore_daily_count=0,
+        explore_day_key=None,
+        fish_daily_count=0,
+        fish_day_key=None,
+        encounter_daily_count=0,
+        encounter_day_key=None,
         shop_name="",
         shop_broadcast=False,
         rebirth_count=int(profile.rebirth_count or 0) + (1 if is_rebirth else 0),
@@ -11398,20 +11439,26 @@ def _apply_pill_effect_once(
         raise ValueError(usage_reason)
     effects = resolve_pill_effects(profile_data, pill_data)
     bone_resistance = min((float(profile.bone or 0) / 200), 0.45)
-    dan_poison = min(int(profile.dan_poison or 0) + int(round(float(effects.get("poison_delta", 0) or 0) * (1 - bone_resistance))), 100)
+    realm_bonus_resistance = min(realm_index(profile.realm_stage or FIRST_REALM_STAGE) * 0.02, 0.20)
+    total_resistance = min(bone_resistance + realm_bonus_resistance, 0.55)
+    dan_poison = min(int(profile.dan_poison or 0) + int(round(float(effects.get("poison_delta", 0) or 0) * (1 - total_resistance))), 100)
+    # Per-realm stat caps to prevent infinite pill stacking
+    _max_base = {0: 300, 1: 600, 2: 1200, 3: 2500, 4: 5000, 5: 10000, 6: 20000, 7: 40000, 8: 80000}
+    stat_cap = _max_base.get(realm_index(profile.realm_stage or FIRST_REALM_STAGE), 100000)
+    combat_cap = stat_cap * 3
     cultivation = int(profile.cultivation or 0)
-    bone = int(profile.bone or 0) + int(round(effects.get("bone_bonus", 0)))
-    comprehension = int(profile.comprehension or 0) + int(round(effects.get("comprehension_bonus", 0)))
-    divine_sense = int(profile.divine_sense or 0) + int(round(effects.get("divine_sense_bonus", 0)))
-    fortune = int(profile.fortune or 0) + int(round(effects.get("fortune_bonus", 0)))
-    willpower = int(profile.willpower or 0) + int(round(effects.get("willpower_bonus", 0)))
-    charisma = int(profile.charisma or 0) + int(round(effects.get("charisma_bonus", 0)))
-    karma = int(profile.karma or 0) + int(round(effects.get("karma_bonus", 0)))
-    qi_blood = int(profile.qi_blood or 0) + int(round(effects.get("qi_blood_bonus", 0)))
-    true_yuan = int(profile.true_yuan or 0) + int(round(effects.get("true_yuan_bonus", 0)))
-    body_movement = int(profile.body_movement or 0) + int(round(effects.get("body_movement_bonus", 0)))
-    attack_power = int(profile.attack_power or 0) + int(round(effects.get("attack_bonus", 0)))
-    defense_power = int(profile.defense_power or 0) + int(round(effects.get("defense_bonus", 0)))
+    bone = min(int(profile.bone or 0) + int(round(effects.get("bone_bonus", 0))), stat_cap)
+    comprehension = min(int(profile.comprehension or 0) + int(round(effects.get("comprehension_bonus", 0))), stat_cap)
+    divine_sense = min(int(profile.divine_sense or 0) + int(round(effects.get("divine_sense_bonus", 0))), stat_cap)
+    fortune = min(int(profile.fortune or 0) + int(round(effects.get("fortune_bonus", 0))), stat_cap)
+    willpower = min(int(profile.willpower or 0) + int(round(effects.get("willpower_bonus", 0))), stat_cap)
+    charisma = min(int(profile.charisma or 0) + int(round(effects.get("charisma_bonus", 0))), stat_cap)
+    karma = min(int(profile.karma or 0) + int(round(effects.get("karma_bonus", 0))), stat_cap)
+    qi_blood = min(int(profile.qi_blood or 0) + int(round(effects.get("qi_blood_bonus", 0))), combat_cap)
+    true_yuan = min(int(profile.true_yuan or 0) + int(round(effects.get("true_yuan_bonus", 0))), combat_cap)
+    body_movement = min(int(profile.body_movement or 0) + int(round(effects.get("body_movement_bonus", 0))), combat_cap)
+    attack_power = min(int(profile.attack_power or 0) + int(round(effects.get("attack_bonus", 0))), combat_cap)
+    defense_power = min(int(profile.defense_power or 0) + int(round(effects.get("defense_bonus", 0))), combat_cap)
     root_patch: dict[str, Any] | None = None
 
     if pill.pill_type == "clear_poison":
@@ -12733,6 +12780,12 @@ def _mark_profile_dead(session: Session, row: XiuxianProfile) -> None:
     row.retreat_minutes_resolved = 0
     row.robbery_daily_count = 0
     row.robbery_day_key = None
+    row.explore_daily_count = 0
+    row.explore_day_key = None
+    row.fish_daily_count = 0
+    row.fish_day_key = None
+    row.encounter_daily_count = 0
+    row.encounter_day_key = None
     _clear_servitude_marks(row)
     row.death_at = utcnow()
     row.updated_at = utcnow()
@@ -12824,7 +12877,10 @@ def resolve_duel(
     allow_plunder: bool = True,
     allow_artifact_plunder: bool = True,
     use_rate_outcome: bool = False,
+    consent_verified: bool = False,
 ) -> dict[str, Any]:
+    if int(challenger_tg) == int(defender_tg):
+        raise ValueError("不能与自己决斗。")
     duel = compute_duel_odds(challenger_tg, defender_tg, duel_mode=duel_mode)
     challenger_profile = duel["challenger"]["profile"]
     defender_profile = duel["defender"]["profile"]

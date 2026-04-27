@@ -263,13 +263,13 @@ DEFAULT_EXPLORATION_DROP_WEIGHT_RULES = {
     "high_quality_root_level_start": 4,
 }
 DEFAULT_ITEM_QUALITY_VALUE_RULES = {
-    "凡品": {"artifact_multiplier": 1.0, "pill_multiplier": 1.0, "talisman_multiplier": 1.0},
-    "下品": {"artifact_multiplier": 1.0, "pill_multiplier": 1.0, "talisman_multiplier": 1.0},
-    "中品": {"artifact_multiplier": 1.0, "pill_multiplier": 1.0, "talisman_multiplier": 1.0},
-    "上品": {"artifact_multiplier": 1.0, "pill_multiplier": 1.0, "talisman_multiplier": 1.0},
-    "极品": {"artifact_multiplier": 1.0, "pill_multiplier": 1.0, "talisman_multiplier": 1.0},
-    "仙品": {"artifact_multiplier": 1.0, "pill_multiplier": 1.0, "talisman_multiplier": 1.0},
-    "先天至宝": {"artifact_multiplier": 1.0, "pill_multiplier": 1.0, "talisman_multiplier": 1.0},
+    "凡品": {"artifact_multiplier": 0.70, "pill_multiplier": 0.70, "talisman_multiplier": 0.65, "recipe_multiplier": 0.70},
+    "下品": {"artifact_multiplier": 0.85, "pill_multiplier": 0.85, "talisman_multiplier": 0.80, "recipe_multiplier": 0.85},
+    "中品": {"artifact_multiplier": 1.00, "pill_multiplier": 1.00, "talisman_multiplier": 1.00, "recipe_multiplier": 1.00},
+    "上品": {"artifact_multiplier": 1.20, "pill_multiplier": 1.20, "talisman_multiplier": 1.18, "recipe_multiplier": 1.20},
+    "极品": {"artifact_multiplier": 1.45, "pill_multiplier": 1.45, "talisman_multiplier": 1.40, "recipe_multiplier": 1.45},
+    "仙品": {"artifact_multiplier": 1.75, "pill_multiplier": 1.75, "talisman_multiplier": 1.68, "recipe_multiplier": 1.75},
+    "先天至宝": {"artifact_multiplier": 2.15, "pill_multiplier": 2.15, "talisman_multiplier": 2.05, "recipe_multiplier": 2.15},
 }
 DEFAULT_ACTIVITY_STAT_GROWTH_RULES = {
     "practice": {"chance_percent": 16, "gain_min": 1, "gain_max": 2, "attribute_count": 1},
@@ -501,6 +501,9 @@ DEFAULT_SETTINGS = {
     "chat_cultivation_max_gain": 2,
     "robbery_daily_limit": 3,
     "robbery_max_steal": 180,
+    "exploration_daily_limit": 10,
+    "fishing_daily_limit": 30,
+    "encounter_claim_daily_limit": 5,
     "high_quality_broadcast_level": 4,
     "gambling_exchange_cost_stone": 120,
     "gambling_exchange_max_count": 20,
@@ -527,6 +530,7 @@ DEFAULT_SETTINGS = {
     "furnace_harvest_cultivation_percent": 10,
     "sect_salary_min_stay_days": 30,
     "sect_betrayal_cooldown_days": 7,
+    "marriage_divorce_cooldown_days": 7,
     "sect_betrayal_stone_percent": 10,
     "sect_betrayal_stone_min": 20,
     "sect_betrayal_stone_max": 300,
@@ -1007,6 +1011,12 @@ class XiuxianProfile(Base):
     rebirth_count = Column(Integer, default=0, nullable=False)
     robbery_daily_count = Column(Integer, default=0, nullable=False)
     robbery_day_key = Column(String(16), nullable=True)
+    explore_daily_count = Column(Integer, default=0, nullable=False)
+    explore_day_key = Column(String(16), nullable=True)
+    fish_daily_count = Column(Integer, default=0, nullable=False)
+    fish_day_key = Column(String(16), nullable=True)
+    encounter_daily_count = Column(Integer, default=0, nullable=False)
+    encounter_day_key = Column(String(16), nullable=True)
     current_artifact_id = Column(Integer, nullable=True)
     active_talisman_id = Column(Integer, nullable=True)
     current_technique_id = Column(Integer, nullable=True)
@@ -6259,7 +6269,7 @@ def create_shop_item(
                 item_ref_id=item_ref_id,
                 item_name=item_name,
                 quantity=max(int(quantity), 1),
-                price_stone=max(int(price_stone), 0),
+                price_stone=max(int(price_stone), 1),
                 is_official=is_official,
                 enabled=True,
             )
@@ -6978,6 +6988,8 @@ def purchase_shop_item(buyer_tg: int, item_id: int, quantity: int = 1) -> dict[s
         amount = max(int(quantity), 1)
         if item.quantity < amount:
             raise ValueError("商品库存不足")
+        if item.owner_tg is not None and int(item.owner_tg) == int(buyer_tg):
+            raise ValueError("你不能购买自己的挂单，请使用下架功能")
 
         buyer = (
             session.query(XiuxianProfile)

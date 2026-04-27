@@ -4,6 +4,8 @@ from typing import Any
 
 from bot.func_helper.emby_currency import get_emby_balance, get_exchange_settings
 from bot.sql_helper.sql_xiuxian import (
+    DEFAULT_SETTINGS,
+    SOCIAL_MODE_LABELS,
     list_recent_journals,
     list_user_artifacts,
     list_user_materials,
@@ -17,7 +19,6 @@ from bot.plugins.xiuxian_game.features.fishing import build_fishing_bundle
 from bot.plugins.xiuxian_game.features.gambling import build_gambling_bundle
 from bot.plugins.xiuxian_game.features.shop import attach_official_recycle_quotes
 from bot.plugins.xiuxian_game.service import (
-    DEFAULT_SETTINGS,
     _apply_profile_growth_floor,
     _battle_bundle,
     _breakthrough_requirement,
@@ -30,7 +31,6 @@ from bot.plugins.xiuxian_game.service import (
     _repair_profile_realm_state,
     _root_quality_payload,
     _settle_retreat_progress,
-    SOCIAL_MODE_LABELS,
     build_progress,
     format_root,
     get_current_title,
