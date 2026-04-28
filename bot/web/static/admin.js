@@ -60,6 +60,8 @@ const state = {
   codeStatus: "all",
   visibleCodes: [],
   selectedCodes: new Set(),
+  inviteBundle: null,
+  selectedInviteCredits: new Set(),
   visibleUsers: [],
   moderationChats: [],
   selectedModerationChatId: null,
@@ -105,6 +107,26 @@ const refs = {
   codePrevPage: document.querySelector("#codes-prev-page"),
   codeNextPage: document.querySelector("#codes-next-page"),
   codePageLabel: document.querySelector("#codes-page-label"),
+  inviteSettingsForm: document.querySelector("#invite-settings-form"),
+  inviteEnabled: document.querySelector("#invite-enabled"),
+  inviteTargetChatId: document.querySelector("#invite-target-chat-id"),
+  inviteExpireHours: document.querySelector("#invite-expire-hours"),
+  inviteStrictTarget: document.querySelector("#invite-strict-target"),
+  inviteSettingsSave: document.querySelector("#invite-settings-save"),
+  inviteSettingsStatus: document.querySelector("#invite-settings-status"),
+  inviteGrantForm: document.querySelector("#invite-grant-form"),
+  inviteGrantTg: document.querySelector("#invite-grant-tg"),
+  inviteGrantCount: document.querySelector("#invite-grant-count"),
+  inviteGrantNote: document.querySelector("#invite-grant-note"),
+  inviteGrantUseSelected: document.querySelector("#invite-grant-use-selected"),
+  inviteGrantSubmit: document.querySelector("#invite-grant-submit"),
+  inviteGrantStatus: document.querySelector("#invite-grant-status"),
+  inviteCreditList: document.querySelector("#invite-credit-list"),
+  inviteRecordList: document.querySelector("#invite-record-list"),
+  inviteCreditSelectPage: document.querySelector("#invite-credit-select-page"),
+  inviteCreditClearSelection: document.querySelector("#invite-credit-clear-selection"),
+  inviteCreditDeleteSelected: document.querySelector("#invite-credit-delete-selected"),
+  inviteRefresh: document.querySelector("#invite-refresh"),
   autoUpdateForm: document.querySelector("#auto-update-form"),
   autoUpdateSave: document.querySelector("#auto-update-save"),
   autoUpdateStatus: document.querySelector("#auto-update-status"),
@@ -1001,6 +1023,121 @@ function renderCodes(items) {
   syncCodeSelectionActions();
 }
 
+function setInviteSummary(summary = {}) {
+  document.querySelector("#invite-total").textContent = formatCount(summary.total);
+  document.querySelector("#invite-available").textContent = formatCount(summary.available);
+  document.querySelector("#invite-used").textContent = formatCount(summary.used);
+  document.querySelector("#invite-revoked").textContent = formatCount(summary.revoked);
+}
+
+function applyInviteSettings(settings = {}) {
+  if (refs.inviteEnabled) refs.inviteEnabled.checked = Boolean(settings.enabled);
+  if (refs.inviteTargetChatId) refs.inviteTargetChatId.value = settings.target_chat_id || "";
+  if (refs.inviteExpireHours) refs.inviteExpireHours.value = Number(settings.expire_hours || 24);
+  if (refs.inviteStrictTarget) refs.inviteStrictTarget.checked = settings.strict_target !== false;
+  if (refs.inviteSettingsStatus) {
+    refs.inviteSettingsStatus.textContent = settings.enabled
+      ? `邀请功能已开启，目标群组 ${settings.target_chat_id || "未配置"}，链接有效期 ${formatCount(settings.expire_hours || 24)} 小时。`
+      : "邀请功能当前关闭，用户无法生成新的入群邀请。";
+    refs.inviteSettingsStatus.dataset.tone = settings.enabled ? "success" : "warning";
+  }
+}
+
+function syncInviteCreditSelectionActions() {
+  const credits = state.inviteBundle?.credits || [];
+  const availableIds = credits.filter((item) => item.available).map((item) => Number(item.id));
+  const allSelected = availableIds.length > 0 && availableIds.every((id) => state.selectedInviteCredits.has(id));
+  if (refs.inviteCreditSelectPage) refs.inviteCreditSelectPage.textContent = allSelected ? "取消可删" : "全选可删";
+  if (refs.inviteCreditDeleteSelected) {
+    refs.inviteCreditDeleteSelected.disabled = state.selectedInviteCredits.size === 0;
+    refs.inviteCreditDeleteSelected.textContent = state.selectedInviteCredits.size
+      ? `删除已选 (${state.selectedInviteCredits.size})`
+      : "删除已选";
+  }
+  if (refs.inviteCreditClearSelection) refs.inviteCreditClearSelection.disabled = state.selectedInviteCredits.size === 0;
+}
+
+function renderInviteCredits(items = []) {
+  if (!refs.inviteCreditList) return;
+  refs.inviteCreditList.innerHTML = "";
+  if (!items.length) {
+    refs.inviteCreditList.innerHTML = `
+      <article class="user-card">
+        <div class="user-name">当前还没有邀请码</div>
+        <p class="user-meta stack-empty">可以通过后台手动赠送，或在商店上架邀请资格商品。</p>
+      </article>
+    `;
+    syncInviteCreditSelectionActions();
+    return;
+  }
+
+  for (const item of items) {
+    const selectable = Boolean(item.available);
+    const card = document.createElement("article");
+    card.className = "code-card";
+    card.innerHTML = `
+      <div class="code-card-top">
+        <label class="code-check">
+          <input type="checkbox" data-invite-credit-select="${escapeHtml(item.id)}" ${state.selectedInviteCredits.has(Number(item.id)) ? "checked" : ""} ${selectable ? "" : "disabled"}>
+          <span>选择</span>
+        </label>
+        <div class="code-card-badges">
+          <span class="badge badge--${item.available ? "normal" : item.status === "used" ? "pending" : "danger"}">${escapeHtml(item.status_text)}</span>
+          <span class="badge badge--vip">${escapeHtml(item.source || "admin")}</span>
+        </div>
+      </div>
+      <div class="user-name">邀请码 #${escapeHtml(item.id)} · ${escapeHtml(fmtActor(item.owner))}</div>
+      <div class="user-subline">发放时间：${escapeHtml(fmtDateTime(item.granted_at))} · 来源：${escapeHtml(item.source_ref || item.source || "后台")}</div>
+      <div class="plugin-meta">发放人：${escapeHtml(fmtActor(item.granted_by))}</div>
+      <div class="plugin-meta">备注：${escapeHtml(item.note || item.revoke_reason || "无")}</div>
+    `;
+    refs.inviteCreditList.appendChild(card);
+  }
+  syncInviteCreditSelectionActions();
+}
+
+function renderInviteRecords(items = []) {
+  if (!refs.inviteRecordList) return;
+  refs.inviteRecordList.innerHTML = "";
+  if (!items.length) {
+    refs.inviteRecordList.innerHTML = `
+      <article class="user-card">
+        <div class="user-name">当前还没有邀请关系</div>
+        <p class="user-meta stack-empty">用户生成入群邀请后，这里会展示邀请人和被邀请人。</p>
+      </article>
+    `;
+    return;
+  }
+
+  for (const item of items) {
+    const pending = item.status === "pending";
+    const card = document.createElement("article");
+    card.className = "code-card";
+    card.innerHTML = `
+      <div class="code-card-top">
+        <div class="code-card-badges">
+          <span class="badge badge--${pending ? "pending" : item.status === "approved" ? "normal" : "danger"}">${escapeHtml(item.status_text)}</span>
+          <span class="badge badge--normal">群 ${escapeHtml(item.target_chat_id)}</span>
+        </div>
+      </div>
+      <div class="user-name">邀请 #${escapeHtml(item.id)} · ${escapeHtml(fmtActor(item.inviter))} -> ${escapeHtml(fmtActor(item.invitee))}</div>
+      <div class="user-subline">创建：${escapeHtml(fmtDateTime(item.created_at))} · 过期：${escapeHtml(fmtDateTime(item.expires_at))}</div>
+      <div class="plugin-meta">最近请求：${escapeHtml(fmtActor(item.last_requester))} · 使用时间：${escapeHtml(fmtDateTime(item.used_at))}</div>
+      <div class="plugin-meta">邀请链接：${escapeHtml(item.invite_link || "已隐藏或不可用")}</div>
+      ${pending ? `<div class="plugin-actions"><button type="button" data-invite-record-revoke="${escapeHtml(item.id)}">撤销邀请</button></div>` : ""}
+    `;
+    refs.inviteRecordList.appendChild(card);
+  }
+}
+
+function applyInviteBundle(bundle = {}) {
+  state.inviteBundle = bundle || {};
+  setInviteSummary(bundle.summary || {});
+  applyInviteSettings(bundle.settings || {});
+  renderInviteCredits(bundle.credits || []);
+  renderInviteRecords(bundle.records || []);
+}
+
 function renderPlugins(items) {
   refs.pluginList.innerHTML = "";
 
@@ -1425,6 +1562,11 @@ async function loadCodes() {
   refs.codeNextPage.disabled = page >= totalPages;
 }
 
+async function loadInvites() {
+  const result = await api("/admin-api/invites");
+  applyInviteBundle(result.data || {});
+}
+
 async function loadUser(tg) {
   try {
     const result = await api(`/admin-api/users/${tg}`);
@@ -1451,7 +1593,7 @@ async function refreshSelectedUser() {
 }
 
 async function refreshDashboard() {
-  await Promise.all([loadSummary(), loadAutoUpdate(), loadPlugins(), loadBotAccessBlocks(), loadModerationChats(), loadUsers(), loadCodes()]);
+  await Promise.all([loadSummary(), loadAutoUpdate(), loadPlugins(), loadBotAccessBlocks(), loadModerationChats(), loadUsers(), loadCodes(), loadInvites()]);
 }
 
 async function tryTelegramAuth() {
@@ -2023,6 +2165,121 @@ async function deleteSelectedCodes() {
   }
 }
 
+async function saveInviteSettings(event) {
+  event.preventDefault();
+  try {
+    const result = await runButtonAction(refs.inviteSettingsSave, "保存中...", () => api("/admin-api/invites/settings", {
+      method: "PATCH",
+      body: JSON.stringify({
+        enabled: Boolean(refs.inviteEnabled?.checked),
+        target_chat_id: Number(refs.inviteTargetChatId?.value || 0) || null,
+        expire_hours: Number(refs.inviteExpireHours?.value || 24),
+        strict_target: Boolean(refs.inviteStrictTarget?.checked)
+      })
+    }));
+    applyInviteBundle(result.data || {});
+    setAdminStatus("邀请功能设置已保存。", "success");
+    showToast("邀请设置已保存。", "success");
+  } catch (error) {
+    const message = normalizeError(error, "保存邀请设置失败。");
+    setAdminStatus(message, "error");
+    showToast(message, "error");
+    await popup("保存失败", message, "error");
+  }
+}
+
+async function grantInviteCredits(event) {
+  event.preventDefault();
+  const ownerTg = Number(refs.inviteGrantTg?.value || 0);
+  if (!ownerTg) {
+    const message = "请先填写需要赠送的用户 TGID。";
+    setAdminStatus(message, "warning");
+    showToast(message, "warning");
+    return;
+  }
+  try {
+    const result = await runButtonAction(refs.inviteGrantSubmit, "发放中...", () => api("/admin-api/invites/credits", {
+      method: "POST",
+      body: JSON.stringify({
+        owner_tg: ownerTg,
+        count: Number(refs.inviteGrantCount?.value || 1),
+        note: refs.inviteGrantNote?.value?.trim() || ""
+      })
+    }));
+    applyInviteBundle(result.data || {});
+    const count = result.data?.last_granted?.length || 0;
+    const message = `已向 TG ${ownerTg} 发放 ${formatCount(count)} 个邀请码。`;
+    if (refs.inviteGrantStatus) refs.inviteGrantStatus.textContent = message;
+    setAdminStatus(message, "success");
+    showToast(message, "success");
+  } catch (error) {
+    const message = normalizeError(error, "赠送邀请码失败。");
+    if (refs.inviteGrantStatus) refs.inviteGrantStatus.textContent = message;
+    setAdminStatus(message, "error");
+    showToast(message, "error");
+    await popup("赠送失败", message, "error");
+  }
+}
+
+function useSelectedUserForInviteGrant() {
+  if (!state.selectedUser?.tg) {
+    const message = "请先在用户检索中选中一个用户。";
+    setAdminStatus(message, "warning");
+    showToast(message, "warning");
+    return;
+  }
+  refs.inviteGrantTg.value = state.selectedUser.tg;
+  focusSection("invites-section");
+}
+
+async function deleteSelectedInviteCredits() {
+  const creditIds = [...state.selectedInviteCredits];
+  if (!creditIds.length) {
+    setAdminStatus("请先选择需要删除的邀请码。", "warning");
+    showToast("请先选择需要删除的邀请码。", "warning");
+    return;
+  }
+  if (!window.confirm(`确认删除选中的 ${creditIds.length} 个未使用邀请码吗？`)) {
+    return;
+  }
+  try {
+    const result = await runButtonAction(refs.inviteCreditDeleteSelected, "删除中...", () => api("/admin-api/invites/credits/delete", {
+      method: "POST",
+      body: JSON.stringify({ credit_ids: creditIds, reason: "后台删除" })
+    }));
+    state.selectedInviteCredits.clear();
+    applyInviteBundle(result.data || {});
+    const payload = result.data?.delete_result || {};
+    const message = `已删除 ${formatCount(payload.deleted || 0)} 个邀请码${payload.skipped ? `，跳过 ${formatCount(payload.skipped)} 个已使用项` : ""}。`;
+    setAdminStatus(message, "success");
+    showToast(message, "success");
+  } catch (error) {
+    const message = normalizeError(error, "删除邀请码失败。");
+    setAdminStatus(message, "error");
+    showToast(message, "error");
+    await popup("删除失败", message, "error");
+  }
+}
+
+async function revokeInviteRecord(recordId) {
+  if (!window.confirm("确认撤销这条邀请链接吗？")) {
+    return;
+  }
+  try {
+    const result = await api(`/admin-api/invites/records/${encodeURIComponent(recordId)}/revoke`, {
+      method: "POST"
+    });
+    applyInviteBundle(result.data || {});
+    setAdminStatus(`邀请 #${recordId} 已撤销。`, "success");
+    showToast("邀请已撤销。", "success");
+  } catch (error) {
+    const message = normalizeError(error, "撤销邀请失败。");
+    setAdminStatus(message, "error");
+    showToast(message, "error");
+    await popup("撤销失败", message, "error");
+  }
+}
+
 function bindNavigation() {
   refs.navButtons.forEach((button) => {
     button.addEventListener("click", () => {
@@ -2048,6 +2305,9 @@ function syncSuffixField() {
 }
 
 refs.codeCreateForm?.addEventListener("submit", createCodes);
+refs.inviteSettingsForm?.addEventListener("submit", saveInviteSettings);
+refs.inviteGrantForm?.addEventListener("submit", grantInviteCredits);
+refs.inviteGrantUseSelected?.addEventListener("click", useSelectedUserForInviteGrant);
 refs.autoUpdateForm?.addEventListener("submit", saveAutoUpdate);
 refs.moderationSettingsForm?.addEventListener("submit", saveModerationSettings);
 refs.botBlockForm?.addEventListener("submit", createBotAccessBlock);
@@ -2354,6 +2614,58 @@ refs.codeList?.addEventListener("change", (event) => {
   syncCodeSelectionActions();
 });
 
+refs.inviteCreditList?.addEventListener("change", (event) => {
+  const checkbox = event.target.closest("[data-invite-credit-select]");
+  if (!checkbox) return;
+  const creditId = Number(checkbox.dataset.inviteCreditSelect || 0);
+  if (!creditId) return;
+  if (checkbox.checked) {
+    state.selectedInviteCredits.add(creditId);
+  } else {
+    state.selectedInviteCredits.delete(creditId);
+  }
+  syncInviteCreditSelectionActions();
+});
+
+refs.inviteCreditSelectPage?.addEventListener("click", () => {
+  const credits = state.inviteBundle?.credits || [];
+  const availableIds = credits.filter((item) => item.available).map((item) => Number(item.id));
+  const allSelected = availableIds.length > 0 && availableIds.every((id) => state.selectedInviteCredits.has(id));
+  availableIds.forEach((id) => {
+    if (allSelected) {
+      state.selectedInviteCredits.delete(id);
+    } else {
+      state.selectedInviteCredits.add(id);
+    }
+  });
+  renderInviteCredits(credits);
+});
+
+refs.inviteCreditClearSelection?.addEventListener("click", () => {
+  state.selectedInviteCredits.clear();
+  renderInviteCredits(state.inviteBundle?.credits || []);
+});
+
+refs.inviteCreditDeleteSelected?.addEventListener("click", deleteSelectedInviteCredits);
+
+refs.inviteRecordList?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-invite-record-revoke]");
+  if (!button) return;
+  await revokeInviteRecord(button.dataset.inviteRecordRevoke);
+});
+
+refs.inviteRefresh?.addEventListener("click", async () => {
+  try {
+    await runButtonAction(refs.inviteRefresh, "刷新中...", loadInvites);
+    setAdminStatus("邀请数据已刷新。", "success");
+    showToast("邀请数据已刷新。", "success");
+  } catch (error) {
+    const message = normalizeError(error, "刷新邀请数据失败。");
+    setAdminStatus(message, "error");
+    showToast(message, "error");
+  }
+});
+
 refs.tokenForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   state.token = refs.tokenInput.value.trim();
@@ -2527,6 +2839,7 @@ refs.pluginList.addEventListener("click", async (event) => {
   syncEditorShortcut();
   syncSuffixField();
   syncCodeSelectionActions();
+  syncInviteCreditSelectionActions();
 
   if (tgApp) {
     tgApp.ready();

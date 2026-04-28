@@ -9269,6 +9269,39 @@ def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
             ),
             1000000,
         )
+    if "encounter_auto_dispatch_enabled" in patch:
+        patch["encounter_auto_dispatch_enabled"] = bool(patch["encounter_auto_dispatch_enabled"])
+    if "encounter_auto_dispatch_hour" in patch and patch["encounter_auto_dispatch_hour"] is not None:
+        patch["encounter_auto_dispatch_hour"] = min(
+            max(
+                _coerce_int(
+                    patch["encounter_auto_dispatch_hour"],
+                    DEFAULT_SETTINGS["encounter_auto_dispatch_hour"],
+                    0,
+                ),
+                0,
+            ),
+            23,
+        )
+    if "encounter_auto_dispatch_minute" in patch and patch["encounter_auto_dispatch_minute"] is not None:
+        patch["encounter_auto_dispatch_minute"] = min(
+            max(
+                _coerce_int(
+                    patch["encounter_auto_dispatch_minute"],
+                    DEFAULT_SETTINGS["encounter_auto_dispatch_minute"],
+                    0,
+                ),
+                0,
+            ),
+            59,
+        )
+    if "encounter_auto_dispatch_last_dates" in patch:
+        raw_dates = patch["encounter_auto_dispatch_last_dates"] if isinstance(patch["encounter_auto_dispatch_last_dates"], dict) else {}
+        patch["encounter_auto_dispatch_last_dates"] = {
+            str(chat_id): str(day_key)
+            for chat_id, day_key in raw_dates.items()
+            if str(chat_id or "").strip() and str(day_key or "").strip()
+        }
     if "equipment_unbind_cost" in patch and patch["equipment_unbind_cost"] is not None:
         patch["equipment_unbind_cost"] = min(
             _coerce_int(

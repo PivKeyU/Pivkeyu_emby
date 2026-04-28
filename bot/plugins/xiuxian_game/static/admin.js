@@ -150,12 +150,12 @@ const ADMIN_ENTITY_DEFINITIONS = {
 const ADMIN_ENTITY_LOADERS = {};
 
 const BOSS_LOOT_FIELDS = [
-  ["loot_pills_json", "boss-loot-pills", "pill", "丹药"],
-  ["loot_materials_json", "boss-loot-materials", "material", "材料"],
-  ["loot_artifacts_json", "boss-loot-artifacts", "artifact", "法宝"],
-  ["loot_talismans_json", "boss-loot-talismans", "talisman", "符箓"],
-  ["loot_recipes_json", "boss-loot-recipes", "recipe", "配方"],
-  ["loot_techniques_json", "boss-loot-techniques", "technique", "功法"],
+  { field: "loot_pills_json", kind: "pill", label: "丹药" },
+  { field: "loot_materials_json", kind: "material", label: "材料" },
+  { field: "loot_artifacts_json", kind: "artifact", label: "法宝" },
+  { field: "loot_talismans_json", kind: "talisman", label: "符箓" },
+  { field: "loot_recipes_json", kind: "recipe", label: "配方" },
+  { field: "loot_techniques_json", kind: "technique", label: "功法" },
 ];
 
 const ITEM_AFFIX_FIELDS = [
@@ -1150,13 +1150,17 @@ function bossTypeLabel(type) {
   return String(type || "personal") === "world" ? "世界 Boss" : "个人 Boss";
 }
 
+function bossLootMetaByKind(kind) {
+  return BOSS_LOOT_FIELDS.find((item) => item.kind === String(kind || "").trim()) || BOSS_LOOT_FIELDS[0];
+}
+
 function bossLootRows(field, item = {}) {
   return Array.isArray(item[field]) ? item[field] : [];
 }
 
 function bossLootSummary(item = {}) {
   const parts = [];
-  for (const [field, , , label] of BOSS_LOOT_FIELDS) {
+  for (const { field, label } of BOSS_LOOT_FIELDS) {
     const rows = bossLootRows(field, item);
     if (rows.length) parts.push(`${label} ${rows.length} 项`);
   }
@@ -1176,7 +1180,7 @@ function bossRewardSummary(item = {}) {
 
 function bossLootDetailSummary(item = {}) {
   const lines = [];
-  for (const [field, , kind, label] of BOSS_LOOT_FIELDS) {
+  for (const { field, kind, label } of BOSS_LOOT_FIELDS) {
     const rows = bossLootRows(field, item);
     if (!rows.length) continue;
     const detail = rows.slice(0, 3).map((row) => {
@@ -1192,13 +1196,33 @@ function bossSubmitButton() {
   return document.querySelector("#boss-form button[type='submit']");
 }
 
-function parseBossLootInput(nodeId) {
-  const raw = $(nodeId)?.value || "";
-  const rows = parseJsonInput(raw, []);
-  if (!Array.isArray(rows)) {
-    throw new Error("Boss 掉落配置必须是 JSON 数组。");
-  }
-  return rows;
+function bossLootKindOptions(current = "") {
+  return BOSS_LOOT_FIELDS.map(({ kind, label }) => (
+    `<option value="${escapeHtml(kind)}" ${String(current || "") === kind ? "selected" : ""}>${escapeHtml(label)}</option>`
+  )).join("");
+}
+
+function collectBossLootPayload() {
+  const payload = BOSS_LOOT_FIELDS.reduce((result, { field }) => {
+    result[field] = [];
+    return result;
+  }, {});
+  document.querySelectorAll("#boss-loot-rows .builder-row").forEach((row) => {
+    const kind = row.querySelector("[data-boss-loot-kind]")?.value || "pill";
+    const refId = Number(row.querySelector("[data-boss-loot-ref]")?.value || 0);
+    if (refId <= 0) return;
+    const quantityMin = Math.max(Number(row.querySelector("[data-boss-loot-min]")?.value || 1), 1);
+    const quantityMax = Math.max(Number(row.querySelector("[data-boss-loot-max]")?.value || quantityMin), quantityMin);
+    const chance = Math.min(Math.max(Number(row.querySelector("[data-boss-loot-chance]")?.value || 0), 0), 100);
+    if (chance <= 0) return;
+    payload[bossLootMetaByKind(kind).field].push({
+      ref_id: refId,
+      chance,
+      quantity_min: quantityMin,
+      quantity_max: quantityMax,
+    });
+  });
+  return payload;
 }
 
 function collectBossPayload() {
@@ -1232,14 +1256,21 @@ function collectBossPayload() {
     sort_order: Number($("boss-sort")?.value || 0),
     enabled: $("boss-enabled")?.checked !== false,
   };
-  for (const [field, nodeId] of BOSS_LOOT_FIELDS) {
-    payload[field] = parseBossLootInput(nodeId);
-  }
+  Object.assign(payload, collectBossLootPayload());
   return payload;
 }
 
-function formatBossLootValue(value) {
-  return Array.isArray(value) && value.length ? JSON.stringify(value, null, 2) : "";
+function resetBossLootRows(item = null) {
+  const root = $("boss-loot-rows");
+  if (!root) return;
+  root.innerHTML = "";
+  const rows = [];
+  for (const { field, kind } of BOSS_LOOT_FIELDS) {
+    for (const loot of bossLootRows(field, item || {})) {
+      rows.push({ ...loot, kind });
+    }
+  }
+  (rows.length ? rows : [{}]).forEach((row) => addBossLootRow(row));
 }
 
 function resetBossForm() {
@@ -1268,7 +1299,7 @@ function resetBossForm() {
   setAdminInputValue("boss-ticket-cost", 100);
   setAdminInputValue("boss-flavor", "");
   setAdminInputValue("boss-sort", 0);
-  BOSS_LOOT_FIELDS.forEach(([, nodeId]) => setAdminInputValue(nodeId, ""));
+  resetBossLootRows();
   if ($("boss-type")) $("boss-type").value = "personal";
   if ($("boss-stage")) $("boss-stage").value = "炼气";
   if ($("boss-passive-kind")) $("boss-passive-kind").value = "";
@@ -1303,9 +1334,7 @@ function loadBossForm(item = {}) {
   setAdminInputValue("boss-ticket-cost", item.ticket_cost_stone || 0);
   setAdminInputValue("boss-flavor", item.flavor_text || "");
   setAdminInputValue("boss-sort", item.sort_order || 0);
-  for (const [field, nodeId] of BOSS_LOOT_FIELDS) {
-    setAdminInputValue(nodeId, formatBossLootValue(item[field]));
-  }
+  resetBossLootRows(item);
   if ($("boss-type")) $("boss-type").value = item.boss_type || "personal";
   if ($("boss-stage")) $("boss-stage").value = item.realm_stage || "炼气";
   if ($("boss-passive-kind")) $("boss-passive-kind").value = item.passive_effect_kind || "";
@@ -2514,6 +2543,35 @@ function addSceneDropRow(data = {}) {
   rows.appendChild(wrapper);
 }
 
+function addBossLootRow(data = {}) {
+  const rows = $("boss-loot-rows");
+  if (!rows) return;
+  const kind = bossLootMetaByKind(data.kind || data.reward_kind || "pill").kind;
+  const wrapper = createBuilderRow(`
+    <label>掉落类型
+      <select data-boss-loot-kind>${bossLootKindOptions(kind)}</select>
+    </label>
+    <label>对应物品
+      <select data-boss-loot-ref></select>
+    </label>
+    <label>掉落率 %
+      <input data-boss-loot-chance type="number" min="0" max="100" value="${escapeHtml(data.chance ?? 100)}">
+    </label>
+    <label>最小数量
+      <input data-boss-loot-min type="number" min="1" value="${escapeHtml(data.quantity_min || 1)}">
+    </label>
+    <label>最大数量
+      <input data-boss-loot-max type="number" min="1" value="${escapeHtml(data.quantity_max || data.quantity_min || 1)}">
+    </label>
+  `);
+  const kindNode = wrapper.querySelector("[data-boss-loot-kind]");
+  const refNode = wrapper.querySelector("[data-boss-loot-ref]");
+  const sync = (current = "") => setOptions(refNode, itemRows(kindNode.value), current, "请选择");
+  kindNode.addEventListener("change", () => sync(""));
+  sync(data.ref_id || data.reward_ref_id || "");
+  rows.appendChild(wrapper);
+}
+
 function rewardPoolKindLabel(kind) {
   return GAMBLING_ITEM_KIND_OPTIONS.find((item) => item.value === String(kind || "").trim())?.label || String(kind || "").trim() || "奖项";
 }
@@ -3445,6 +3503,10 @@ function syncSelects() {
     const kind = row.querySelector("[data-scene-bonus-kind]")?.value || "";
     setOptions(row.querySelector("[data-scene-bonus-ref]"), itemRows(kind || "material"), row.querySelector("[data-scene-bonus-ref]")?.value, "无");
   });
+  document.querySelectorAll("#boss-loot-rows .builder-row").forEach((row) => {
+    const kind = row.querySelector("[data-boss-loot-kind]")?.value || "pill";
+    setOptions(row.querySelector("[data-boss-loot-ref]"), itemRows(kind), row.querySelector("[data-boss-loot-ref]")?.value, "请选择");
+  });
   syncGrantUserMatches();
 }
 
@@ -3495,6 +3557,9 @@ function applySettings(settings = {}) {
   $("setting-exploration-limit").value = settings.exploration_daily_limit ?? 10;
   $("setting-fishing-limit").value = settings.fishing_daily_limit ?? 30;
   $("setting-encounter-limit").value = settings.encounter_claim_daily_limit ?? 5;
+  $("setting-encounter-auto-enabled").checked = settings.encounter_auto_dispatch_enabled ?? true;
+  $("setting-encounter-auto-hour").value = settings.encounter_auto_dispatch_hour ?? 12;
+  $("setting-encounter-auto-minute").value = settings.encounter_auto_dispatch_minute ?? 0;
   $("setting-seclusion-efficiency").value = settings.seclusion_cultivation_efficiency_percent ?? 60;
   $("setting-quality-broadcast").value = settings.high_quality_broadcast_level ?? 4;
   $("setting-slave-tribute").value = settings.slave_tribute_percent ?? 20;
@@ -3753,6 +3818,7 @@ function bindEvents() {
   $("recipe-ingredient-add")?.addEventListener("click", () => addRecipeIngredientRow());
   $("scene-event-add")?.addEventListener("click", () => addSceneEventRow());
   $("scene-drop-add")?.addEventListener("click", () => addSceneDropRow());
+  $("boss-loot-add")?.addEventListener("click", () => addBossLootRow());
   $("token-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     state.token = $("admin-token").value.trim();
@@ -3789,6 +3855,9 @@ function bindEvents() {
         exploration_daily_limit: Number($("setting-exploration-limit").value || 10),
         fishing_daily_limit: Number($("setting-fishing-limit").value || 30),
         encounter_claim_daily_limit: Number($("setting-encounter-limit").value || 5),
+        encounter_auto_dispatch_enabled: $("setting-encounter-auto-enabled").checked,
+        encounter_auto_dispatch_hour: Number($("setting-encounter-auto-hour").value || 12),
+        encounter_auto_dispatch_minute: Number($("setting-encounter-auto-minute").value || 0),
         seclusion_cultivation_efficiency_percent: Number($("setting-seclusion-efficiency").value || 60),
         gambling_exchange_cost_stone: Number($("setting-gambling-exchange-cost").value || 120),
         gambling_exchange_max_count: Number($("setting-gambling-exchange-max").value || 20),
@@ -5521,6 +5590,7 @@ ROLE_PRESETS.forEach(([role_key, role_name]) => addSectRoleRow({ role_key, role_
 addRecipeIngredientRow();
 addSceneEventRow();
 addSceneDropRow();
+addBossLootRow();
 ensureSettingRuleRows();
 bindEvents();
 bindAttributeAwareSubmitters();

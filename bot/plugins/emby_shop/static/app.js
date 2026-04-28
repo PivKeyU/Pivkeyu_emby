@@ -97,17 +97,20 @@ function renderProducts(items = []) {
     refs.productList.innerHTML = `<div class="empty">当前还没有可购买的商品。</div>`;
     return;
   }
-  refs.productList.innerHTML = items.map((item) => `
+  refs.productList.innerHTML = items.map((item) => {
+    const isInviteCredit = item.item_type === "invite_credit";
+    return `
     <article class="product-card">
       ${item.image_url ? `<img class="product-media" src="${escapeHtml(item.image_url)}" alt="${escapeHtml(item.title)}">` : `<div class="product-media"></div>`}
       <div class="card-head">
         <strong>${escapeHtml(item.title)}</strong>
-        <span class="tag">${item.official ? "官方" : "用户"}</span>
+        <span class="tag">${isInviteCredit ? "邀请资格" : item.official ? "官方" : "用户"}</span>
       </div>
       <p class="muted">${escapeHtml(item.description || "暂无描述")}</p>
       <div class="product-meta">
         <span class="tag">库存 ${escapeHtml(item.stock)}</span>
         <span class="tag">销量 ${escapeHtml(item.sold_count)}</span>
+        ${isInviteCredit ? `<span class="tag">每份 ${escapeHtml(item.invite_credit_quantity || 1)} 次</span>` : ""}
         ${item.owner_display_name ? `<span class="tag">卖家 ${escapeHtml(item.owner_display_name)}</span>` : ""}
       </div>
       <div class="card-head">
@@ -115,14 +118,18 @@ function renderProducts(items = []) {
         <button type="button" data-purchase="${escapeHtml(item.id)}">立即购买</button>
       </div>
     </article>
-  `).join("");
+  `;
+  }).join("");
 
   refs.productList.querySelectorAll("[data-purchase]").forEach((button) => {
     button.addEventListener("click", async () => {
       const itemId = Number(button.dataset.purchase);
       const item = items.find((row) => Number(row.id) === itemId);
       if (!item) return;
-      const confirmed = window.confirm(`确认花费 ${item.price_iv} 购买《${item.title}》吗？机器人会通过私聊自动发货。`);
+      const deliveryHint = item.item_type === "invite_credit"
+        ? `购买后将获得 ${item.invite_credit_quantity || 1} 次邀请资格。`
+        : "机器人会通过私聊自动发货。";
+      const confirmed = window.confirm(`确认花费 ${item.price_iv} 购买《${item.title}》吗？${deliveryHint}`);
       if (!confirmed) return;
       const previous = button.textContent;
       button.disabled = true;
@@ -134,7 +141,13 @@ function renderProducts(items = []) {
           quantity: 1
         });
         applyBundle(payload);
-        setStatus(`已购买《${item.title}》，机器人会把发货内容私聊给你。`, "success");
+        const inviteCount = payload.granted_invites?.length || 0;
+        setStatus(
+          inviteCount
+            ? `已购买《${item.title}》，获得 ${inviteCount} 次邀请资格。`
+            : `已购买《${item.title}》，机器人会把发货内容私聊给你。`,
+          "success"
+        );
         window.alert(`购买成功，订单号 #${payload.last_order?.id || "-"}`);
       } catch (error) {
         setStatus(String(error.message || error), "error");

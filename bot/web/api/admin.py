@@ -45,6 +45,17 @@ from bot.sql_helper.sql_bot_access import (
 )
 from bot.sql_helper.sql_code import Code, CodeRedeem
 from bot.sql_helper.sql_emby import Emby, sql_invalidate_emby_namespace
+from bot.sql_helper.sql_invite import (
+    get_invite_record,
+    get_invite_settings,
+    grant_invite_credits,
+    invite_credit_summary,
+    list_invite_credits,
+    list_invite_records,
+    revoke_invite_credit,
+    revoke_invite_record,
+    set_invite_settings,
+)
 from bot.sql_helper.sql_moderation import get_group_moderation_setting, list_group_moderation_warnings
 from bot.web.migration_bundle import MigrationBundleError, create_migration_bundle, restore_migration_bundle
 from bot.web.presenters import get_level_meta, serialize_emby_user
@@ -100,6 +111,24 @@ class AdminBotAccessBlockCreatePayload(BaseModel):
     tg: int | None = Field(default=None, ge=1)
     username: str | None = Field(default=None, max_length=255)
     note: str | None = Field(default=None, max_length=255)
+
+
+class AdminInviteSettingsPatch(BaseModel):
+    enabled: bool | None = None
+    target_chat_id: int | None = None
+    expire_hours: int | None = Field(default=None, ge=1, le=168)
+    strict_target: bool | None = None
+
+
+class AdminInviteGrantPayload(BaseModel):
+    owner_tg: int = Field(..., ge=1)
+    count: int = Field(default=1, ge=1, le=500)
+    note: str | None = Field(default=None, max_length=255)
+
+
+class AdminInviteCreditDeletePayload(BaseModel):
+    credit_ids: list[int] = Field(default_factory=list)
+    reason: str | None = Field(default=None, max_length=255)
 
 
 class AdminModerationSettingsPatch(BaseModel):
@@ -454,6 +483,68 @@ def _serialize_code_record(
         "redeemers": redeemers,
         "redeemer_count": len(redeemers),
     }
+
+
+def _serialize_invite_credit_admin(
+    item: dict[str, Any],
+    identity_map: dict[int, dict[str, str]],
+    emby_map: dict[int, Emby],
+) -> dict[str, Any]:
+    payload = dict(item or {})
+    payload["owner"] = _serialize_code_actor(payload.get("owner_tg"), identity_map, emby_map)
+    payload["granted_by"] = _serialize_code_actor(payload.get("granted_by_tg"), identity_map, emby_map)
+    payload["revoked_by"] = _serialize_code_actor(payload.get("revoked_by_tg"), identity_map, emby_map)
+    return payload
+
+
+def _serialize_invite_record_admin(
+    item: dict[str, Any],
+    identity_map: dict[int, dict[str, str]],
+    emby_map: dict[int, Emby],
+) -> dict[str, Any]:
+    payload = dict(item or {})
+    payload["inviter"] = _serialize_code_actor(payload.get("inviter_tg"), identity_map, emby_map)
+    payload["invitee"] = _serialize_code_actor(payload.get("invitee_tg"), identity_map, emby_map)
+    payload["created_by"] = _serialize_code_actor(payload.get("created_by_tg"), identity_map, emby_map)
+    payload["last_requester"] = _serialize_code_actor(payload.get("last_request_tg"), identity_map, emby_map)
+    return payload
+
+
+async def _invite_admin_bundle() -> dict[str, Any]:
+    settings = get_invite_settings()
+    credits = list_invite_credits(limit=200)
+    records = list_invite_records(limit=200)
+    tg_ids: set[int] = set()
+
+    for item in credits:
+        for key in ("owner_tg", "granted_by_tg", "revoked_by_tg"):
+            if item.get(key) is not None:
+                tg_ids.add(int(item[key]))
+    for item in records:
+        for key in ("inviter_tg", "invitee_tg", "created_by_tg", "last_request_tg"):
+            if item.get(key) is not None:
+                tg_ids.add(int(item[key]))
+
+    with Session() as session:
+        emby_rows = session.query(Emby).filter(Emby.tg.in_(tg_ids)).all() if tg_ids else []
+    emby_map = {int(row.tg): row for row in emby_rows}
+    identity_map = await _fetch_telegram_identity_map(list(tg_ids))
+
+    return {
+        "settings": settings,
+        "summary": invite_credit_summary(),
+        "credits": [_serialize_invite_credit_admin(item, identity_map, emby_map) for item in credits],
+        "records": [_serialize_invite_record_admin(item, identity_map, emby_map) for item in records],
+    }
+
+
+async def _safe_revoke_invite_link(chat_id: int, invite_link: str) -> None:
+    if not chat_id or not invite_link:
+        return
+    try:
+        await bot.revoke_chat_invite_link(chat_id=int(chat_id), invite_link=invite_link)
+    except Exception as exc:
+        LOGGER.warning(f"admin revoke invite link failed chat={chat_id}: {exc}")
 
 
 def _normalize_code_create_payload(payload: AdminCodeCreatePayload) -> dict[str, Any]:
@@ -1137,6 +1228,73 @@ async def delete_codes(payload: AdminCodeDeletePayload):
             "redeem_deleted": int(redeem_deleted),
         },
     }
+
+
+@router.get("/invites")
+async def admin_invites():
+    return {"code": 200, "data": await _invite_admin_bundle()}
+
+
+@router.patch("/invites/settings")
+async def patch_invite_settings(payload: AdminInviteSettingsPatch, request: Request):
+    actor_tg = _resolve_admin_actor_id(request)
+    settings = set_invite_settings(payload.model_dump(exclude_unset=True))
+    LOGGER.info(f"admin invite settings actor={actor_tg} settings={settings}")
+    return {"code": 200, "data": await _invite_admin_bundle()}
+
+
+@router.post("/invites/credits")
+async def grant_invite_credit_api(payload: AdminInviteGrantPayload, request: Request):
+    actor_tg = _resolve_admin_actor_id(request)
+    try:
+        granted = grant_invite_credits(
+            owner_tg=payload.owner_tg,
+            count=payload.count,
+            granted_by_tg=actor_tg,
+            source="admin",
+            note=payload.note or "",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    LOGGER.info(f"admin invite credits grant actor={actor_tg} owner={payload.owner_tg} count={payload.count}")
+    bundle = await _invite_admin_bundle()
+    bundle["last_granted"] = granted
+    return {"code": 200, "data": bundle}
+
+
+@router.post("/invites/credits/delete")
+async def delete_invite_credits_api(payload: AdminInviteCreditDeletePayload, request: Request):
+    actor_tg = _resolve_admin_actor_id(request)
+    unique_ids = [int(item) for item in dict.fromkeys(payload.credit_ids) if int(item) > 0]
+    if not unique_ids:
+        raise HTTPException(status_code=400, detail="至少需要选择一个邀请码")
+    deleted = 0
+    skipped = 0
+    for credit_id in unique_ids:
+        item = revoke_invite_credit(credit_id, revoked_by_tg=actor_tg, reason=payload.reason or "后台删除")
+        if item and item.get("status") == "revoked":
+            deleted += 1
+        else:
+            skipped += 1
+    LOGGER.info(f"admin invite credits delete actor={actor_tg} deleted={deleted} skipped={skipped}")
+    bundle = await _invite_admin_bundle()
+    bundle["delete_result"] = {"requested": len(unique_ids), "deleted": deleted, "skipped": skipped}
+    return {"code": 200, "data": bundle}
+
+
+@router.post("/invites/records/{record_id}/revoke")
+async def revoke_invite_record_api(record_id: int, request: Request):
+    actor_tg = _resolve_admin_actor_id(request)
+    record = get_invite_record(record_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="未找到对应邀请记录")
+    if record.get("status") == "pending":
+        await _safe_revoke_invite_link(record.get("target_chat_id"), record.get("invite_link") or "")
+    updated = revoke_invite_record(record_id, requester_tg=actor_tg)
+    LOGGER.info(f"admin invite record revoke actor={actor_tg} record={record_id}")
+    bundle = await _invite_admin_bundle()
+    bundle["revoked_record"] = updated
+    return {"code": 200, "data": bundle}
 
 
 @router.get("/plugins")

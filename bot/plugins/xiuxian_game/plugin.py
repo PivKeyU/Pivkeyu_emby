@@ -393,6 +393,8 @@ EVENT_SUMMARY_LAST_TEXTS: dict[int, str] = {}
 EVENT_SUMMARY_PINNED_MESSAGES: dict[int, int] = {}
 EVENT_SUMMARY_REFRESH_TASK: asyncio.Task | None = None
 EVENT_SUMMARY_LOOP_TASK: asyncio.Task | None = None
+ENCOUNTER_AUTO_DISPATCH_LOOP_TASK: asyncio.Task | None = None
+ENCOUNTER_AUTO_DISPATCH_LOCK: asyncio.Lock | None = None
 EVENT_SUMMARY_REFRESH_LOCK: asyncio.Lock | None = None
 EVENT_SUMMARY_DIRTY_CHATS: set[int] = set()
 EVENT_SUMMARY_FORCE_FULL_REFRESH = False
@@ -976,10 +978,26 @@ def _build_bottom_nav() -> list[dict[str, str]]:
     return items
 
 
+def _configured_group_chat_ids() -> list[int]:
+    if group is None:
+        return []
+    raw_groups = [group] if isinstance(group, (str, int)) else group
+    chat_ids: list[int] = []
+    seen: set[int] = set()
+    for item in raw_groups or []:
+        try:
+            chat_id = int(str(item or "").strip() or "0")
+        except (TypeError, ValueError):
+            continue
+        if chat_id and chat_id not in seen:
+            seen.add(chat_id)
+            chat_ids.append(chat_id)
+    return chat_ids
+
+
 def _main_group_chat_id() -> int | None:
-    if not group:
-        return None
-    return int(group[0])
+    chat_ids = _configured_group_chat_ids()
+    return chat_ids[0] if chat_ids else None
 
 
 def _encounter_auto_trigger_enabled(chat_id: int | None) -> bool:
@@ -990,11 +1008,7 @@ def _encounter_auto_trigger_enabled(chat_id: int | None) -> bool:
     if cached is not None:
         return cached
 
-    allowed_chat_ids = {
-        int(item)
-        for item in (group or [])
-        if str(item or "").strip() and int(item or 0) != 0
-    }
+    allowed_chat_ids = set(_configured_group_chat_ids())
     main_chat_id = _main_group_chat_id()
     if main_chat_id:
         allowed_chat_ids.add(int(main_chat_id))
@@ -1002,6 +1016,101 @@ def _encounter_auto_trigger_enabled(chat_id: int | None) -> bool:
     enabled = resolved_chat_id in allowed_chat_ids or get_latest_group_encounter_time(resolved_chat_id) is not None
     ENCOUNTER_AUTO_CHAT_STATE[resolved_chat_id] = enabled
     return enabled
+
+
+def _encounter_auto_dispatch_chat_ids(settings: dict[str, Any] | None = None) -> list[int]:
+    source = settings if isinstance(settings, dict) else get_xiuxian_settings()
+    chat_ids = _configured_group_chat_ids()
+    last_dates = source.get("encounter_auto_dispatch_last_dates") if isinstance(source, dict) else {}
+    if isinstance(last_dates, dict):
+        for raw_chat_id in last_dates.keys():
+            try:
+                chat_id = int(str(raw_chat_id or "").strip() or "0")
+            except (TypeError, ValueError):
+                continue
+            if chat_id:
+                chat_ids.append(chat_id)
+
+    deduped: list[int] = []
+    seen: set[int] = set()
+    for chat_id in chat_ids:
+        if chat_id in seen:
+            continue
+        seen.add(chat_id)
+        if _encounter_auto_trigger_enabled(chat_id):
+            deduped.append(chat_id)
+    return deduped
+
+
+def _encounter_auto_dispatch_due(settings: dict[str, Any], now: datetime) -> bool:
+    if not bool(settings.get("encounter_auto_dispatch_enabled", DEFAULT_SETTINGS.get("encounter_auto_dispatch_enabled", True))):
+        return False
+    try:
+        hour = int(settings.get("encounter_auto_dispatch_hour", DEFAULT_SETTINGS.get("encounter_auto_dispatch_hour", 12)) or 0)
+    except (TypeError, ValueError):
+        hour = int(DEFAULT_SETTINGS.get("encounter_auto_dispatch_hour", 12))
+    try:
+        minute = int(settings.get("encounter_auto_dispatch_minute", DEFAULT_SETTINGS.get("encounter_auto_dispatch_minute", 0)) or 0)
+    except (TypeError, ValueError):
+        minute = int(DEFAULT_SETTINGS.get("encounter_auto_dispatch_minute", 0))
+    hour = min(max(hour, 0), 23)
+    minute = min(max(minute, 0), 59)
+    return (now.hour, now.minute) >= (hour, minute)
+
+
+def _encounter_auto_dispatch_last_date(settings: dict[str, Any], chat_id: int) -> str:
+    raw_dates = settings.get("encounter_auto_dispatch_last_dates") if isinstance(settings, dict) else {}
+    if not isinstance(raw_dates, dict):
+        return ""
+    return str(raw_dates.get(str(int(chat_id))) or raw_dates.get(int(chat_id)) or "").strip()
+
+
+def _datetime_shanghai_day_key(value: datetime | None) -> str:
+    if value is None:
+        return ""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(SHANGHAI_TZ).date().isoformat()
+
+
+def _latest_group_encounter_day_key(chat_id: int) -> str:
+    return _datetime_shanghai_day_key(get_latest_group_encounter_time(int(chat_id)))
+
+
+def _mark_encounter_auto_dispatch_done(chat_id: int, day_key: str) -> None:
+    settings = get_xiuxian_settings()
+    raw_dates = settings.get("encounter_auto_dispatch_last_dates")
+    last_dates = dict(raw_dates) if isinstance(raw_dates, dict) else {}
+    last_dates[str(int(chat_id))] = str(day_key)
+    set_xiuxian_settings({"encounter_auto_dispatch_last_dates": last_dates})
+
+
+async def _dispatch_due_group_encounters() -> None:
+    settings = get_xiuxian_settings()
+    now = datetime.now(SHANGHAI_TZ)
+    if not _encounter_auto_dispatch_due(settings, now):
+        return
+    day_key = now.date().isoformat()
+    for chat_id in _encounter_auto_dispatch_chat_ids(settings):
+        if _encounter_auto_dispatch_last_date(settings, chat_id) == day_key:
+            continue
+        if _latest_group_encounter_day_key(chat_id) == day_key:
+            _mark_encounter_auto_dispatch_done(chat_id, day_key)
+            continue
+        try:
+            payload = spawn_group_encounter(chat_id)
+            await _push_group_encounter_notice(payload)
+            _mark_encounter_auto_dispatch_done(chat_id, day_key)
+        except ValueError as exc:
+            if _latest_group_encounter_day_key(chat_id) == day_key:
+                _mark_encounter_auto_dispatch_done(chat_id, day_key)
+                continue
+            message = str(exc)
+            if "没有可投放" in message:
+                _mark_encounter_auto_dispatch_done(chat_id, day_key)
+            LOGGER.warning(f"xiuxian encounter auto dispatch skipped chat={chat_id}: {exc}")
+        except Exception as exc:
+            LOGGER.warning(f"xiuxian encounter auto dispatch failed chat={chat_id}: {exc}")
 
 
 def _notice_group_setting_key(scope: str) -> str | None:
@@ -3851,7 +3960,7 @@ async def _maybe_refresh_duel_bet_message(pool_id: int, message, remaining_secon
 
 
 def register_bot(bot_instance) -> None:
-    global EVENT_SUMMARY_LOOP_TASK
+    global EVENT_SUMMARY_LOOP_TASK, ENCOUNTER_AUTO_DISPATCH_LOOP_TASK, ENCOUNTER_AUTO_DISPATCH_LOCK
     _ensure_xiuxian_bot_commands()
     _schedule_command_refresh(bot_instance)
     _schedule_active_auction_finalize_tasks()
@@ -3876,6 +3985,30 @@ def register_bot(bot_instance) -> None:
 
         EVENT_SUMMARY_LOOP_TASK = loop.create_task(refresh_event_summary_loop())
     _queue_event_summary_refresh(delay_seconds=0.2, force_create=True)
+
+    if ENCOUNTER_AUTO_DISPATCH_LOCK is None:
+        ENCOUNTER_AUTO_DISPATCH_LOCK = asyncio.Lock()
+    if ENCOUNTER_AUTO_DISPATCH_LOOP_TASK is None or ENCOUNTER_AUTO_DISPATCH_LOOP_TASK.done():
+        loop = asyncio.get_event_loop()
+
+        async def encounter_auto_dispatch_loop() -> None:
+            await asyncio.sleep(30)
+            while True:
+                try:
+                    lock = ENCOUNTER_AUTO_DISPATCH_LOCK
+                    if lock is None:
+                        await asyncio.sleep(60)
+                        continue
+                    async with lock:
+                        await _dispatch_due_group_encounters()
+                    await asyncio.sleep(60)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    LOGGER.warning(f"xiuxian encounter auto dispatch loop failed: {exc}")
+                    await asyncio.sleep(60)
+
+        ENCOUNTER_AUTO_DISPATCH_LOOP_TASK = loop.create_task(encounter_auto_dispatch_loop())
 
     # World boss scheduler
     _WORLD_BOSS_LOOP_TASK = globals().get("_WORLD_BOSS_LOOP_TASK")

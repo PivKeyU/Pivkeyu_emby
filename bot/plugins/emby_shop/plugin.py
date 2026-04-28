@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from bot import LOGGER, api as api_config, bot, config, group, owner
 from bot.plugins import list_miniapp_plugins
 from bot.sql_helper.sql_emby import sql_get_emby
+from bot.sql_helper.sql_invite import grant_invite_credits, has_viewing_access
 from bot.sql_helper.sql_shop import (
     create_shop_item,
     delete_shop_item,
@@ -61,6 +62,8 @@ class ShopItemPayload(BaseModel):
     description: str = ""
     image_url: str = ""
     delivery_text: str = ""
+    item_type: str = "digital"
+    invite_credit_quantity: int = 0
     price_iv: int = 0
     stock: int = 1
     notify_group: bool = False
@@ -73,6 +76,8 @@ class ShopItemPatchPayload(BaseModel):
     description: str | None = None
     image_url: str | None = None
     delivery_text: str | None = None
+    item_type: str | None = None
+    invite_credit_quantity: int | None = None
     price_iv: int | None = None
     stock: int | None = None
     notify_group: bool | None = None
@@ -237,11 +242,18 @@ async def _deliver_order_notice(
     seller_tg: int | None = None,
 ) -> None:
     currency_name = get_shop_settings().get("currency_name")
+    delivery_text = item.get("delivery_text") or "卖家未填写自动发货内容，请联系管理员处理。"
+    if item.get("item_type") == "invite_credit":
+        invite_count = max(int(item.get("invite_credit_quantity") or 1), 1) * max(int(order.get("quantity") or 1), 1)
+        delivery_text = (
+            f"本次购买已为你增加 {invite_count} 次邀请资格。\n"
+            "请进入 miniapp 主页的“邀请入群”模块，为指定 TGID 发送一次性入群链接。"
+        )
     buyer_text = (
         f"🎁 你已成功购买《{item['title']}》\n"
         f"订单号：#{order['id']}\n"
         f"支付：{order['total_price_iv']} {currency_name}\n\n"
-        f"{item.get('delivery_text') or '卖家未填写自动发货内容，请联系管理员处理。'}"
+        f"{delivery_text}"
     )
     try:
         photo = _resolve_group_image_source(item.get("image_url"))
@@ -358,6 +370,8 @@ def register_web(app) -> None:
             description=payload.description,
             image_url=payload.image_url,
             delivery_text=payload.delivery_text,
+            item_type="digital",
+            invite_credit_quantity=0,
             price_iv=payload.price_iv,
             stock=payload.stock,
             notify_group=payload.notify_group,
@@ -373,7 +387,22 @@ def register_web(app) -> None:
         item = get_shop_item(payload.item_id)
         if item is None:
             raise HTTPException(status_code=404, detail="商品不存在")
+        if item.get("item_type") == "invite_credit":
+            account = sql_get_emby(int(user["id"]))
+            if not has_viewing_access(account):
+                raise HTTPException(status_code=403, detail="只有拥有 Emby 观影资格的用户才能购买邀请码")
         result = purchase_shop_item(buyer_tg=int(user["id"]), item_id=payload.item_id, quantity=payload.quantity)
+        granted_invites = []
+        if result["item"].get("item_type") == "invite_credit":
+            invite_count = max(int(result["item"].get("invite_credit_quantity") or 1), 1) * max(int(payload.quantity or 1), 1)
+            granted_invites = grant_invite_credits(
+                owner_tg=int(user["id"]),
+                count=invite_count,
+                granted_by_tg=result["order"].get("seller_tg"),
+                source="shop",
+                source_ref=f"order:{result['order']['id']}",
+                note=f"购买商品《{result['item']['title']}》",
+            )
         await _deliver_order_notice(
             buyer_tg=int(user["id"]),
             item=result["item"],
@@ -383,6 +412,7 @@ def register_web(app) -> None:
         bundle = _serialize_shop_bundle(int(user["id"]))
         bundle["last_order"] = result["order"]
         bundle["buyer_balance"] = result["buyer_balance"]
+        bundle["granted_invites"] = granted_invites
         return {"code": 200, "data": bundle}
 
     @user_router.post("/api/upload-image")
@@ -430,6 +460,8 @@ def register_web(app) -> None:
             description=payload.description,
             image_url=payload.image_url,
             delivery_text=payload.delivery_text,
+            item_type=payload.item_type,
+            invite_credit_quantity=payload.invite_credit_quantity,
             price_iv=payload.price_iv,
             stock=payload.stock,
             notify_group=payload.notify_group,

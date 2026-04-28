@@ -210,6 +210,18 @@
                 每日奇遇领取上限
                 <input id="setting-encounter-limit" type="number" min="0" value="5">
               </label>
+              <label class="inline-check">
+                <input id="setting-encounter-auto-enabled" type="checkbox" checked>
+                每日自动投放群内奇遇（当天已投放则跳过）
+              </label>
+              <label>
+                奇遇投放小时
+                <input id="setting-encounter-auto-hour" type="number" min="0" max="23" value="12">
+              </label>
+              <label>
+                奇遇投放分钟
+                <input id="setting-encounter-auto-minute" type="number" min="0" max="59" value="0">
+              </label>
               <label>
                 避世修为效率（%）
                 <input id="setting-seclusion-efficiency" type="number" min="0" max="100" value="60">
@@ -1756,12 +1768,16 @@
           </label>
           <label class="wide-field">Boss 描述 <textarea id="boss-description" rows="2" placeholder="前台展示的 Boss 背景说明"></textarea></label>
           <label class="wide-field">胜利文案 <textarea id="boss-flavor" rows="2" placeholder="击败后展示的氛围文案"></textarea></label>
-          <label class="wide-field">丹药掉落 JSON <textarea id="boss-loot-pills" rows="3" placeholder='[{"ref_id":1,"chance":60,"quantity_min":1,"quantity_max":2}]'></textarea></label>
-          <label class="wide-field">材料掉落 JSON <textarea id="boss-loot-materials" rows="3" placeholder='[{"ref_id":1,"chance":70,"quantity_min":1,"quantity_max":3}]'></textarea></label>
-          <label class="wide-field">法宝掉落 JSON <textarea id="boss-loot-artifacts" rows="3" placeholder='[{"ref_id":1,"chance":12,"quantity_min":1,"quantity_max":1}]'></textarea></label>
-          <label class="wide-field">符箓掉落 JSON <textarea id="boss-loot-talismans" rows="3" placeholder="[]"></textarea></label>
-          <label class="wide-field">配方掉落 JSON <textarea id="boss-loot-recipes" rows="3" placeholder="[]"></textarea></label>
-          <label class="wide-field">功法掉落 JSON <textarea id="boss-loot-techniques" rows="3" placeholder="[]"></textarea></label>
+          <section class="wide-field builder-section">
+            <div class="builder-head">
+              <div>
+                <strong>掉落奖励</strong>
+                <span class="summary-tip">选择奖励类型和具体物品，填写掉率与数量范围</span>
+              </div>
+              <button id="boss-loot-add" type="button" class="secondary">新增掉落</button>
+            </div>
+            <div id="boss-loot-rows" class="builder-list"></div>
+          </section>
           <label class="inline-check">
             <input id="boss-enabled" type="checkbox" checked>
             启用 Boss

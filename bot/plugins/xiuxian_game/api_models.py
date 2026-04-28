@@ -359,6 +359,9 @@ class AdminSettingPayload(BaseModel):
     exploration_daily_limit: int | None = None
     fishing_daily_limit: int | None = None
     encounter_claim_daily_limit: int | None = None
+    encounter_auto_dispatch_enabled: bool | None = None
+    encounter_auto_dispatch_hour: int | None = None
+    encounter_auto_dispatch_minute: int | None = None
     high_quality_broadcast_level: int | None = None
     gambling_exchange_cost_stone: int | None = None
     gambling_exchange_max_count: int | None = None

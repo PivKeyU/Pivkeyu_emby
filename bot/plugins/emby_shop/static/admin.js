@@ -83,6 +83,7 @@ function renderOrders(orders = []) {
         <span class="tag">${escapeHtml(order.total_price_iv)}</span>
       </div>
       <p class="muted">买家 TG ${escapeHtml(order.buyer_tg)} · 卖家 ${escapeHtml(order.seller_tg || "官方")}</p>
+      <p class="muted">${order.item_type === "invite_credit" ? `邀请资格 ${escapeHtml(order.invite_credit_quantity || 0)} 次/份` : "普通数字商品"}</p>
       <p class="muted">${escapeHtml(order.created_at || "")}</p>
     </article>
   `).join("");
@@ -103,6 +104,7 @@ function renderItems(items = []) {
       <div class="product-meta">
         <span class="tag">价格 ${escapeHtml(item.price_iv)}</span>
         <span class="tag">库存 ${escapeHtml(item.stock)}</span>
+        <span class="tag">${item.item_type === "invite_credit" ? `邀请资格 x${escapeHtml(item.invite_credit_quantity || 1)}` : "数字商品"}</span>
         <span class="tag">${item.official ? "官方商品" : "用户商品"}</span>
         ${item.notify_group ? `<span class="tag">群通知开启</span>` : ""}
       </div>
@@ -251,6 +253,8 @@ refs.itemForm?.addEventListener("submit", async (event) => {
       description: document.querySelector("#item-description").value.trim(),
       image_url: document.querySelector("#item-image").value.trim(),
       delivery_text: document.querySelector("#item-delivery").value.trim(),
+      item_type: document.querySelector("#item-type").value,
+      invite_credit_quantity: Number(document.querySelector("#item-invite-quantity").value || 0),
       price_iv: Number(document.querySelector("#item-price").value || 0),
       stock: Number(document.querySelector("#item-stock").value || 1),
       notify_group: document.querySelector("#item-notify").checked,

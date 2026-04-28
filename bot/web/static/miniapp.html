@@ -108,6 +108,41 @@
         </div>
       </details>
 
+      <details id="invite-card" class="card fold-card hidden">
+        <summary class="fold-summary">
+          <div>
+            <p class="eyebrow">邀请入群</p>
+            <h2>邀请码</h2>
+          </div>
+          <span class="summary-tip">为指定 TGID 发送一次性入群链接</span>
+        </summary>
+        <div class="fold-body">
+          <p id="invite-status" class="section-copy">正在同步邀请资格...</p>
+          <div class="profile-grid">
+            <article class="profile-item">
+              <span>可用邀请码</span>
+              <strong id="invite-credit-count">-</strong>
+            </article>
+            <article class="profile-item">
+              <span>链接有效期</span>
+              <strong id="invite-expire-hours">-</strong>
+            </article>
+          </div>
+          <form id="invite-form" class="mini-form">
+            <label>
+              被邀请人 TGID
+              <input id="invitee-tg" type="number" min="1" placeholder="对方需要先私聊启动机器人">
+            </label>
+            <label>
+              备注
+              <input id="invite-note" type="text" maxlength="255" placeholder="可选，方便后台识别">
+            </label>
+            <button id="invite-submit" type="submit">发送邀请链接</button>
+          </form>
+          <div id="invite-records" class="stack-list"></div>
+        </div>
+      </details>
+
       <details class="card fold-card span-2">
         <summary class="fold-summary">
           <div>

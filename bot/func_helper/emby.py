@@ -1358,27 +1358,70 @@ class Embyservice(metaclass=Singleton):
         获取媒体数量统计
         :return: 统计文本
         """
+        api_key = str(emby_api or "").strip()
+        base_url = str(emby_url or "").strip().rstrip("/")
+        placeholder_markers = ("replace_with", "your_", "example", "api_key")
+
+        if not base_url or any(marker in base_url.lower() for marker in ("replace_with", "example")):
+            LOGGER.error("获取媒体统计失败: Emby URL 未配置")
+            return "🤕Emby 服务器地址未配置，请先填写 emby_url。"
+
+        if not api_key or any(marker in api_key.lower() for marker in placeholder_markers):
+            LOGGER.error("获取媒体统计失败: Emby API Key 未配置")
+            return "🤕Emby API Key 未配置，请先填写有效的 emby_api。"
+
         try:
             # 创建临时会话进行请求
             timeout = aiohttp.ClientTimeout(total=10)
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                url = f"{emby_url}/emby/Items/Counts?api_key={emby_api}"
-                async with session.get(url) as response:
+                url = f"{base_url}/emby/Items/Counts"
+                headers = {
+                    "Accept": "application/json",
+                    "Cache-Control": "no-cache",
+                    "Pragma": "no-cache",
+                    "X-Emby-Token": api_key,
+                }
+                params = {
+                    "api_key": api_key,
+                    "_": str(int(datetime.now().timestamp())),
+                }
+                async with session.get(url, headers=headers, params=params) as response:
                     if response.status in [200, 204]:
-                        result = await response.json()
+                        try:
+                            result = await response.json(content_type=None)
+                        except Exception as e:
+                            LOGGER.error(f"获取媒体统计失败: JSON解析失败 - {str(e)}")
+                            return "🤕Emby 服务器返回的数据不是有效 JSON。"
                         movie_count = result.get("MovieCount", 0)
                         tv_count = result.get("SeriesCount", 0)
                         episode_count = result.get("EpisodeCount", 0)
                         music_count = result.get("SongCount", 0)
+                        item_count = result.get("ItemCount")
                         
                         txt = f'🎬 电影数量：{movie_count}\n' \
                               f'📽️ 剧集数量：{tv_count}\n' \
                               f'🎵 音乐数量：{music_count}\n' \
                               f'🎞️ 总集数：{episode_count}\n'
+                        if item_count is not None:
+                            txt += f'📦 总项目数：{item_count}\n'
                         LOGGER.debug("获取媒体统计成功")
                         return txt
+                    if response.status == 401:
+                        LOGGER.error("获取媒体统计失败: Emby API Key 认证失败")
+                        return "🤕Emby API Key 认证失败，请检查 emby_api。"
+                    if response.status == 403:
+                        LOGGER.error("获取媒体统计失败: Emby API Key 权限不足")
+                        return "🤕Emby API Key 权限不足，请检查该 Key 是否允许读取媒体库统计。"
+                    if response.status == 404:
+                        LOGGER.error("获取媒体统计失败: /emby/Items/Counts 不存在")
+                        return "🤕Emby 服务器不支持 Items/Counts 接口，请检查 emby_url 是否填到了正确服务。"
                     else:
-                        LOGGER.error(f"获取媒体统计失败: HTTP {response.status}")
+                        body = ""
+                        try:
+                            body = (await response.text())[:300]
+                        except Exception:
+                            pass
+                        LOGGER.error(f"获取媒体统计失败: HTTP {response.status} {body}")
                         return '🤕Emby 服务器返回数据为空!'
         except Exception as e:
             LOGGER.error(f"获取媒体统计异常: {str(e)}")

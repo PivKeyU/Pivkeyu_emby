@@ -85,6 +85,7 @@
         <button type="button" class="nav-pill" data-section-target="update-section">自动更新</button>
         <button type="button" class="nav-pill" data-section-target="migration-section">数据迁移</button>
         <button type="button" class="nav-pill" data-section-target="codes-section">注册码</button>
+        <button type="button" class="nav-pill" data-section-target="invites-section">邀请管理</button>
         <button type="button" class="nav-pill" data-section-target="users-section">用户检索</button>
         <button type="button" class="nav-pill" data-section-target="moderation-section">群组管理</button>
         <button type="button" class="nav-pill" data-section-target="bot-block-section">Bot 黑名单</button>
@@ -375,6 +376,117 @@
             <span id="codes-page-label">第 1 页</span>
             <button id="codes-next-page" type="button" class="secondary">下一页</button>
           </div>
+        </section>
+      </div>
+    </details>
+
+    <details id="invites-section" class="card fold-card">
+      <summary class="fold-summary">
+        <div>
+          <p class="eyebrow">邀请管理</p>
+          <h2>私密群邀请</h2>
+        </div>
+        <span class="summary-tip">开启邀请模块、赠送邀请码，并追踪邀请人和被邀请人关系</span>
+      </summary>
+      <div class="fold-body">
+        <div class="summary-grid">
+          <article class="metric-card">
+            <span>邀请码总数</span>
+            <strong id="invite-total">-</strong>
+          </article>
+          <article class="metric-card">
+            <span>可用邀请码</span>
+            <strong id="invite-available">-</strong>
+          </article>
+          <article class="metric-card">
+            <span>已使用</span>
+            <strong id="invite-used">-</strong>
+          </article>
+          <article class="metric-card">
+            <span>已删除</span>
+            <strong id="invite-revoked">-</strong>
+          </article>
+        </div>
+
+        <section class="plugin-import-card">
+          <div>
+            <p class="eyebrow">功能开关</p>
+            <h3>邀请模块设置</h3>
+          </div>
+          <p id="invite-settings-status" class="plugin-meta">邀请链接会按目标 TGID 生成，入群申请只会批准被邀请人。</p>
+          <form id="invite-settings-form" class="grid-form">
+            <label class="wide-field inline-check">
+              <input id="invite-enabled" type="checkbox">
+              启用邀请功能模块
+            </label>
+            <label>
+              目标群组 ID
+              <input id="invite-target-chat-id" type="number" placeholder="-100...">
+            </label>
+            <label>
+              链接有效期（小时）
+              <input id="invite-expire-hours" type="number" min="1" max="168" value="24">
+            </label>
+            <label class="wide-field inline-check">
+              <input id="invite-strict-target" type="checkbox" checked>
+              仅允许被邀请 TGID 通过入群申请
+            </label>
+            <div class="form-actions">
+              <button id="invite-settings-save" type="submit">保存邀请设置</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="plugin-import-card">
+          <div>
+            <p class="eyebrow">手动发放</p>
+            <h3>赠送邀请码</h3>
+          </div>
+          <p id="invite-grant-status" class="plugin-meta">只能发放给已有 Emby 观影资格的用户。</p>
+          <form id="invite-grant-form" class="grid-form">
+            <label>
+              用户 TGID
+              <input id="invite-grant-tg" type="number" min="1" placeholder="例如 123456789">
+            </label>
+            <label>
+              数量
+              <input id="invite-grant-count" type="number" min="1" max="500" value="1">
+            </label>
+            <label class="wide-field">
+              备注
+              <input id="invite-grant-note" type="text" maxlength="255" placeholder="例如 活动赠送、补偿发放">
+            </label>
+            <div class="form-actions">
+              <button id="invite-grant-use-selected" type="button" class="secondary">带入当前选中用户</button>
+              <button id="invite-grant-submit" type="submit">赠送邀请码</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="card-lite">
+          <div class="code-toolbar">
+            <div>
+              <div class="plugin-name">邀请码库存</div>
+              <p class="plugin-meta">可用资格被用户生成邀请链接后会变为已使用。</p>
+            </div>
+            <div class="control-actions">
+              <button id="invite-credit-select-page" type="button" class="secondary">全选可删</button>
+              <button id="invite-credit-clear-selection" type="button" class="secondary">清空选择</button>
+              <button id="invite-credit-delete-selected" type="button">删除已选</button>
+            </div>
+          </div>
+          <div id="invite-credit-list" class="stack-list code-list"></div>
+        </section>
+
+        <section class="card-lite">
+          <div class="plugin-card-top">
+            <div>
+              <div class="plugin-name">邀请关系</div>
+              <p class="plugin-meta">展示最近 200 条邀请记录，包含邀请人、被邀请人、目标群和入群状态。</p>
+            </div>
+            <button id="invite-refresh" type="button" class="secondary">刷新邀请数据</button>
+          </div>
+          <div id="invite-record-list" class="stack-list code-list"></div>
         </section>
       </div>
     </details>

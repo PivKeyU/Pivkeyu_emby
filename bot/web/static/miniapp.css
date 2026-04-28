@@ -433,6 +433,59 @@ h2 {
   animation: slideDown 0.3s ease-out;
 }
 
+.mini-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.mini-form label {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.mini-form input {
+  width: 100%;
+  min-height: 44px;
+  border: var(--glass-border);
+  border-radius: 4px;
+  padding: 10px 12px;
+  color: var(--ink);
+  background: var(--surface-strong);
+  font: inherit;
+  box-sizing: border-box;
+}
+
+.stack-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.stack-item {
+  padding: 14px;
+  border-radius: var(--radius-md);
+  border: var(--glass-border);
+  background: var(--surface-strong);
+}
+
+.stack-item strong {
+  display: block;
+  font-size: 15px;
+  line-height: 1.3;
+  color: var(--ink);
+}
+
+.stack-item p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 @keyframes slideDown {
   from { opacity: 0; transform: translateY(-10px); }
   to { opacity: 1; transform: translateY(0); }

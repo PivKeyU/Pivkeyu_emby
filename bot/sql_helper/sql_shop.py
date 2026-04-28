@@ -52,6 +52,8 @@ class ShopItem(Base):
     description = Column(Text, nullable=True)
     image_url = Column(String(512), nullable=True)
     delivery_text = Column(Text, nullable=True)
+    item_type = Column(String(32), default="digital", nullable=False)
+    invite_credit_quantity = Column(Integer, default=0, nullable=False)
     price_iv = Column(Integer, default=0, nullable=False)
     stock = Column(Integer, default=0, nullable=False)
     sold_count = Column(Integer, default=0, nullable=False)
@@ -72,6 +74,8 @@ class ShopOrder(Base):
     item_title = Column(String(128), nullable=False)
     image_url = Column(String(512), nullable=True)
     delivery_text = Column(Text, nullable=True)
+    item_type = Column(String(32), default="digital", nullable=False)
+    invite_credit_quantity = Column(Integer, default=0, nullable=False)
     quantity = Column(Integer, default=1, nullable=False)
     unit_price_iv = Column(Integer, default=0, nullable=False)
     total_price_iv = Column(Integer, default=0, nullable=False)
@@ -91,6 +95,8 @@ def serialize_shop_item(item: ShopItem | None) -> dict[str, Any] | None:
         "description": item.description or "",
         "image_url": item.image_url or "",
         "delivery_text": item.delivery_text or "",
+        "item_type": item.item_type or "digital",
+        "invite_credit_quantity": int(item.invite_credit_quantity or 0),
         "price_iv": int(item.price_iv or 0),
         "stock": int(item.stock or 0),
         "sold_count": int(item.sold_count or 0),
@@ -113,6 +119,8 @@ def serialize_shop_order(order: ShopOrder | None) -> dict[str, Any] | None:
         "item_title": order.item_title,
         "image_url": order.image_url or "",
         "delivery_text": order.delivery_text or "",
+        "item_type": order.item_type or "digital",
+        "invite_credit_quantity": int(order.invite_credit_quantity or 0),
         "quantity": int(order.quantity or 0),
         "unit_price_iv": int(order.unit_price_iv or 0),
         "total_price_iv": int(order.total_price_iv or 0),
@@ -189,6 +197,8 @@ def create_shop_item(
     description: str = "",
     image_url: str = "",
     delivery_text: str = "",
+    item_type: str = "digital",
+    invite_credit_quantity: int = 0,
     price_iv: int,
     stock: int,
     notify_group: bool = False,
@@ -202,6 +212,14 @@ def create_shop_item(
         raise ValueError("商品价格不能小于 0")
     if int(stock or 0) < 0:
         raise ValueError("商品库存不能小于 0")
+    clean_item_type = str(item_type or "digital").strip().lower()
+    if clean_item_type not in {"digital", "invite_credit"}:
+        raise ValueError("商品类型不正确")
+    clean_invite_credit_quantity = max(int(invite_credit_quantity or 0), 0)
+    if clean_item_type == "invite_credit" and clean_invite_credit_quantity <= 0:
+        clean_invite_credit_quantity = 1
+    if clean_item_type == "digital":
+        clean_invite_credit_quantity = 0
 
     with Session() as session:
         item = ShopItem(
@@ -212,6 +230,8 @@ def create_shop_item(
             description=str(description or "").strip(),
             image_url=str(image_url or "").strip(),
             delivery_text=str(delivery_text or "").strip(),
+            item_type=clean_item_type,
+            invite_credit_quantity=clean_invite_credit_quantity,
             price_iv=int(price_iv or 0),
             stock=int(stock or 0),
             notify_group=bool(notify_group),
@@ -232,15 +252,23 @@ def update_shop_item(item_id: int, **fields) -> dict[str, Any] | None:
         for key, value in fields.items():
             if not hasattr(item, key):
                 continue
-            if key in {"title", "description", "image_url", "delivery_text", "owner_display_name", "owner_username"} and value is not None:
+            if key in {"title", "description", "image_url", "delivery_text", "owner_display_name", "owner_username", "item_type"} and value is not None:
                 value = str(value).strip()
-            if key in {"price_iv", "stock", "sold_count"} and value is not None:
+                if key == "item_type":
+                    value = value.lower()
+                    if value not in {"digital", "invite_credit"}:
+                        continue
+            if key in {"price_iv", "stock", "sold_count", "invite_credit_quantity"} and value is not None:
                 value = int(value)
             if key in {"notify_group", "official", "enabled"} and value is not None:
                 value = bool(value)
             if key == "owner_username" and value is not None:
                 value = str(value).lstrip("@")
             setattr(item, key, value)
+        if (item.item_type or "digital") == "invite_credit" and int(item.invite_credit_quantity or 0) <= 0:
+            item.invite_credit_quantity = 1
+        if (item.item_type or "digital") == "digital":
+            item.invite_credit_quantity = 0
         session.commit()
         session.refresh(item)
         return serialize_shop_item(item)
@@ -294,6 +322,8 @@ def purchase_shop_item(*, buyer_tg: int, item_id: int, quantity: int = 1) -> dic
             item_title=item.title,
             image_url=item.image_url,
             delivery_text=item.delivery_text,
+            item_type=item.item_type or "digital",
+            invite_credit_quantity=int(item.invite_credit_quantity or 0),
             quantity=qty,
             unit_price_iv=int(item.price_iv or 0),
             total_price_iv=total_price,

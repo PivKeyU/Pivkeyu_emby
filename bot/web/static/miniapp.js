@@ -25,6 +25,8 @@ const LEVEL_META = {
   }
 };
 const MINIAPP_BOOTSTRAP_CACHE_PREFIX = "miniapp_bootstrap";
+let currentInviteBundle = null;
+let currentMiniAppUserId = "default";
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -229,6 +231,64 @@ function renderBottomNav(items) {
   }
 }
 
+function renderInviteRecords(records = []) {
+  const root = document.querySelector("#invite-records");
+  if (!root) return;
+  if (!records.length) {
+    root.innerHTML = `
+      <article class="stack-item">
+        <strong>暂无邀请记录</strong>
+        <p>成功发送邀请链接后，这里会显示最近的入群邀请状态。</p>
+      </article>
+    `;
+    return;
+  }
+  root.innerHTML = records.map((item) => `
+    <article class="stack-item">
+      <strong>邀请 TG ${escapeHtml(item.invitee_tg)} · ${escapeHtml(item.status_text || item.status || "待处理")}</strong>
+      <p>目标群：${escapeHtml(item.target_chat_id || "-")} · 创建：${escapeHtml(formatDate(item.created_at, "未知"))}</p>
+      <p>过期：${escapeHtml(formatDate(item.expires_at, "未设置"))}</p>
+    </article>
+  `).join("");
+}
+
+function renderInviteBundle(invite = {}) {
+  currentInviteBundle = invite || {};
+  const card = document.querySelector("#invite-card");
+  if (!card) return;
+  const settings = invite.settings || {};
+  const permissions = invite.permissions || {};
+  const enabled = Boolean(settings.enabled);
+  card.classList.toggle("hidden", !enabled);
+  if (!enabled) {
+    syncFoldToolbar();
+    return;
+  }
+
+  const status = document.querySelector("#invite-status");
+  const count = Number(invite.available_credits || 0);
+  const canCreate = Boolean(permissions.can_create && count > 0);
+  document.querySelector("#invite-credit-count").textContent = String(count);
+  document.querySelector("#invite-expire-hours").textContent = `${settings.expire_hours || 24} 小时`;
+  if (status) {
+    if (!permissions.has_viewing_access) {
+      status.textContent = "当前账号没有 Emby 观影资格，暂时不能获取邀请码。";
+    } else if (count <= 0) {
+      status.textContent = "当前没有可用的邀请码，可通过管理员赠送或商店购买获取。";
+    } else {
+      status.textContent = "填写被邀请人的 TGID 后，机器人会把专属入群链接私聊发送给对方。";
+    }
+  }
+
+  const submit = document.querySelector("#invite-submit");
+  if (submit) {
+    submit.disabled = !canCreate;
+    submit.textContent = canCreate ? "发送邀请链接" : "暂无可用邀请码";
+  }
+  renderInviteRecords(invite.records || []);
+  syncFoldToolbar();
+}
+
 function resolveDisplayName(user) {
   return user?.first_name || user?.last_name || user?.username || "未知用户";
 }
@@ -352,6 +412,7 @@ function applyMiniAppBootstrapData(data, userId) {
 
   renderPlugins(visiblePlugins);
   renderBottomNav(meta.bottom_nav || []);
+  renderInviteBundle(data.invite || {});
 }
 
 function bindPluginGridNavigation() {
@@ -388,6 +449,7 @@ async function bootstrapMiniApp() {
   tg.expand();
   bindPluginGridNavigation();
   const userId = tg.initDataUnsafe?.user?.id || "default";
+  currentMiniAppUserId = userId;
   const cachedData = hydrateMiniAppBootstrapCache(userId);
   if (cachedData) {
     applyMiniAppBootstrapData(cachedData, userId);
@@ -422,5 +484,54 @@ async function bootstrapMiniApp() {
   }
 }
 
+async function createInviteFromMiniApp(event) {
+  event.preventDefault();
+  const tg = window.Telegram?.WebApp;
+  if (!tg) return;
+  const inviteeTg = Number(document.querySelector("#invitee-tg")?.value || 0);
+  const note = document.querySelector("#invite-note")?.value?.trim() || "";
+  if (!inviteeTg) {
+    window.alert("请先填写被邀请人的 TGID。");
+    return;
+  }
+  const button = document.querySelector("#invite-submit");
+  const previous = button?.textContent || "";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "发送中...";
+  }
+  try {
+    const response = await fetch("/miniapp-api/invites/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        init_data: tg.initData,
+        invitee_tg: inviteeTg,
+        note
+      })
+    });
+    const result = await readResponsePayload(response);
+    if (!response.ok || result.code !== 200) {
+      throw new Error(result.detail || result.message || "邀请发送失败。");
+    }
+    renderInviteBundle(result.data?.invite || {});
+    document.querySelector("#invite-form")?.reset();
+    window.alert("邀请链接已由机器人私聊发送给被邀请人。");
+  } catch (error) {
+    renderInviteBundle(currentInviteBundle || {});
+    window.alert(normalizeError(error));
+  } finally {
+    if (button) {
+      button.textContent = previous || "发送邀请链接";
+    }
+    renderInviteBundle(currentInviteBundle || {});
+    storeMiniAppBootstrapCache(currentMiniAppUserId, {
+      ...(hydrateMiniAppBootstrapCache(currentMiniAppUserId) || {}),
+      invite: currentInviteBundle
+    });
+  }
+}
+
 setupFoldToolbar();
+document.querySelector("#invite-form")?.addEventListener("submit", createInviteFromMiniApp);
 bootstrapMiniApp();
