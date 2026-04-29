@@ -3122,8 +3122,35 @@ function sceneRiskBadgeClass(level) {
   return "badge--danger";
 }
 
+function sceneEventProbabilityMeta(scene = {}) {
+  const events = Array.isArray(scene.event_pool) ? scene.event_pool.filter((event) => event && typeof event === "object") : [];
+  const weights = { good: 0, bad: 0, neutral: 0, total: 0 };
+  events.forEach((event) => {
+    const weight = Math.max(Number(event.weight || 0), 1);
+    const eventType = String(event.event_type || "").trim();
+    const stoneLossMax = Math.max(Number(event.stone_loss_max || event.stone_loss_min || 0), 0);
+    const stoneBonusMax = Math.max(Number(event.stone_bonus_max || event.stone_bonus_min || 0), 0);
+    const hasBonusReward = Boolean(String(event.bonus_reward_kind || "").trim() && Number(event.bonus_reward_ref_id || 0) > 0);
+    weights.total += weight;
+    if (eventType === "danger" || stoneLossMax > 0) weights.bad += weight;
+    else if (["fortune", "recipe", "oddity"].includes(eventType) || stoneBonusMax > 0 || hasBonusReward) weights.good += weight;
+    else weights.neutral += weight;
+  });
+  const percent = (value) => weights.total > 0 ? Math.round(value / weights.total * 100) : 0;
+  const goodPercent = Number(scene.requirement_state?.event_good_percent ?? percent(weights.good));
+  const badPercent = Number(scene.requirement_state?.event_bad_percent ?? percent(weights.bad));
+  const neutralPercent = Number(scene.requirement_state?.event_neutral_percent ?? Math.max(100 - goodPercent - badPercent, 0));
+  return {
+    goodPercent,
+    badPercent,
+    neutralPercent,
+    summary: `好运 ${goodPercent}% · 不幸 ${badPercent}%${neutralPercent > 0 ? ` · 普通 ${neutralPercent}%` : ""}`,
+  };
+}
+
 function sceneDisplayMeta(scene, currentStage, currentLayer, currentPower) {
   const state = scene.requirement_state || {};
+  const eventProbability = sceneEventProbabilityMeta(scene);
   const minStage = scene.min_realm_stage || "";
   const minLayer = Number(scene.min_realm_layer || 1);
   const minPower = Number(scene.min_combat_power || 0);
@@ -3162,6 +3189,10 @@ function sceneDisplayMeta(scene, currentStage, currentLayer, currentPower) {
     riskPercent: Math.max(entryRiskPercent, eventRiskPercent),
     entryRiskPercent,
     eventRiskPercent,
+    eventGoodPercent: eventProbability.goodPercent,
+    eventBadPercent: eventProbability.badPercent,
+    eventNeutralPercent: eventProbability.neutralPercent,
+    eventProbabilityText: eventProbability.summary,
     itemLossRisk,
     requirementSummary: cleanSceneCopy(state.requirement_summary),
     realmStatusText: cleanSceneCopy(state.realm_status_text),
@@ -3406,7 +3437,7 @@ function renderExploreArea(bundle) {
     const safeText = meta.safeNote || "当前实力已基本覆盖此处风险，可优先刷取所需材料与功法。";
     const riskText = [
       `门槛压力 ${meta.entryRiskPercent}%`,
-      `事件波动 ${meta.eventRiskPercent}%`,
+      meta.eventProbabilityText,
       meta.itemLossRisk > 0 ? `掉宝 ${meta.itemLossRisk}%` : "",
     ].filter(Boolean).join(" · ");
     const card = document.createElement("article");

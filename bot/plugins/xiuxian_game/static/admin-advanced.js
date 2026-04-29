@@ -1055,7 +1055,7 @@
           <span class="badge badge--normal">最多 ${escapeHtml(item.max_minutes)} 分钟</span>
         </div>
         <p>${escapeHtml(item.description || "暂无描述")}</p>
-        <p>掉落 ${(item.drops || []).length} 项 · 事件 ${(item.event_pool || []).length} 条</p>
+        <p>掉落 ${(item.drops || []).length} 项 · 事件 ${(item.event_pool || []).length} 条 · ${escapeHtml(sceneEventOddsSummary(item))}</p>
         <div class="inline-action-buttons">${editButton("scene", item.id)}${deleteButton("scene", item.id)}</div>
       </article>
     `).join("") || `<article class="stack-item"><strong>暂无场景</strong></article>`);

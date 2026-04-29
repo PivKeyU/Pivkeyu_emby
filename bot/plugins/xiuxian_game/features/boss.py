@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import random
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from bot.sql_helper import Session
@@ -372,6 +372,21 @@ _WORLD_BOSS_HP_MULTIPLIER = 12
 _WORLD_BOSS_TIMEOUT_HOURS = 3
 
 
+def _parse_serialized_datetime(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    raw = str(value).strip()
+    if raw.endswith("Z"):
+        raw = f"{raw[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+
+
 def get_world_boss_status_for_user(tg: int) -> dict[str, Any]:
     instance = get_active_world_boss()
     if not instance:
@@ -398,7 +413,7 @@ def get_world_boss_status_for_user(tg: int) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     cooldown_remaining = 0
     if player_damage:
-        last_at = player_damage.get("last_attack_at")
+        last_at = _parse_serialized_datetime(player_damage.get("last_attack_at"))
         if last_at:
             elapsed = (now - last_at).total_seconds()
             cooldown_remaining = max(int(_WORLD_BOSS_ATTACK_COOLDOWN_SECONDS - elapsed), 0)
@@ -436,8 +451,12 @@ def attack_world_boss(tg: int) -> dict[str, Any]:
             player_dmg = dmg
             break
     now = datetime.now(timezone.utc)
-    if player_dmg and player_dmg.get("last_attack_at"):
-        elapsed = (now - player_dmg.get("last_attack_at")).total_seconds()
+    if player_dmg:
+        last_attack_at = _parse_serialized_datetime(player_dmg.get("last_attack_at"))
+    else:
+        last_attack_at = None
+    if last_attack_at:
+        elapsed = (now - last_attack_at).total_seconds()
         if elapsed < _WORLD_BOSS_ATTACK_COOLDOWN_SECONDS:
             remaining = int(_WORLD_BOSS_ATTACK_COOLDOWN_SECONDS - elapsed)
             raise ValueError(f"气力未复，还需等待 {remaining} 秒方可再次出手。")
@@ -452,13 +471,20 @@ def attack_world_boss(tg: int) -> dict[str, Any]:
     defense_power = float(boss.get("defense_power") or 0)
     divine_sense = float(stats.get("divine_sense") or 0)
     fortune = float(stats.get("fortune") or 0)
+    combat_power = float(player_bundle.get("power") or bundle.get("combat_power") or 0)
 
-    base_damage = attack_power * random.uniform(0.85, 1.15)
+    base_damage = (
+        attack_power * random.uniform(1.8, 2.6)
+        + combat_power * random.uniform(0.018, 0.028)
+        + divine_sense * 0.75
+        + fortune * 0.45
+    )
     crit_chance = min(8 + divine_sense * 0.15 + fortune * 0.1, 30)
     crit = roll_probability_percent(int(crit_chance))["success"]
     if crit:
         base_damage *= 1.5
-    effective_damage = max(int(base_damage - defense_power * 0.3), 1)
+    damage_floor = max(8, int(attack_power * 0.6), int(combat_power * 0.004))
+    effective_damage = max(int(base_damage - defense_power * 0.18), damage_floor)
 
     # Apply damage to boss
     updated_instance = update_world_boss_hp(int(instance["id"]), -effective_damage)
@@ -593,16 +619,21 @@ def settle_world_boss_timeout(instance_id: int) -> dict[str, Any]:
     return {"rankings": [], "escaped": True}
 
 
-def try_spawn_world_boss() -> dict[str, Any] | None:
+def spawn_world_boss(boss_id: int | None = None) -> dict[str, Any]:
     existing = get_active_world_boss()
     if existing:
-        return None
+        raise ValueError("当前已有世界Boss降临，请等待其被击败或消散后再手动降临。")
 
     bosses = list_boss_configs(boss_type="world")
     if not bosses:
-        return None
+        raise ValueError("当前没有已启用的世界Boss配置。")
 
-    boss = random.choice(bosses)
+    if int(boss_id or 0) > 0:
+        boss = next((item for item in bosses if int(item.get("id") or 0) == int(boss_id)), None)
+        if boss is None:
+            raise ValueError("指定的世界Boss不存在或未启用。")
+    else:
+        boss = random.choice(bosses)
     base_hp = int(boss.get("hp") or 500)
     max_hp = base_hp * _WORLD_BOSS_HP_MULTIPLIER
     expires_at = utcnow() + timedelta(hours=_WORLD_BOSS_TIMEOUT_HOURS)
@@ -628,3 +659,10 @@ def try_spawn_world_boss() -> dict[str, Any] | None:
         pass
 
     return {"boss": boss, "instance": instance}
+
+
+def try_spawn_world_boss() -> dict[str, Any] | None:
+    try:
+        return spawn_world_boss()
+    except ValueError:
+        return None

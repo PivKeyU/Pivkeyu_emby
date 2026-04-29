@@ -107,8 +107,11 @@ const TITLE_RAINBOW_PRESETS = [
 let titleColorEditorMode = "solid";
 
 const ADMIN_SECTION_LABELS = {
+  system: "调试工具",
   settings: "\u57fa\u7840\u8bbe\u5b9a",
   "duel-settings": "\u6597\u6cd5\u8bbe\u5b9a",
+  mentorships: "师徒",
+  marriages: "姻缘",
   artifacts: "\u6cd5\u5b9d",
   "artifact-sets": "套装",
   talismans: "符箓",
@@ -573,6 +576,8 @@ function adminSectionCount(key) {
   if (key === "titles") return bundle.titles?.length || 0;
   if (key === "achievements") return bundle.achievements?.length || 0;
   if (key === "grant") return bundle.upload_permissions?.length || 0;
+  if (key === "mentorships") return (bundle.mentorships?.length || 0) + (bundle.mentorship_requests?.length || 0);
+  if (key === "marriages") return (bundle.marriages?.length || 0) + (bundle.marriage_requests?.length || 0);
   return null;
 }
 
@@ -1148,6 +1153,24 @@ function catalogItemName(kind, refId) {
 
 function bossTypeLabel(type) {
   return String(type || "personal") === "world" ? "世界 Boss" : "个人 Boss";
+}
+
+function sceneEventOddsSummary(scene = {}) {
+  const events = Array.isArray(scene.event_pool) ? scene.event_pool.filter((event) => event && typeof event === "object") : [];
+  if (!events.length) return "好运 0% · 不幸 0%";
+  const weights = { good: 0, bad: 0, total: 0 };
+  events.forEach((event) => {
+    const weight = Math.max(Number(event.weight || 0), 1);
+    const eventType = String(event.event_type || "").trim();
+    const stoneLossMax = Math.max(Number(event.stone_loss_max || event.stone_loss_min || 0), 0);
+    const stoneBonusMax = Math.max(Number(event.stone_bonus_max || event.stone_bonus_min || 0), 0);
+    const hasBonusReward = Boolean(String(event.bonus_reward_kind || "").trim() && Number(event.bonus_reward_ref_id || 0) > 0);
+    weights.total += weight;
+    if (eventType === "danger" || stoneLossMax > 0) weights.bad += weight;
+    else if (["fortune", "recipe", "oddity"].includes(eventType) || stoneBonusMax > 0 || hasBonusReward) weights.good += weight;
+  });
+  const percent = (value) => weights.total > 0 ? Math.round(value / weights.total * 100) : 0;
+  return `好运 ${percent(weights.good)}% · 不幸 ${percent(weights.bad)}%`;
 }
 
 function bossLootMetaByKind(kind) {
@@ -3379,6 +3402,11 @@ function encounterDispatchButton(id) {
   return `<button type="button" class="secondary" data-encounter-dispatch="${id}">投放到群</button>`;
 }
 
+function worldBossSpawnButton(item = {}) {
+  if (String(item.boss_type || "") !== "world" || item.enabled === false) return "";
+  return `<button type="button" class="secondary" data-world-boss-spawn="${escapeHtml(item.id || 0)}">手动降临</button>`;
+}
+
 function combatConfigSummary(config = {}) {
   const skills = Array.isArray(config.skills) ? config.skills : [];
   const passives = Array.isArray(config.passives) ? config.passives : [];
@@ -3425,7 +3453,7 @@ function renderWorld() {
 
   renderStack("scene-list", (bundle.scenes || []).map((item) => `
     <article class="stack-item" ${adminEntityAttrs("scene", item.id)}><div class="stack-item-head"><strong>${escapeHtml(item.name)}</strong><span class="badge badge--normal">最多 ${escapeHtml(item.max_minutes)} 分钟</span></div>
-    <p>${escapeHtml(item.description || "暂无描述")}</p><p>门槛：${escapeHtml(item.min_realm_stage ? `${item.min_realm_stage}${item.min_realm_layer || 1}层` : "无限制")} · 战力 ${escapeHtml(item.min_combat_power || 0)}</p><p>掉落 ${escapeHtml((item.drops || []).length)} 项 · 事件 ${escapeHtml((item.event_pool || []).length)} 条</p><p>${escapeHtml((item.event_pool || []).map((event) => `${event.name || "未命名事件"}(${event.event_type || "encounter"})`).slice(0, 3).join("、") || "暂无事件详情")}</p>
+    <p>${escapeHtml(item.description || "暂无描述")}</p><p>门槛：${escapeHtml(item.min_realm_stage ? `${item.min_realm_stage}${item.min_realm_layer || 1}层` : "无限制")} · 战力 ${escapeHtml(item.min_combat_power || 0)}</p><p>掉落 ${escapeHtml((item.drops || []).length)} 项 · 事件 ${escapeHtml((item.event_pool || []).length)} 条 · ${escapeHtml(sceneEventOddsSummary(item))}</p><p>${escapeHtml((item.event_pool || []).map((event) => `${event.name || "未命名事件"}(${event.event_type || "encounter"})`).slice(0, 3).join("、") || "暂无事件详情")}</p>
     <div class="inline-action-buttons">${editButton("scene", item.id)}${deleteButton("scene", item.id)}</div></article>`).join("") || `<article class="stack-item"><strong>暂无场景</strong></article>`);
 
   renderStack("encounter-list", (bundle.encounters || []).map((item) => `
@@ -3444,7 +3472,7 @@ function renderWorld() {
       <p>境界 ${escapeHtml(item.realm_stage || "炼气")} · 生命 ${escapeHtml(item.hp || 0)} · 攻击 ${escapeHtml(item.attack_power || 0)} · 防御 ${escapeHtml(item.defense_power || 0)} · 排序 ${escapeHtml(item.sort_order || 0)}</p>
       <p>${escapeHtml(bossRewardSummary(item))}</p>
       <p>${escapeHtml(bossLootSummary(item))}；${escapeHtml(bossLootDetailSummary(item))}</p>
-      <div class="inline-action-buttons">${editButton("boss", item.id)}${deleteButton("boss", item.id)}</div>
+      <div class="inline-action-buttons">${worldBossSpawnButton(item)}${editButton("boss", item.id)}${deleteButton("boss", item.id)}</div>
     </article>`).join("") || `<article class="stack-item"><strong>暂无 Boss 配置</strong></article>`);
 
   renderStack("sect-list", (bundle.sects || []).map((item) => `
@@ -4254,6 +4282,49 @@ function bindEvents() {
         );
       } catch (error) {
         await popup("投放失败", String(error.message || error), "error");
+      }
+      return;
+    }
+    const worldBossSpawn = event.target.closest("[data-world-boss-spawn]");
+    if (worldBossSpawn) {
+      try {
+        await submitAndRefresh(
+          () => request("POST", "/plugins/xiuxian/admin-api/boss/world/spawn", {
+            boss_id: Number(worldBossSpawn.dataset.worldBossSpawn || 0),
+          }),
+          "降临成功",
+          "世界 Boss 已手动降临，并尝试推送到群里。",
+        );
+      } catch (error) {
+        await popup("降临失败", String(error.message || error), "error");
+      }
+      return;
+    }
+    const socialPatch = event.target.closest("[data-social-patch]");
+    if (socialPatch) {
+      try {
+        await submitSocialAdminPatch(
+          socialPatch.dataset.socialPatch,
+          Number(socialPatch.dataset.socialId || 0),
+          { status: socialPatch.dataset.socialStatus || null },
+        );
+      } catch (error) {
+        await popup("修改失败", String(error.message || error), "error");
+      }
+      return;
+    }
+    const socialBondSave = event.target.closest("[data-social-bond-save]");
+    if (socialBondSave) {
+      try {
+        const editor = socialBondSave.closest("[data-social-bond-editor]");
+        const input = editor?.querySelector("[data-social-bond-input]");
+        await submitSocialAdminPatch(
+          socialBondSave.dataset.socialBondSave,
+          Number(socialBondSave.dataset.socialId || 0),
+          { bond_value: Number(input?.value || 0) },
+        );
+      } catch (error) {
+        await popup("保存失败", String(error.message || error), "error");
       }
       return;
     }
@@ -5524,11 +5595,138 @@ function renderAchievementAdminList() {
   `).join("") || `<article class="stack-item"><strong>暂无成就</strong></article>`);
 }
 
+const SOCIAL_ADMIN_ENDPOINTS = {
+  mentorship: "mentorship",
+  "mentorship-request": "mentorship-request",
+  marriage: "marriage",
+  "marriage-request": "marriage-request",
+};
+
+const MENTORSHIP_STATUS_OPTIONS = [
+  ["active", "恢复在籍"],
+  ["graduated", "标记出师"],
+  ["dissolved", "解除关系"],
+];
+
+const MARRIAGE_STATUS_OPTIONS = [
+  ["active", "恢复关系"],
+  ["divorced", "标记和离"],
+];
+
+const SOCIAL_REQUEST_STATUS_OPTIONS = [
+  ["pending", "待处理"],
+  ["accepted", "已接受"],
+  ["rejected", "已拒绝"],
+  ["cancelled", "已撤回"],
+  ["expired", "已过期"],
+];
+
+function socialProfileText(profile = null, fallbackTg = 0) {
+  const tg = Number(profile?.tg || fallbackTg || 0);
+  const label = profile?.display_label || profile?.display_name || (profile?.username ? `@${profile.username}` : `TG ${tg || "未知"}`);
+  const realm = profile?.realm_stage ? `${profile.realm_stage}${Number(profile.realm_layer || 0)}层` : "";
+  const suffix = [tg ? `TG ${tg}` : "", realm, profile?.social_mode_label || ""].filter(Boolean).join(" · ");
+  return suffix ? `${label}（${suffix}）` : label;
+}
+
+function socialStatusButtons(kind, id, currentStatus, options) {
+  return (options || []).map(([status, label]) => {
+    const active = String(currentStatus || "") === status;
+    return `<button type="button" class="ghost${active ? " is-active" : ""}" data-social-patch="${escapeHtml(kind)}" data-social-id="${escapeHtml(id)}" data-social-status="${escapeHtml(status)}"${active ? " disabled" : ""}>${escapeHtml(label)}</button>`;
+  }).join("");
+}
+
+function socialBondEditor(kind, id, bondValue) {
+  return `
+    <div class="mini-form social-bond-editor" data-social-bond-editor>
+      <label>
+        缘分值
+        <input type="number" min="0" step="1" value="${escapeHtml(bondValue || 0)}" data-social-bond-input>
+      </label>
+      <button type="button" class="secondary" data-social-bond-save="${escapeHtml(kind)}" data-social-id="${escapeHtml(id)}">保存缘分值</button>
+    </div>
+  `;
+}
+
+function renderMentorshipAdminLists() {
+  const bundle = state.bundle || {};
+  renderStack("mentorship-list", (bundle.mentorships || []).map((item) => `
+    <article class="stack-item">
+      <div class="stack-item-head">
+        <strong>${escapeHtml(socialProfileText(item.mentor_profile, item.mentor_tg))} → ${escapeHtml(socialProfileText(item.disciple_profile, item.disciple_tg))}</strong>
+        <span class="badge badge--normal">${escapeHtml(item.status_label || item.status || "在籍")}</span>
+      </div>
+      <p>师父境界 ${escapeHtml(item.mentor_realm_snapshot_text || "未记录")} · 徒弟境界 ${escapeHtml(item.disciple_realm_snapshot_text || "未记录")}</p>
+      <p>缘分值 ${escapeHtml(item.bond_value || 0)} · 传道 ${escapeHtml(item.teach_count || 0)} 次 · 问道 ${escapeHtml(item.consult_count || 0)} 次</p>
+      <p>创建 ${escapeHtml(formatShanghaiDate(item.created_at))} · 更新 ${escapeHtml(formatShanghaiDate(item.updated_at))}</p>
+      <div class="inline-action-buttons">${socialStatusButtons("mentorship", item.id, item.status, MENTORSHIP_STATUS_OPTIONS)}</div>
+      ${socialBondEditor("mentorship", item.id, item.bond_value || 0)}
+    </article>
+  `).join("") || `<article class="stack-item"><strong>暂无师徒关系</strong></article>`);
+
+  renderStack("mentorship-request-list", (bundle.mentorship_requests || []).map((item) => `
+    <article class="stack-item">
+      <div class="stack-item-head">
+        <strong>${escapeHtml(item.sponsor_role_label || "拜师申请")}</strong>
+        <span class="badge badge--normal">${escapeHtml(item.status_label || item.status || "待处理")}</span>
+      </div>
+      <p>发起人：${escapeHtml(socialProfileText(item.sponsor_profile, item.sponsor_tg))}</p>
+      <p>接收人：${escapeHtml(socialProfileText(item.target_profile, item.target_tg))}</p>
+      <p>预期关系：师父 ${escapeHtml(socialProfileText(item.mentor_profile, item.mentor_tg))} · 徒弟 ${escapeHtml(socialProfileText(item.disciple_profile, item.disciple_tg))}</p>
+      <p>${escapeHtml(item.message || "无留言")}</p>
+      <p>创建 ${escapeHtml(formatShanghaiDate(item.created_at))} · 过期 ${escapeHtml(formatShanghaiDate(item.expires_at))} · 响应 ${escapeHtml(formatShanghaiDate(item.responded_at))}</p>
+      <div class="inline-action-buttons">${socialStatusButtons("mentorship-request", item.id, item.status, SOCIAL_REQUEST_STATUS_OPTIONS)}</div>
+    </article>
+  `).join("") || `<article class="stack-item"><strong>暂无师徒请求</strong></article>`);
+}
+
+function renderMarriageAdminLists() {
+  const bundle = state.bundle || {};
+  renderStack("marriage-list", (bundle.marriages || []).map((item) => `
+    <article class="stack-item">
+      <div class="stack-item-head">
+        <strong>${escapeHtml(socialProfileText(item.husband_profile, item.husband_tg))} ↔ ${escapeHtml(socialProfileText(item.wife_profile, item.wife_tg))}</strong>
+        <span class="badge badge--normal">${escapeHtml(item.status_label || item.status || "道侣")}</span>
+      </div>
+      <p>情缘值 ${escapeHtml(item.bond_value || 0)} · 双修 ${escapeHtml(item.dual_cultivation_count || 0)} 次 · 上次双修 ${escapeHtml(formatShanghaiDate(item.last_dual_cultivation_at))}</p>
+      <p>结缘 ${escapeHtml(formatShanghaiDate(item.created_at))} · 结束 ${escapeHtml(formatShanghaiDate(item.ended_at))} · 更新 ${escapeHtml(formatShanghaiDate(item.updated_at))}</p>
+      <div class="inline-action-buttons">${socialStatusButtons("marriage", item.id, item.status, MARRIAGE_STATUS_OPTIONS)}</div>
+      ${socialBondEditor("marriage", item.id, item.bond_value || 0)}
+    </article>
+  `).join("") || `<article class="stack-item"><strong>暂无姻缘关系</strong></article>`);
+
+  renderStack("marriage-request-list", (bundle.marriage_requests || []).map((item) => `
+    <article class="stack-item">
+      <div class="stack-item-head">
+        <strong>${escapeHtml(socialProfileText(item.sponsor_profile, item.sponsor_tg))} → ${escapeHtml(socialProfileText(item.target_profile, item.target_tg))}</strong>
+        <span class="badge badge--normal">${escapeHtml(item.status_label || item.status || "待处理")}</span>
+      </div>
+      <p>${escapeHtml(item.message || "无留言")}</p>
+      <p>创建 ${escapeHtml(formatShanghaiDate(item.created_at))} · 过期 ${escapeHtml(formatShanghaiDate(item.expires_at))} · 响应 ${escapeHtml(formatShanghaiDate(item.responded_at))}</p>
+      <div class="inline-action-buttons">${socialStatusButtons("marriage-request", item.id, item.status, SOCIAL_REQUEST_STATUS_OPTIONS)}</div>
+    </article>
+  `).join("") || `<article class="stack-item"><strong>暂无姻缘请求</strong></article>`);
+}
+
+async function submitSocialAdminPatch(kind, id, payload) {
+  const endpoint = SOCIAL_ADMIN_ENDPOINTS[kind];
+  if (!endpoint || !id) {
+    throw new Error("关系参数不完整");
+  }
+  await submitAndRefresh(
+    () => request("PATCH", `/plugins/xiuxian/admin-api/${endpoint}/${id}`, payload),
+    "修改成功",
+    "关系配置已更新。",
+  );
+}
+
 const baseRenderWorldWithAchievementTitle = renderWorld;
 renderWorld = function renderWorldWithAchievementTitle() {
   baseRenderWorldWithAchievementTitle();
   renderTitleAdminList();
   renderAchievementAdminList();
+  renderMentorshipAdminLists();
+  renderMarriageAdminLists();
 };
 
 function parseRewardConfigInput() {

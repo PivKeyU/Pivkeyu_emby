@@ -726,6 +726,15 @@ class EncounterDispatchPayload(BaseModel):
     group_chat_id: int | None = None
 
 
+class BossWorldSpawnPayload(BaseModel):
+    boss_id: int | None = None
+
+
+class AdminSocialPatchPayload(BaseModel):
+    status: str | None = None
+    bond_value: int | None = None
+
+
 class BossPayload(BaseModel):
     name: str
     boss_type: str = "personal"

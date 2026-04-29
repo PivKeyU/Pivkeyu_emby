@@ -123,25 +123,33 @@ def _scene_event_volatility_state(scene: dict[str, Any]) -> dict[str, Any]:
         level, label = _event_risk_label(0)
         return {
             "event_risk_percent": 0,
+            "event_good_percent": 0,
+            "event_bad_percent": 0,
+            "event_neutral_percent": 0,
             "event_risk_level": level,
             "event_risk_label": label,
             "event_risk_note": "此地事件偏向稳定机缘，额外波动极低。",
         }
 
     total_weight = 0
+    lucky_weight = 0
     risky_weight = 0
     weighted_average_loss = 0.0
     peak_loss = 0
     for event in events:
         weight = max(int(event.get("weight") or 0), 1)
         total_weight += weight
+        event_type = str(event.get("event_type") or "").strip()
         stone_loss_min = max(int(event.get("stone_loss_min") or 0), 0)
         stone_loss_max = max(int(event.get("stone_loss_max") or stone_loss_min), stone_loss_min)
-        if stone_loss_max <= 0:
-            continue
-        risky_weight += weight
-        weighted_average_loss += ((stone_loss_min + stone_loss_max) / 2) * weight
-        peak_loss = max(peak_loss, stone_loss_max)
+        stone_bonus_max = max(int(event.get("stone_bonus_max") or event.get("stone_bonus_min") or 0), 0)
+        has_bonus_reward = bool(str(event.get("bonus_reward_kind") or "").strip() and int(event.get("bonus_reward_ref_id") or 0) > 0)
+        if event_type == "danger" or stone_loss_max > 0:
+            risky_weight += weight
+            weighted_average_loss += ((stone_loss_min + stone_loss_max) / 2) * weight
+            peak_loss = max(peak_loss, stone_loss_max)
+        elif event_type in {"fortune", "recipe", "oddity"} or stone_bonus_max > 0 or has_bonus_reward:
+            lucky_weight += weight
 
     if total_weight <= 0 or risky_weight <= 0:
         percent = 0
@@ -150,17 +158,23 @@ def _scene_event_volatility_state(scene: dict[str, Any]) -> dict[str, Any]:
         average_loss = weighted_average_loss / risky_weight
         percent = int(round(risk_ratio * 56 + min(average_loss / 4, 22) + min(peak_loss / 8, 14)))
         percent = max(min(percent, 88), 0)
+    bad_percent = int(round(risky_weight / total_weight * 100)) if total_weight > 0 else 0
+    good_percent = int(round(lucky_weight / total_weight * 100)) if total_weight > 0 else 0
+    neutral_percent = max(100 - good_percent - bad_percent, 0) if total_weight > 0 else 0
     level, label = _event_risk_label(percent)
     if percent <= 0:
-        note = "此地事件偏向稳定机缘，额外波动极低。"
+        note = f"事件池：好运 {good_percent}% / 不幸 {bad_percent}% / 普通 {neutral_percent}%。"
     elif percent <= 20:
-        note = "进入门槛不高，但仍会夹杂少量波动事件，不建议把它理解成零风险。"
+        note = f"事件池：好运 {good_percent}% / 不幸 {bad_percent}% / 普通 {neutral_percent}%，夹杂少量波动事件。"
     elif percent <= 45:
-        note = "秘境内部事件波动明显，探索时最好预留一些灵石缓冲。"
+        note = f"事件池：好运 {good_percent}% / 不幸 {bad_percent}% / 普通 {neutral_percent}%，探索时最好预留灵石缓冲。"
     else:
-        note = "秘境内部负面事件偏多，即便能进场也不宜连续强刷。"
+        note = f"事件池：好运 {good_percent}% / 不幸 {bad_percent}% / 普通 {neutral_percent}%，负面事件偏多。"
     return {
         "event_risk_percent": percent,
+        "event_good_percent": good_percent,
+        "event_bad_percent": bad_percent,
+        "event_neutral_percent": neutral_percent,
         "event_risk_level": level,
         "event_risk_label": label,
         "event_risk_note": note,

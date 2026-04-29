@@ -9,7 +9,7 @@ import copy
 import random
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Iterable
 
 from sqlalchemy import event
 from sqlalchemy import (
@@ -2426,6 +2426,197 @@ def serialize_marriage_request(row: XiuxianMarriageRequest | None) -> dict[str, 
         "created_at": serialize_datetime(row.created_at),
         "updated_at": serialize_datetime(row.updated_at),
     }
+
+
+def _admin_social_profile_cards(session: Session, tgs: Iterable[int]) -> dict[int, dict[str, Any]]:
+    valid_tgs = sorted({int(tg or 0) for tg in tgs if int(tg or 0) > 0})
+    if not valid_tgs:
+        return {}
+    rows = session.query(XiuxianProfile).filter(XiuxianProfile.tg.in_(valid_tgs)).all()
+    cards: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        payload = serialize_profile(row) or {}
+        cards[int(row.tg)] = {
+            "tg": int(row.tg),
+            "display_name": payload.get("display_name") or "",
+            "username": payload.get("username") or "",
+            "display_label": payload.get("display_label") or f"TG {int(row.tg)}",
+            "realm_stage": payload.get("realm_stage") or "",
+            "realm_layer": int(payload.get("realm_layer") or 0),
+            "gender_label": payload.get("gender_label") or "",
+            "social_mode_label": payload.get("social_mode_label") or "",
+        }
+    for tg in valid_tgs:
+        cards.setdefault(tg, {"tg": tg, "display_label": f"TG {tg}"})
+    return cards
+
+
+def _attach_mentorship_admin_profiles(payload: dict[str, Any], cards: dict[int, dict[str, Any]]) -> dict[str, Any]:
+    payload["mentor_profile"] = cards.get(int(payload.get("mentor_tg") or 0))
+    payload["disciple_profile"] = cards.get(int(payload.get("disciple_tg") or 0))
+    return payload
+
+
+def _attach_request_admin_profiles(payload: dict[str, Any], cards: dict[int, dict[str, Any]]) -> dict[str, Any]:
+    payload["sponsor_profile"] = cards.get(int(payload.get("sponsor_tg") or 0))
+    payload["target_profile"] = cards.get(int(payload.get("target_tg") or 0))
+    if "mentor_tg" in payload:
+        payload["mentor_profile"] = cards.get(int(payload.get("mentor_tg") or 0))
+    if "disciple_tg" in payload:
+        payload["disciple_profile"] = cards.get(int(payload.get("disciple_tg") or 0))
+    return payload
+
+
+def _attach_marriage_admin_profiles(payload: dict[str, Any], cards: dict[int, dict[str, Any]]) -> dict[str, Any]:
+    payload["husband_profile"] = cards.get(int(payload.get("husband_tg") or 0))
+    payload["wife_profile"] = cards.get(int(payload.get("wife_tg") or 0))
+    return payload
+
+
+def list_admin_mentorships(limit: int = 200) -> list[dict[str, Any]]:
+    with Session() as session:
+        rows = (
+            session.query(XiuxianMentorship)
+            .order_by(XiuxianMentorship.status.asc(), XiuxianMentorship.id.desc())
+            .limit(max(int(limit or 200), 1))
+            .all()
+        )
+        payloads = [serialize_mentorship(row) or {} for row in rows]
+        cards = _admin_social_profile_cards(
+            session,
+            [tg for item in payloads for tg in (item.get("mentor_tg"), item.get("disciple_tg"))],
+        )
+        return [_attach_mentorship_admin_profiles(item, cards) for item in payloads]
+
+
+def list_admin_mentorship_requests(limit: int = 200) -> list[dict[str, Any]]:
+    with Session() as session:
+        rows = (
+            session.query(XiuxianMentorshipRequest)
+            .order_by(XiuxianMentorshipRequest.status.asc(), XiuxianMentorshipRequest.id.desc())
+            .limit(max(int(limit or 200), 1))
+            .all()
+        )
+        payloads = [serialize_mentorship_request(row) or {} for row in rows]
+        cards = _admin_social_profile_cards(
+            session,
+            [tg for item in payloads for tg in (item.get("sponsor_tg"), item.get("target_tg"))],
+        )
+        return [_attach_request_admin_profiles(item, cards) for item in payloads]
+
+
+def list_admin_marriages(limit: int = 200) -> list[dict[str, Any]]:
+    with Session() as session:
+        rows = (
+            session.query(XiuxianMarriage)
+            .order_by(XiuxianMarriage.status.asc(), XiuxianMarriage.id.desc())
+            .limit(max(int(limit or 200), 1))
+            .all()
+        )
+        payloads = [serialize_marriage(row) or {} for row in rows]
+        cards = _admin_social_profile_cards(
+            session,
+            [tg for item in payloads for tg in (item.get("husband_tg"), item.get("wife_tg"))],
+        )
+        return [_attach_marriage_admin_profiles(item, cards) for item in payloads]
+
+
+def list_admin_marriage_requests(limit: int = 200) -> list[dict[str, Any]]:
+    with Session() as session:
+        rows = (
+            session.query(XiuxianMarriageRequest)
+            .order_by(XiuxianMarriageRequest.status.asc(), XiuxianMarriageRequest.id.desc())
+            .limit(max(int(limit or 200), 1))
+            .all()
+        )
+        payloads = [serialize_marriage_request(row) or {} for row in rows]
+        cards = _admin_social_profile_cards(
+            session,
+            [tg for item in payloads for tg in (item.get("sponsor_tg"), item.get("target_tg"))],
+        )
+        return [_attach_request_admin_profiles(item, cards) for item in payloads]
+
+
+def admin_patch_mentorship(mentorship_id: int, *, status: str | None = None, bond_value: int | None = None) -> dict[str, Any] | None:
+    now = utcnow()
+    with Session() as session:
+        row = session.query(XiuxianMentorship).filter(XiuxianMentorship.id == int(mentorship_id)).with_for_update().first()
+        if row is None:
+            return None
+        if status is not None:
+            normalized = normalize_mentorship_status(status)
+            row.status = normalized
+            if normalized == "active":
+                row.ended_at = None
+                row.graduated_at = None
+            else:
+                row.ended_at = row.ended_at or now
+                if normalized == "graduated":
+                    row.graduated_at = row.graduated_at or now
+        if bond_value is not None:
+            row.bond_value = max(int(bond_value or 0), 0)
+        row.updated_at = now
+        _queue_user_view_cache_invalidation(session, int(row.mentor_tg or 0), int(row.disciple_tg or 0))
+        payload = serialize_mentorship(row) or {}
+        cards = _admin_social_profile_cards(session, [payload.get("mentor_tg"), payload.get("disciple_tg")])
+        session.commit()
+        return _attach_mentorship_admin_profiles(payload, cards)
+
+
+def admin_patch_mentorship_request(request_id: int, *, status: str | None = None) -> dict[str, Any] | None:
+    now = utcnow()
+    with Session() as session:
+        row = session.query(XiuxianMentorshipRequest).filter(XiuxianMentorshipRequest.id == int(request_id)).with_for_update().first()
+        if row is None:
+            return None
+        if status is not None:
+            normalized = normalize_mentorship_request_status(status)
+            row.status = normalized
+            row.responded_at = None if normalized == "pending" else (row.responded_at or now)
+        row.updated_at = now
+        _queue_user_view_cache_invalidation(session, int(row.sponsor_tg or 0), int(row.target_tg or 0))
+        payload = serialize_mentorship_request(row) or {}
+        cards = _admin_social_profile_cards(session, [payload.get("sponsor_tg"), payload.get("target_tg")])
+        session.commit()
+        return _attach_request_admin_profiles(payload, cards)
+
+
+def admin_patch_marriage(marriage_id: int, *, status: str | None = None, bond_value: int | None = None) -> dict[str, Any] | None:
+    now = utcnow()
+    with Session() as session:
+        row = session.query(XiuxianMarriage).filter(XiuxianMarriage.id == int(marriage_id)).with_for_update().first()
+        if row is None:
+            return None
+        if status is not None:
+            normalized = normalize_marriage_status(status)
+            row.status = normalized
+            row.ended_at = None if normalized == "active" else (row.ended_at or now)
+        if bond_value is not None:
+            row.bond_value = max(int(bond_value or 0), 0)
+        row.updated_at = now
+        _queue_user_view_cache_invalidation(session, int(row.husband_tg or 0), int(row.wife_tg or 0))
+        payload = serialize_marriage(row) or {}
+        cards = _admin_social_profile_cards(session, [payload.get("husband_tg"), payload.get("wife_tg")])
+        session.commit()
+        return _attach_marriage_admin_profiles(payload, cards)
+
+
+def admin_patch_marriage_request(request_id: int, *, status: str | None = None) -> dict[str, Any] | None:
+    now = utcnow()
+    with Session() as session:
+        row = session.query(XiuxianMarriageRequest).filter(XiuxianMarriageRequest.id == int(request_id)).with_for_update().first()
+        if row is None:
+            return None
+        if status is not None:
+            normalized = normalize_marriage_request_status(status)
+            row.status = normalized
+            row.responded_at = None if normalized == "pending" else (row.responded_at or now)
+        row.updated_at = now
+        _queue_user_view_cache_invalidation(session, int(row.sponsor_tg or 0), int(row.target_tg or 0))
+        payload = serialize_marriage_request(row) or {}
+        cards = _admin_social_profile_cards(session, [payload.get("sponsor_tg"), payload.get("target_tg")])
+        session.commit()
+        return _attach_request_admin_profiles(payload, cards)
 
 
 def serialize_sect(sect: XiuxianSect | None) -> dict[str, Any] | None:

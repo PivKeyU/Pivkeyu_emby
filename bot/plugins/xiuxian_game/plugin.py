@@ -32,12 +32,14 @@ from bot.plugins.xiuxian_game.api_models import (
     ActivateTechniquePayload,
     AdminBootstrapPayload,
     AdminSettingPayload,
+    AdminSocialPatchPayload,
     AdminTaskPayload,
     ArtifactBindingPayload,
     ArtifactPayload,
     ArtifactSetPayload,
     BossChallengePayload,
     BossPayload,
+    BossWorldSpawnPayload,
     BreakthroughPayload,
     ConsumePillPayload,
     CommissionClaimPayload,
@@ -280,6 +282,7 @@ from bot.plugins.xiuxian_game.features.boss import (
     challenge_personal_boss,
     get_world_boss_status_for_user,
     list_personal_bosses_for_user,
+    spawn_world_boss,
     try_spawn_world_boss,
 )
 from bot.plugins.xiuxian_game.features.world_bundle import build_world_bundle
@@ -293,6 +296,10 @@ from bot.sql_helper.sql_xiuxian import (
     create_achievement,
     create_artifact,
     create_artifact_set,
+    admin_patch_marriage,
+    admin_patch_marriage_request,
+    admin_patch_mentorship,
+    admin_patch_mentorship_request,
     create_boss_config,
     create_error_log,
     create_journal,
@@ -321,6 +328,10 @@ from bot.sql_helper.sql_xiuxian import (
     list_artifacts,
     list_materials,
     list_achievements,
+    list_admin_marriage_requests,
+    list_admin_marriages,
+    list_admin_mentorship_requests,
+    list_admin_mentorships,
     list_artifact_sets,
     list_auction_items,
     list_boss_configs,
@@ -3447,6 +3458,10 @@ def _admin_world_snapshot() -> dict[str, Any]:
         "scenes": scenes,
         "encounters": list_encounter_templates(),
         "bosses": list_boss_configs(enabled_only=False),
+        "mentorships": list_admin_mentorships(),
+        "mentorship_requests": list_admin_mentorship_requests(),
+        "marriages": list_admin_marriages(),
+        "marriage_requests": list_admin_marriage_requests(),
         "tasks": list_tasks(),
         "auctions": list_auction_items(include_inactive=True, limit=100),
         "techniques": list_techniques(),
@@ -6612,6 +6627,69 @@ def register_web(app) -> None:
         encounter_payload = spawn_group_encounter(chat_id, template_id=payload.template_id)
         message_payload = await _push_group_encounter_notice(encounter_payload)
         return {"code": 200, "data": {"encounter": encounter_payload, "message": message_payload}}
+
+    @admin_router.post("/boss/world/spawn")
+    async def xiuxian_admin_world_boss_spawn_api(payload: BossWorldSpawnPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        result = spawn_world_boss(payload.boss_id)
+        instance = result.get("instance") or {}
+        text = instance.get("broadcast_text")
+        chat_id = int(instance.get("broadcast_chat_id") or 0)
+        message_payload = None
+        if text and chat_id:
+            sent = await _send_message(bot, chat_id, text, persistent=True)
+            message_payload = {"chat_id": chat_id, "message_id": int(sent.id)}
+        return {"code": 200, "data": {"world_boss": result, "message": message_payload}}
+
+    @admin_router.patch("/mentorship/{mentorship_id}")
+    async def xiuxian_admin_mentorship_patch_api(mentorship_id: int, payload: AdminSocialPatchPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        result = admin_patch_mentorship(
+            mentorship_id,
+            status=payload.status,
+            bond_value=payload.bond_value,
+        )
+        if result is None:
+            raise HTTPException(status_code=404, detail="师徒关系不存在")
+        return {"code": 200, "data": result}
+
+    @admin_router.patch("/mentorship-request/{request_id}")
+    async def xiuxian_admin_mentorship_request_patch_api(request_id: int, payload: AdminSocialPatchPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        result = admin_patch_mentorship_request(request_id, status=payload.status)
+        if result is None:
+            raise HTTPException(status_code=404, detail="师徒请求不存在")
+        return {"code": 200, "data": result}
+
+    @admin_router.patch("/marriage/{marriage_id}")
+    async def xiuxian_admin_marriage_patch_api(marriage_id: int, payload: AdminSocialPatchPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        result = admin_patch_marriage(
+            marriage_id,
+            status=payload.status,
+            bond_value=payload.bond_value,
+        )
+        if result is None:
+            raise HTTPException(status_code=404, detail="姻缘关系不存在")
+        return {"code": 200, "data": result}
+
+    @admin_router.patch("/marriage-request/{request_id}")
+    async def xiuxian_admin_marriage_request_patch_api(request_id: int, payload: AdminSocialPatchPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        _verify_admin_credential(token, init_data)
+        result = admin_patch_marriage_request(request_id, status=payload.status)
+        if result is None:
+            raise HTTPException(status_code=404, detail="姻缘请求不存在")
+        return {"code": 200, "data": result}
 
     @admin_router.post("/boss")
     async def xiuxian_admin_boss_api(payload: BossPayload, request: Request):
