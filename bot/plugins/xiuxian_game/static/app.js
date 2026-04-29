@@ -7882,6 +7882,13 @@ const BOSS_DATA_CACHE_TTL_MS = 15000;
 let _bossDataCache = null;
 let _bossDataPromise = null;
 
+function bossActionResult(payload = {}) {
+  if (payload?.result && typeof payload.result === "object") {
+    return payload.result;
+  }
+  return payload && typeof payload === "object" ? payload : {};
+}
+
 function fallbackBossData() {
   return { personal: { bosses: [] }, world: { active: false }, ts: 0 };
 }
@@ -8134,7 +8141,7 @@ document.querySelector("#boss-personal-list")?.addEventListener("click", async (
   try {
     const payload = await runButtonAction(button, "挑战中…", () => postJson("/plugins/xiuxian/api/boss/challenge", { boss_id: bossId }));
     applyReturnedBundle(payload);
-    const result = payload.result || {};
+    const result = bossActionResult(payload);
     const won = Boolean(result.won);
     const bossName = result.boss?.name || "Boss";
     const lines = [won ? `成功击败【${bossName}】！` : `挑战【${bossName}】失败…`];
@@ -8164,7 +8171,7 @@ document.querySelector("#boss-world-status")?.addEventListener("click", async (e
   try {
     const payload = await runButtonAction(button, "攻击中…", () => postJson("/plugins/xiuxian/api/boss/world/attack", {}));
     applyReturnedBundle(payload);
-    const result = payload.result || {};
+    const result = bossActionResult(payload);
     const lines = [
       `对【${result.boss?.name || "Boss"}】造成 ${result.damage_dealt || 0} 点伤害${result.crit ? "（暴击！）" : ""}`,
       `累计伤害：${result.player_total_damage || 0} · 攻击次数：${result.player_attack_count || 0}`,
