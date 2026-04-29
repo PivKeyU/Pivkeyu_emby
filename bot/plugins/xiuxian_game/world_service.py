@@ -78,6 +78,7 @@ from bot.sql_helper.sql_xiuxian import (
     list_recipes,
     list_recent_journals,
     list_red_envelope_claims,
+    list_boss_configs,
     list_scene_drops,
     list_scenes,
     list_shop_items,
@@ -159,6 +160,15 @@ ITEM_SOURCE_VERSION_GROUPS = (
     ("catalog", "scenes"),
     ("catalog", "shop-items"),
     ("catalog", "tasks"),
+    ("catalog", "bosses"),
+)
+BOSS_LOOT_SOURCE_FIELDS = (
+    ("loot_pills_json", "pill"),
+    ("loot_materials_json", "material"),
+    ("loot_artifacts_json", "artifact"),
+    ("loot_talismans_json", "talisman"),
+    ("loot_recipes_json", "recipe"),
+    ("loot_techniques_json", "technique"),
 )
 SECT_ATTENDANCE_METHOD_LABELS = {
     "attendance": "宗门签到",
@@ -2070,6 +2080,17 @@ def _build_item_source_catalog_uncached() -> dict[tuple[str, int], list[str]]:
             f"{prefix}：{title}",
         )
 
+    for boss in list_boss_configs(enabled_only=True):
+        boss_name = str(boss.get("name") or "").strip() or "未命名Boss"
+        for field, item_kind in BOSS_LOOT_SOURCE_FIELDS:
+            for loot in boss.get(field) or []:
+                _append_item_source_label(
+                    catalog,
+                    item_kind,
+                    int((loot or {}).get("ref_id") or 0),
+                    f"Boss：{boss_name}",
+                )
+
     for achievement in list_achievements(enabled_only=True):
         reward = achievement.get("reward_config") or {}
         label = f"成就：{str(achievement.get('name') or '').strip() or '未命名成就'}"
@@ -2097,13 +2118,71 @@ def _build_item_source_catalog_uncached() -> dict[tuple[str, int], list[str]]:
     }
 
 
+def _item_source_cache_payload(catalog: dict[tuple[str, int], list[str]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for (item_kind, ref_id), labels in sorted(catalog.items(), key=lambda row: (row[0][0], row[0][1])):
+        rows.append(
+            {
+                "kind": str(item_kind),
+                "ref_id": int(ref_id),
+                "labels": sorted(str(label) for label in labels if str(label or "").strip()),
+            }
+        )
+    return rows
+
+
+def _restore_item_source_catalog(payload: Any) -> dict[tuple[str, int], list[str]]:
+    if isinstance(payload, list):
+        catalog: dict[tuple[str, int], list[str]] = {}
+        for row in payload:
+            if not isinstance(row, dict):
+                continue
+            item_kind = str(row.get("kind") or "").strip()
+            try:
+                ref_id = int(row.get("ref_id") or 0)
+            except (TypeError, ValueError):
+                ref_id = 0
+            if not item_kind or ref_id <= 0:
+                continue
+            labels = [str(label).strip() for label in row.get("labels") or [] if str(label or "").strip()]
+            catalog[(item_kind, ref_id)] = sorted(set(labels))
+        return catalog
+
+    if isinstance(payload, dict):
+        catalog: dict[tuple[str, int], list[str]] = {}
+        for raw_key, labels in payload.items():
+            item_kind = ""
+            ref_id = 0
+            if isinstance(raw_key, (list, tuple)) and len(raw_key) == 2:
+                item_kind = str(raw_key[0] or "").strip()
+                try:
+                    ref_id = int(raw_key[1] or 0)
+                except (TypeError, ValueError):
+                    ref_id = 0
+            elif isinstance(raw_key, str) and ":" in raw_key:
+                item_kind, raw_ref_id = raw_key.rsplit(":", 1)
+                item_kind = item_kind.strip()
+                try:
+                    ref_id = int(raw_ref_id or 0)
+                except (TypeError, ValueError):
+                    ref_id = 0
+            if not item_kind or ref_id <= 0:
+                continue
+            label_rows = [labels] if isinstance(labels, str) else (labels or [])
+            catalog[(item_kind, ref_id)] = sorted(str(label).strip() for label in label_rows if str(label or "").strip())
+        return catalog
+
+    return {}
+
+
 def get_item_source_catalog() -> dict[tuple[str, int], list[str]]:
-    return load_multi_versioned_json(
+    payload = load_multi_versioned_json(
         version_part_groups=ITEM_SOURCE_VERSION_GROUPS,
         cache_parts=("world", "item-sources"),
         ttl=CATALOG_TTL,
-        loader=_build_item_source_catalog_uncached,
+        loader=lambda: _item_source_cache_payload(_build_item_source_catalog_uncached()),
     )
+    return _restore_item_source_catalog(payload)
 
 
 def _material_source_catalog() -> dict[int, list[str]]:

@@ -3684,6 +3684,23 @@ function applyUploadPermissionUpdate(payload = {}) {
   renderAdminNavigator();
 }
 
+function applyBossUpdate(item = {}) {
+  const id = Number(item.id || 0);
+  if (!id) return;
+  if (!state.bundle) state.bundle = {};
+  const rows = Array.isArray(state.bundle.bosses) ? state.bundle.bosses.slice() : [];
+  const index = rows.findIndex((row) => Number(row?.id || 0) === id);
+  if (index >= 0) rows[index] = { ...rows[index], ...item };
+  else rows.push(item);
+  rows.sort((left, right) => (
+    Number(left?.sort_order || 0) - Number(right?.sort_order || 0)
+    || Number(left?.id || 0) - Number(right?.id || 0)
+  ));
+  state.bundle.bosses = rows;
+  renderWorld();
+  renderAdminNavigator();
+}
+
 async function submitAndRefresh(handler, successTitle, successMessage, { refresh = "bootstrap", afterSuccess = null } = {}) {
   const result = await handler();
   if (typeof afterSuccess === "function") {
@@ -4132,7 +4149,7 @@ function bindEvents() {
       return;
     }
     try {
-      await submitAndRefresh(
+      const savedBoss = await submitAndRefresh(
         () => request(
           bossId > 0 ? "PATCH" : "POST",
           bossId > 0 ? `/plugins/xiuxian/admin-api/boss/${bossId}` : "/plugins/xiuxian/admin-api/boss",
@@ -4141,8 +4158,10 @@ function bindEvents() {
         bossId > 0 ? "保存成功" : "创建成功",
         bossId > 0 ? "Boss 配置已更新。" : "Boss 已加入讨伐系统。",
       );
-      resetBossForm();
+      applyBossUpdate(savedBoss || {});
+      loadBossForm(savedBoss || {});
       syncSelects();
+      adminStatus(`Boss「${savedBoss?.name || "未命名Boss"}」已保存并回填到表单。`, "success");
     } catch (error) {
       await popup("提交失败", String(error.message || error), "error");
     }
