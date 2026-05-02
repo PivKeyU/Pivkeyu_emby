@@ -182,13 +182,13 @@ const ROOT_QUALITY_RULES = [
   { key: "变异灵根", label: "变异灵根" },
 ];
 const DEFAULT_ROOT_QUALITY_RULES = {
-  废灵根: { cultivation_rate: 0.72, breakthrough_bonus: -8, combat_factor: 0.92 },
-  下品灵根: { cultivation_rate: 0.88, breakthrough_bonus: -3, combat_factor: 0.97 },
+  废灵根: { cultivation_rate: 0.72, breakthrough_bonus: -8, combat_factor: 0.97 },
+  下品灵根: { cultivation_rate: 0.88, breakthrough_bonus: -3, combat_factor: 0.985 },
   中品灵根: { cultivation_rate: 1.0, breakthrough_bonus: 0, combat_factor: 1.0 },
-  上品灵根: { cultivation_rate: 1.12, breakthrough_bonus: 3, combat_factor: 1.05 },
-  极品灵根: { cultivation_rate: 1.24, breakthrough_bonus: 6, combat_factor: 1.1 },
-  天灵根: { cultivation_rate: 1.38, breakthrough_bonus: 12, combat_factor: 1.16 },
-  变异灵根: { cultivation_rate: 1.3, breakthrough_bonus: 9, combat_factor: 1.14 },
+  上品灵根: { cultivation_rate: 1.12, breakthrough_bonus: 3, combat_factor: 1.015 },
+  极品灵根: { cultivation_rate: 1.24, breakthrough_bonus: 6, combat_factor: 1.03 },
+  天灵根: { cultivation_rate: 1.38, breakthrough_bonus: 12, combat_factor: 1.045 },
+  变异灵根: { cultivation_rate: 1.3, breakthrough_bonus: 9, combat_factor: 1.04 },
 };
 const ITEM_QUALITY_RULES = [
   { key: "凡品", label: "凡品" },
@@ -200,13 +200,13 @@ const ITEM_QUALITY_RULES = [
   { key: "先天至宝", label: "先天至宝" },
 ];
 const DEFAULT_ITEM_QUALITY_RULES = {
-  凡品: { artifact_multiplier: 1.0, pill_multiplier: 1.0, talisman_multiplier: 1.0 },
-  下品: { artifact_multiplier: 1.0, pill_multiplier: 1.0, talisman_multiplier: 1.0 },
-  中品: { artifact_multiplier: 1.0, pill_multiplier: 1.0, talisman_multiplier: 1.0 },
-  上品: { artifact_multiplier: 1.0, pill_multiplier: 1.0, talisman_multiplier: 1.0 },
-  极品: { artifact_multiplier: 1.0, pill_multiplier: 1.0, talisman_multiplier: 1.0 },
-  仙品: { artifact_multiplier: 1.0, pill_multiplier: 1.0, talisman_multiplier: 1.0 },
-  先天至宝: { artifact_multiplier: 1.0, pill_multiplier: 1.0, talisman_multiplier: 1.0 },
+  凡品: { artifact_multiplier: 0.70, pill_multiplier: 0.70, talisman_multiplier: 0.65 },
+  下品: { artifact_multiplier: 0.90, pill_multiplier: 0.90, talisman_multiplier: 0.85 },
+  中品: { artifact_multiplier: 1.20, pill_multiplier: 1.20, talisman_multiplier: 1.15 },
+  上品: { artifact_multiplier: 1.60, pill_multiplier: 1.60, talisman_multiplier: 1.55 },
+  极品: { artifact_multiplier: 2.20, pill_multiplier: 2.20, talisman_multiplier: 2.10 },
+  仙品: { artifact_multiplier: 3.10, pill_multiplier: 3.10, talisman_multiplier: 2.95 },
+  先天至宝: { artifact_multiplier: 4.50, pill_multiplier: 4.50, talisman_multiplier: 4.25 },
 };
 const DROP_WEIGHT_RULE_FIELDS = [
   { key: "material_divine_sense_divisor", label: "材料掉落神识除数", tip: "神识越高，材料基础权重加成越明显；数值越小加成越快。" },
@@ -242,21 +242,21 @@ const GAMBLING_ITEM_KIND_OPTIONS = [
 ];
 const DEFAULT_GAMBLING_QUALITY_RULES = {
   凡品: { weight_multiplier: 1.0 },
-  下品: { weight_multiplier: 0.52 },
-  中品: { weight_multiplier: 0.24 },
-  上品: { weight_multiplier: 0.09 },
-  极品: { weight_multiplier: 0.028 },
-  仙品: { weight_multiplier: 0.007 },
-  先天至宝: { weight_multiplier: 0.0015 },
+  下品: { weight_multiplier: 0.55 },
+  中品: { weight_multiplier: 0.28 },
+  上品: { weight_multiplier: 0.12 },
+  极品: { weight_multiplier: 0.045 },
+  仙品: { weight_multiplier: 0.014 },
+  先天至宝: { weight_multiplier: 0.004 },
 };
 const DEFAULT_FISHING_QUALITY_RULES = {
   凡品: { weight_multiplier: 1.0 },
-  下品: { weight_multiplier: 0.38 },
-  中品: { weight_multiplier: 0.14 },
-  上品: { weight_multiplier: 0.042 },
-  极品: { weight_multiplier: 0.011 },
-  仙品: { weight_multiplier: 0.0024 },
-  先天至宝: { weight_multiplier: 0.0004 },
+  下品: { weight_multiplier: 0.42 },
+  中品: { weight_multiplier: 0.18 },
+  上品: { weight_multiplier: 0.065 },
+  极品: { weight_multiplier: 0.020 },
+  仙品: { weight_multiplier: 0.0055 },
+  先天至宝: { weight_multiplier: 0.0012 },
 };
 const PLAYER_STRING_FIELDS = new Set([
   "realm_stage",
@@ -2713,7 +2713,7 @@ function defaultRewardPoolWeight(kind, qualityLevel, channel) {
   const kindFactor = channel === "fishing"
     ? { material: 1.0, pill: 0.58, talisman: 0.34, artifact: 0.16, recipe: 0.08, technique: 0.06 }
     : { material: 1.0, pill: 0.72, talisman: 0.5, artifact: 0.28, recipe: 0.15, technique: 0.11 };
-  return Number((qualityBase * (kindFactor[normalizedKind] || 0.25)).toFixed(3));
+  return Number((qualityBase * (kindFactor[normalizedKind] || 0.25)).toFixed(4));
 }
 
 function buildGamblingRewardPoolCatalog() {
@@ -2799,7 +2799,7 @@ function rewardPoolQuantityLabel(minValue, maxValue) {
 
 function rewardPoolWeightLabel(value) {
   const numeric = Number(value || 0);
-  return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(2).replace(/\.?0+$/, "");
+  return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(4).replace(/\.?0+$/, "");
 }
 
 function syncGamblingRewardPoolRowSummary(row) {
@@ -2875,10 +2875,10 @@ function createGamblingRewardPoolRow(data = {}) {
           <input data-gambling-max type="number" min="1" value="${escapeHtml(data.quantity_max || data.quantity_min || 1)}" ${fixedQuantity ? "disabled" : ""}>
         </label>
         <label>奇石权重
-          <input data-gambling-weight type="number" min="0" step="0.01" value="${escapeHtml(data.gambling_weight ?? data.base_weight ?? 0)}">
+          <input data-gambling-weight type="number" min="0" step="0.0001" value="${escapeHtml(data.gambling_weight ?? data.base_weight ?? 0)}">
         </label>
         <label>钓鱼权重
-          <input data-fishing-weight type="number" min="0" step="0.01" value="${escapeHtml(data.fishing_weight ?? data.base_weight ?? 0)}">
+          <input data-fishing-weight type="number" min="0" step="0.0001" value="${escapeHtml(data.fishing_weight ?? data.base_weight ?? 0)}">
         </label>
         <label class="inline-check">
           <input data-gambling-enabled type="checkbox" ${(data.gambling_enabled ?? data.enabled ?? true) ? "checked" : ""}>
@@ -2980,13 +2980,13 @@ function ensureSettingRuleRows() {
           <input type="text" value="${escapeHtml(label)}" disabled>
         </label>
         <label>修炼倍率
-          <input data-root-quality="${escapeHtml(key)}" data-root-rule="cultivation_rate" type="number" min="0.1" step="0.01" value="${escapeHtml(DEFAULT_ROOT_QUALITY_RULES[key].cultivation_rate)}">
+          <input data-root-quality="${escapeHtml(key)}" data-root-rule="cultivation_rate" type="number" min="0.1" step="0.0001" value="${escapeHtml(DEFAULT_ROOT_QUALITY_RULES[key].cultivation_rate)}">
         </label>
         <label>突破加成
           <input data-root-quality="${escapeHtml(key)}" data-root-rule="breakthrough_bonus" type="number" step="1" value="${escapeHtml(DEFAULT_ROOT_QUALITY_RULES[key].breakthrough_bonus)}">
         </label>
         <label>战力倍率
-          <input data-root-quality="${escapeHtml(key)}" data-root-rule="combat_factor" type="number" min="0.1" step="0.01" value="${escapeHtml(DEFAULT_ROOT_QUALITY_RULES[key].combat_factor)}">
+          <input data-root-quality="${escapeHtml(key)}" data-root-rule="combat_factor" type="number" min="0.1" step="0.0001" value="${escapeHtml(DEFAULT_ROOT_QUALITY_RULES[key].combat_factor)}">
         </label>
       `;
       rootRows.appendChild(row);
@@ -3005,13 +3005,13 @@ function ensureSettingRuleRows() {
           <input type="text" value="${escapeHtml(label)}" disabled>
         </label>
         <label>法宝倍率
-          <input data-item-quality="${escapeHtml(key)}" data-item-rule="artifact_multiplier" type="number" min="0" step="0.01" value="${escapeHtml(DEFAULT_ITEM_QUALITY_RULES[key].artifact_multiplier)}">
+          <input data-item-quality="${escapeHtml(key)}" data-item-rule="artifact_multiplier" type="number" min="0" step="0.0001" value="${escapeHtml(DEFAULT_ITEM_QUALITY_RULES[key].artifact_multiplier)}">
         </label>
         <label>丹药倍率
-          <input data-item-quality="${escapeHtml(key)}" data-item-rule="pill_multiplier" type="number" min="0" step="0.01" value="${escapeHtml(DEFAULT_ITEM_QUALITY_RULES[key].pill_multiplier)}">
+          <input data-item-quality="${escapeHtml(key)}" data-item-rule="pill_multiplier" type="number" min="0" step="0.0001" value="${escapeHtml(DEFAULT_ITEM_QUALITY_RULES[key].pill_multiplier)}">
         </label>
         <label>符箓倍率
-          <input data-item-quality="${escapeHtml(key)}" data-item-rule="talisman_multiplier" type="number" min="0" step="0.01" value="${escapeHtml(DEFAULT_ITEM_QUALITY_RULES[key].talisman_multiplier)}">
+          <input data-item-quality="${escapeHtml(key)}" data-item-rule="talisman_multiplier" type="number" min="0" step="0.0001" value="${escapeHtml(DEFAULT_ITEM_QUALITY_RULES[key].talisman_multiplier)}">
         </label>
       `;
       itemRows.appendChild(row);
@@ -3077,7 +3077,7 @@ function ensureSettingRuleRows() {
           <input type="text" value="${escapeHtml(label)}" disabled>
         </label>
         <label>权重倍率
-          <input data-gambling-quality="${escapeHtml(key)}" data-gambling-rule="weight_multiplier" type="number" min="0" step="0.001" value="${escapeHtml(DEFAULT_GAMBLING_QUALITY_RULES[key].weight_multiplier)}">
+          <input data-gambling-quality="${escapeHtml(key)}" data-gambling-rule="weight_multiplier" type="number" min="0" step="0.0001" value="${escapeHtml(DEFAULT_GAMBLING_QUALITY_RULES[key].weight_multiplier)}">
         </label>
         <p class="muted">该倍率会先作用于对应品阶的基础权重，随后再叠加机缘对高品阶的额外增幅。</p>
       `;
@@ -3097,7 +3097,7 @@ function ensureSettingRuleRows() {
           <input type="text" value="${escapeHtml(label)}" disabled>
         </label>
         <label>权重倍率
-          <input data-fishing-quality="${escapeHtml(key)}" data-fishing-rule="weight_multiplier" type="number" min="0" step="0.001" value="${escapeHtml(DEFAULT_FISHING_QUALITY_RULES[key].weight_multiplier)}">
+          <input data-fishing-quality="${escapeHtml(key)}" data-fishing-rule="weight_multiplier" type="number" min="0" step="0.0001" value="${escapeHtml(DEFAULT_FISHING_QUALITY_RULES[key].weight_multiplier)}">
         </label>
         <p class="muted">该倍率只作用于垂钓，不影响仙界奇石的抽取权重。</p>
       `;
