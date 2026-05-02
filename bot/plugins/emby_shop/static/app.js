@@ -92,19 +92,33 @@ function renderMyItems(items = []) {
   `).join("");
 }
 
+function inviteItemType(itemType) {
+  if (itemType === "invite_credit" || itemType === "group_invite_credit") return "group";
+  if (itemType === "account_open_credit") return "account";
+  return "";
+}
+
+function inviteItemLabel(item) {
+  const type = inviteItemType(item?.item_type);
+  if (type === "group") return "入群资格";
+  if (type === "account") return "开号资格";
+  return item?.official ? "官方" : "用户";
+}
+
 function renderProducts(items = []) {
   if (!items.length) {
     refs.productList.innerHTML = `<div class="empty">当前还没有可购买的商品。</div>`;
     return;
   }
   refs.productList.innerHTML = items.map((item) => {
-    const isInviteCredit = item.item_type === "invite_credit";
+    const inviteType = inviteItemType(item.item_type);
+    const isInviteCredit = Boolean(inviteType);
     return `
     <article class="product-card">
       ${item.image_url ? `<img class="product-media" src="${escapeHtml(item.image_url)}" alt="${escapeHtml(item.title)}">` : `<div class="product-media"></div>`}
       <div class="card-head">
         <strong>${escapeHtml(item.title)}</strong>
-        <span class="tag">${isInviteCredit ? "邀请资格" : item.official ? "官方" : "用户"}</span>
+        <span class="tag">${escapeHtml(inviteItemLabel(item))}</span>
       </div>
       <p class="muted">${escapeHtml(item.description || "暂无描述")}</p>
       <div class="product-meta">
@@ -126,8 +140,9 @@ function renderProducts(items = []) {
       const itemId = Number(button.dataset.purchase);
       const item = items.find((row) => Number(row.id) === itemId);
       if (!item) return;
-      const deliveryHint = item.item_type === "invite_credit"
-        ? `购买后将获得 ${item.invite_credit_quantity || 1} 次邀请资格。`
+      const inviteType = inviteItemType(item.item_type);
+      const deliveryHint = inviteType
+        ? `购买后将获得 ${item.invite_credit_quantity || 1} 次${inviteItemLabel(item)}。`
         : "机器人会通过私聊自动发货。";
       const confirmed = window.confirm(`确认花费 ${item.price_iv} 购买《${item.title}》吗？${deliveryHint}`);
       if (!confirmed) return;
@@ -144,7 +159,7 @@ function renderProducts(items = []) {
         const inviteCount = payload.granted_invites?.length || 0;
         setStatus(
           inviteCount
-            ? `已购买《${item.title}》，获得 ${inviteCount} 次邀请资格。`
+            ? `已购买《${item.title}》，获得 ${inviteCount} 次${inviteItemLabel(item)}。`
             : `已购买《${item.title}》，机器人会把发货内容私聊给你。`,
           "success"
         );

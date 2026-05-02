@@ -52,10 +52,11 @@ async def invite_join_request_guard(client, request):
 
     expected_user_id = int(record.get("invitee_tg") or 0)
     if settings.get("strict_target", True) and user_id != expected_user_id:
-        mark_invite_record_request(record["id"], user_id)
+        mark_invite_record_request(record["id"], user_id, status="declined")
+        await _safe_revoke(client, chat_id, invite_link)
         await _safe_decline(client, chat_id, user_id)
         LOGGER.info(
-            f"invite join request declined record={record['id']} expected={expected_user_id} actual={user_id}"
+            f"invite join request declined and revoked record={record['id']} expected={expected_user_id} actual={user_id}"
         )
         return
 
@@ -66,4 +67,6 @@ async def invite_join_request_guard(client, request):
         LOGGER.info(f"invite join request approved record={record['id']} user={user_id} chat={chat_id}")
     except Exception as exc:
         LOGGER.warning(f"approve invite join request failed record={record['id']} user={user_id}: {exc}")
+        mark_invite_record_request(record["id"], user_id, status="declined")
+        await _safe_revoke(client, chat_id, invite_link)
         await _safe_decline(client, chat_id, user_id)

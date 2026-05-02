@@ -20,6 +20,17 @@ DEFAULT_SHOP_SETTINGS = {
     "shop_notice": "欢迎使用 Emby 货币购买数字商品。",
 }
 
+SHOP_ITEM_TYPE_DIGITAL = "digital"
+SHOP_ITEM_TYPE_GROUP_INVITE = "group_invite_credit"
+SHOP_ITEM_TYPE_ACCOUNT_OPEN = "account_open_credit"
+LEGACY_SHOP_ITEM_TYPE_INVITE = "invite_credit"
+SHOP_ITEM_TYPES = {
+    SHOP_ITEM_TYPE_DIGITAL,
+    SHOP_ITEM_TYPE_GROUP_INVITE,
+    SHOP_ITEM_TYPE_ACCOUNT_OPEN,
+    LEGACY_SHOP_ITEM_TYPE_INVITE,
+}
+
 
 def utcnow() -> datetime:
     return datetime.utcnow()
@@ -95,7 +106,7 @@ def serialize_shop_item(item: ShopItem | None) -> dict[str, Any] | None:
         "description": item.description or "",
         "image_url": item.image_url or "",
         "delivery_text": item.delivery_text or "",
-        "item_type": item.item_type or "digital",
+        "item_type": item.item_type or SHOP_ITEM_TYPE_DIGITAL,
         "invite_credit_quantity": int(item.invite_credit_quantity or 0),
         "price_iv": int(item.price_iv or 0),
         "stock": int(item.stock or 0),
@@ -119,7 +130,7 @@ def serialize_shop_order(order: ShopOrder | None) -> dict[str, Any] | None:
         "item_title": order.item_title,
         "image_url": order.image_url or "",
         "delivery_text": order.delivery_text or "",
-        "item_type": order.item_type or "digital",
+        "item_type": order.item_type or SHOP_ITEM_TYPE_DIGITAL,
         "invite_credit_quantity": int(order.invite_credit_quantity or 0),
         "quantity": int(order.quantity or 0),
         "unit_price_iv": int(order.unit_price_iv or 0),
@@ -212,13 +223,15 @@ def create_shop_item(
         raise ValueError("商品价格不能小于 0")
     if int(stock or 0) < 0:
         raise ValueError("商品库存不能小于 0")
-    clean_item_type = str(item_type or "digital").strip().lower()
-    if clean_item_type not in {"digital", "invite_credit"}:
+    clean_item_type = str(item_type or SHOP_ITEM_TYPE_DIGITAL).strip().lower()
+    if clean_item_type not in SHOP_ITEM_TYPES:
         raise ValueError("商品类型不正确")
     clean_invite_credit_quantity = max(int(invite_credit_quantity or 0), 0)
-    if clean_item_type == "invite_credit" and clean_invite_credit_quantity <= 0:
+    if clean_item_type in {LEGACY_SHOP_ITEM_TYPE_INVITE, SHOP_ITEM_TYPE_GROUP_INVITE, SHOP_ITEM_TYPE_ACCOUNT_OPEN} and clean_invite_credit_quantity <= 0:
         clean_invite_credit_quantity = 1
-    if clean_item_type == "digital":
+    if clean_item_type == SHOP_ITEM_TYPE_ACCOUNT_OPEN:
+        clean_invite_credit_quantity = 1
+    if clean_item_type == SHOP_ITEM_TYPE_DIGITAL:
         clean_invite_credit_quantity = 0
 
     with Session() as session:
@@ -256,7 +269,7 @@ def update_shop_item(item_id: int, **fields) -> dict[str, Any] | None:
                 value = str(value).strip()
                 if key == "item_type":
                     value = value.lower()
-                    if value not in {"digital", "invite_credit"}:
+                    if value not in SHOP_ITEM_TYPES:
                         continue
             if key in {"price_iv", "stock", "sold_count", "invite_credit_quantity"} and value is not None:
                 value = int(value)
@@ -265,9 +278,15 @@ def update_shop_item(item_id: int, **fields) -> dict[str, Any] | None:
             if key == "owner_username" and value is not None:
                 value = str(value).lstrip("@")
             setattr(item, key, value)
-        if (item.item_type or "digital") == "invite_credit" and int(item.invite_credit_quantity or 0) <= 0:
+        if (item.item_type or SHOP_ITEM_TYPE_DIGITAL) in {
+            LEGACY_SHOP_ITEM_TYPE_INVITE,
+            SHOP_ITEM_TYPE_GROUP_INVITE,
+            SHOP_ITEM_TYPE_ACCOUNT_OPEN,
+        } and int(item.invite_credit_quantity or 0) <= 0:
             item.invite_credit_quantity = 1
-        if (item.item_type or "digital") == "digital":
+        if (item.item_type or SHOP_ITEM_TYPE_DIGITAL) == SHOP_ITEM_TYPE_ACCOUNT_OPEN:
+            item.invite_credit_quantity = 1
+        if (item.item_type or SHOP_ITEM_TYPE_DIGITAL) == SHOP_ITEM_TYPE_DIGITAL:
             item.invite_credit_quantity = 0
         session.commit()
         session.refresh(item)

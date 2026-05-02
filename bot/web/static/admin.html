@@ -384,18 +384,18 @@
       <summary class="fold-summary">
         <div>
           <p class="eyebrow">邀请管理</p>
-          <h2>私密群邀请</h2>
+          <h2>邀请资格</h2>
         </div>
-        <span class="summary-tip">开启邀请模块、赠送邀请码，并追踪邀请人和被邀请人关系</span>
+          <span class="summary-tip">管理开号资格、入群资格，以及邀请人和被邀请人关系</span>
       </summary>
       <div class="fold-body">
         <div class="summary-grid">
           <article class="metric-card">
-            <span>邀请码总数</span>
+            <span>入群资格总数</span>
             <strong id="invite-total">-</strong>
           </article>
           <article class="metric-card">
-            <span>可用邀请码</span>
+            <span>可用入群资格</span>
             <strong id="invite-available">-</strong>
           </article>
           <article class="metric-card">
@@ -405,6 +405,22 @@
           <article class="metric-card">
             <span>已删除</span>
             <strong id="invite-revoked">-</strong>
+          </article>
+          <article class="metric-card">
+            <span>开号资格总数</span>
+            <strong id="invite-open-total">-</strong>
+          </article>
+          <article class="metric-card">
+            <span>可用开号资格</span>
+            <strong id="invite-open-available">-</strong>
+          </article>
+          <article class="metric-card">
+            <span>已发放开号</span>
+            <strong id="invite-open-used">-</strong>
+          </article>
+          <article class="metric-card">
+            <span>已删除开号</span>
+            <strong id="invite-open-revoked">-</strong>
           </article>
         </div>
 
@@ -427,6 +443,10 @@
               链接有效期（小时）
               <input id="invite-expire-hours" type="number" min="1" max="168" value="24">
             </label>
+            <label>
+              默认开号天数
+              <input id="invite-account-open-days" type="number" min="1" max="3650" value="30">
+            </label>
             <label class="wide-field inline-check">
               <input id="invite-strict-target" type="checkbox" checked>
               仅允许被邀请 TGID 通过入群申请
@@ -439,10 +459,97 @@
 
         <section class="plugin-import-card">
           <div>
-            <p class="eyebrow">手动发放</p>
-            <h3>赠送邀请码</h3>
+            <p class="eyebrow">列表搜索</p>
+            <h3>邀请关系检索</h3>
           </div>
-          <p id="invite-grant-status" class="plugin-meta">只能发放给已有 Emby 观影资格的用户。</p>
+          <form id="invite-search-form" class="search-form">
+            <label class="search-field">
+              <span>搜索 TG 昵称 / TGID</span>
+              <input id="invite-search-input" type="search" placeholder="例如 昵称、@username、123456789">
+            </label>
+            <button id="invite-search-submit" type="submit">搜索邀请</button>
+          </form>
+        </section>
+
+        <section class="plugin-import-card">
+          <div>
+            <p class="eyebrow">开号资格</p>
+            <h3>发放与代发</h3>
+          </div>
+          <p id="invite-open-grant-status" class="plugin-meta">每个拥有 Emby 观影资格的用户只能发放一次开号资格。</p>
+          <form id="invite-open-grant-form" class="grid-form">
+            <label>
+              拥有人 TGID
+              <input id="invite-open-grant-tg" type="number" min="1" placeholder="已有 Emby 观影资格的用户">
+            </label>
+            <label>
+              开号天数
+              <input id="invite-open-grant-days" type="number" min="1" max="3650" value="30">
+            </label>
+            <label class="wide-field">
+              备注
+              <input id="invite-open-grant-note" type="text" maxlength="255" placeholder="例如 邀请活动、管理员补发">
+            </label>
+            <div class="form-actions">
+              <button id="invite-open-grant-use-selected" type="button" class="secondary">带入当前选中用户</button>
+              <button id="invite-open-grant-submit" type="submit">赠送开号资格</button>
+            </div>
+          </form>
+          <form id="invite-open-create-form" class="grid-form">
+            <label>
+              邀请人 TGID
+              <input id="invite-open-create-inviter" type="number" min="1" placeholder="拥有开号资格的用户">
+            </label>
+            <label>
+              被邀请人 TGID
+              <input id="invite-open-create-invitee" type="number" min="1" placeholder="未开通 Emby 的用户">
+            </label>
+            <label class="wide-field">
+              代发备注
+              <input id="invite-open-create-note" type="text" maxlength="255" placeholder="管理员代发时可填写">
+            </label>
+            <div class="form-actions">
+              <button id="invite-open-create-submit" type="submit">管理员代发开号资格</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="card-lite">
+          <div class="code-toolbar">
+            <div>
+              <div class="plugin-name">开号资格库存</div>
+              <p class="plugin-meta">可编辑未使用资格的拥有人、天数和备注。</p>
+            </div>
+            <div class="control-actions">
+              <button id="invite-open-credit-select-page" type="button" class="secondary">全选可删</button>
+              <button id="invite-open-credit-clear-selection" type="button" class="secondary">清空选择</button>
+              <button id="invite-open-credit-delete-selected" type="button">删除已选</button>
+            </div>
+          </div>
+          <div id="invite-open-credit-list" class="stack-list code-list"></div>
+        </section>
+
+        <section class="card-lite">
+          <div class="plugin-card-top">
+            <div>
+              <div class="plugin-name">开号邀请关系</div>
+              <p class="plugin-meta">展示邀请人和被邀请人的开号资格关系。</p>
+            </div>
+          </div>
+          <div id="invite-open-record-list" class="stack-list code-list"></div>
+          <div class="pager">
+            <button id="invite-open-prev-page" type="button" class="secondary">上一页</button>
+            <span id="invite-open-page-label">第 1 页</span>
+            <button id="invite-open-next-page" type="button" class="secondary">下一页</button>
+          </div>
+        </section>
+
+        <section class="plugin-import-card">
+          <div>
+            <p class="eyebrow">手动发放</p>
+            <h3>赠送入群资格</h3>
+          </div>
+          <p id="invite-grant-status" class="plugin-meta">只能发放给已有 Emby 观影资格的用户，购买后可生成一次性入群链接。</p>
           <form id="invite-grant-form" class="grid-form">
             <label>
               用户 TGID
@@ -458,7 +565,7 @@
             </label>
             <div class="form-actions">
               <button id="invite-grant-use-selected" type="button" class="secondary">带入当前选中用户</button>
-              <button id="invite-grant-submit" type="submit">赠送邀请码</button>
+              <button id="invite-grant-submit" type="submit">赠送入群资格</button>
             </div>
           </form>
         </section>
@@ -466,7 +573,7 @@
         <section class="card-lite">
           <div class="code-toolbar">
             <div>
-              <div class="plugin-name">邀请码库存</div>
+              <div class="plugin-name">入群资格库存</div>
               <p class="plugin-meta">可用资格被用户生成邀请链接后会变为已使用。</p>
             </div>
             <div class="control-actions">
@@ -481,12 +588,17 @@
         <section class="card-lite">
           <div class="plugin-card-top">
             <div>
-              <div class="plugin-name">邀请关系</div>
-              <p class="plugin-meta">展示最近 200 条邀请记录，包含邀请人、被邀请人、目标群和入群状态。</p>
+              <div class="plugin-name">入群邀请关系</div>
+              <p class="plugin-meta">支持按 TG 昵称和 TGID 搜索，每页最多显示 20 条。</p>
             </div>
             <button id="invite-refresh" type="button" class="secondary">刷新邀请数据</button>
           </div>
           <div id="invite-record-list" class="stack-list code-list"></div>
+          <div class="pager">
+            <button id="invite-group-prev-page" type="button" class="secondary">上一页</button>
+            <span id="invite-group-page-label">第 1 页</span>
+            <button id="invite-group-next-page" type="button" class="secondary">下一页</button>
+          </div>
         </section>
       </div>
     </details>

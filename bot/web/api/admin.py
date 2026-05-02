@@ -46,15 +46,20 @@ from bot.sql_helper.sql_bot_access import (
 from bot.sql_helper.sql_code import Code, CodeRedeem
 from bot.sql_helper.sql_emby import Emby, sql_invalidate_emby_namespace
 from bot.sql_helper.sql_invite import (
+    INVITE_CREDIT_TYPE_ACCOUNT_OPEN,
+    INVITE_CREDIT_TYPE_GROUP,
+    create_account_open_invite_record,
     get_invite_record,
     get_invite_settings,
     grant_invite_credits,
     invite_credit_summary,
     list_invite_credits,
     list_invite_records,
+    normalize_invite_credit_type,
     revoke_invite_credit,
     revoke_invite_record,
     set_invite_settings,
+    update_invite_credit,
 )
 from bot.sql_helper.sql_moderation import get_group_moderation_setting, list_group_moderation_warnings
 from bot.web.migration_bundle import MigrationBundleError, create_migration_bundle, restore_migration_bundle
@@ -118,17 +123,32 @@ class AdminInviteSettingsPatch(BaseModel):
     target_chat_id: int | None = None
     expire_hours: int | None = Field(default=None, ge=1, le=168)
     strict_target: bool | None = None
+    account_open_days: int | None = Field(default=None, ge=1, le=3650)
 
 
 class AdminInviteGrantPayload(BaseModel):
     owner_tg: int = Field(..., ge=1)
     count: int = Field(default=1, ge=1, le=500)
+    credit_type: str = Field(default=INVITE_CREDIT_TYPE_GROUP)
+    invite_days: int | None = Field(default=None, ge=1, le=3650)
     note: str | None = Field(default=None, max_length=255)
 
 
 class AdminInviteCreditDeletePayload(BaseModel):
     credit_ids: list[int] = Field(default_factory=list)
     reason: str | None = Field(default=None, max_length=255)
+
+
+class AdminInviteCreditPatchPayload(BaseModel):
+    owner_tg: int | None = Field(default=None, ge=1)
+    invite_days: int | None = Field(default=None, ge=1, le=3650)
+    note: str | None = Field(default=None, max_length=255)
+
+
+class AdminAccountOpenInviteCreatePayload(BaseModel):
+    inviter_tg: int = Field(..., ge=1)
+    invitee_tg: int = Field(..., ge=1)
+    note: str | None = Field(default=None, max_length=255)
 
 
 class AdminModerationSettingsPatch(BaseModel):
@@ -510,17 +530,74 @@ def _serialize_invite_record_admin(
     return payload
 
 
-async def _invite_admin_bundle() -> dict[str, Any]:
+def _actor_search_text(tg: int | None, identity_map: dict[int, dict[str, str]], emby_map: dict[int, Emby]) -> str:
+    if tg is None:
+        return ""
+    tg = int(tg)
+    identity = identity_map.get(tg) or {}
+    emby_user = emby_map.get(tg)
+    return " ".join(
+        str(part or "")
+        for part in [
+            tg,
+            identity.get("display_name"),
+            identity.get("username"),
+            getattr(emby_user, "name", None),
+            getattr(emby_user, "embyid", None),
+        ]
+    ).lower()
+
+
+def _invite_record_matches_keyword(
+    item: dict[str, Any],
+    keyword: str,
+    identity_map: dict[int, dict[str, str]],
+    emby_map: dict[int, Emby],
+) -> bool:
+    normalized = str(keyword or "").strip().lower().lstrip("@")
+    if not normalized:
+        return True
+    for key in ("inviter_tg", "invitee_tg", "created_by_tg", "last_request_tg"):
+        if normalized in _actor_search_text(item.get(key), identity_map, emby_map):
+            return True
+    return False
+
+
+def _paginate_invite_records(items: list[dict[str, Any]], page: int, page_size: int) -> tuple[list[dict[str, Any]], dict[str, int | bool]]:
+    safe_page_size = min(max(int(page_size or 20), 1), 20)
+    total = len(items)
+    total_pages = max((total + safe_page_size - 1) // safe_page_size, 1)
+    safe_page = min(max(int(page or 1), 1), total_pages)
+    start = (safe_page - 1) * safe_page_size
+    return items[start:start + safe_page_size], {
+        "page": safe_page,
+        "page_size": safe_page_size,
+        "total": total,
+        "total_pages": total_pages,
+        "has_prev": safe_page > 1,
+        "has_next": safe_page < total_pages,
+    }
+
+
+async def _invite_admin_bundle(
+    *,
+    search_query: str = "",
+    account_page: int = 1,
+    group_page: int = 1,
+    page_size: int = 20,
+) -> dict[str, Any]:
     settings = get_invite_settings()
-    credits = list_invite_credits(limit=200)
-    records = list_invite_records(limit=200)
+    account_credits = list_invite_credits(limit=200, credit_type=INVITE_CREDIT_TYPE_ACCOUNT_OPEN)
+    group_credits = list_invite_credits(limit=200, credit_type=INVITE_CREDIT_TYPE_GROUP)
+    account_records = list_invite_records(limit=500, credit_type=INVITE_CREDIT_TYPE_ACCOUNT_OPEN)
+    group_records = list_invite_records(limit=500, credit_type=INVITE_CREDIT_TYPE_GROUP)
     tg_ids: set[int] = set()
 
-    for item in credits:
+    for item in [*account_credits, *group_credits]:
         for key in ("owner_tg", "granted_by_tg", "revoked_by_tg"):
             if item.get(key) is not None:
                 tg_ids.add(int(item[key]))
-    for item in records:
+    for item in [*account_records, *group_records]:
         for key in ("inviter_tg", "invitee_tg", "created_by_tg", "last_request_tg"):
             if item.get(key) is not None:
                 tg_ids.add(int(item[key]))
@@ -530,11 +607,39 @@ async def _invite_admin_bundle() -> dict[str, Any]:
     emby_map = {int(row.tg): row for row in emby_rows}
     identity_map = await _fetch_telegram_identity_map(list(tg_ids))
 
+    account_filtered = [
+        item for item in account_records if _invite_record_matches_keyword(item, search_query, identity_map, emby_map)
+    ]
+    group_filtered = [
+        item for item in group_records if _invite_record_matches_keyword(item, search_query, identity_map, emby_map)
+    ]
+    account_page_records, account_pagination = _paginate_invite_records(account_filtered, account_page, page_size)
+    group_page_records, group_pagination = _paginate_invite_records(group_filtered, group_page, page_size)
+
+    account_open = {
+        "summary": invite_credit_summary(credit_type=INVITE_CREDIT_TYPE_ACCOUNT_OPEN),
+        "credits": [_serialize_invite_credit_admin(item, identity_map, emby_map) for item in account_credits],
+        "records": [_serialize_invite_record_admin(item, identity_map, emby_map) for item in account_page_records],
+        "records_pagination": account_pagination,
+    }
+    group_join = {
+        "summary": invite_credit_summary(credit_type=INVITE_CREDIT_TYPE_GROUP),
+        "credits": [_serialize_invite_credit_admin(item, identity_map, emby_map) for item in group_credits],
+        "records": [_serialize_invite_record_admin(item, identity_map, emby_map) for item in group_page_records],
+        "records_pagination": group_pagination,
+    }
+
     return {
         "settings": settings,
-        "summary": invite_credit_summary(),
-        "credits": [_serialize_invite_credit_admin(item, identity_map, emby_map) for item in credits],
-        "records": [_serialize_invite_record_admin(item, identity_map, emby_map) for item in records],
+        "search": {
+            "query": search_query,
+            "page_size": min(max(int(page_size or 20), 1), 20),
+        },
+        "account_open": account_open,
+        "group_join": group_join,
+        "summary": group_join["summary"],
+        "credits": group_join["credits"],
+        "records": group_join["records"],
     }
 
 
@@ -1231,8 +1336,21 @@ async def delete_codes(payload: AdminCodeDeletePayload):
 
 
 @router.get("/invites")
-async def admin_invites():
-    return {"code": 200, "data": await _invite_admin_bundle()}
+async def admin_invites(
+    q: str = Query(default=""),
+    account_page: int = Query(default=1, ge=1),
+    group_page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=20),
+):
+    return {
+        "code": 200,
+        "data": await _invite_admin_bundle(
+            search_query=q,
+            account_page=account_page,
+            group_page=group_page,
+            page_size=page_size,
+        ),
+    }
 
 
 @router.patch("/invites/settings")
@@ -1247,18 +1365,60 @@ async def patch_invite_settings(payload: AdminInviteSettingsPatch, request: Requ
 async def grant_invite_credit_api(payload: AdminInviteGrantPayload, request: Request):
     actor_tg = _resolve_admin_actor_id(request)
     try:
+        credit_type = normalize_invite_credit_type(payload.credit_type)
         granted = grant_invite_credits(
             owner_tg=payload.owner_tg,
             count=payload.count,
             granted_by_tg=actor_tg,
             source="admin",
             note=payload.note or "",
+            credit_type=credit_type,
+            invite_days=payload.invite_days,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    LOGGER.info(f"admin invite credits grant actor={actor_tg} owner={payload.owner_tg} count={payload.count}")
+    LOGGER.info(
+        f"admin invite credits grant actor={actor_tg} owner={payload.owner_tg} "
+        f"type={credit_type} count={payload.count}"
+    )
     bundle = await _invite_admin_bundle()
     bundle["last_granted"] = granted
+    return {"code": 200, "data": bundle}
+
+
+@router.patch("/invites/credits/{credit_id}")
+async def patch_invite_credit_api(credit_id: int, payload: AdminInviteCreditPatchPayload, request: Request):
+    actor_tg = _resolve_admin_actor_id(request)
+    try:
+        updated = update_invite_credit(credit_id, **payload.model_dump(exclude_unset=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if updated is None:
+        raise HTTPException(status_code=404, detail="未找到对应邀请资格")
+    LOGGER.info(f"admin invite credit edit actor={actor_tg} credit={credit_id}")
+    bundle = await _invite_admin_bundle()
+    bundle["updated_credit"] = updated
+    return {"code": 200, "data": bundle}
+
+
+@router.post("/invites/account-open/create")
+async def create_account_open_invite_api(payload: AdminAccountOpenInviteCreatePayload, request: Request):
+    actor_tg = _resolve_admin_actor_id(request)
+    try:
+        record = create_account_open_invite_record(
+            inviter_tg=payload.inviter_tg,
+            invitee_tg=payload.invitee_tg,
+            created_by_tg=actor_tg,
+            note=payload.note or "",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    LOGGER.info(
+        f"admin account open invite create actor={actor_tg} "
+        f"inviter={payload.inviter_tg} invitee={payload.invitee_tg}"
+    )
+    bundle = await _invite_admin_bundle()
+    bundle["created_record"] = record
     return {"code": 200, "data": bundle}
 
 
@@ -1267,7 +1427,7 @@ async def delete_invite_credits_api(payload: AdminInviteCreditDeletePayload, req
     actor_tg = _resolve_admin_actor_id(request)
     unique_ids = [int(item) for item in dict.fromkeys(payload.credit_ids) if int(item) > 0]
     if not unique_ids:
-        raise HTTPException(status_code=400, detail="至少需要选择一个邀请码")
+        raise HTTPException(status_code=400, detail="至少需要选择一个邀请资格")
     deleted = 0
     skipped = 0
     for credit_id in unique_ids:

@@ -108,11 +108,46 @@
         </div>
       </details>
 
+      <details id="invite-open-card" class="card fold-card hidden">
+        <summary class="fold-summary">
+          <div>
+            <p class="eyebrow">开号资格</p>
+            <h2>邀请开户</h2>
+          </div>
+          <span class="summary-tip">把一次 Emby 开号资格发放给未开通用户</span>
+        </summary>
+        <div class="fold-body">
+          <p id="invite-open-status" class="section-copy">正在同步开号资格...</p>
+          <div class="profile-grid">
+            <article class="profile-item">
+              <span>可用开号资格</span>
+              <strong id="invite-open-credit-count">-</strong>
+            </article>
+            <article class="profile-item">
+              <span>开号天数</span>
+              <strong id="invite-open-days">-</strong>
+            </article>
+          </div>
+          <form id="invite-open-form" class="mini-form">
+            <label>
+              被邀请人 TGID
+              <input id="invite-open-invitee-tg" type="number" min="1" placeholder="对方未开通 Emby 账号">
+            </label>
+            <label>
+              备注
+              <input id="invite-open-note" type="text" maxlength="255" placeholder="可选，方便后台识别">
+            </label>
+            <button id="invite-open-submit" type="submit">发放开号资格</button>
+          </form>
+          <div id="invite-open-records" class="stack-list"></div>
+        </div>
+      </details>
+
       <details id="invite-card" class="card fold-card hidden">
         <summary class="fold-summary">
           <div>
-            <p class="eyebrow">邀请入群</p>
-            <h2>邀请码</h2>
+            <p class="eyebrow">入群资格邀请</p>
+            <h2>一次性入群链接</h2>
           </div>
           <span class="summary-tip">为指定 TGID 发送一次性入群链接</span>
         </summary>
@@ -120,7 +155,7 @@
           <p id="invite-status" class="section-copy">正在同步邀请资格...</p>
           <div class="profile-grid">
             <article class="profile-item">
-              <span>可用邀请码</span>
+              <span>可用入群资格</span>
               <strong id="invite-credit-count">-</strong>
             </article>
             <article class="profile-item">

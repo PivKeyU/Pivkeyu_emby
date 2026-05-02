@@ -62,6 +62,11 @@ const state = {
   selectedCodes: new Set(),
   inviteBundle: null,
   selectedInviteCredits: new Set(),
+  selectedInviteOpenCredits: new Set(),
+  inviteSearchQuery: "",
+  inviteGroupPage: 1,
+  inviteOpenPage: 1,
+  invitePageSize: 20,
   visibleUsers: [],
   moderationChats: [],
   selectedModerationChatId: null,
@@ -111,9 +116,33 @@ const refs = {
   inviteEnabled: document.querySelector("#invite-enabled"),
   inviteTargetChatId: document.querySelector("#invite-target-chat-id"),
   inviteExpireHours: document.querySelector("#invite-expire-hours"),
+  inviteAccountOpenDays: document.querySelector("#invite-account-open-days"),
   inviteStrictTarget: document.querySelector("#invite-strict-target"),
   inviteSettingsSave: document.querySelector("#invite-settings-save"),
   inviteSettingsStatus: document.querySelector("#invite-settings-status"),
+  inviteSearchForm: document.querySelector("#invite-search-form"),
+  inviteSearchInput: document.querySelector("#invite-search-input"),
+  inviteSearchSubmit: document.querySelector("#invite-search-submit"),
+  inviteOpenGrantForm: document.querySelector("#invite-open-grant-form"),
+  inviteOpenGrantTg: document.querySelector("#invite-open-grant-tg"),
+  inviteOpenGrantDays: document.querySelector("#invite-open-grant-days"),
+  inviteOpenGrantNote: document.querySelector("#invite-open-grant-note"),
+  inviteOpenGrantUseSelected: document.querySelector("#invite-open-grant-use-selected"),
+  inviteOpenGrantSubmit: document.querySelector("#invite-open-grant-submit"),
+  inviteOpenGrantStatus: document.querySelector("#invite-open-grant-status"),
+  inviteOpenCreateForm: document.querySelector("#invite-open-create-form"),
+  inviteOpenCreateInviter: document.querySelector("#invite-open-create-inviter"),
+  inviteOpenCreateInvitee: document.querySelector("#invite-open-create-invitee"),
+  inviteOpenCreateNote: document.querySelector("#invite-open-create-note"),
+  inviteOpenCreateSubmit: document.querySelector("#invite-open-create-submit"),
+  inviteOpenCreditList: document.querySelector("#invite-open-credit-list"),
+  inviteOpenRecordList: document.querySelector("#invite-open-record-list"),
+  inviteOpenCreditSelectPage: document.querySelector("#invite-open-credit-select-page"),
+  inviteOpenCreditClearSelection: document.querySelector("#invite-open-credit-clear-selection"),
+  inviteOpenCreditDeleteSelected: document.querySelector("#invite-open-credit-delete-selected"),
+  inviteOpenPrevPage: document.querySelector("#invite-open-prev-page"),
+  inviteOpenNextPage: document.querySelector("#invite-open-next-page"),
+  inviteOpenPageLabel: document.querySelector("#invite-open-page-label"),
   inviteGrantForm: document.querySelector("#invite-grant-form"),
   inviteGrantTg: document.querySelector("#invite-grant-tg"),
   inviteGrantCount: document.querySelector("#invite-grant-count"),
@@ -127,6 +156,9 @@ const refs = {
   inviteCreditClearSelection: document.querySelector("#invite-credit-clear-selection"),
   inviteCreditDeleteSelected: document.querySelector("#invite-credit-delete-selected"),
   inviteRefresh: document.querySelector("#invite-refresh"),
+  inviteGroupPrevPage: document.querySelector("#invite-group-prev-page"),
+  inviteGroupNextPage: document.querySelector("#invite-group-next-page"),
+  inviteGroupPageLabel: document.querySelector("#invite-group-page-label"),
   autoUpdateForm: document.querySelector("#auto-update-form"),
   autoUpdateSave: document.querySelector("#auto-update-save"),
   autoUpdateStatus: document.querySelector("#auto-update-status"),
@@ -1030,10 +1062,21 @@ function setInviteSummary(summary = {}) {
   document.querySelector("#invite-revoked").textContent = formatCount(summary.revoked);
 }
 
+function setInviteOpenSummary(summary = {}) {
+  document.querySelector("#invite-open-total").textContent = formatCount(summary.total);
+  document.querySelector("#invite-open-available").textContent = formatCount(summary.available);
+  document.querySelector("#invite-open-used").textContent = formatCount(summary.used);
+  document.querySelector("#invite-open-revoked").textContent = formatCount(summary.revoked);
+}
+
 function applyInviteSettings(settings = {}) {
   if (refs.inviteEnabled) refs.inviteEnabled.checked = Boolean(settings.enabled);
   if (refs.inviteTargetChatId) refs.inviteTargetChatId.value = settings.target_chat_id || "";
   if (refs.inviteExpireHours) refs.inviteExpireHours.value = Number(settings.expire_hours || 24);
+  if (refs.inviteAccountOpenDays) refs.inviteAccountOpenDays.value = Number(settings.account_open_days || 30);
+  if (refs.inviteOpenGrantDays && !Number(refs.inviteOpenGrantDays.value || 0)) {
+    refs.inviteOpenGrantDays.value = Number(settings.account_open_days || 30);
+  }
   if (refs.inviteStrictTarget) refs.inviteStrictTarget.checked = settings.strict_target !== false;
   if (refs.inviteSettingsStatus) {
     refs.inviteSettingsStatus.textContent = settings.enabled
@@ -1043,67 +1086,84 @@ function applyInviteSettings(settings = {}) {
   }
 }
 
-function syncInviteCreditSelectionActions() {
-  const credits = state.inviteBundle?.credits || [];
-  const availableIds = credits.filter((item) => item.available).map((item) => Number(item.id));
-  const allSelected = availableIds.length > 0 && availableIds.every((id) => state.selectedInviteCredits.has(id));
-  if (refs.inviteCreditSelectPage) refs.inviteCreditSelectPage.textContent = allSelected ? "取消可删" : "全选可删";
-  if (refs.inviteCreditDeleteSelected) {
-    refs.inviteCreditDeleteSelected.disabled = state.selectedInviteCredits.size === 0;
-    refs.inviteCreditDeleteSelected.textContent = state.selectedInviteCredits.size
-      ? `删除已选 (${state.selectedInviteCredits.size})`
-      : "删除已选";
-  }
-  if (refs.inviteCreditClearSelection) refs.inviteCreditClearSelection.disabled = state.selectedInviteCredits.size === 0;
+function inviteSection(type) {
+  return type === "account_open" ? (state.inviteBundle?.account_open || {}) : (state.inviteBundle?.group_join || state.inviteBundle || {});
 }
 
-function renderInviteCredits(items = []) {
-  if (!refs.inviteCreditList) return;
-  refs.inviteCreditList.innerHTML = "";
+function inviteSelectedSet(type) {
+  return type === "account_open" ? state.selectedInviteOpenCredits : state.selectedInviteCredits;
+}
+
+function syncInviteCreditSelectionActions(type = "group_join") {
+  const section = inviteSection(type);
+  const credits = section.credits || [];
+  const selected = inviteSelectedSet(type);
+  const availableIds = credits.filter((item) => item.available).map((item) => Number(item.id));
+  const allSelected = availableIds.length > 0 && availableIds.every((id) => selected.has(id));
+  const selectButton = type === "account_open" ? refs.inviteOpenCreditSelectPage : refs.inviteCreditSelectPage;
+  const deleteButton = type === "account_open" ? refs.inviteOpenCreditDeleteSelected : refs.inviteCreditDeleteSelected;
+  const clearButton = type === "account_open" ? refs.inviteOpenCreditClearSelection : refs.inviteCreditClearSelection;
+  if (selectButton) selectButton.textContent = allSelected ? "取消可删" : "全选可删";
+  if (deleteButton) {
+    deleteButton.disabled = selected.size === 0;
+    deleteButton.textContent = selected.size ? `删除已选 (${selected.size})` : "删除已选";
+  }
+  if (clearButton) clearButton.disabled = selected.size === 0;
+}
+
+function renderInviteCredits(items = [], type = "group_join") {
+  const root = type === "account_open" ? refs.inviteOpenCreditList : refs.inviteCreditList;
+  const selected = inviteSelectedSet(type);
+  if (!root) return;
+  root.innerHTML = "";
   if (!items.length) {
-    refs.inviteCreditList.innerHTML = `
+    root.innerHTML = `
       <article class="user-card">
-        <div class="user-name">当前还没有邀请码</div>
-        <p class="user-meta stack-empty">可以通过后台手动赠送，或在商店上架邀请资格商品。</p>
+        <div class="user-name">当前还没有${type === "account_open" ? "开号资格" : "入群资格"}</div>
+        <p class="user-meta stack-empty">可以通过后台手动赠送，或在商店上架对应资格商品。</p>
       </article>
     `;
-    syncInviteCreditSelectionActions();
+    syncInviteCreditSelectionActions(type);
     return;
   }
 
   for (const item of items) {
     const selectable = Boolean(item.available);
+    const typeLabel = item.credit_type_text || (type === "account_open" ? "开号资格" : "入群资格");
     const card = document.createElement("article");
     card.className = "code-card";
     card.innerHTML = `
       <div class="code-card-top">
         <label class="code-check">
-          <input type="checkbox" data-invite-credit-select="${escapeHtml(item.id)}" ${state.selectedInviteCredits.has(Number(item.id)) ? "checked" : ""} ${selectable ? "" : "disabled"}>
+          <input type="checkbox" data-invite-credit-select="${escapeHtml(item.id)}" data-invite-credit-type="${escapeHtml(type)}" ${selected.has(Number(item.id)) ? "checked" : ""} ${selectable ? "" : "disabled"}>
           <span>选择</span>
         </label>
         <div class="code-card-badges">
           <span class="badge badge--${item.available ? "normal" : item.status === "used" ? "pending" : "danger"}">${escapeHtml(item.status_text)}</span>
-          <span class="badge badge--vip">${escapeHtml(item.source || "admin")}</span>
+          <span class="badge badge--vip">${escapeHtml(typeLabel)}</span>
+          <span class="badge badge--normal">${escapeHtml(item.source || "admin")}</span>
         </div>
       </div>
-      <div class="user-name">邀请码 #${escapeHtml(item.id)} · ${escapeHtml(fmtActor(item.owner))}</div>
-      <div class="user-subline">发放时间：${escapeHtml(fmtDateTime(item.granted_at))} · 来源：${escapeHtml(item.source_ref || item.source || "后台")}</div>
+      <div class="user-name">${escapeHtml(typeLabel)} #${escapeHtml(item.id)} · ${escapeHtml(fmtActor(item.owner))}</div>
+      <div class="user-subline">发放时间：${escapeHtml(fmtDateTime(item.granted_at))} · 来源：${escapeHtml(item.source_ref || item.source || "后台")}${item.invite_days ? ` · 开号 ${escapeHtml(item.invite_days)} 天` : ""}</div>
       <div class="plugin-meta">发放人：${escapeHtml(fmtActor(item.granted_by))}</div>
       <div class="plugin-meta">备注：${escapeHtml(item.note || item.revoke_reason || "无")}</div>
+      ${item.available ? `<div class="plugin-actions"><button type="button" class="secondary" data-invite-credit-edit="${escapeHtml(item.id)}" data-invite-credit-type="${escapeHtml(type)}">编辑资格</button></div>` : ""}
     `;
-    refs.inviteCreditList.appendChild(card);
+    root.appendChild(card);
   }
-  syncInviteCreditSelectionActions();
+  syncInviteCreditSelectionActions(type);
 }
 
-function renderInviteRecords(items = []) {
-  if (!refs.inviteRecordList) return;
-  refs.inviteRecordList.innerHTML = "";
+function renderInviteRecords(items = [], type = "group_join") {
+  const root = type === "account_open" ? refs.inviteOpenRecordList : refs.inviteRecordList;
+  if (!root) return;
+  root.innerHTML = "";
   if (!items.length) {
-    refs.inviteRecordList.innerHTML = `
+    root.innerHTML = `
       <article class="user-card">
         <div class="user-name">当前还没有邀请关系</div>
-        <p class="user-meta stack-empty">用户生成入群邀请后，这里会展示邀请人和被邀请人。</p>
+        <p class="user-meta stack-empty">发放邀请后，这里会展示邀请人和被邀请人。</p>
       </article>
     `;
     return;
@@ -1111,31 +1171,53 @@ function renderInviteRecords(items = []) {
 
   for (const item of items) {
     const pending = item.status === "pending";
+    const isAccountOpen = type === "account_open";
     const card = document.createElement("article");
     card.className = "code-card";
     card.innerHTML = `
       <div class="code-card-top">
         <div class="code-card-badges">
           <span class="badge badge--${pending ? "pending" : item.status === "approved" ? "normal" : "danger"}">${escapeHtml(item.status_text)}</span>
-          <span class="badge badge--normal">群 ${escapeHtml(item.target_chat_id)}</span>
+          <span class="badge badge--normal">${isAccountOpen ? `开号 ${escapeHtml(item.invite_days || 0)} 天` : `群 ${escapeHtml(item.target_chat_id)}`}</span>
         </div>
       </div>
-      <div class="user-name">邀请 #${escapeHtml(item.id)} · ${escapeHtml(fmtActor(item.inviter))} -> ${escapeHtml(fmtActor(item.invitee))}</div>
+      <div class="user-name">${isAccountOpen ? "开号邀请" : "入群邀请"} #${escapeHtml(item.id)} · ${escapeHtml(fmtActor(item.inviter))} -> ${escapeHtml(fmtActor(item.invitee))}</div>
       <div class="user-subline">创建：${escapeHtml(fmtDateTime(item.created_at))} · 过期：${escapeHtml(fmtDateTime(item.expires_at))}</div>
       <div class="plugin-meta">最近请求：${escapeHtml(fmtActor(item.last_requester))} · 使用时间：${escapeHtml(fmtDateTime(item.used_at))}</div>
-      <div class="plugin-meta">邀请链接：${escapeHtml(item.invite_link || "已隐藏或不可用")}</div>
+      ${isAccountOpen ? `<div class="plugin-meta">备注：${escapeHtml(item.note || "无")}</div>` : `<div class="plugin-meta">邀请链接：${escapeHtml(item.invite_link || "已隐藏或不可用")}</div>`}
       ${pending ? `<div class="plugin-actions"><button type="button" data-invite-record-revoke="${escapeHtml(item.id)}">撤销邀请</button></div>` : ""}
     `;
-    refs.inviteRecordList.appendChild(card);
+    root.appendChild(card);
   }
+}
+
+function syncInvitePagers(groupPagination = {}, accountPagination = {}) {
+  const groupPage = Number(groupPagination.page || state.inviteGroupPage || 1);
+  const groupTotal = Number(groupPagination.total_pages || 1);
+  const openPage = Number(accountPagination.page || state.inviteOpenPage || 1);
+  const openTotal = Number(accountPagination.total_pages || 1);
+  state.inviteGroupPage = groupPage;
+  state.inviteOpenPage = openPage;
+  if (refs.inviteGroupPageLabel) refs.inviteGroupPageLabel.textContent = `第 ${groupPage} 页 / 共 ${groupTotal} 页`;
+  if (refs.inviteGroupPrevPage) refs.inviteGroupPrevPage.disabled = !groupPagination.has_prev;
+  if (refs.inviteGroupNextPage) refs.inviteGroupNextPage.disabled = !groupPagination.has_next;
+  if (refs.inviteOpenPageLabel) refs.inviteOpenPageLabel.textContent = `第 ${openPage} 页 / 共 ${openTotal} 页`;
+  if (refs.inviteOpenPrevPage) refs.inviteOpenPrevPage.disabled = !accountPagination.has_prev;
+  if (refs.inviteOpenNextPage) refs.inviteOpenNextPage.disabled = !accountPagination.has_next;
 }
 
 function applyInviteBundle(bundle = {}) {
   state.inviteBundle = bundle || {};
-  setInviteSummary(bundle.summary || {});
+  const groupSection = bundle.group_join || bundle || {};
+  const accountSection = bundle.account_open || {};
+  setInviteSummary(groupSection.summary || bundle.summary || {});
+  setInviteOpenSummary(accountSection.summary || {});
   applyInviteSettings(bundle.settings || {});
-  renderInviteCredits(bundle.credits || []);
-  renderInviteRecords(bundle.records || []);
+  renderInviteCredits(groupSection.credits || bundle.credits || [], "group_join");
+  renderInviteRecords(groupSection.records || bundle.records || [], "group_join");
+  renderInviteCredits(accountSection.credits || [], "account_open");
+  renderInviteRecords(accountSection.records || [], "account_open");
+  syncInvitePagers(groupSection.records_pagination || {}, accountSection.records_pagination || {});
 }
 
 function renderPlugins(items) {
@@ -1563,7 +1645,13 @@ async function loadCodes() {
 }
 
 async function loadInvites() {
-  const result = await api("/admin-api/invites");
+  const params = new URLSearchParams({
+    q: state.inviteSearchQuery || "",
+    account_page: String(state.inviteOpenPage || 1),
+    group_page: String(state.inviteGroupPage || 1),
+    page_size: String(state.invitePageSize || 20)
+  });
+  const result = await api(`/admin-api/invites?${params.toString()}`);
   applyInviteBundle(result.data || {});
 }
 
@@ -2174,6 +2262,7 @@ async function saveInviteSettings(event) {
         enabled: Boolean(refs.inviteEnabled?.checked),
         target_chat_id: Number(refs.inviteTargetChatId?.value || 0) || null,
         expire_hours: Number(refs.inviteExpireHours?.value || 24),
+        account_open_days: Number(refs.inviteAccountOpenDays?.value || 30),
         strict_target: Boolean(refs.inviteStrictTarget?.checked)
       })
     }));
@@ -2203,17 +2292,18 @@ async function grantInviteCredits(event) {
       body: JSON.stringify({
         owner_tg: ownerTg,
         count: Number(refs.inviteGrantCount?.value || 1),
+        credit_type: "group_join",
         note: refs.inviteGrantNote?.value?.trim() || ""
       })
     }));
     applyInviteBundle(result.data || {});
     const count = result.data?.last_granted?.length || 0;
-    const message = `已向 TG ${ownerTg} 发放 ${formatCount(count)} 个邀请码。`;
+    const message = `已向 TG ${ownerTg} 发放 ${formatCount(count)} 个入群资格。`;
     if (refs.inviteGrantStatus) refs.inviteGrantStatus.textContent = message;
     setAdminStatus(message, "success");
     showToast(message, "success");
   } catch (error) {
-    const message = normalizeError(error, "赠送邀请码失败。");
+    const message = normalizeError(error, "赠送入群资格失败。");
     if (refs.inviteGrantStatus) refs.inviteGrantStatus.textContent = message;
     setAdminStatus(message, "error");
     showToast(message, "error");
@@ -2232,29 +2322,140 @@ function useSelectedUserForInviteGrant() {
   focusSection("invites-section");
 }
 
-async function deleteSelectedInviteCredits() {
-  const creditIds = [...state.selectedInviteCredits];
-  if (!creditIds.length) {
-    setAdminStatus("请先选择需要删除的邀请码。", "warning");
-    showToast("请先选择需要删除的邀请码。", "warning");
+function useSelectedUserForInviteOpenGrant() {
+  if (!state.selectedUser?.tg) {
+    const message = "请先在用户检索中选中一个用户。";
+    setAdminStatus(message, "warning");
+    showToast(message, "warning");
     return;
   }
-  if (!window.confirm(`确认删除选中的 ${creditIds.length} 个未使用邀请码吗？`)) {
+  refs.inviteOpenGrantTg.value = state.selectedUser.tg;
+  focusSection("invites-section");
+}
+
+async function grantInviteOpenCredits(event) {
+  event.preventDefault();
+  const ownerTg = Number(refs.inviteOpenGrantTg?.value || 0);
+  if (!ownerTg) {
+    const message = "请先填写需要赠送开号资格的用户 TGID。";
+    setAdminStatus(message, "warning");
+    showToast(message, "warning");
     return;
   }
   try {
-    const result = await runButtonAction(refs.inviteCreditDeleteSelected, "删除中...", () => api("/admin-api/invites/credits/delete", {
+    const result = await runButtonAction(refs.inviteOpenGrantSubmit, "发放中...", () => api("/admin-api/invites/credits", {
       method: "POST",
-      body: JSON.stringify({ credit_ids: creditIds, reason: "后台删除" })
+      body: JSON.stringify({
+        owner_tg: ownerTg,
+        count: 1,
+        credit_type: "account_open",
+        invite_days: Number(refs.inviteOpenGrantDays?.value || refs.inviteAccountOpenDays?.value || 30),
+        note: refs.inviteOpenGrantNote?.value?.trim() || ""
+      })
     }));
-    state.selectedInviteCredits.clear();
     applyInviteBundle(result.data || {});
-    const payload = result.data?.delete_result || {};
-    const message = `已删除 ${formatCount(payload.deleted || 0)} 个邀请码${payload.skipped ? `，跳过 ${formatCount(payload.skipped)} 个已使用项` : ""}。`;
+    const message = `已向 TG ${ownerTg} 发放 1 个开号资格。`;
+    if (refs.inviteOpenGrantStatus) refs.inviteOpenGrantStatus.textContent = message;
     setAdminStatus(message, "success");
     showToast(message, "success");
   } catch (error) {
-    const message = normalizeError(error, "删除邀请码失败。");
+    const message = normalizeError(error, "赠送开号资格失败。");
+    if (refs.inviteOpenGrantStatus) refs.inviteOpenGrantStatus.textContent = message;
+    setAdminStatus(message, "error");
+    showToast(message, "error");
+    await popup("赠送失败", message, "error");
+  }
+}
+
+async function createAccountOpenInviteFromAdmin(event) {
+  event.preventDefault();
+  const inviterTg = Number(refs.inviteOpenCreateInviter?.value || 0);
+  const inviteeTg = Number(refs.inviteOpenCreateInvitee?.value || 0);
+  if (!inviterTg || !inviteeTg) {
+    const message = "请填写邀请人 TGID 和被邀请人 TGID。";
+    setAdminStatus(message, "warning");
+    showToast(message, "warning");
+    return;
+  }
+  try {
+    const result = await runButtonAction(refs.inviteOpenCreateSubmit, "发放中...", () => api("/admin-api/invites/account-open/create", {
+      method: "POST",
+      body: JSON.stringify({
+        inviter_tg: inviterTg,
+        invitee_tg: inviteeTg,
+        note: refs.inviteOpenCreateNote?.value?.trim() || ""
+      })
+    }));
+    applyInviteBundle(result.data || {});
+    const message = `已由 TG ${inviterTg} 向 TG ${inviteeTg} 发放开号资格。`;
+    setAdminStatus(message, "success");
+    showToast(message, "success");
+  } catch (error) {
+    const message = normalizeError(error, "代发开号资格失败。");
+    setAdminStatus(message, "error");
+    showToast(message, "error");
+    await popup("代发失败", message, "error");
+  }
+}
+
+async function editInviteCredit(creditId, type = "group_join") {
+  const section = inviteSection(type);
+  const item = (section.credits || []).find((row) => Number(row.id) === Number(creditId));
+  if (!item) return;
+  const ownerValue = window.prompt("修改拥有人 TGID：", item.owner_tg || "");
+  if (ownerValue === null) return;
+  const noteValue = window.prompt("修改备注：", item.note || "");
+  if (noteValue === null) return;
+  const payload = {
+    owner_tg: Number(ownerValue || item.owner_tg),
+    note: noteValue
+  };
+  if (type === "account_open") {
+    const daysValue = window.prompt("修改开号天数：", item.invite_days || refs.inviteAccountOpenDays?.value || 30);
+    if (daysValue === null) return;
+    payload.invite_days = Number(daysValue || item.invite_days || 30);
+  }
+  try {
+    const result = await api(`/admin-api/invites/credits/${encodeURIComponent(creditId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    });
+    applyInviteBundle(result.data || {});
+    setAdminStatus(`邀请资格 #${creditId} 已更新。`, "success");
+    showToast("邀请资格已更新。", "success");
+  } catch (error) {
+    const message = normalizeError(error, "编辑邀请资格失败。");
+    setAdminStatus(message, "error");
+    showToast(message, "error");
+    await popup("编辑失败", message, "error");
+  }
+}
+
+async function deleteSelectedInviteCredits(type = "group_join") {
+  const selected = inviteSelectedSet(type);
+  const creditIds = [...selected];
+  if (!creditIds.length) {
+    setAdminStatus("请先选择需要删除的邀请资格。", "warning");
+    showToast("请先选择需要删除的邀请资格。", "warning");
+    return;
+  }
+  if (!window.confirm(`确认删除选中的 ${creditIds.length} 个未使用邀请资格吗？`)) {
+    return;
+  }
+  try {
+    const button = type === "account_open" ? refs.inviteOpenCreditDeleteSelected : refs.inviteCreditDeleteSelected;
+    const result = await runButtonAction(button, "删除中...", () => api("/admin-api/invites/credits/delete", {
+      method: "POST",
+      body: JSON.stringify({ credit_ids: creditIds, reason: "后台删除" })
+    }));
+    selected.clear();
+    applyInviteBundle(result.data || {});
+    const payload = result.data?.delete_result || {};
+    const message = `已删除 ${formatCount(payload.deleted || 0)} 个邀请资格${payload.skipped ? `，跳过 ${formatCount(payload.skipped)} 个已使用项` : ""}。`;
+    setAdminStatus(message, "success");
+    showToast(message, "success");
+  } catch (error) {
+    const message = normalizeError(error, "删除邀请资格失败。");
     setAdminStatus(message, "error");
     showToast(message, "error");
     await popup("删除失败", message, "error");
@@ -2306,6 +2507,23 @@ function syncSuffixField() {
 
 refs.codeCreateForm?.addEventListener("submit", createCodes);
 refs.inviteSettingsForm?.addEventListener("submit", saveInviteSettings);
+refs.inviteSearchForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  state.inviteSearchQuery = refs.inviteSearchInput?.value?.trim() || "";
+  state.inviteOpenPage = 1;
+  state.inviteGroupPage = 1;
+  try {
+    await runButtonAction(refs.inviteSearchSubmit, "搜索中...", loadInvites);
+    setAdminStatus("邀请关系搜索已完成。", "success");
+  } catch (error) {
+    const message = normalizeError(error, "搜索邀请关系失败。");
+    setAdminStatus(message, "error");
+    showToast(message, "error");
+  }
+});
+refs.inviteOpenGrantForm?.addEventListener("submit", grantInviteOpenCredits);
+refs.inviteOpenGrantUseSelected?.addEventListener("click", useSelectedUserForInviteOpenGrant);
+refs.inviteOpenCreateForm?.addEventListener("submit", createAccountOpenInviteFromAdmin);
 refs.inviteGrantForm?.addEventListener("submit", grantInviteCredits);
 refs.inviteGrantUseSelected?.addEventListener("click", useSelectedUserForInviteGrant);
 refs.autoUpdateForm?.addEventListener("submit", saveAutoUpdate);
@@ -2619,34 +2837,84 @@ refs.inviteCreditList?.addEventListener("change", (event) => {
   if (!checkbox) return;
   const creditId = Number(checkbox.dataset.inviteCreditSelect || 0);
   if (!creditId) return;
+  const selected = inviteSelectedSet(checkbox.dataset.inviteCreditType || "group_join");
   if (checkbox.checked) {
-    state.selectedInviteCredits.add(creditId);
+    selected.add(creditId);
   } else {
-    state.selectedInviteCredits.delete(creditId);
+    selected.delete(creditId);
   }
-  syncInviteCreditSelectionActions();
+  syncInviteCreditSelectionActions(checkbox.dataset.inviteCreditType || "group_join");
 });
 
 refs.inviteCreditSelectPage?.addEventListener("click", () => {
-  const credits = state.inviteBundle?.credits || [];
+  const credits = inviteSection("group_join").credits || [];
+  const selected = inviteSelectedSet("group_join");
   const availableIds = credits.filter((item) => item.available).map((item) => Number(item.id));
-  const allSelected = availableIds.length > 0 && availableIds.every((id) => state.selectedInviteCredits.has(id));
+  const allSelected = availableIds.length > 0 && availableIds.every((id) => selected.has(id));
   availableIds.forEach((id) => {
     if (allSelected) {
-      state.selectedInviteCredits.delete(id);
+      selected.delete(id);
     } else {
-      state.selectedInviteCredits.add(id);
+      selected.add(id);
     }
   });
-  renderInviteCredits(credits);
+  renderInviteCredits(credits, "group_join");
 });
 
 refs.inviteCreditClearSelection?.addEventListener("click", () => {
   state.selectedInviteCredits.clear();
-  renderInviteCredits(state.inviteBundle?.credits || []);
+  renderInviteCredits(inviteSection("group_join").credits || [], "group_join");
 });
 
-refs.inviteCreditDeleteSelected?.addEventListener("click", deleteSelectedInviteCredits);
+refs.inviteCreditDeleteSelected?.addEventListener("click", () => deleteSelectedInviteCredits("group_join"));
+
+refs.inviteCreditList?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-invite-credit-edit]");
+  if (!button) return;
+  await editInviteCredit(button.dataset.inviteCreditEdit, button.dataset.inviteCreditType || "group_join");
+});
+
+refs.inviteOpenCreditList?.addEventListener("change", (event) => {
+  const checkbox = event.target.closest("[data-invite-credit-select]");
+  if (!checkbox) return;
+  const creditId = Number(checkbox.dataset.inviteCreditSelect || 0);
+  if (!creditId) return;
+  const selected = inviteSelectedSet("account_open");
+  if (checkbox.checked) {
+    selected.add(creditId);
+  } else {
+    selected.delete(creditId);
+  }
+  syncInviteCreditSelectionActions("account_open");
+});
+
+refs.inviteOpenCreditSelectPage?.addEventListener("click", () => {
+  const credits = inviteSection("account_open").credits || [];
+  const selected = inviteSelectedSet("account_open");
+  const availableIds = credits.filter((item) => item.available).map((item) => Number(item.id));
+  const allSelected = availableIds.length > 0 && availableIds.every((id) => selected.has(id));
+  availableIds.forEach((id) => {
+    if (allSelected) {
+      selected.delete(id);
+    } else {
+      selected.add(id);
+    }
+  });
+  renderInviteCredits(credits, "account_open");
+});
+
+refs.inviteOpenCreditClearSelection?.addEventListener("click", () => {
+  state.selectedInviteOpenCredits.clear();
+  renderInviteCredits(inviteSection("account_open").credits || [], "account_open");
+});
+
+refs.inviteOpenCreditDeleteSelected?.addEventListener("click", () => deleteSelectedInviteCredits("account_open"));
+
+refs.inviteOpenCreditList?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-invite-credit-edit]");
+  if (!button) return;
+  await editInviteCredit(button.dataset.inviteCreditEdit, "account_open");
+});
 
 refs.inviteRecordList?.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-invite-record-revoke]");
@@ -2664,6 +2932,28 @@ refs.inviteRefresh?.addEventListener("click", async () => {
     setAdminStatus(message, "error");
     showToast(message, "error");
   }
+});
+
+refs.inviteGroupPrevPage?.addEventListener("click", async () => {
+  if (state.inviteGroupPage <= 1) return;
+  state.inviteGroupPage -= 1;
+  await loadInvites();
+});
+
+refs.inviteGroupNextPage?.addEventListener("click", async () => {
+  state.inviteGroupPage += 1;
+  await loadInvites();
+});
+
+refs.inviteOpenPrevPage?.addEventListener("click", async () => {
+  if (state.inviteOpenPage <= 1) return;
+  state.inviteOpenPage -= 1;
+  await loadInvites();
+});
+
+refs.inviteOpenNextPage?.addEventListener("click", async () => {
+  state.inviteOpenPage += 1;
+  await loadInvites();
 });
 
 refs.tokenForm.addEventListener("submit", async (event) => {

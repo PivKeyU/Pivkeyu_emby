@@ -83,10 +83,20 @@ function renderOrders(orders = []) {
         <span class="tag">${escapeHtml(order.total_price_iv)}</span>
       </div>
       <p class="muted">买家 TG ${escapeHtml(order.buyer_tg)} · 卖家 ${escapeHtml(order.seller_tg || "官方")}</p>
-      <p class="muted">${order.item_type === "invite_credit" ? `邀请资格 ${escapeHtml(order.invite_credit_quantity || 0)} 次/份` : "普通数字商品"}</p>
+      <p class="muted">${inviteItemLabel(order.item_type, order.invite_credit_quantity)}</p>
       <p class="muted">${escapeHtml(order.created_at || "")}</p>
     </article>
   `).join("");
+}
+
+function inviteItemLabel(itemType, quantity = 0) {
+  if (itemType === "invite_credit" || itemType === "group_invite_credit") {
+    return `入群资格 ${escapeHtml(quantity || 1)} 次/份`;
+  }
+  if (itemType === "account_open_credit") {
+    return `开号资格 ${escapeHtml(quantity || 1)} 次/份`;
+  }
+  return "普通数字商品";
 }
 
 function renderItems(items = []) {
@@ -104,7 +114,7 @@ function renderItems(items = []) {
       <div class="product-meta">
         <span class="tag">价格 ${escapeHtml(item.price_iv)}</span>
         <span class="tag">库存 ${escapeHtml(item.stock)}</span>
-        <span class="tag">${item.item_type === "invite_credit" ? `邀请资格 x${escapeHtml(item.invite_credit_quantity || 1)}` : "数字商品"}</span>
+        <span class="tag">${inviteItemLabel(item.item_type, item.invite_credit_quantity)}</span>
         <span class="tag">${item.official ? "官方商品" : "用户商品"}</span>
         ${item.notify_group ? `<span class="tag">群通知开启</span>` : ""}
       </div>

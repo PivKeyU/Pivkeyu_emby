@@ -231,14 +231,14 @@ function renderBottomNav(items) {
   }
 }
 
-function renderInviteRecords(records = []) {
-  const root = document.querySelector("#invite-records");
+function renderInviteRecords(records = [], type = "group_join") {
+  const root = document.querySelector(type === "account_open" ? "#invite-open-records" : "#invite-records");
   if (!root) return;
   if (!records.length) {
     root.innerHTML = `
       <article class="stack-item">
         <strong>暂无邀请记录</strong>
-        <p>成功发送邀请链接后，这里会显示最近的入群邀请状态。</p>
+        <p>${type === "account_open" ? "成功发放开号资格后，这里会显示最近的开号邀请状态。" : "成功发送邀请链接后，这里会显示最近的入群邀请状态。"}</p>
       </article>
     `;
     return;
@@ -246,8 +246,8 @@ function renderInviteRecords(records = []) {
   root.innerHTML = records.map((item) => `
     <article class="stack-item">
       <strong>邀请 TG ${escapeHtml(item.invitee_tg)} · ${escapeHtml(item.status_text || item.status || "待处理")}</strong>
-      <p>目标群：${escapeHtml(item.target_chat_id || "-")} · 创建：${escapeHtml(formatDate(item.created_at, "未知"))}</p>
-      <p>过期：${escapeHtml(formatDate(item.expires_at, "未设置"))}</p>
+      <p>${type === "account_open" ? `开号天数：${escapeHtml(item.invite_days || 0)} 天` : `目标群：${escapeHtml(item.target_chat_id || "-")}`} · 创建：${escapeHtml(formatDate(item.created_at, "未知"))}</p>
+      ${type === "account_open" ? "" : `<p>过期：${escapeHtml(formatDate(item.expires_at, "未设置"))}</p>`}
     </article>
   `).join("");
 }
@@ -255,26 +255,30 @@ function renderInviteRecords(records = []) {
 function renderInviteBundle(invite = {}) {
   currentInviteBundle = invite || {};
   const card = document.querySelector("#invite-card");
+  const openCard = document.querySelector("#invite-open-card");
   if (!card) return;
   const settings = invite.settings || {};
   const permissions = invite.permissions || {};
+  const groupJoin = invite.group_join || invite || {};
+  const accountOpen = invite.account_open || {};
   const enabled = Boolean(settings.enabled);
   card.classList.toggle("hidden", !enabled);
+  openCard?.classList.toggle("hidden", !enabled);
   if (!enabled) {
     syncFoldToolbar();
     return;
   }
 
   const status = document.querySelector("#invite-status");
-  const count = Number(invite.available_credits || 0);
+  const count = Number(groupJoin.available_credits || invite.available_credits || 0);
   const canCreate = Boolean(permissions.can_create && count > 0);
   document.querySelector("#invite-credit-count").textContent = String(count);
   document.querySelector("#invite-expire-hours").textContent = `${settings.expire_hours || 24} 小时`;
   if (status) {
     if (!permissions.has_viewing_access) {
-      status.textContent = "当前账号没有 Emby 观影资格，暂时不能获取邀请码。";
+      status.textContent = "当前账号没有 Emby 观影资格，暂时不能获取入群资格。";
     } else if (count <= 0) {
-      status.textContent = "当前没有可用的邀请码，可通过管理员赠送或商店购买获取。";
+      status.textContent = "当前没有可用的入群资格，可通过管理员赠送或商店购买获取。";
     } else {
       status.textContent = "填写被邀请人的 TGID 后，机器人会把专属入群链接私聊发送给对方。";
     }
@@ -283,9 +287,30 @@ function renderInviteBundle(invite = {}) {
   const submit = document.querySelector("#invite-submit");
   if (submit) {
     submit.disabled = !canCreate;
-    submit.textContent = canCreate ? "发送邀请链接" : "暂无可用邀请码";
+    submit.textContent = canCreate ? "发送邀请链接" : "暂无可用入群资格";
   }
-  renderInviteRecords(invite.records || []);
+  renderInviteRecords(groupJoin.records || invite.records || [], "group_join");
+
+  const openStatus = document.querySelector("#invite-open-status");
+  const openCount = Number(accountOpen.available_credits || 0);
+  const canCreateOpen = Boolean(permissions.can_create && openCount > 0);
+  document.querySelector("#invite-open-credit-count").textContent = String(openCount);
+  document.querySelector("#invite-open-days").textContent = `${settings.account_open_days || 30} 天`;
+  if (openStatus) {
+    if (!permissions.has_viewing_access) {
+      openStatus.textContent = "当前账号没有 Emby 观影资格，暂时不能获取开号资格。";
+    } else if (openCount <= 0) {
+      openStatus.textContent = "当前没有可用的开号资格。";
+    } else {
+      openStatus.textContent = "填写未开通用户的 TGID 后，会直接为对方增加一次注册资格。";
+    }
+  }
+  const openSubmit = document.querySelector("#invite-open-submit");
+  if (openSubmit) {
+    openSubmit.disabled = !canCreateOpen;
+    openSubmit.textContent = canCreateOpen ? "发放开号资格" : "暂无可用开号资格";
+  }
+  renderInviteRecords(accountOpen.records || [], "account_open");
   syncFoldToolbar();
 }
 
@@ -532,6 +557,55 @@ async function createInviteFromMiniApp(event) {
   }
 }
 
+async function createAccountOpenInviteFromMiniApp(event) {
+  event.preventDefault();
+  const tg = window.Telegram?.WebApp;
+  if (!tg) return;
+  const inviteeTg = Number(document.querySelector("#invite-open-invitee-tg")?.value || 0);
+  const note = document.querySelector("#invite-open-note")?.value?.trim() || "";
+  if (!inviteeTg) {
+    window.alert("请先填写被邀请人的 TGID。");
+    return;
+  }
+  const button = document.querySelector("#invite-open-submit");
+  const previous = button?.textContent || "";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "发放中...";
+  }
+  try {
+    const response = await fetch("/miniapp-api/invites/account-open/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        init_data: tg.initData,
+        invitee_tg: inviteeTg,
+        note
+      })
+    });
+    const result = await readResponsePayload(response);
+    if (!response.ok || result.code !== 200) {
+      throw new Error(result.detail || result.message || "开号资格发放失败。");
+    }
+    renderInviteBundle(result.data?.invite || {});
+    document.querySelector("#invite-open-form")?.reset();
+    window.alert("开号资格已发放，被邀请人可私聊机器人 /start 后注册。");
+  } catch (error) {
+    renderInviteBundle(currentInviteBundle || {});
+    window.alert(normalizeError(error));
+  } finally {
+    if (button) {
+      button.textContent = previous || "发放开号资格";
+    }
+    renderInviteBundle(currentInviteBundle || {});
+    storeMiniAppBootstrapCache(currentMiniAppUserId, {
+      ...(hydrateMiniAppBootstrapCache(currentMiniAppUserId) || {}),
+      invite: currentInviteBundle
+    });
+  }
+}
+
 setupFoldToolbar();
 document.querySelector("#invite-form")?.addEventListener("submit", createInviteFromMiniApp);
+document.querySelector("#invite-open-form")?.addEventListener("submit", createAccountOpenInviteFromMiniApp);
 bootstrapMiniApp();

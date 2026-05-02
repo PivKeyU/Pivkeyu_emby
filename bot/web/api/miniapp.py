@@ -17,8 +17,11 @@ from bot.plugins import list_miniapp_plugins
 from bot.sql_helper.sql_bot_access import find_bot_access_block
 from bot.sql_helper.sql_emby import sql_get_emby
 from bot.sql_helper.sql_invite import (
+    INVITE_CREDIT_TYPE_ACCOUNT_OPEN,
+    INVITE_CREDIT_TYPE_GROUP,
     available_invite_credit_count,
     cancel_pending_invite_record,
+    create_account_open_invite_record,
     create_invite_record,
     get_invite_settings,
     has_viewing_access,
@@ -51,22 +54,40 @@ def _public_invite_bundle(user_id: int, account=None) -> dict:
     account = account if account is not None else sql_get_emby(user_id)
     settings = get_invite_settings()
     has_access = has_viewing_access(account)
+    group_count = available_invite_credit_count(user_id, credit_type=INVITE_CREDIT_TYPE_GROUP) if has_access else 0
+    account_open_count = (
+        available_invite_credit_count(user_id, credit_type=INVITE_CREDIT_TYPE_ACCOUNT_OPEN) if has_access else 0
+    )
+    group_records = [
+        _public_invite_record(item)
+        for item in list_invite_records(inviter_tg=user_id, credit_type=INVITE_CREDIT_TYPE_GROUP, limit=20)
+    ]
+    account_open_records = [
+        _public_invite_record(item)
+        for item in list_invite_records(inviter_tg=user_id, credit_type=INVITE_CREDIT_TYPE_ACCOUNT_OPEN, limit=20)
+    ]
     return {
         "settings": {
             "enabled": bool(settings.get("enabled")),
             "target_chat_id": settings.get("target_chat_id"),
             "expire_hours": int(settings.get("expire_hours") or 24),
             "strict_target": bool(settings.get("strict_target", True)),
+            "account_open_days": int(settings.get("account_open_days") or 30),
         },
         "permissions": {
             "has_viewing_access": bool(has_access),
             "can_create": bool(settings.get("enabled") and has_access),
         },
-        "available_credits": available_invite_credit_count(user_id) if has_access else 0,
-        "records": [
-            _public_invite_record(item)
-            for item in list_invite_records(inviter_tg=user_id, limit=20)
-        ],
+        "available_credits": group_count,
+        "records": group_records,
+        "group_join": {
+            "available_credits": group_count,
+            "records": group_records,
+        },
+        "account_open": {
+            "available_credits": account_open_count,
+            "records": account_open_records,
+        },
     }
 
 
@@ -110,6 +131,15 @@ async def _send_invite_link_to_invitee(invitee_tg: int, inviter_name: str, invit
         f"你收到来自 {inviter_name} 的 Emby 群组邀请。\n\n"
         f"邀请链接：{invite_link}\n\n"
         f"该链接仅供当前 Telegram 账号使用，约 {expire_hours} 小时内有效，入群后会自动失效。"
+    )
+    await bot.send_message(chat_id=int(invitee_tg), text=text)
+
+
+async def _send_account_open_notice(invitee_tg: int, inviter_name: str, days: int) -> None:
+    text = (
+        f"你收到来自 {inviter_name} 的 Emby 开号资格。\n\n"
+        f"注册天数：{int(days)} 天\n\n"
+        "请私聊机器人发送 /start，然后点击“注册”完成开通。"
     )
     await bot.send_message(chat_id=int(invitee_tg), text=text)
 
@@ -227,9 +257,9 @@ async def create_user_invite(payload: MiniAppInviteCreateRequest):
     if not settings.get("enabled"):
         raise HTTPException(status_code=403, detail="邀请功能当前未开启")
     if not has_viewing_access(account):
-        raise HTTPException(status_code=403, detail="只有拥有 Emby 观影资格的用户才能获取邀请码")
-    if available_invite_credit_count(user_id) <= 0:
-        raise HTTPException(status_code=400, detail="你当前没有可用的邀请码")
+        raise HTTPException(status_code=403, detail="只有拥有 Emby 观影资格的用户才能获取入群资格")
+    if available_invite_credit_count(user_id, credit_type=INVITE_CREDIT_TYPE_GROUP) <= 0:
+        raise HTTPException(status_code=400, detail="你当前没有可用的入群资格")
     target_chat_id = settings.get("target_chat_id")
     if not target_chat_id:
         raise HTTPException(status_code=400, detail="管理员尚未配置邀请目标群组")
@@ -268,6 +298,50 @@ async def create_user_invite(payload: MiniAppInviteCreateRequest):
             cancel_pending_invite_record(record["id"], reason="私聊发送邀请链接失败，已自动撤销")
         LOGGER.warning(f"create user invite failed inviter={user_id} invitee={invitee_tg}: {exc}")
         raise HTTPException(status_code=500, detail="邀请链接生成或发送失败，请确认被邀请人已私聊启动过机器人") from exc
+
+    return {
+        "code": 200,
+        "data": {
+            "record": _public_invite_record(record),
+            "invite": _public_invite_bundle(user_id, account),
+        },
+    }
+
+
+@router.post("/invites/account-open/create")
+async def create_account_open_invite(payload: MiniAppInviteCreateRequest):
+    verified = await run_in_threadpool(verify_init_data, payload.init_data)
+    telegram_user = verified["user"]
+    user_id = int(telegram_user["id"])
+    invitee_tg = int(payload.invitee_tg)
+    account = await run_in_threadpool(sql_get_emby, user_id)
+    settings = get_invite_settings()
+
+    if not settings.get("enabled"):
+        raise HTTPException(status_code=403, detail="邀请功能当前未开启")
+    if not has_viewing_access(account):
+        raise HTTPException(status_code=403, detail="只有拥有 Emby 观影资格的用户才能获取开号资格")
+    if available_invite_credit_count(user_id, credit_type=INVITE_CREDIT_TYPE_ACCOUNT_OPEN) <= 0:
+        raise HTTPException(status_code=400, detail="你当前没有可用的开号资格")
+
+    try:
+        record = create_account_open_invite_record(
+            inviter_tg=user_id,
+            invitee_tg=invitee_tg,
+            created_by_tg=user_id,
+            note=payload.note or "",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        LOGGER.warning(f"create account open invite failed inviter={user_id} invitee={invitee_tg}: {exc}")
+        raise HTTPException(status_code=500, detail="开号资格发放失败，请稍后重试") from exc
+
+    inviter_name = telegram_user.get("first_name") or telegram_user.get("username") or str(user_id)
+    try:
+        await _send_account_open_notice(invitee_tg, inviter_name, int(record.get("invite_days") or 0))
+    except Exception as exc:
+        LOGGER.warning(f"send account open notice failed inviter={user_id} invitee={invitee_tg}: {exc}")
 
     return {
         "code": 200,
