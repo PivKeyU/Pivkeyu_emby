@@ -5593,6 +5593,7 @@ def _ensure_default_official_shop_listings(
     material_map: dict[str, dict[str, Any]],
 ) -> None:
     official_name = str(settings.get("official_shop_name", DEFAULT_SETTINGS["official_shop_name"]) or DEFAULT_SETTINGS["official_shop_name"]).strip() or DEFAULT_SETTINGS["official_shop_name"]
+    max_official_quality_level = 3
     source_map = {
         "artifact": artifact_map,
         "pill": pill_map,
@@ -5617,6 +5618,10 @@ def _ensure_default_official_shop_listings(
         payload = (source_id_map.get(item_kind) or {}).get(item_id)
         if payload is None or not payload.get("enabled"):
             continue
+        if _official_payload_quality_level(item_kind, payload) > max_official_quality_level:
+            if bool(item.get("enabled", True)):
+                update_shop_item(int(item.get("id") or 0), enabled=False)
+            continue
         resolved_price = _seed_official_shop_price(item_kind, payload)
         patch: dict[str, Any] = {}
         resolved_name = str(payload.get("name") or item.get("item_name") or "").strip()
@@ -5634,6 +5639,8 @@ def _ensure_default_official_shop_listings(
         item_name = str(seed["item_name"]).strip()
         payload = (source_map.get(item_kind) or {}).get(item_name)
         if not payload or not payload.get("enabled"):
+            continue
+        if _official_payload_quality_level(item_kind, payload) > max_official_quality_level:
             continue
         item_id = int(payload.get("id") or 0)
         if item_id <= 0:
@@ -8604,19 +8611,28 @@ def unbind_talisman_for_user(tg: int, talisman_id: int) -> dict[str, Any]:
 def activate_technique_for_user(tg: int, technique_id: int) -> dict[str, Any]:
     ensure_seed_data()
     profile_obj = _require_alive_profile_obj(tg, "参悟功法")
+    requested_id = int(technique_id or 0)
+    if requested_id <= 0:
+        raise ValueError("请选择要参悟的功法。")
     owned_ids = {
         int((row.get("technique") or {}).get("id") or 0)
-        for row in list_user_techniques(tg, enabled_only=True)
+        for row in list_user_techniques(tg, enabled_only=False)
+        if (row.get("technique") or {}).get("enabled")
     }
-    if int(technique_id) not in owned_ids:
+    if requested_id not in owned_ids:
         raise ValueError("你尚未获得这门功法，需要先通过探索或机缘参悟。")
-    technique = get_technique(technique_id)
+    technique = get_technique(requested_id)
     if technique is None or not technique.enabled:
         raise ValueError("识海之中未存此法，需先通过秘境或机缘参悟。")
     profile_data = serialize_profile(profile_obj)
     if not realm_requirement_met(profile_data, technique.min_realm_stage, technique.min_realm_layer):
         raise ValueError(f"需要达到 {format_realm_requirement(technique.min_realm_stage, technique.min_realm_layer)} 才能参悟这门功法。")
-    set_current_technique(tg, technique_id)
+    if int(profile_data.get("current_technique_id") or 0) == requested_id:
+        return {
+            "technique": serialize_technique(technique),
+            "profile": serialize_full_profile(tg),
+        }
+    set_current_technique(tg, requested_id)
     return {
         "technique": serialize_technique(technique),
         "profile": serialize_full_profile(tg),
@@ -8937,6 +8953,8 @@ def create_official_shop_listing(
             raise ValueError("未寻得此宝踪迹，或许早已流失于岁月之中。")
         if bool(getattr(artifact, "unique_item", False)) and int(quantity or 0) > 1:
             raise ValueError(f"唯一法宝【{getattr(artifact, 'name', item_ref_id)}】在官方商店最多只能上架 1 件。")
+    if _official_payload_quality_level(item_kind, payload) > 3:
+        raise ValueError("官方商店只出售中品及以下物品，上品及以上需由玩家自行获取。")
     item_name = str(payload.get("name") or item_ref_id)
     resolved_price = _seed_official_shop_price(item_kind, payload)
 
@@ -9518,10 +9536,10 @@ def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
             "high_quality_root_level_start": _coerce_int(raw.get("high_quality_root_level_start"), defaults["high_quality_root_level_start"], 0),
         }
     if "high_quality_broadcast_level" in patch and patch["high_quality_broadcast_level"] is not None:
-        patch["high_quality_broadcast_level"] = min(
+        patch["high_quality_broadcast_level"] = max(6, min(
             _coerce_int(patch["high_quality_broadcast_level"], DEFAULT_SETTINGS["high_quality_broadcast_level"], 1),
             max(ROOT_QUALITY_LEVELS.values()),
-        )
+        ))
     if "gambling_exchange_cost_stone" in patch and patch["gambling_exchange_cost_stone"] is not None:
         patch["gambling_exchange_cost_stone"] = min(
             _coerce_int(
@@ -9550,14 +9568,14 @@ def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
             999,
         )
     if "gambling_broadcast_quality_level" in patch and patch["gambling_broadcast_quality_level"] is not None:
-        patch["gambling_broadcast_quality_level"] = min(
+        patch["gambling_broadcast_quality_level"] = max(6, min(
             _coerce_int(
                 patch["gambling_broadcast_quality_level"],
                 DEFAULT_SETTINGS["gambling_broadcast_quality_level"],
                 1,
             ),
             max(ROOT_QUALITY_LEVELS.values()),
-        )
+        ))
     if "gambling_fortune_divisor" in patch and patch["gambling_fortune_divisor"] is not None:
         patch["gambling_fortune_divisor"] = min(
             _coerce_int(
@@ -9683,7 +9701,7 @@ def build_gambling_bundle(tg: int, bundle: dict[str, Any] | None = None) -> dict
         ),
         "broadcast_quality_level": max(
             int(settings.get("gambling_broadcast_quality_level", DEFAULT_SETTINGS["gambling_broadcast_quality_level"]) or 0),
-            1,
+            6,
         ),
         "fortune_value": fortune_value,
         "empty_chance_percent": round(empty_chance * 100.0, 2),
@@ -9793,7 +9811,7 @@ def open_immortal_stones(tg: int, count: int) -> dict[str, Any]:
     immortal_stone_id = int(immortal_stone.get("id") or 0)
     broadcast_level = max(
         int(settings.get("gambling_broadcast_quality_level", DEFAULT_SETTINGS["gambling_broadcast_quality_level"]) or 0),
-        1,
+        6,
     )
 
     results: list[dict[str, Any]] = []
@@ -10703,13 +10721,15 @@ def _gambling_entry_effective_weight(entry: dict[str, Any], fortune_value: int |
         0,
     )
     rare_steps = max(quality_level - 1, 0)
-    fortune_multiplier = 1.0 + min((fortune_gap / fortune_divisor) * rare_steps * (bonus_percent / 100.0) * 0.35, 1.4)
+    scaled_fortune = 1.0 - exp(-fortune_gap / max(float(fortune_divisor) * 7.5, 1.0))
+    fortune_multiplier = 1.0 + max(rare_steps * (bonus_percent / 100.0) * 2.35 * scaled_fortune, 0.0)
     return base_weight * quality_multiplier * fortune_multiplier
 
 
 def _gambling_empty_chance(fortune_value: int | float) -> float:
     fortune_gap = max(float(fortune_value or 0.0) - float(FORTUNE_BASELINE), 0.0)
-    return max(min(0.32 - min(fortune_gap / 140.0, 0.14), 0.42), 0.12)
+    reduction = 0.17 * (1.0 - exp(-fortune_gap / 80.0))
+    return max(min(0.32 - reduction, 0.42), 0.1)
 
 
 def _recipe_fragment_source_labels(
@@ -10750,7 +10770,8 @@ def _gambling_fortune_hint(fortune_value: int | float, settings: dict[str, Any])
         ),
         0,
     )
-    top_bonus = min((fortune_gap / divisor) * 6 * bonus_percent * 0.35, 140)
+    scaled_fortune = 1.0 - exp(-fortune_gap / max(float(divisor) * 7.5, 1.0))
+    top_bonus = 6 * bonus_percent * 2.35 * scaled_fortune
     empty_reduction = (0.32 - _gambling_empty_chance(fortune_value)) * 100
     return f"当前机缘最多可为高品阶奖励额外提供约 {round(top_bonus, 1)}% 权重加成，并降低约 {round(empty_reduction, 1)}% 轮空率。"
 
@@ -11223,7 +11244,11 @@ def admin_set_player_selection(tg: int, selection_kind: str, item_ref_id: int | 
     if normalized_kind == "title":
         set_current_title(tg, target_id)
     elif normalized_kind == "technique":
-        if target_id is not None and target_id not in {int(item.get("id") or 0) for item in list_user_techniques(tg, enabled_only=False)}:
+        owned_technique_ids = {
+            int((item.get("technique") or {}).get("id") or item.get("technique_id") or 0)
+            for item in list_user_techniques(tg, enabled_only=False)
+        }
+        if target_id is not None and target_id not in owned_technique_ids:
             raise ValueError("玩家未持有该功法")
         set_current_technique(tg, target_id)
     elif normalized_kind == "talisman":
@@ -13526,10 +13551,23 @@ def _assert_arena_realm_match(profile: XiuxianProfile, arena_stage: str, *, acti
 
 
 def _arena_reward_values(profile: XiuxianProfile, arena: XiuxianArena) -> dict[str, int]:
+    reward_cultivation = max(int(getattr(arena, "reward_cultivation", 0) or 0), 0)
+    if reward_cultivation <= 0:
+        reward_cultivation = calculate_arena_cultivation_cap(getattr(arena, "realm_stage", None))
+    challenge_count = max(int(getattr(arena, "challenge_count", 0) or 0), 0)
+    defense_count = max(int(getattr(arena, "defense_success_count", 0) or 0), 0)
+    change_count = max(int(getattr(arena, "champion_change_count", 0) or 0), 0)
+    fortune = max(int(getattr(profile, "fortune", 0) or 0), 0)
+    fortune_factor = 1.0 + (1.0 - exp(-max(fortune - FORTUNE_BASELINE, 0) / 72.0)) * 0.18
+    activity_factor = 0.72 if challenge_count <= 0 else 0.55 + min(challenge_count, 8) * 0.11 + defense_count * 0.08 + change_count * 0.04
+    cultivation_reward = max(int(round(reward_cultivation * activity_factor * fortune_factor)), 0)
+    if challenge_count <= 0 and reward_cultivation > 0:
+        cultivation_reward = max(cultivation_reward, max(int(round(reward_cultivation * 0.55)), 1))
+    stone_reward = max(int(round(cultivation_reward * 0.18)) + 8 + challenge_count * 3 + defense_count * 4, 0)
     return {
-        "stone_reward": 0,
-        "cultivation_reward": 0,
-        "fortune": 0,
+        "stone_reward": stone_reward,
+        "cultivation_reward": cultivation_reward,
+        "fortune": fortune,
     }
 
 
@@ -13561,9 +13599,13 @@ def _arena_duel_cultivation_rewards(stage: str, arena: XiuxianArena | dict[str, 
     intensity_factor = max(0.0, 1.0 - abs(challenger_rate - 0.5) * 2)
     underdog_factor = max(0.5 - winner_rate, 0.0) * 2
 
-    # 单场奖励控制在当前境界单层需求的极小比例内，避免擂台打一场就直升多层。
-    winner_gain = max(int(round(threshold * (0.015 + intensity_factor * 0.007 + underdog_factor * 0.006))), 8)
-    loser_gain = max(int(round(threshold * (0.006 + intensity_factor * 0.003))), 3)
+    challenge_count = max(int(arena.get("challenge_count") if isinstance(arena, dict) else getattr(arena, "challenge_count", 0)) or 0, 0)
+    settled_challenge_count = challenge_count + 1
+    no_challenge_floor = max(int(round(reward_cap * 0.55)), 1)
+    active_floor = max(int(round(no_challenge_floor / max(settled_challenge_count, 1))), 1)
+    # 单场奖励用指数曲线压住爆发，但保证有人攻擂时不比空擂补偿更寒酸。
+    winner_gain = max(int(round(threshold * (0.015 + intensity_factor * 0.007 + underdog_factor * 0.006))), active_floor, 8)
+    loser_gain = max(int(round(threshold * (0.006 + intensity_factor * 0.003))), max(active_floor // 2, 3))
     winner_gain = min(winner_gain, reward_cap)
     loser_gain = min(loser_gain, max(reward_cap // 2, 1))
     return {
@@ -14034,10 +14076,19 @@ def finalize_group_arena(arena_id: int, *, force: bool = False) -> dict[str, Any
         reward = _arena_reward_values(champion, arena)
         stage = normalize_realm_stage(champion.realm_stage or FIRST_REALM_STAGE)
         layer, _, upgraded_layers, remaining = _settle_profile_cultivation(champion, reward["cultivation_reward"])
+        if int(reward.get("stone_reward") or 0) > 0:
+            apply_spiritual_stone_delta(
+                session,
+                int(champion.tg or 0),
+                int(reward["stone_reward"]),
+                action_text="擂台期满奖励",
+                allow_dead=False,
+                apply_tribute=True,
+            )
         champion.updated_at = now
         arena.latest_result_summary = (
             f"{_profile_display_label(champion, '擂主')} 守到擂台落幕，"
-            f"本期擂台的实战修为已在攻擂过程中完成结算。"
+            f"获得期满补偿：灵石 +{int(reward['stone_reward'])}，修为 +{int(reward['cultivation_reward'])}。"
         )
         session.commit()
         arena_payload = serialize_arena(arena)
@@ -14048,7 +14099,7 @@ def finalize_group_arena(arena_id: int, *, force: bool = False) -> dict[str, Any
         champion_tg,
         "arena",
         "擂台结算",
-        "擂台落幕，本期实战修为已在每场攻擂后即时结算，本次未再追加固定大额修为。",
+        f"擂台落幕，获得期满补偿：灵石 +{int(reward['stone_reward'])}，修为 +{int(reward['cultivation_reward'])}。",
     )
     achievement_unlocks = record_arena_metrics(champion_tg, final_win=1)
     return {

@@ -821,6 +821,62 @@ def harvest_farm_plot_for_user(tg: int, slot_index: int) -> dict[str, Any]:
     }
 
 
+def auto_harvest_farm_for_user(tg: int) -> dict[str, Any]:
+    _ensure_seed_data()
+    bundle = build_farm_bundle(tg)
+    ready_slots = [
+        int(plot.get("slot_index") or 0)
+        for plot in bundle.get("plots") or []
+        if bool(plot.get("can_harvest")) and int(plot.get("slot_index") or 0) > 0
+    ]
+    if not ready_slots:
+        raise ValueError("当前没有成熟可收获的灵田。")
+
+    results: list[dict[str, Any]] = []
+    total_quantity = 0
+    withered_count = 0
+    for slot_index in ready_slots:
+        result = harvest_farm_plot_for_user(tg, slot_index)
+        results.append(result)
+        total_quantity += max(int(result.get("quantity") or 0), 0)
+        if result.get("withered"):
+            withered_count += 1
+
+    material_totals: dict[int, dict[str, Any]] = {}
+    for result in results:
+        material = result.get("material") or {}
+        material_id = int(material.get("id") or 0)
+        if material_id <= 0:
+            continue
+        row = material_totals.setdefault(
+            material_id,
+            {
+                "material": material,
+                "quantity": 0,
+            },
+        )
+        row["quantity"] = int(row.get("quantity") or 0) + max(int(result.get("quantity") or 0), 0)
+
+    summary = [
+        f"{(row.get('material') or {}).get('name') or '材料'} ×{int(row.get('quantity') or 0)}"
+        for row in material_totals.values()
+        if int(row.get("quantity") or 0) > 0
+    ]
+    message = f"已自动收获 {len(results)} 块灵田"
+    if summary:
+        message += f"，获得 {'、'.join(summary)}"
+    if withered_count > 0:
+        message += f"，其中 {withered_count} 块失收"
+    return {
+        "harvested_count": len(results),
+        "total_quantity": total_quantity,
+        "withered_count": withered_count,
+        "results": results,
+        "material_totals": list(material_totals.values()),
+        "message": message,
+    }
+
+
 def unlock_farm_plot_for_user(tg: int, slot_index: int) -> dict[str, Any]:
     _ensure_seed_data()
     slot_index = int(slot_index)

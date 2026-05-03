@@ -5,6 +5,7 @@ Start panel commands.
 import asyncio
 
 from pyrogram import filters
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot import LOGGER, bot, bot_photo, group, prefixes, ranks, sakura_b
 from bot.func_helper.emby import Embyservice
@@ -73,6 +74,20 @@ async def p_start(_, msg):
                 if judge_admins(msg.from_user.id):
                     return await user_cha_ip(_, msg, name)
                 return await sendMessage(msg, "🔒 哼，这个只有主人才行...你、你还不够格啦。")
+
+            if arg_prefix == "xiuxian":
+                await asyncio.gather(
+                    deleteMessage(msg),
+                    sendMessage(
+                        msg,
+                        "🧭 修仙入口在这里。点击下面按钮或直接发送 /xiuxian 进入修仙总览。",
+                        buttons=InlineKeyboardMarkup(
+                            [[InlineKeyboardButton("打开修仙总览", callback_data="xiuxian:entry")]]
+                        ),
+                    ),
+                )
+                LOGGER.info(f"[/start] xiuxian deep link user={user_id}")
+                return
 
             if arg_prefix in f"{ranks.logo}" or arg_prefix == str(msg.from_user.id):
                 await asyncio.gather(msg.delete(), rgs_code(_, msg, register_code=command_arg))

@@ -3571,7 +3571,7 @@ function applySettings(settings = {}) {
   $("setting-gambling-exchange-cost").value = settings.gambling_exchange_cost_stone ?? 120;
   $("setting-gambling-exchange-max").value = settings.gambling_exchange_max_count ?? 20;
   $("setting-gambling-open-max").value = settings.gambling_open_max_count ?? 100;
-  $("setting-gambling-broadcast-quality").value = settings.gambling_broadcast_quality_level ?? 5;
+  $("setting-gambling-broadcast-quality").value = Math.max(Number(settings.gambling_broadcast_quality_level ?? 6), 6);
   $("setting-gambling-fortune-divisor").value = settings.gambling_fortune_divisor ?? 6;
   $("setting-gambling-fortune-bonus").value = settings.gambling_fortune_bonus_per_quality_percent ?? 8;
   if ($("official-shop-name")) $("official-shop-name").value = settings.official_shop_name ?? "官方商店";
@@ -3589,7 +3589,7 @@ function applySettings(settings = {}) {
   $("setting-encounter-auto-hour").value = settings.encounter_auto_dispatch_hour ?? 12;
   $("setting-encounter-auto-minute").value = settings.encounter_auto_dispatch_minute ?? 0;
   $("setting-seclusion-efficiency").value = settings.seclusion_cultivation_efficiency_percent ?? 60;
-  $("setting-quality-broadcast").value = settings.high_quality_broadcast_level ?? 4;
+  $("setting-quality-broadcast").value = Math.max(Number(settings.high_quality_broadcast_level ?? 6), 6);
   $("setting-slave-tribute").value = settings.slave_tribute_percent ?? 20;
   $("setting-furnace-harvest").value = settings.furnace_harvest_cultivation_percent ?? 10;
   $("setting-slave-cooldown").value = settings.slave_challenge_cooldown_hours ?? 24;
@@ -3907,7 +3907,7 @@ function bindEvents() {
         gambling_exchange_cost_stone: Number($("setting-gambling-exchange-cost").value || 120),
         gambling_exchange_max_count: Number($("setting-gambling-exchange-max").value || 20),
         gambling_open_max_count: Number($("setting-gambling-open-max").value || 100),
-        gambling_broadcast_quality_level: Number($("setting-gambling-broadcast-quality").value || 5),
+        gambling_broadcast_quality_level: Math.max(Number($("setting-gambling-broadcast-quality").value || 6), 6),
         gambling_fortune_divisor: Number($("setting-gambling-fortune-divisor").value || 6),
         gambling_fortune_bonus_per_quality_percent: Number($("setting-gambling-fortune-bonus").value || 8),
         root_quality_value_rules: collectRootQualityRules(),
@@ -3976,7 +3976,7 @@ function bindEvents() {
       artifact_plunder_chance: Number($("setting-artifact-plunder").value || 20),
       equipment_unbind_cost: Number($("setting-unbind-cost").value || 0),
       artifact_equip_limit: Number($("setting-artifact-limit").value || 3),
-      high_quality_broadcast_level: Number($("setting-quality-broadcast").value || 4),
+      high_quality_broadcast_level: Math.max(Number($("setting-quality-broadcast").value || 6), 6),
       slave_tribute_percent: Number($("setting-slave-tribute").value || 20),
       furnace_harvest_cultivation_percent: Number($("setting-furnace-harvest").value || 10),
       slave_challenge_cooldown_hours: Number($("setting-slave-cooldown").value || 24),
@@ -4762,11 +4762,14 @@ function renderPlayerAccount(account) {
     container.innerHTML = `<p>当前角色未绑定 Emby 账户。</p>`;
     return;
   }
+  const levelLabel = EMBY_LEVEL_LABELS[account.lv] || account.lv || "未设置";
+  const isWhitelist = String(account.lv || "").trim() === "a" || String(levelLabel || "").includes("白名单");
+  const expiryText = isWhitelist ? "无限期" : formatShanghaiDate(account.ex);
   container.innerHTML = `
     <p>账号名：${escapeHtml(account.name || "未设置")}</p>
     <p>Emby ID：${escapeHtml(account.embyid || "未设置")}</p>
-    <p>等级：${escapeHtml(EMBY_LEVEL_LABELS[account.lv] || account.lv || "未设置")} · 片刻碎片：${escapeHtml(account.iv ?? 0)}</p>
-    <p>到期时间：${escapeHtml(formatShanghaiDate(account.ex))}</p>
+    <p>等级：${escapeHtml(levelLabel)} · 片刻碎片：${escapeHtml(account.iv ?? 0)}</p>
+    <p>到期时间：${escapeHtml(expiryText)}</p>
   `;
 }
 

@@ -784,6 +784,34 @@ h3 {
     0 8px 20px rgba(0, 0, 0, 0.18);
 }
 
+.recipe-source-item.is-missing {
+  border-color: rgba(229, 110, 82, 0.46);
+}
+
+.recipe-source-item.is-missing::before {
+  background: var(--danger);
+}
+
+.recipe-source-item.is-enough {
+  border-color: rgba(92, 184, 92, 0.28);
+}
+
+.material-missing {
+  color: var(--danger);
+  border: 1px solid rgba(229, 110, 82, 0.42);
+  background: rgba(229, 110, 82, 0.12);
+}
+
+.material-enough,
+.material-enough-text {
+  color: var(--success) !important;
+}
+
+.material-enough {
+  border: 1px solid rgba(92, 184, 92, 0.32);
+  background: rgba(92, 184, 92, 0.12);
+}
+
 .recipe-source-item::before {
   content: "";
   position: absolute;
@@ -910,6 +938,17 @@ h3 {
 
 .farm-summary-grid {
   grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+}
+
+.farm-auto-harvest-chip {
+  align-content: start;
+}
+
+.farm-auto-harvest-chip button {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
 }
 
 .farm-progress {
@@ -1486,7 +1525,7 @@ button.is-blocked:not(:disabled) {
   inset: 0;
   z-index: 50;
   display: grid;
-  place-items: center;
+  place-items: start center;
   padding: max(18px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
   overflow-y: auto;
 }
@@ -1502,6 +1541,7 @@ button.is-blocked:not(:disabled) {
   position: relative;
   z-index: 1;
   width: min(480px, calc(100vw - 36px));
+  margin-top: clamp(24px, 16dvh, 120px);
   padding: 18px;
   max-height: min(720px, calc(100dvh - 36px));
   display: flex;
@@ -1548,6 +1588,7 @@ button.is-blocked:not(:disabled) {
 
 .modal-actions {
   margin-top: 16px;
+  order: 3;
 }
 
 .modal-confirm {
@@ -1891,14 +1932,15 @@ button.is-blocked:not(:disabled) {
   }
 
   .modal-layer {
-    align-items: end;
+    align-items: start;
     padding: 12px;
   }
 
   .modal-card {
     width: min(100%, 520px);
     max-height: min(82dvh, 720px);
-    border-radius: 22px 22px 16px 16px;
+    margin-top: clamp(18px, 12dvh, 88px);
+    border-radius: 22px;
   }
 }
 

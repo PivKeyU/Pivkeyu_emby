@@ -2209,6 +2209,13 @@ def build_recipe_catalog(tg: int | None = None) -> list[dict[str, Any]]:
     item_sources = get_item_source_catalog()
     rows = []
     profile = serialize_profile(get_profile(tg, create=False)) if tg is not None else None
+    material_inventory_map: dict[int, int] = {}
+    if tg is not None:
+        material_inventory_map = {
+            int((row.get("material") or {}).get("id") or 0): max(int(row.get("quantity") or 0), 0)
+            for row in list_user_materials(tg)
+            if int((row.get("material") or {}).get("id") or 0) > 0
+        }
     source_rows: list[dict[str, Any]]
     if tg is None:
         source_rows = list_recipes(enabled_only=True)
@@ -2226,11 +2233,37 @@ def build_recipe_catalog(tg: int | None = None) -> list[dict[str, Any]]:
         recipe_id = int(recipe.get("id") or 0)
         ingredients = []
         fragment_source_labels: list[str] = []
+        material_check_rows: list[dict[str, Any]] = []
+        max_craft_quantity: int | None = None
         for ingredient in list_recipe_ingredients(recipe["id"]):
+            ingredient = dict(ingredient or {})
             material = ingredient.get("material") or {}
-            source_labels = material_sources.get(int(material.get("id") or ingredient.get("material_id") or 0), [])
+            material_id = int(material.get("id") or ingredient.get("material_id") or 0)
+            source_labels = material_sources.get(material_id, [])
             ingredient["sources"] = source_labels
             ingredient["source_text"] = "、".join(source_labels[:4]) if source_labels else "暂未标注"
+            required_quantity = max(int(ingredient.get("quantity") or 1), 1)
+            owned_quantity = material_inventory_map.get(material_id, 0) if tg is not None else 0
+            missing_quantity = max(required_quantity - owned_quantity, 0)
+            ingredient["owned_quantity"] = owned_quantity
+            ingredient["required_quantity"] = required_quantity
+            ingredient["missing_quantity"] = missing_quantity
+            ingredient["enough"] = missing_quantity <= 0
+            if tg is not None and material_id > 0:
+                craftable_for_material = owned_quantity // required_quantity
+                max_craft_quantity = craftable_for_material if max_craft_quantity is None else min(max_craft_quantity, craftable_for_material)
+            material_check_rows.append(
+                {
+                    "material_id": material_id,
+                    "material_name": material.get("name") or "材料",
+                    "required_quantity": required_quantity,
+                    "owned_quantity": owned_quantity,
+                    "missing_quantity": missing_quantity,
+                    "enough": missing_quantity <= 0,
+                    "sources": source_labels,
+                    "source_text": ingredient["source_text"],
+                }
+            )
             material_name = str(material.get("name") or "").strip()
             if "残页" in material_name:
                 for label in source_labels:
@@ -2239,6 +2272,17 @@ def build_recipe_catalog(tg: int | None = None) -> list[dict[str, Any]]:
                         fragment_source_labels.append(normalized_label)
             ingredients.append(ingredient)
         recipe["ingredients"] = ingredients
+        missing_materials = [row for row in material_check_rows if int(row.get("missing_quantity") or 0) > 0]
+        can_craft = bool(tg is not None and ingredients and not missing_materials)
+        if tg is not None and ingredients and max_craft_quantity is None:
+            max_craft_quantity = 0
+        recipe["material_check"] = {
+            "can_craft": can_craft,
+            "max_craft_quantity": max(int(max_craft_quantity or 0), 0) if tg is not None else None,
+            "missing_count": len(missing_materials),
+            "missing_materials": missing_materials,
+            "materials": material_check_rows,
+        }
         recipe_source_labels = item_sources.get(("recipe", recipe_id), [])
         resolved_source_labels = recipe_source_labels or fragment_source_labels
         recipe["source_labels"] = resolved_source_labels
@@ -2689,13 +2733,21 @@ def craft_recipe_for_user(tg: int, recipe_id: int, quantity: int = 1) -> dict[st
     if result_item is None:
         raise ValueError("该配方的成品配置无效，请联系管理员修复后再炼制")
     inventory_map = {row["material"]["id"]: row for row in list_user_materials(tg)}
+    missing_rows: list[str] = []
+    for item in ingredients:
+        material_id = int(item["material_id"])
+        owned_quantity = max(int((inventory_map.get(material_id) or {}).get("quantity") or 0), 0)
+        required_quantity = max(int(item["quantity"] or 0), 0) * requested_quantity
+        if owned_quantity < required_quantity:
+            missing_rows.append(
+                f"{item['material']['name']} 缺 {required_quantity - owned_quantity}（需 {required_quantity}，持有 {owned_quantity}）"
+            )
+    if missing_rows:
+        raise ValueError("材料不足：" + "；".join(missing_rows))
     with Session() as session:
         for item in ingredients:
             material_id = int(item["material_id"])
-            owned = inventory_map.get(material_id)
             required_quantity = int(item["quantity"] or 0) * requested_quantity
-            if owned is None or int(owned["quantity"] or 0) < required_quantity:
-                raise ValueError(f"材料不足：{item['material']['name']}")
             row = (
                 session.query(XiuxianMaterialInventory)
                 .filter(XiuxianMaterialInventory.tg == tg, XiuxianMaterialInventory.material_id == material_id)
@@ -2703,7 +2755,11 @@ def craft_recipe_for_user(tg: int, recipe_id: int, quantity: int = 1) -> dict[st
                 .first()
             )
             if row is None or row.quantity < required_quantity:
-                raise ValueError("材料数量已变更，请重新尝试")
+                owned_quantity = max(int(getattr(row, "quantity", 0) or 0), 0)
+                raise ValueError(
+                    f"材料数量已变更：{item['material']['name']} 缺 {max(required_quantity - owned_quantity, 0)}"
+                    "，请刷新后重新尝试"
+                )
             row.quantity -= required_quantity
             row.updated_at = utcnow()
             if row.quantity <= 0:
@@ -2802,7 +2858,7 @@ def craft_recipe_for_user(tg: int, recipe_id: int, quantity: int = 1) -> dict[st
         "failure_count": failure_count,
         "total_reward_quantity": total_reward_quantity,
         "summary_text": summary_text,
-        "should_broadcast": bool(success and recipe.get("broadcast_on_success") and result_quality >= int(get_xiuxian_settings().get("high_quality_broadcast_level", DEFAULT_SETTINGS["high_quality_broadcast_level"]) or 4)),
+        "should_broadcast": bool(success and recipe.get("broadcast_on_success") and result_quality >= max(int(get_xiuxian_settings().get("high_quality_broadcast_level", DEFAULT_SETTINGS["high_quality_broadcast_level"]) or 6), 6)),
         "profile": serialize_profile(get_profile(tg, create=False)),
         "achievement_unlocks": achievement_unlocks,
     }

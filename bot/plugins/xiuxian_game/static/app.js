@@ -4804,6 +4804,12 @@ document.querySelector("#recipe-list")?.addEventListener("click", async (event) 
   }
 });
 
+document.querySelector("#recipe-list")?.addEventListener("input", (event) => {
+  const input = event.target.closest("[data-recipe-quantity-for]");
+  if (!input) return;
+  updateRecipeQuantityHint(input);
+});
+
 document.querySelector("#recipe-fragment-synthesis-list")?.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-recipe-synthesis-id]");
   if (!button || button.disabled) return;
@@ -5525,6 +5531,10 @@ function rerenderInventoryLists() {
 }
 
 function recipeCraftableCount(recipe, bundle) {
+  const backendCount = Number(recipe?.material_check?.max_craft_quantity);
+  if (Number.isFinite(backendCount) && backendCount >= 0) {
+    return Math.floor(backendCount);
+  }
   const inventory = new Map(
     (bundle?.materials || []).map((row) => [Number(row?.material?.id || 0), Math.max(Number(row?.quantity || 0), 0)])
   );
@@ -5538,6 +5548,60 @@ function recipeCraftableCount(recipe, bundle) {
     maxCount = Math.min(maxCount, Math.floor(owned / required));
   }
   return Number.isFinite(maxCount) ? Math.max(maxCount, 0) : 0;
+}
+
+function recipeMaterialCheckRow(recipe, ingredient) {
+  const materialId = Number(ingredient?.material_id || ingredient?.material?.id || 0);
+  return (recipe?.material_check?.materials || []).find((row) => Number(row?.material_id || 0) === materialId) || {};
+}
+
+function recipeMissingText(recipe) {
+  const rows = recipe?.material_check?.missing_materials || [];
+  if (!rows.length) return "";
+  return rows
+    .map((row) => `${row.material_name || "材料"} 缺 ${Number(row.missing_quantity || 0)}`)
+    .join("、");
+}
+
+function recipeMissingTextForQuantity(recipe, quantity = 1) {
+  const amount = Math.max(Number.parseInt(quantity, 10) || 1, 1);
+  const rows = recipe?.material_check?.materials || [];
+  const missingRows = rows
+    .map((row) => {
+      const required = Math.max(Number(row.required_quantity || 0), 0) * amount;
+      const owned = Math.max(Number(row.owned_quantity || 0), 0);
+      return {
+        material_name: row.material_name || "材料",
+        required,
+        owned,
+        missing: Math.max(required - owned, 0),
+      };
+    })
+    .filter((row) => row.missing > 0);
+  if (!missingRows.length) return "";
+  return missingRows
+    .map((row) => `${row.material_name} 缺 ${row.missing}（需 ${row.required}，持有 ${row.owned}）`)
+    .join("、");
+}
+
+function findRecipeQuantityHint(recipeId) {
+  return [...document.querySelectorAll("[data-recipe-quantity-hint-for]")]
+    .find((item) => String(item.dataset.recipeQuantityHintFor || "") === String(recipeId));
+}
+
+function updateRecipeQuantityHint(input) {
+  if (!input) return;
+  const recipeId = String(input.dataset.recipeQuantityFor || "");
+  const bundle = state.profileBundle || {};
+  const recipe = (bundle.recipes || []).find((item) => String(item.id) === recipeId);
+  if (!recipe) return;
+  const craftableCount = recipeCraftableCount(recipe, bundle);
+  const quantity = Math.max(Number.parseInt(input.value || "1", 10) || 1, 1);
+  const hint = findRecipeQuantityHint(recipeId);
+  if (!hint) return;
+  const missingText = recipeMissingTextForQuantity(recipe, quantity);
+  hint.textContent = missingText || `当前材料最多可炼 ${craftableCount} 炉`;
+  hint.classList.toggle("reason-text", Boolean(missingText));
 }
 
 function recipeResultPreviewTags(recipe, item) {
@@ -5637,22 +5701,34 @@ renderCraftArea = function renderCraftArea(bundle) {
     const ingredientTags = (recipe.ingredients || [])
       .map((item) => {
         const materialName = item.material?.name || "材料";
-        return `<span class="tag">${escapeHtml(materialName)} × ${escapeHtml(item.quantity)}</span>`;
+        const check = recipeMaterialCheckRow(recipe, item);
+        const ownedQuantity = Number(check.owned_quantity ?? item.owned_quantity ?? 0);
+        const requiredQuantity = Number(check.required_quantity ?? item.quantity ?? 1);
+        const enough = Boolean(check.enough ?? item.enough);
+        const missingQuantity = Math.max(Number(check.missing_quantity ?? item.missing_quantity ?? Math.max(requiredQuantity - ownedQuantity, 0)), 0);
+        const statusText = enough ? `持有 ${ownedQuantity}/${requiredQuantity}` : `缺 ${missingQuantity}，持有 ${ownedQuantity}/${requiredQuantity}`;
+        return `<span class="tag ${enough ? "material-enough" : "material-missing"}">${escapeHtml(materialName)} × ${escapeHtml(requiredQuantity)} · ${escapeHtml(statusText)}</span>`;
       })
       .join("");
     const sourceCards = (recipe.ingredients || [])
       .map((item) => {
         const materialName = item.material?.name || "材料";
+        const check = recipeMaterialCheckRow(recipe, item);
+        const ownedQuantity = Number(check.owned_quantity ?? item.owned_quantity ?? 0);
+        const requiredQuantity = Number(check.required_quantity ?? item.quantity ?? 1);
+        const missingQuantity = Math.max(Number(check.missing_quantity ?? item.missing_quantity ?? Math.max(requiredQuantity - ownedQuantity, 0)), 0);
+        const enough = Boolean(check.enough ?? item.enough);
         const sceneNames = materialSourceSceneNames(materialName, bundle);
         const sourceText = sceneNames.length
           ? `地图：${sceneNames.join("、")}`
           : (item.source_text || (item.sources || []).join("、") || "暂未补充获取路径");
         return `
-        <article class="recipe-source-item">
+        <article class="recipe-source-item ${enough ? "is-enough" : "is-missing"}">
           <div class="recipe-source-head">
-            <strong>${escapeHtml(materialName)} × ${escapeHtml(item.quantity)}</strong>
+            <strong>${escapeHtml(materialName)} × ${escapeHtml(requiredQuantity)}</strong>
             ${materialSceneJumpButtonHtml(materialName, bundle)}
           </div>
+          <p class="${enough ? "material-enough-text" : "reason-text"}">${escapeHtml(enough ? `材料足够：持有 ${ownedQuantity}` : `材料不足：持有 ${ownedQuantity}，还缺 ${missingQuantity}`)}</p>
           <p>${escapeHtml(sourceText)}</p>
         </article>
       `;
@@ -5675,13 +5751,14 @@ renderCraftArea = function renderCraftArea(bundle) {
           <label class="recipe-quantity-field">
             <span>炼药炉数</span>
             <input type="number" min="1" max="${escapeHtml(batchMax)}" value="${escapeHtml(batchDefault)}" data-recipe-quantity-for="${recipe.id}" ${canCraft ? "" : "disabled"}>
-            <small>${escapeHtml(canCraft ? `当前材料最多可炼 ${craftableCount} 炉` : "当前材料不足 1 炉")}</small>
+            <small data-recipe-quantity-hint-for="${escapeHtml(recipe.id)}">${escapeHtml(canCraft ? `当前材料最多可炼 ${craftableCount} 炉` : "当前材料不足 1 炉")}</small>
           </label>
+          ${canCraft ? "" : `<p class="reason-text">${escapeHtml(recipeMissingText(recipe) || "当前材料不足 1 炉")}</p>`}
           <button type="button" data-recipe-id="${recipe.id}" ${canCraft ? "" : "disabled"}>${escapeHtml(craftableCount > 1 ? "批量炼药" : "开始炼药")}</button>
         </div>
       `
       : `
-        ${canCraft ? "" : `<p class="reason-text">当前材料不足 1 炉</p>`}
+        ${canCraft ? "" : `<p class="reason-text">${escapeHtml(recipeMissingText(recipe) || "当前材料不足 1 炉")}</p>`}
         <button type="button" data-recipe-id="${recipe.id}" ${canCraft ? "" : "disabled"}>开始炼制</button>
       `;
     const card = document.createElement("article");
@@ -7394,6 +7471,15 @@ function renderFarmArea(bundle) {
       <strong>${escapeHtml(farm.next_mature_at ? formatDate(farm.next_mature_at) : "暂无")}</strong>
     </article>
   `;
+  summaryRoot.insertAdjacentHTML(
+    "beforeend",
+    `<article class="info-chip farm-auto-harvest-chip">
+      <span>批量操作</span>
+      <button type="button" data-farm-auto-harvest ${Number(farm.ready_count || 0) > 0 ? "" : "disabled"}>
+        自动收获${Number(farm.ready_count || 0) > 0 ? ` ${escapeHtml(farm.ready_count || 0)} 块` : ""}
+      </button>
+    </article>`
+  );
 
   const emptySlots = plots
     .filter((plot) => plot.unlocked && !plot.occupied)
@@ -7591,6 +7677,29 @@ renderProfile = function renderProfileWithMarriage(bundle) {
 document.querySelector("#farm-material-search")?.addEventListener("input", () => {
   if (!state.profileBundle?.profile?.consented) return;
   renderFarmArea(state.profileBundle);
+});
+
+document.querySelector("#farm-summary")?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-farm-auto-harvest]");
+  if (!button || button.disabled) return;
+  try {
+    const payload = await runButtonAction(button, "收获中…", () => postJson("/plugins/xiuxian/api/farm/auto-harvest", {}));
+    applyReturnedBundle(payload);
+    const result = payload.result || {};
+    const lines = [result.message || "成熟灵田已自动收获。"];
+    if (Number(result.total_quantity || 0) > 0) {
+      lines.push(`收获总数 ${Number(result.total_quantity || 0)}`);
+    }
+    if (Number(result.withered_count || 0) > 0) {
+      lines.push(`失收地块 ${Number(result.withered_count || 0)}`);
+    }
+    setStatus(result.message || "自动收获完成。", "success");
+    await popup("自动收获完成", lines.join("\n"));
+  } catch (error) {
+    const message = normalizeError(error, "自动收获失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
 });
 
 document.querySelector("#farm-material-catalog")?.addEventListener("click", (event) => {

@@ -36,6 +36,11 @@ _SECURITY_CODE_PATTERN = re.compile(r"^\d{4,6}$")
 def _is_valid_security_code(value: str) -> bool:
     return bool(_SECURITY_CODE_PATTERN.fullmatch((value or "").strip()))
 
+
+def _emby_expiry_display(lv, ex) -> str:
+    return "无限期" if str(lv or "").strip() == "a" else str(ex or "未设置")
+
+
 # 创号函数
 async def create_user(_, call, us, stats):
     msg = await ask_return(call,
@@ -215,12 +220,13 @@ async def members(_, call):
         return await callAnswer(call, '⚠️ 找不到你...才、才不是本女仆忘了！重新 /start 一下啦。', True)
     await callAnswer(call, f"✅ 用户界面")
     name, lv, ex, us, embyid, pwd2 = data
+    expires_text = _emby_expiry_display(lv, ex)
     text = f"▎__哼...又来看面板了？{call.from_user.first_name}？才、才没说不让你看呢。__\n\n" \
            f"**· 🆔 用户のID** | `{call.from_user.id}`\n" \
            f"**· 📊 当前状态** | {lv}\n" \
            f"**· 🍒 积分{sakura_b}** | {us}\n" \
            f"**· 💠 账号名称** | [{name}](tg://user?id={call.from_user.id})\n" \
-           f"**· 🚨 到期时间** | {ex}"
+           f"**· 🚨 到期时间** | {expires_text}"
     if not embyid:
         is_admin = judge_admins(call.from_user.id)
         await editMessage(call, text, members_ikb(is_admin, False))
@@ -294,11 +300,12 @@ async def change_tg(_, call):
         old_iv = e.iv
         if sql_update_emby(Emby.tg == current_id, embyid=e.embyid, name=e.name, pwd=e.pwd, pwd2=e.pwd2,
                            lv=e.lv, cr=e.cr, ex=e.ex, iv=old_iv):
+            expires_text = _emby_expiry_display(e.lv, e.ex)
             text = f'⭕ 请接收您的信息！\n\n' \
                    f'· 用户名称 | `{e.name}`\n' \
                    f'· 用户密码 | `{e.pwd}`\n' \
                    f'· 安全密码 | `{e.pwd2}`（仅发送一次）\n' \
-                   f'· 到期时间 | `{e.ex}`\n\n' \
+                   f'· 到期时间 | `{expires_text}`\n\n' \
                    f'· 当前线路：\n{emby_line}\n\n' \
                    f'**·在【服务器】按钮 - 查看线路和密码**'
             await bot.send_message(current_id, text)
@@ -358,11 +365,12 @@ async def change_tg(_, call):
                 sql_update_emby(Emby.tg == call.from_user.id, embyid=embyid, name=e2.name, pwd=emby_pwd,
                                 pwd2=e2.pwd2, lv=e2.lv, cr=e2.cr, ex=e2.ex)
                 sql_delete_emby2(embyid=e2.embyid)
+                expires_text = _emby_expiry_display(e2.lv, e2.ex)
                 text = f'⭕ 账户 {emby_name} 的密码验证成功！\n\n' \
                        f'· 用户名称 | `{emby_name}`\n' \
                        f'· 用户密码 | `{pwd[0]}`\n' \
                        f'· 安全密码 | `{e2.pwd2}`（仅发送一次）\n' \
-                       f'· 到期时间 | `{e2.ex}`\n\n' \
+                       f'· 到期时间 | `{expires_text}`\n\n' \
                        f'· 当前线路：\n{emby_line}\n\n' \
                        f'**·在【服务器】按钮 - 查看线路和密码**'
                 await sendMessage(call,
@@ -373,11 +381,12 @@ async def change_tg(_, call):
                 await editMessage(call, text)
 
             elif emby_pwd == e2.pwd2:
+                expires_text = _emby_expiry_display(e2.lv, e2.ex)
                 text = f'⭕ 账户 {emby_name} 的安全码验证成功！\n\n' \
                        f'· 用户名称 | `{emby_name}`\n' \
                        f'· 用户密码 | `{e2.pwd}`\n' \
                        f'· 安全密码 | `{pwd[1]}`（仅发送一次）\n' \
-                       f'· 到期时间 | `{e2.ex}`\n\n' \
+                       f'· 到期时间 | `{expires_text}`\n\n' \
                        f'· 当前线路：\n{emby_line}\n\n' \
                        f'**·在【服务器】按钮 - 查看线路和密码**'
                 sql_update_emby(Emby.tg == call.from_user.id, embyid=e2.embyid, name=e2.name, pwd=e2.pwd,

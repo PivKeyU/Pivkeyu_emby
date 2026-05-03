@@ -168,6 +168,7 @@ from bot.plugins.xiuxian_game.features.exploration import (
     start_exploration_for_user,
 )
 from bot.plugins.xiuxian_game.features.farm import (
+    auto_harvest_farm_for_user,
     harvest_farm_plot_for_user,
     plant_crop_for_user,
     tend_farm_plot_for_user,
@@ -578,6 +579,19 @@ def _telegram_identity_payload(user: Any) -> dict[str, str]:
     if username:
         payload["username"] = username
     return payload
+
+
+def _telegram_user_display_name(user: Any, fallback: str = "道友") -> str:
+    first_name = str(getattr(user, "first_name", "") or "").strip()
+    last_name = str(getattr(user, "last_name", "") or "").strip()
+    display_name = " ".join(part for part in [first_name, last_name] if part).strip()
+    if display_name:
+        return display_name
+    username = str(getattr(user, "username", "") or "").strip().lstrip("@")
+    if username:
+        return f"@{username}"
+    user_id = int(getattr(user, "id", 0) or 0)
+    return f"TG {user_id}" if user_id > 0 else fallback
 
 
 async def _refresh_profile_identity_from_telegram(tg: int) -> dict[str, str] | None:
@@ -2965,7 +2979,8 @@ async def _finalize_arena_flow(result: dict[str, Any] | None) -> None:
                     f"👑 最终擂主：{_md_escape(result.get('champion_name') or arena.get('champion_display_name') or '未知擂主')}",
                     f"🛡️ 守擂成功：`{int(result.get('defense_success_count') or 0)}`",
                     f"⚔️ 总挑战：`{int(result.get('challenge_count') or 0)}`",
-                    "🌿 实战修为已在每场攻擂后即时结算，本次落幕不再追加固定大额修为。",
+                    f"💎 期满灵石：`+{int(result.get('stone_reward') or 0)}`",
+                    f"🌿 期满修为：`+{int(result.get('cultivation_reward') or 0)}`",
                 ],
             ),
             parse_mode=RICH_TEXT_MODE,
@@ -4285,6 +4300,43 @@ def register_bot(bot_instance) -> None:
         finally:
             await _delete_user_command_message(msg)
 
+    @bot_instance.on_message(filters.command(["xiuxian"], prefixes) & filters.chat(group))
+    async def xiuxian_group_command(_, msg):
+        try:
+            if not _register_command_dispatch(msg, "xiuxian"):
+                LOGGER.warning(
+                    f"xiuxian command duplicate skipped chat={getattr(getattr(msg, 'chat', None), 'id', None)} "
+                    f"message={getattr(msg, 'id', None)} command=xiuxian"
+                )
+                return
+            bot_username = str(getattr(bot, "username", "") or "").strip()
+            if not bot_username:
+                try:
+                    bot_info = await bot.get_me()
+                    bot_username = str(getattr(bot_info, "username", "") or "").strip()
+                except Exception as exc:
+                    LOGGER.warning(f"xiuxian group command failed to resolve bot username: {exc}")
+            private_url = f"https://t.me/{bot_username}?start=xiuxian" if bot_username else None
+            reply_markup = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("私聊开启修仙", url=private_url)]]
+            ) if private_url else None
+            await _reply_text(
+                msg,
+                _format_notice_card(
+                    "前往私聊",
+                    emoji="🧭",
+                    lines=[
+                        "修仙总览需要在私聊中打开。",
+                        "点击下方按钮进入私聊后发送 /xiuxian，即可踏入仙途或查看名帖。",
+                    ],
+                ),
+                quote=True,
+                parse_mode=RICH_TEXT_MODE,
+                reply_markup=reply_markup,
+            )
+        finally:
+            await _delete_user_command_message(msg)
+
     @bot_instance.on_message(filters.command(["help"], prefixes))
     async def xiuxian_help_command(_, msg):
         try:
@@ -4580,9 +4632,7 @@ def register_bot(bot_instance) -> None:
                 return
             if len(msg.command or []) > 1:
                 return await _reply_text(msg, "新版擂台时长改为后台按境界配置，直接使用 /leitai 即可。", quote=True)
-            actor_name = " ".join(part for part in [actor.first_name, actor.last_name] if part).strip()
-            if not actor_name:
-                actor_name = f"@{actor.username}" if getattr(actor, "username", None) else f"TG {actor.id}"
+            actor_name = _telegram_user_display_name(actor, f"TG {actor.id}")
 
             try:
                 opened = open_group_arena_for_user(
@@ -4889,11 +4939,7 @@ def register_bot(bot_instance) -> None:
         if bidder is None:
             return await callAnswer(call, "当前无法识别你的 TG 身份。", True)
 
-        bidder_name = " ".join(
-            part for part in [getattr(bidder, "first_name", None), getattr(bidder, "last_name", None)] if part
-        ).strip()
-        if not bidder_name:
-            bidder_name = f"@{bidder.username}" if getattr(bidder, "username", None) else f"TG {bidder.id}"
+        bidder_name = _telegram_user_display_name(bidder, f"TG {bidder.id}")
 
         try:
             result = place_auction_bid(
@@ -4930,11 +4976,7 @@ def register_bot(bot_instance) -> None:
         if challenger is None:
             return await callAnswer(call, "当前无法识别你的 TG 身份。", True)
 
-        challenger_name = " ".join(
-            part for part in [getattr(challenger, "first_name", None), getattr(challenger, "last_name", None)] if part
-        ).strip()
-        if not challenger_name:
-            challenger_name = f"@{challenger.username}" if getattr(challenger, "username", None) else f"TG {challenger.id}"
+        challenger_name = _telegram_user_display_name(challenger, f"TG {challenger.id}")
 
         try:
             result = challenge_group_arena_for_user(
@@ -5937,6 +5979,12 @@ def register_web(app) -> None:
     async def xiuxian_farm_harvest_api(payload: FarmHarvestPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = harvest_farm_plot_for_user(telegram_user["id"], payload.slot_index)
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
+
+    @user_router.post("/api/farm/auto-harvest")
+    async def xiuxian_farm_auto_harvest_api(payload: InitDataPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = auto_harvest_farm_for_user(telegram_user["id"])
         return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/farm/unlock")

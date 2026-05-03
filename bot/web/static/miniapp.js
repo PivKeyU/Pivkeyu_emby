@@ -420,8 +420,9 @@ function applyMiniAppBootstrapData(data, userId) {
   }
 
   welcomeText.textContent = `欢迎回来，${displayName}。`;
+  const expiryText = account?.lv === "a" ? "无限期" : formatDate(account?.ex, "永久");
   heroNote.textContent = account?.name
-    ? `当前已绑定 Emby 账号 ${account.name}，到期时间 ${formatDate(account.ex, "永久")}。`
+    ? `当前已绑定 Emby 账号 ${account.name}，到期时间 ${expiryText}。`
     : "你尚未绑定 Emby 账号，请使用注册码开通或联系管理员。";
 
   const savedOrderStr = localStorage.getItem(`miniapp_order_${userId}`);

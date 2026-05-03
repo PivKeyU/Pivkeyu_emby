@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+from math import exp
 from typing import Any
 
 from bot.plugins.xiuxian_game.cache import CATALOG_TTL, load_multi_versioned_json
@@ -300,7 +301,11 @@ def _tier_weights_for_spot(spot: dict[str, Any], fortune: int, tiers: set[int], 
     quality_rules = service._normalize_fishing_quality_weight_rules(current_settings.get("fishing_quality_weight_rules"))
     available_tiers = sorted(tiers)
     median_tier = available_tiers[len(available_tiers) // 2]
-    luck_delta = max(min((int(fortune or 0) - 12) / 22.0, 0.9), -0.22)
+    fortune_gap = float(int(fortune or 0) - 12)
+    if fortune_gap >= 0:
+        luck_delta = 0.92 * (1.0 - exp(-fortune_gap / 34.0))
+    else:
+        luck_delta = -0.24 * (1.0 - exp(fortune_gap / 18.0))
     fortune_scale = max(float(spot.get("fortune_scale") or 0), 0.0)
     rows: list[dict[str, Any]] = []
     for tier in available_tiers:
@@ -308,8 +313,8 @@ def _tier_weights_for_spot(spot: dict[str, Any], fortune: int, tiers: set[int], 
         if base_weight <= 0:
             continue
         shift = int(tier) - int(median_tier)
-        multiplier = 1.0 + shift * luck_delta * fortune_scale
-        multiplier = max(min(multiplier, 1.9), 0.3)
+        raw_multiplier = 1.0 + shift * luck_delta * fortune_scale
+        multiplier = 0.26 + 1.72 / (1.0 + exp(-(raw_multiplier - 1.0) * 1.35))
         quality_multiplier = max(
             float((quality_rules.get(_quality_meta(tier)["label"]) or {}).get("weight_multiplier", 1.0) or 0.0),
             0.0,
@@ -325,7 +330,7 @@ def _fishing_empty_chance(spot: dict[str, Any], fortune: int) -> float:
     quality_max = max(int(spot.get("quality_max") or 1), 1)
     fortune_gap = max(int(fortune or 0) - 12, 0)
     base = 0.18 + max(quality_max - 1, 0) * 0.035
-    reduction = min(fortune_gap / 120.0, 0.16)
+    reduction = 0.17 * (1.0 - exp(-fortune_gap / 90.0))
     return max(min(base - reduction, 0.42), 0.08)
 
 
