@@ -451,6 +451,11 @@ button:disabled,
   background: rgba(185, 28, 28, 0.12);
 }
 
+.badge--warning {
+  color: var(--warning);
+  background: rgba(180, 83, 9, 0.12);
+}
+
 .badge--pending,
 .badge--unknown {
   color: #61707f;
@@ -577,6 +582,14 @@ button:disabled,
   font-size: 12px;
   line-height: 1.6;
   color: var(--muted);
+}
+
+.batch-sample-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
 }
 
 .code-actor-line {

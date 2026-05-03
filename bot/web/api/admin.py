@@ -46,6 +46,7 @@ from bot.sql_helper.sql_bot_access import (
 )
 from bot.sql_helper.sql_code import Code, CodeRedeem
 from bot.sql_helper.sql_emby import Emby, sql_invalidate_emby_namespace
+from bot.sql_helper.sql_emby2 import Emby2
 from bot.sql_helper.sql_invite import (
     INVITE_CREDIT_TYPE_ACCOUNT_OPEN,
     INVITE_CREDIT_TYPE_GROUP,
@@ -87,6 +88,13 @@ class AdminUserPatch(BaseModel):
     us: int | None = None
     iv: int | None = None
     ch: datetime | None = None
+
+
+class AdminUserBatchPayload(BaseModel):
+    action: str = Field(default="set_level")
+    scope: str = Field(default="all")
+    source_level: str | None = Field(default=None, pattern="^[abcd]$")
+    target_level: str | None = Field(default=None, pattern="^[abcd]$")
 
 
 class AdminPluginPatch(BaseModel):
@@ -797,6 +805,194 @@ def _parse_generated_items(raw_output: str, method: str) -> list[dict[str, str |
     return items
 
 
+_USER_BATCH_ACTIONS = {"set_level", "ban", "delete"}
+_USER_BATCH_SCOPES = {"all", "level", "exclude_whitelist", "whitelist"}
+
+
+def _level_label(level: str | None) -> str:
+    return get_level_meta(level).get("text") or f"{level or '未知'} 级"
+
+
+def _normalize_user_batch_payload(payload: AdminUserBatchPayload) -> dict[str, str | None]:
+    action = str(payload.action or "").strip().lower()
+    scope = str(payload.scope or "").strip().lower()
+    source_level = (payload.source_level or "").strip().lower() or None
+    target_level = (payload.target_level or "").strip().lower() or None
+
+    if action not in _USER_BATCH_ACTIONS:
+        raise HTTPException(status_code=400, detail="批量动作只能是删除、封禁或设置等级。")
+    if scope not in _USER_BATCH_SCOPES:
+        raise HTTPException(status_code=400, detail="批量范围不正确。")
+    if scope == "level" and not source_level:
+        raise HTTPException(status_code=400, detail="按等级筛选时必须选择来源等级。")
+
+    if action == "set_level":
+        if target_level is None:
+            raise HTTPException(status_code=400, detail="设置等级时必须选择目标等级。")
+    elif action == "ban":
+        target_level = "c"
+    elif action == "delete":
+        target_level = "d"
+
+    return {
+        "action": action,
+        "scope": scope,
+        "source_level": source_level,
+        "target_level": target_level,
+    }
+
+
+def _apply_user_batch_scope(query, scope: str, source_level: str | None):
+    if scope == "level":
+        return query.filter(Emby.lv == source_level)
+    if scope == "exclude_whitelist":
+        return query.filter(or_(Emby.lv.is_(None), Emby.lv != "a"))
+    if scope == "whitelist":
+        return query.filter(Emby.lv == "a")
+    return query
+
+
+def _user_batch_scope_text(scope: str, source_level: str | None) -> str:
+    if scope == "level":
+        return f"所有{_level_label(source_level)}"
+    if scope == "exclude_whitelist":
+        return "除白名单以外的所有账号"
+    if scope == "whitelist":
+        return "所有白名单账号"
+    return "所有账号"
+
+
+def _user_batch_action_text(action: str, target_level: str | None) -> str:
+    if action == "delete":
+        return "删除资格"
+    if action == "ban":
+        return "封禁账号"
+    return f"设置为{_level_label(target_level)}"
+
+
+def _user_batch_preview_from_rows(
+    rows: list[Emby],
+    action: str,
+    scope: str,
+    source_level: str | None,
+    target_level: str | None,
+    identity_map: dict[int, dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    level_counts = {code: 0 for code in ("a", "b", "c", "d")}
+    active_count = 0
+    sample_rows: list[Emby] = []
+    for row in rows:
+        level = (row.lv or "d").lower()
+        level_counts[level] = level_counts.get(level, 0) + 1
+        if row.embyid:
+            active_count += 1
+        if len(sample_rows) < 8:
+            sample_rows.append(row)
+
+    return {
+        "action": action,
+        "action_text": _user_batch_action_text(action, target_level),
+        "scope": scope,
+        "scope_text": _user_batch_scope_text(scope, source_level),
+        "source_level": source_level,
+        "source_level_text": _level_label(source_level) if source_level else None,
+        "target_level": target_level,
+        "target_level_text": _level_label(target_level) if target_level else None,
+        "affected_count": len(rows),
+        "active_account_count": active_count,
+        "level_counts": level_counts,
+        "samples": [
+            _serialize_admin_user(row, identity_map.get(int(row.tg))) if identity_map is not None else serialize_emby_user(row)
+            for row in sample_rows
+        ],
+    }
+
+
+def _load_user_batch_rows(session, normalized: dict[str, str | None]) -> list[Emby]:
+    query = session.query(Emby)
+    scoped = _apply_user_batch_scope(query, normalized["scope"], normalized["source_level"])
+    return scoped.order_by(Emby.tg.desc()).all()
+
+
+async def _sync_user_batch_emby_policy(rows: list[Emby], disable: bool) -> dict[str, int]:
+    emby_ids = [str(row.embyid) for row in rows if row.embyid]
+    if not emby_ids:
+        return {"success_count": 0, "fail_count": 0, "total": 0}
+
+    from bot.func_helper.emby import emby as emby_service
+
+    semaphore = asyncio.Semaphore(16)
+
+    async def _change_one(emby_id: str) -> bool:
+        async with semaphore:
+            try:
+                return bool(await emby_service.emby_change_policy(emby_id=emby_id, admin=False, disable=disable))
+            except Exception as exc:
+                LOGGER.warning(f"admin user batch policy sync failed emby_id={emby_id}: {exc}")
+                return False
+
+    results = await asyncio.gather(*[_change_one(emby_id) for emby_id in emby_ids])
+    success_count = sum(1 for item in results if item)
+    return {
+        "success_count": success_count,
+        "fail_count": len(results) - success_count,
+        "total": len(results),
+    }
+
+
+async def _delete_user_batch_emby_accounts(rows: list[Emby]) -> dict[str, int]:
+    targets = [(str(row.embyid), str(row.name or ""), int(row.tg)) for row in rows if row.embyid]
+    no_account_tgs = [int(row.tg) for row in rows if not row.embyid]
+
+    from bot.func_helper.emby import emby as emby_service
+
+    semaphore = asyncio.Semaphore(8)
+
+    async def _delete_one(target: tuple[str, str, int]) -> tuple[str, str, int, bool]:
+        emby_id, name, tg = target
+        async with semaphore:
+            try:
+                ok = bool(await emby_service.emby_del(emby_id=emby_id))
+            except Exception as exc:
+                LOGGER.warning(f"admin user batch delete emby account failed emby_id={emby_id}: {exc}")
+                ok = False
+            return emby_id, name, tg, ok
+
+    results = await asyncio.gather(*[_delete_one(target) for target in targets]) if targets else []
+    deleted = [(emby_id, name, tg) for emby_id, name, tg, ok in results if ok]
+    deleted_emby_ids = {emby_id for emby_id, _, _ in deleted if emby_id}
+    deleted_names = {name for _, name, _ in deleted if name}
+    clear_tgs = [tg for _, _, tg in deleted] + no_account_tgs
+
+    if deleted_emby_ids or deleted_names or clear_tgs:
+        with Session() as session:
+            if deleted_emby_ids:
+                session.query(Emby2).filter(Emby2.embyid.in_(list(deleted_emby_ids))).delete(synchronize_session=False)
+            if deleted_names:
+                session.query(Emby2).filter(Emby2.name.in_(list(deleted_names))).delete(synchronize_session=False)
+
+            if clear_tgs:
+                session.query(Emby).filter(Emby.tg.in_(clear_tgs)).update(
+                    {
+                        Emby.embyid: None,
+                        Emby.name: None,
+                        Emby.pwd: None,
+                        Emby.pwd2: None,
+                        Emby.lv: "d",
+                        Emby.cr: None,
+                        Emby.ex: None,
+                    },
+                    synchronize_session=False,
+                )
+            session.commit()
+
+    return {
+        "success_count": len(deleted) + len(no_account_tgs),
+        "fail_count": len(results) - len(deleted),
+        "total": len(rows),
+    }
+
+
 @router.get("/summary")
 async def summary():
     with Session() as session:
@@ -949,6 +1145,89 @@ async def update_user(tg: int, payload: AdminUserPatch):
         session.refresh(user)
     identity_map = await _fetch_telegram_identity_map([tg])
     return {"code": 200, "data": _serialize_admin_user(user, identity_map.get(int(tg)))}
+
+
+@router.post("/users/batch/preview")
+async def preview_user_batch(payload: AdminUserBatchPayload):
+    normalized = _normalize_user_batch_payload(payload)
+    with Session() as session:
+        rows = _load_user_batch_rows(session, normalized)
+
+    sample_tgs = [int(row.tg) for row in rows[:8]]
+    identity_map = await _fetch_telegram_identity_map(sample_tgs)
+    preview = _user_batch_preview_from_rows(rows, **normalized, identity_map=identity_map)
+    return {"code": 200, "data": preview}
+
+
+@router.post("/users/batch/apply")
+async def apply_user_batch(payload: AdminUserBatchPayload, request: Request):
+    normalized = _normalize_user_batch_payload(payload)
+    actor_tg = _resolve_admin_actor_id(request)
+
+    with Session() as session:
+        rows = _load_user_batch_rows(session, normalized)
+    sample_tgs = [int(row.tg) for row in rows[:8]]
+    identity_map = await _fetch_telegram_identity_map(sample_tgs)
+    preview = _user_batch_preview_from_rows(rows, **normalized, identity_map=identity_map)
+
+    if not rows:
+        return {
+            "code": 200,
+            "data": {
+                **preview,
+                "updated_count": 0,
+                "deleted_count": 0,
+                "policy_sync": {"success_count": 0, "fail_count": 0, "total": 0},
+            },
+        }
+
+    action = normalized["action"]
+    target_level = normalized["target_level"]
+    policy_sync = {"success_count": 0, "fail_count": 0, "total": 0}
+    updated_count = 0
+    deleted_count = 0
+
+    if action == "delete":
+        policy_sync = await _delete_user_batch_emby_accounts(rows)
+        deleted_count = int(policy_sync["success_count"])
+        updated_count = deleted_count
+    else:
+        if action == "ban" or target_level == "c":
+            policy_sync = await _sync_user_batch_emby_policy(rows, disable=True)
+        elif target_level in {"a", "b"} and not config.emby_service_suspended:
+            policy_sync = await _sync_user_batch_emby_policy(rows, disable=False)
+
+        tgs = [int(row.tg) for row in rows]
+        with Session() as session:
+            updated_count = int(
+                session.query(Emby)
+                .filter(Emby.tg.in_(tgs))
+                .update({Emby.lv: target_level}, synchronize_session=False)
+                or 0
+            )
+            session.commit()
+
+    sql_invalidate_emby_namespace()
+    LOGGER.info(
+        "admin user batch actor=%s action=%s scope=%s source=%s target=%s affected=%s updated=%s policy=%s",
+        actor_tg,
+        action,
+        normalized["scope"],
+        normalized["source_level"],
+        target_level,
+        preview["affected_count"],
+        updated_count,
+        policy_sync,
+    )
+    return {
+        "code": 200,
+        "data": {
+            **preview,
+            "updated_count": updated_count,
+            "deleted_count": deleted_count,
+            "policy_sync": policy_sync,
+        },
+    }
 
 
 @router.post("/users/whitelist/revoke-all")

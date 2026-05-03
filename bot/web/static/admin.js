@@ -75,6 +75,7 @@ const state = {
   moderationWarnings: [],
   moderationSearchQuery: "",
   botAccessBlocks: [],
+  userBatchPreview: null,
   token: localStorage.getItem(storageKey) || "",
   authMode: null,
   telegramInitData: tgApp?.initData || "",
@@ -231,6 +232,15 @@ const refs = {
   moderationWarningList: document.querySelector("#moderation-warning-list"),
   whitelistRevokeAll: document.querySelector("#whitelist-revoke-all"),
   whitelistRevokeStatus: document.querySelector("#whitelist-revoke-status"),
+  userBatchForm: document.querySelector("#user-batch-form"),
+  userBatchScope: document.querySelector("#user-batch-scope"),
+  userBatchSourceLevel: document.querySelector("#user-batch-source-level"),
+  userBatchAction: document.querySelector("#user-batch-action"),
+  userBatchTargetLevel: document.querySelector("#user-batch-target-level"),
+  userBatchPreview: document.querySelector("#user-batch-preview"),
+  userBatchPreviewButton: document.querySelector("#user-batch-preview-button"),
+  userBatchApplyButton: document.querySelector("#user-batch-apply-button"),
+  userBatchStatus: document.querySelector("#user-batch-status"),
   embyServiceBadge: document.querySelector("#emby-service-badge"),
   embyServiceToggle: document.querySelector("#emby-service-toggle"),
   embyServiceStatus: document.querySelector("#emby-service-status"),
@@ -930,15 +940,98 @@ function setSummary(data) {
   document.querySelector("#summary-whitelist").textContent = formatCount(data.whitelist_users);
   document.querySelector("#summary-banned").textContent = formatCount(data.banned_users);
   document.querySelector("#summary-currency").textContent = formatCount(data.total_currency);
-  if (refs.whitelistRevokeAll) {
-    refs.whitelistRevokeAll.disabled = Number(data.whitelist_users || 0) <= 0;
-  }
-  if (refs.whitelistRevokeStatus) {
-    refs.whitelistRevokeStatus.textContent = Number(data.whitelist_users || 0) > 0
-      ? `当前共有 ${formatCount(data.whitelist_users)} 个白名单账号，可一键恢复为 b 级正常用户。`
-      : "当前没有白名单账号，无需批量处理。";
-  }
+  syncUserBatchControls();
   syncEmbyServiceUI(Boolean(data.emby_service_suspended));
+}
+
+function currentUserBatchPayload() {
+  const action = refs.userBatchAction?.value || "set_level";
+  return {
+    action,
+    scope: refs.userBatchScope?.value || "exclude_whitelist",
+    source_level: refs.userBatchSourceLevel?.value || "b",
+    target_level: action === "set_level" ? (refs.userBatchTargetLevel?.value || "b") : null
+  };
+}
+
+function userBatchPayloadKey(payload = currentUserBatchPayload()) {
+  return JSON.stringify(payload);
+}
+
+function syncUserBatchControls() {
+  const scope = refs.userBatchScope?.value || "exclude_whitelist";
+  const action = refs.userBatchAction?.value || "set_level";
+  if (refs.userBatchSourceLevel) {
+    refs.userBatchSourceLevel.disabled = scope !== "level";
+  }
+  if (refs.userBatchTargetLevel) {
+    refs.userBatchTargetLevel.disabled = action !== "set_level";
+  }
+  if (refs.userBatchApplyButton) {
+    const previewMatches = state.userBatchPreview?.payloadKey === userBatchPayloadKey();
+    refs.userBatchApplyButton.disabled = !previewMatches || Number(state.userBatchPreview?.affected_count || 0) <= 0;
+  }
+}
+
+function invalidateUserBatchPreview(message = "批量条件已变更，请重新预览影响账号。") {
+  state.userBatchPreview = null;
+  if (refs.userBatchPreview) {
+    refs.userBatchPreview.classList.add("hidden");
+    refs.userBatchPreview.innerHTML = "";
+  }
+  if (refs.userBatchStatus) {
+    refs.userBatchStatus.textContent = message;
+    refs.userBatchStatus.dataset.tone = "info";
+  }
+  syncUserBatchControls();
+}
+
+function renderUserBatchPreview(data = {}, payload = currentUserBatchPayload()) {
+  state.userBatchPreview = {
+    ...data,
+    payload,
+    payloadKey: userBatchPayloadKey(payload)
+  };
+  const levelCounts = data.level_counts || {};
+  const samples = Array.isArray(data.samples) ? data.samples : [];
+  const sampleText = samples.length
+    ? samples.map((item) => {
+        const level = getLevelMeta(item.lv);
+        return `<li>${escapeHtml(actorLikeLabel(item))} · TG ${escapeHtml(item.tg)} · ${escapeHtml(item.lv_text || level.text)}${item.name ? ` · Emby ${escapeHtml(item.name)}` : ""}</li>`;
+      }).join("")
+    : "<li>暂无样例账号。</li>";
+
+  if (refs.userBatchPreview) {
+    refs.userBatchPreview.classList.remove("hidden");
+    refs.userBatchPreview.innerHTML = `
+      <div class="code-result-head">
+        <strong>${escapeHtml(data.scope_text || "批量范围")} · ${escapeHtml(data.action_text || "批量操作")}</strong>
+        <span class="badge badge--${Number(data.affected_count || 0) > 0 ? "warning" : "pending"}">影响 ${escapeHtml(formatCount(data.affected_count || 0))}</span>
+      </div>
+      <div class="code-info-grid">
+        <section class="code-info-block">
+          <h4>账号数量</h4>
+          <p>总计 ${escapeHtml(formatCount(data.affected_count || 0))} 个，含有效 Emby 账号 ${escapeHtml(formatCount(data.active_account_count || 0))} 个。</p>
+        </section>
+        <section class="code-info-block">
+          <h4>当前等级分布</h4>
+          <p>白名单 ${escapeHtml(formatCount(levelCounts.a || 0))} · 正常 ${escapeHtml(formatCount(levelCounts.b || 0))} · 封禁 ${escapeHtml(formatCount(levelCounts.c || 0))} · 未注册 ${escapeHtml(formatCount(levelCounts.d || 0))}</p>
+        </section>
+      </div>
+      <section class="code-info-block">
+        <h4>样例账号</h4>
+        <ul class="batch-sample-list">${sampleText}</ul>
+      </section>
+    `;
+  }
+
+  if (refs.userBatchStatus) {
+    refs.userBatchStatus.textContent = Number(data.affected_count || 0) > 0
+      ? `预览完成：${data.scope_text} 将执行“${data.action_text}”，影响 ${formatCount(data.affected_count)} 个账号。`
+      : "预览完成：当前条件没有匹配账号。";
+    refs.userBatchStatus.dataset.tone = Number(data.affected_count || 0) > 0 ? "warning" : "info";
+  }
+  syncUserBatchControls();
 }
 
 function syncEmbyServiceUI(suspended) {
@@ -1427,6 +1520,101 @@ async function loadSummary() {
   const result = await api("/admin-api/summary");
   setSummary(result.data);
   setAutoUpdate(result.data.auto_update || {});
+}
+
+async function previewUserBatch(event) {
+  event?.preventDefault?.();
+  const payload = currentUserBatchPayload();
+  try {
+    const result = await runButtonAction(refs.userBatchPreviewButton, "预览中...", () => api("/admin-api/users/batch/preview", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }));
+    renderUserBatchPreview(result.data || {}, payload);
+    setAdminStatus("批量账号操作预览已生成。", "warning");
+  } catch (error) {
+    const message = normalizeError(error, "批量操作预览失败。");
+    invalidateUserBatchPreview(`预览失败：${message}`);
+    if (refs.userBatchStatus) {
+      refs.userBatchStatus.dataset.tone = "error";
+    }
+    setAdminStatus(`批量操作预览失败：${message}`, "error");
+    showToast(`预览失败：${message}`, "error");
+    await popup("预览失败", message, "error");
+  }
+}
+
+async function applyUserBatch() {
+  const preview = state.userBatchPreview;
+  const payload = currentUserBatchPayload();
+  if (!preview || preview.payloadKey !== userBatchPayloadKey(payload)) {
+    const message = "当前批量条件已经变更，请先重新预览。";
+    setAdminStatus(message, "warning");
+    showToast(message, "warning");
+    await popup("需要重新预览", message, "warning");
+    return;
+  }
+
+  const affectedCount = Number(preview.affected_count || 0);
+  if (affectedCount <= 0) {
+    const message = "当前条件没有匹配账号，无需执行。";
+    setAdminStatus(message, "warning");
+    showToast(message, "warning");
+    await popup("无需处理", message, "warning");
+    return;
+  }
+
+  const dangerText = payload.action === "delete"
+    ? "删除资格会删除这些用户的 Emby 服务账号，并把后台记录恢复为未注册状态。"
+    : payload.action === "ban"
+      ? "封禁账号会同步禁用这些用户的 Emby 服务账号。"
+      : payload.target_level === "c"
+        ? "设置为已封禁会同步禁用这些用户的 Emby 服务账号。"
+        : "设置为白名单或正常用户会尝试恢复这些用户的 Emby 服务账号。";
+  const confirmed = window.confirm(`确认对 ${affectedCount} 个账号执行“${preview.action_text}”吗？\n\n范围：${preview.scope_text}\n${dangerText}`);
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const result = await runButtonAction(refs.userBatchApplyButton, "执行中...", () => api("/admin-api/users/batch/apply", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }));
+    const data = result.data || {};
+    const policy = data.policy_sync || {};
+    const actionCount = payload.action === "delete"
+      ? Number(data.deleted_count || data.updated_count || 0)
+      : Number(data.updated_count || 0);
+    let message = `批量操作完成：已处理 ${formatCount(actionCount)} 个账号。`;
+    if (Number(policy.total || 0) > 0) {
+      message += ` Emby 服务同步成功 ${formatCount(policy.success_count || 0)}/${formatCount(policy.total || 0)}${Number(policy.fail_count || 0) > 0 ? `，失败 ${formatCount(policy.fail_count)}` : ""}。`;
+    }
+    state.userBatchPreview = null;
+    if (refs.userBatchPreview) {
+      refs.userBatchPreview.classList.add("hidden");
+      refs.userBatchPreview.innerHTML = "";
+    }
+    if (refs.userBatchStatus) {
+      refs.userBatchStatus.textContent = message;
+      refs.userBatchStatus.dataset.tone = Number(policy.fail_count || 0) > 0 ? "warning" : "success";
+    }
+    await Promise.all([loadSummary(), loadUsers(), refreshSelectedUser().catch(() => null)]);
+    setAdminStatus(message, Number(policy.fail_count || 0) > 0 ? "warning" : "success");
+    showToast("批量账号操作完成。", Number(policy.fail_count || 0) > 0 ? "warning" : "success");
+    await popup("批量操作完成", message, Number(policy.fail_count || 0) > 0 ? "warning" : "success");
+  } catch (error) {
+    const message = normalizeError(error, "批量操作执行失败。");
+    if (refs.userBatchStatus) {
+      refs.userBatchStatus.textContent = `执行失败：${message}`;
+      refs.userBatchStatus.dataset.tone = "error";
+    }
+    setAdminStatus(`批量操作执行失败：${message}`, "error");
+    showToast(`执行失败：${message}`, "error");
+    await popup("执行失败", message, "error");
+  } finally {
+    syncUserBatchControls();
+  }
 }
 
 async function revokeAllWhitelistUsers() {
@@ -3133,6 +3321,19 @@ refs.inviteOpenNextPage?.addEventListener("click", async () => {
   await loadInvites();
 });
 
+refs.userBatchForm?.addEventListener("submit", previewUserBatch);
+refs.userBatchApplyButton?.addEventListener("click", applyUserBatch);
+[
+  refs.userBatchScope,
+  refs.userBatchSourceLevel,
+  refs.userBatchAction,
+  refs.userBatchTargetLevel
+].forEach((node) => {
+  node?.addEventListener("change", () => {
+    invalidateUserBatchPreview();
+  });
+});
+
 refs.tokenForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   state.token = refs.tokenInput.value.trim();
@@ -3307,6 +3508,7 @@ refs.pluginList.addEventListener("click", async (event) => {
   syncSuffixField();
   syncCodeSelectionActions();
   syncInviteCreditSelectionActions();
+  syncUserBatchControls();
 
   if (tgApp) {
     tgApp.ready();

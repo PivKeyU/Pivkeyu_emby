@@ -128,13 +128,52 @@
 
         <section class="plugin-import-card">
           <div>
-            <p class="eyebrow">批量处理</p>
-            <h3>一键取消全部白名单</h3>
+            <p class="eyebrow">批量账号操作</p>
+            <h3>按等级批量删除 / 封禁 / 改级别</h3>
           </div>
-          <p id="whitelist-revoke-status" class="plugin-meta">会把所有 a 级账号恢复为 b 级正常用户，不会删除账号资料。</p>
-          <div class="form-actions">
-            <button id="whitelist-revoke-all" type="button">一键取消全部白名单</button>
-          </div>
+          <p id="user-batch-status" class="plugin-meta">先选择处理范围和动作，点击预览后再执行。删除资格会删除 Emby 服务账号，并把后台记录恢复为未注册状态。</p>
+          <form id="user-batch-form" class="grid-form">
+            <label>
+              处理范围
+              <select id="user-batch-scope">
+                <option value="exclude_whitelist">除白名单外的所有账号</option>
+                <option value="whitelist">所有白名单账号</option>
+                <option value="all">所有账号</option>
+                <option value="level">指定当前等级</option>
+              </select>
+            </label>
+            <label>
+              当前等级
+              <select id="user-batch-source-level">
+                <option value="a">a · 白名单用户</option>
+                <option value="b" selected>b · 正常用户</option>
+                <option value="c">c · 已封禁用户</option>
+                <option value="d">d · 未注册用户</option>
+              </select>
+            </label>
+            <label>
+              批量动作
+              <select id="user-batch-action">
+                <option value="set_level">设置为某个等级</option>
+                <option value="ban">封禁账号</option>
+                <option value="delete">删除资格</option>
+              </select>
+            </label>
+            <label>
+              目标等级
+              <select id="user-batch-target-level">
+                <option value="a">a · 白名单用户</option>
+                <option value="b" selected>b · 正常用户</option>
+                <option value="c">c · 已封禁用户</option>
+                <option value="d">d · 未注册用户</option>
+              </select>
+            </label>
+            <div id="user-batch-preview" class="wide-field code-result hidden"></div>
+            <div class="form-actions">
+              <button id="user-batch-preview-button" type="submit" class="secondary">预览影响账号</button>
+              <button id="user-batch-apply-button" type="button" disabled>确认执行批量操作</button>
+            </div>
+          </form>
         </section>
 
         <section class="plugin-import-card">
