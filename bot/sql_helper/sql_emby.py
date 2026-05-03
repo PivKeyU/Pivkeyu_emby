@@ -32,7 +32,7 @@ class Emby(Base):
     cr = Column(DateTime, nullable=True)
     ex = Column(DateTime, nullable=True)
     us = Column(Integer, default=0)
-    iv = Column(Integer, default=0)
+    iv = Column(BigInteger, default=0)
     ch = Column(DateTime, nullable=True)
 
 

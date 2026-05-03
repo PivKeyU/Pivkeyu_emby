@@ -12,6 +12,9 @@ from bot.sql_helper.sql_emby import Emby
 
 UTC_TZ = timezone.utc
 SHANGHAI_TZ = timezone(timedelta(hours=8))
+# 商店金额需要覆盖大额上架场景，同时保持前端 Number / JSON 可精确表达。
+MAX_SHOP_PRICE_IV = 9_007_199_254_740_991
+MAX_SQL_INTEGER = 2_147_483_647
 DEFAULT_SHOP_SETTINGS = {
     "allow_user_listing": False,
     # 商店默认沿用全局配置中的货币名称。
@@ -44,6 +47,22 @@ def serialize_datetime(value: datetime | None) -> str | None:
     return value.astimezone(SHANGHAI_TZ).isoformat()
 
 
+def _normalize_non_negative_int(value: Any, *, field_name: str, max_value: int | None = None) -> int:
+    try:
+        normalized = int(value or 0)
+    except (TypeError, ValueError):
+        raise ValueError(f"{field_name}必须是整数") from None
+    if normalized < 0:
+        raise ValueError(f"{field_name}不能小于 0")
+    if max_value is not None and normalized > max_value:
+        raise ValueError(f"{field_name}不能超过 {max_value}")
+    return normalized
+
+
+def _normalize_shop_price(value: Any) -> int:
+    return _normalize_non_negative_int(value, field_name="商品价格", max_value=MAX_SHOP_PRICE_IV)
+
+
 class ShopSetting(Base):
     __tablename__ = "shop_settings"
 
@@ -65,7 +84,7 @@ class ShopItem(Base):
     delivery_text = Column(Text, nullable=True)
     item_type = Column(String(32), default="digital", nullable=False)
     invite_credit_quantity = Column(Integer, default=0, nullable=False)
-    price_iv = Column(Integer, default=0, nullable=False)
+    price_iv = Column(BigInteger, default=0, nullable=False)
     stock = Column(Integer, default=0, nullable=False)
     sold_count = Column(Integer, default=0, nullable=False)
     notify_group = Column(Boolean, default=False, nullable=False)
@@ -88,8 +107,8 @@ class ShopOrder(Base):
     item_type = Column(String(32), default="digital", nullable=False)
     invite_credit_quantity = Column(Integer, default=0, nullable=False)
     quantity = Column(Integer, default=1, nullable=False)
-    unit_price_iv = Column(Integer, default=0, nullable=False)
-    total_price_iv = Column(Integer, default=0, nullable=False)
+    unit_price_iv = Column(BigInteger, default=0, nullable=False)
+    total_price_iv = Column(BigInteger, default=0, nullable=False)
     status = Column(String(32), default="delivered", nullable=False)
     created_at = Column(DateTime, default=utcnow, nullable=False)
 
@@ -219,14 +238,16 @@ def create_shop_item(
     clean_title = str(title or "").strip()
     if not clean_title:
         raise ValueError("商品标题不能为空")
-    if int(price_iv or 0) < 0:
-        raise ValueError("商品价格不能小于 0")
-    if int(stock or 0) < 0:
-        raise ValueError("商品库存不能小于 0")
+    clean_price_iv = _normalize_shop_price(price_iv)
+    clean_stock = _normalize_non_negative_int(stock, field_name="商品库存", max_value=MAX_SQL_INTEGER)
     clean_item_type = str(item_type or SHOP_ITEM_TYPE_DIGITAL).strip().lower()
     if clean_item_type not in SHOP_ITEM_TYPES:
         raise ValueError("商品类型不正确")
-    clean_invite_credit_quantity = max(int(invite_credit_quantity or 0), 0)
+    clean_invite_credit_quantity = _normalize_non_negative_int(
+        invite_credit_quantity,
+        field_name="每份资格数量",
+        max_value=MAX_SQL_INTEGER,
+    )
     if clean_item_type in {LEGACY_SHOP_ITEM_TYPE_INVITE, SHOP_ITEM_TYPE_GROUP_INVITE, SHOP_ITEM_TYPE_ACCOUNT_OPEN} and clean_invite_credit_quantity <= 0:
         clean_invite_credit_quantity = 1
     if clean_item_type == SHOP_ITEM_TYPE_ACCOUNT_OPEN:
@@ -245,8 +266,8 @@ def create_shop_item(
             delivery_text=str(delivery_text or "").strip(),
             item_type=clean_item_type,
             invite_credit_quantity=clean_invite_credit_quantity,
-            price_iv=int(price_iv or 0),
-            stock=int(stock or 0),
+            price_iv=clean_price_iv,
+            stock=clean_stock,
             notify_group=bool(notify_group),
             official=bool(official),
             enabled=bool(enabled),
@@ -262,6 +283,12 @@ def update_shop_item(item_id: int, **fields) -> dict[str, Any] | None:
         item = session.query(ShopItem).filter(ShopItem.id == int(item_id)).first()
         if item is None:
             return None
+        integer_field_names = {
+            "price_iv": "商品价格",
+            "stock": "商品库存",
+            "sold_count": "已售数量",
+            "invite_credit_quantity": "每份资格数量",
+        }
         for key, value in fields.items():
             if not hasattr(item, key):
                 continue
@@ -271,8 +298,14 @@ def update_shop_item(item_id: int, **fields) -> dict[str, Any] | None:
                     value = value.lower()
                     if value not in SHOP_ITEM_TYPES:
                         continue
-            if key in {"price_iv", "stock", "sold_count", "invite_credit_quantity"} and value is not None:
-                value = int(value)
+            if key == "price_iv" and value is not None:
+                value = _normalize_shop_price(value)
+            if key in {"stock", "sold_count", "invite_credit_quantity"} and value is not None:
+                value = _normalize_non_negative_int(
+                    value,
+                    field_name=integer_field_names.get(key, key),
+                    max_value=MAX_SQL_INTEGER,
+                )
             if key in {"notify_group", "official", "enabled"} and value is not None:
                 value = bool(value)
             if key == "owner_username" and value is not None:
@@ -304,7 +337,7 @@ def delete_shop_item(item_id: int) -> bool:
 
 
 def purchase_shop_item(*, buyer_tg: int, item_id: int, quantity: int = 1) -> dict[str, Any]:
-    qty = max(int(quantity or 1), 1)
+    qty = max(_normalize_non_negative_int(quantity, field_name="购买数量", max_value=MAX_SQL_INTEGER), 1)
     with Session() as session:
         item = session.query(ShopItem).filter(ShopItem.id == int(item_id)).with_for_update().first()
         if item is None or not item.enabled:
@@ -318,7 +351,10 @@ def purchase_shop_item(*, buyer_tg: int, item_id: int, quantity: int = 1) -> dic
         if buyer is None:
             raise ValueError("未找到你的 Emby 账户")
 
-        total_price = int(item.price_iv or 0) * qty
+        unit_price = _normalize_shop_price(item.price_iv)
+        total_price = unit_price * qty
+        if total_price > MAX_SHOP_PRICE_IV:
+            raise ValueError("订单金额过大，请降低购买数量后重试")
         buyer_balance = int(buyer.iv or 0)
         if buyer_balance < total_price:
             raise ValueError("余额不足")
@@ -344,7 +380,7 @@ def purchase_shop_item(*, buyer_tg: int, item_id: int, quantity: int = 1) -> dic
             item_type=item.item_type or "digital",
             invite_credit_quantity=int(item.invite_credit_quantity or 0),
             quantity=qty,
-            unit_price_iv=int(item.price_iv or 0),
+            unit_price_iv=unit_price,
             total_price_iv=total_price,
             status="delivered",
         )

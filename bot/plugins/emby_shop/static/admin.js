@@ -1,7 +1,28 @@
 const tg = window.Telegram?.WebApp || null;
 const storageKey = "emby-shop-admin-token";
+
+function readLocalStorage(key) {
+  try {
+    return window.localStorage.getItem(key) || "";
+  } catch (error) {
+    return "";
+  }
+}
+
+function writeLocalStorage(key, value) {
+  try {
+    if (value) {
+      window.localStorage.setItem(key, value);
+    } else {
+      window.localStorage.removeItem(key);
+    }
+  } catch (error) {
+    setStatus("浏览器阻止了本地保存，仍会使用本次输入的令牌验证。", "warning");
+  }
+}
+
 const state = {
-  token: localStorage.getItem(storageKey) || "",
+  token: readLocalStorage(storageKey),
   initData: tg?.initData || "",
   authMode: null,
   payload: null
@@ -24,7 +45,9 @@ const refs = {
   orderList: document.querySelector("#admin-order-list")
 };
 
-refs.tokenInput.value = state.token;
+if (refs.tokenInput) {
+  refs.tokenInput.value = state.token;
+}
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -36,6 +59,7 @@ function escapeHtml(value) {
 }
 
 function setStatus(text, tone = "info") {
+  if (!refs.status) return;
   refs.status.textContent = text;
   refs.status.dataset.tone = tone;
 }
@@ -51,13 +75,23 @@ function authHeaders() {
 }
 
 async function request(method, url, payload, isForm = false) {
-  const response = await fetch(url, {
-    method,
-    headers: isForm ? authHeaders() : { ...authHeaders(), "Content-Type": "application/json" },
-    body: payload ? (isForm ? payload : JSON.stringify(payload)) : undefined
-  });
+  let response;
+  try {
+    response = await fetch(url, {
+      method,
+      headers: isForm ? authHeaders() : { ...authHeaders(), "Content-Type": "application/json" },
+      body: payload ? (isForm ? payload : JSON.stringify(payload)) : undefined
+    });
+  } catch (error) {
+    throw new Error("网络请求失败，请确认后台服务正在运行。");
+  }
   const raw = await response.text();
-  const data = raw ? JSON.parse(raw) : {};
+  let data = {};
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch (error) {
+    throw new Error(raw || `请求失败（HTTP ${response.status}）`);
+  }
   if (!response.ok || data.code !== 200) {
     throw new Error(data.detail || data.message || `请求失败（HTTP ${response.status}）`);
   }
@@ -271,12 +305,24 @@ async function bootstrap(forceToken = false) {
 
 refs.tokenForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
-  state.token = refs.tokenInput.value.trim();
-  localStorage.setItem(storageKey, state.token);
+  const submitButton = document.querySelector("#token-submit");
+  const previousText = submitButton?.textContent || "保存并验证";
+  state.token = refs.tokenInput?.value.trim() || "";
+  writeLocalStorage(storageKey, state.token);
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = "验证中...";
+  }
+  setStatus("正在验证后台令牌...", "info");
   try {
     await bootstrap(true);
   } catch (error) {
     setStatus(String(error.message || error), "error");
+  } finally {
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = previousText;
+    }
   }
 });
 

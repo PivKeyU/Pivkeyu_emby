@@ -11,6 +11,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from sqlalchemy.exc import DataError
 
 from bot import LOGGER, api as api_config, bot, config, group, owner
 from bot.plugins import list_miniapp_plugins
@@ -28,6 +29,7 @@ from bot.sql_helper.sql_shop import (
     list_shop_orders,
     purchase_shop_item,
     set_shop_settings,
+    _normalize_shop_price,
     update_shop_item,
 )
 from bot.web.api.miniapp import is_admin_user_id, verify_init_data
@@ -101,6 +103,14 @@ class UserListingPayload(InitDataPayload):
     price_iv: int = 0
     stock: int = 1
     notify_group: bool = False
+
+
+def _shop_write_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, ValueError):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, DataError):
+        return HTTPException(status_code=400, detail="商品金额过大，请更新到最新数据库迁移后重试。")
+    return HTTPException(status_code=500, detail="商店数据写入失败，请稍后重试。")
 
 
 def _item_invite_credit_type(item_type: str | None) -> str | None:
@@ -394,22 +404,25 @@ def register_web(app) -> None:
         if not _can_user_publish(int(user["id"])):
             raise HTTPException(status_code=403, detail="当前未开放普通用户上架商品")
         display_name = " ".join(part for part in [user.get("first_name"), user.get("last_name")] if part).strip()
-        item = create_shop_item(
-            owner_tg=int(user["id"]),
-            owner_display_name=display_name,
-            owner_username=str(user.get("username") or "").lstrip("@"),
-            title=payload.title,
-            description=payload.description,
-            image_url=payload.image_url,
-            delivery_text=payload.delivery_text,
-            item_type="digital",
-            invite_credit_quantity=0,
-            price_iv=payload.price_iv,
-            stock=payload.stock,
-            notify_group=payload.notify_group,
-            official=False,
-            enabled=True,
-        )
+        try:
+            item = create_shop_item(
+                owner_tg=int(user["id"]),
+                owner_display_name=display_name,
+                owner_username=str(user.get("username") or "").lstrip("@"),
+                title=payload.title,
+                description=payload.description,
+                image_url=payload.image_url,
+                delivery_text=payload.delivery_text,
+                item_type="digital",
+                invite_credit_quantity=0,
+                price_iv=_normalize_shop_price(payload.price_iv),
+                stock=payload.stock,
+                notify_group=payload.notify_group,
+                official=False,
+                enabled=True,
+            )
+        except (ValueError, DataError) as exc:
+            raise _shop_write_error(exc) from exc
         await _notify_item_published(item)
         return {"code": 200, "data": {"item": item, **_serialize_shop_bundle(int(user["id"]))}}
 
@@ -422,7 +435,12 @@ def register_web(app) -> None:
         invite_credit_type = _item_invite_credit_type(item.get("item_type"))
         if invite_credit_type:
             raise HTTPException(status_code=403, detail=_invite_credit_purchase_disabled_message(invite_credit_type))
-        result = purchase_shop_item(buyer_tg=int(user["id"]), item_id=payload.item_id, quantity=payload.quantity)
+        try:
+            result = purchase_shop_item(buyer_tg=int(user["id"]), item_id=payload.item_id, quantity=payload.quantity)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except DataError as exc:
+            raise HTTPException(status_code=400, detail="订单金额过大，请调整购买数量或联系管理员。") from exc
         granted_invites = []
         result_invite_type = _item_invite_credit_type(result["item"].get("item_type"))
         if result_invite_type:
@@ -476,22 +494,25 @@ def register_web(app) -> None:
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         admin_user = _verify_admin_credential(token, init_data)
-        item = create_shop_item(
-            owner_tg=int(admin_user.get("id")) if admin_user.get("id") is not None else None,
-            owner_display_name=admin_user.get("first_name") or "官方",
-            owner_username=str(admin_user.get("username") or "").lstrip("@"),
-            title=payload.title,
-            description=payload.description,
-            image_url=payload.image_url,
-            delivery_text=payload.delivery_text,
-            item_type=payload.item_type,
-            invite_credit_quantity=payload.invite_credit_quantity,
-            price_iv=payload.price_iv,
-            stock=payload.stock,
-            notify_group=payload.notify_group,
-            official=payload.official,
-            enabled=payload.enabled,
-        )
+        try:
+            item = create_shop_item(
+                owner_tg=int(admin_user.get("id")) if admin_user.get("id") is not None else None,
+                owner_display_name=admin_user.get("first_name") or "官方",
+                owner_username=str(admin_user.get("username") or "").lstrip("@"),
+                title=payload.title,
+                description=payload.description,
+                image_url=payload.image_url,
+                delivery_text=payload.delivery_text,
+                item_type=payload.item_type,
+                invite_credit_quantity=payload.invite_credit_quantity,
+                price_iv=_normalize_shop_price(payload.price_iv),
+                stock=payload.stock,
+                notify_group=payload.notify_group,
+                official=payload.official,
+                enabled=payload.enabled,
+            )
+        except (ValueError, DataError) as exc:
+            raise _shop_write_error(exc) from exc
         await _notify_item_published(item)
         return {"code": 200, "data": {"item": item, "items": list_shop_items(enabled_only=False), "orders": list_shop_orders(limit=20)}}
 
@@ -500,7 +521,13 @@ def register_web(app) -> None:
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
-        item = update_shop_item(item_id, **payload.model_dump(exclude_unset=True))
+        fields = payload.model_dump(exclude_unset=True)
+        if "price_iv" in fields:
+            fields["price_iv"] = _normalize_shop_price(fields.get("price_iv"))
+        try:
+            item = update_shop_item(item_id, **fields)
+        except (ValueError, DataError) as exc:
+            raise _shop_write_error(exc) from exc
         if item is None:
             raise HTTPException(status_code=404, detail="商品不存在")
         return {"code": 200, "data": {"item": item, "items": list_shop_items(enabled_only=False)}}
