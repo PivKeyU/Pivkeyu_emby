@@ -36,10 +36,6 @@ def add_emby_balance(tg: int, amount: int) -> int:
         return new_balance
 
 
-def subtract_emby_balance(tg: int, amount: int) -> int:
-    return add_emby_balance(tg, -int(amount))
-
-
 def get_exchange_settings() -> dict:
     settings = get_xiuxian_settings()
     rate = max(int(settings.get("coin_exchange_rate", 100) or 100), 1)

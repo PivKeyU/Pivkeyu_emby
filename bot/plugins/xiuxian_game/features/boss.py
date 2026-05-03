@@ -641,9 +641,9 @@ def spawn_world_boss(boss_id: int | None = None) -> dict[str, Any]:
     instance = create_world_boss_instance(int(boss["id"]), max_hp, expires_at)
 
     # 向主群广播降临消息
-    from bot.plugins.xiuxian_game import plugin as _plugin
+    from bot.plugins.xiuxian_game.plugin_bot_handlers import _main_group_chat_id
     try:
-        chat_id = _plugin._main_group_chat_id()
+        chat_id = _main_group_chat_id()
         if chat_id:
             text = (
                 f"【世界Boss降临】\n\n"

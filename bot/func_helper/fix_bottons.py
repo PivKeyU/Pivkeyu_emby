@@ -1,3 +1,5 @@
+import asyncio
+
 from cacheout import Cache
 from pykeyboard import InlineKeyboard, InlineButton
 from pyrogram.types import InlineKeyboardMarkup
@@ -6,7 +8,7 @@ from bot import chanel, main_group, bot_name, extra_emby_libs, tz_id, tz_ad, tz_
     schedall, auto_update, fuxx_pitao, moviepilot, red_envelope, config, LOGGER
 from bot.func_helper import nezha_res
 from bot.func_helper.emby import emby
-from bot.func_helper.utils import members_info, async_memoize
+from bot.func_helper.utils import async_memoize
 from bot.sql_helper.sql_invite import (
     INVITE_CREDIT_TYPE_ACCOUNT_OPEN,
     INVITE_CREDIT_TYPE_GROUP,
@@ -390,11 +392,6 @@ def back_set_ikb(method) -> InlineKeyboardMarkup:
     return ikb([[("♻️ 重新设置", f"{method}"), ("🔙 返回主页", "back_config")]])
 
 
-def try_set_buy(ls: list) -> InlineKeyboardMarkup:
-    d = [[ls], [["✅ 体验结束返回", "back_config"]]]
-    return ikb(d)
-
-
 """ other """
 register_code_ikb = ikb([[('🎟️ 注册', 'create'), ('⭕ 取消', 'closeit')]])
 dp_g_ikb = ikb([[("联系主人", "https://t.me/pivkeyu", "url")]])
@@ -404,11 +401,24 @@ async def cr_kk_ikb(uid, first):
     text = ''
     text1 = ''
     keyboard = []
-    data = await members_info(uid)
-    if data is None:
+    account = sql_get_emby(uid)
+    if account is None:
         text += f'**· 🆔 TG** ：[{first}](tg://user?id={uid}) [`{uid}`]\n数据库中没有此ID。ta 还没有私聊过我'
     else:
-        name, lv, ex, iv, embyid, pwd2 = data
+        name = account.name or '无账户信息'
+        embyid = account.embyid
+        iv = account.iv
+        lv_dict = {'a': '白名单', 'b': '**正常**', 'c': '**已禁用**', 'd': '未注册'}
+        lv = lv_dict.get(account.lv, '未知')
+        if lv == '白名单':
+            ex = '+ ∞'
+        elif account.name is not None and schedall.low_activity and not schedall.check_ex:
+            ex = f'__若{config.activity_check_days}天无观看将封禁__'
+        elif account.name is not None and not schedall.low_activity and not schedall.check_ex:
+            ex = ' __无需保号，放心食用__'
+        else:
+            ex = account.ex or '无账户信息'
+        cust_task = None
         if name != '无账户信息':
             ban = "🌟 解除禁用" if lv == "**已禁用**" else '💢 禁用账户'
             keyboard = [[ban, f'user_ban-{uid}'], ['⚠️ 删除账户', f'closeemby-{uid}']]
@@ -416,42 +426,24 @@ async def cr_kk_ikb(uid, first):
                 success, rep = await emby.user(emby_id=embyid)
                 if success:
                     try:
-                        # 新版本API：使用EnabledFolders控制访问
                         policy = rep.get("Policy", {})
                         current_enabled_folders = policy.get("EnabledFolders", [])
                         enable_all_folders = policy.get("EnableAllFolders", False)
-
-                        # 获取额外媒体库对应的文件夹ID
                         extra_folder_ids = await emby.get_folder_ids_by_names(extra_emby_libs)
-
-                        # 判断额外媒体库是否显示
                         if enable_all_folders is True:
-                            # 如果启用所有文件夹，额外媒体库是显示的,显示关闭按钮
                             libs, embyextralib = ['关闭', f'embyextralib_block-{uid}']
                         elif extra_folder_ids and len(extra_folder_ids) > 0:
-                            # 检查额外媒体库的文件夹ID是否都在启用列表中
                             if all(folder_id in current_enabled_folders for folder_id in extra_folder_ids):
-                                # 额外媒体库已启用，显示关闭按钮
                                 libs, embyextralib = ['关闭', f'embyextralib_block-{uid}']
                             else:
-                                # 额外媒体库未启用，显示开启按钮
                                 libs, embyextralib = ['开启', f'embyextralib_unblock-{uid}']
                         else:
-                            # 如果无法获取额外媒体库的文件夹ID，默认显示为未启用状态
                             libs, embyextralib = ['关闭', f'embyextralib_block-{uid}']
                         keyboard.append([f'{libs} 额外媒体库', embyextralib])
                     except Exception as e:
-                        # 如果获取策略信息失败，默认显示为未启用状态
                         LOGGER.error(f"获取额外媒体库状态失败: {str(e)}")
                         keyboard.append([f'关闭额外媒体库', f'embyextralib_block-{uid}'])
-            try:
-                rst = await emby.emby_cust_commit(emby_id=embyid, days=30)
-                last_time = rst[0][0]
-                toltime = rst[0][1]
-                text1 = f"**· 🔋 上次活动** | {last_time.split('.')[0]}\n" \
-                        f"**· 📅 过去30天** | {toltime} 分钟"
-            except (TypeError, IndexError, ValueError):
-                text1 = f"**· 📅 过去30天未有记录**"
+            cust_task = asyncio.ensure_future(emby.emby_cust_commit(emby_id=embyid, days=30))
         else:
             keyboard.append(['✨ 赠送资格', f'gift-{uid}'])
         text += f"**· 🍉 TG&名称** | [{first}](tg://user?id={uid})\n" \
@@ -461,7 +453,6 @@ async def cr_kk_ikb(uid, first):
                 f"**· 💠 账号名称** | {name}\n" \
                 f"**· 🚨 到期时间** | **{ex}**\n"
         try:
-            account = sql_get_emby(uid)
             viewing_access = has_viewing_access(account)
             group_credit_count = available_invite_credit_count(uid, credit_type=INVITE_CREDIT_TYPE_GROUP)
             group_revoked = qualification_revoked(uid, credit_type=INVITE_CREDIT_TYPE_GROUP)
@@ -496,6 +487,15 @@ async def cr_kk_ikb(uid, first):
             )
         except Exception as exc:
             LOGGER.warning(f"kk invite qualification load failed uid={uid}: {exc}")
+        if cust_task is not None:
+            try:
+                rst = await cust_task
+                last_time = rst[0][0]
+                toltime = rst[0][1]
+                text1 = f"**· 🔋 上次活动** | {last_time.split('.')[0]}\n" \
+                        f"**· 📅 过去30天** | {toltime} 分钟"
+            except (TypeError, IndexError, ValueError):
+                text1 = f"**· 📅 过去30天未有记录**"
         text += text1
         keyboard.extend([['🚫 踢出并封禁', f'fuckoff-{uid}'], ['❌ 删除消息', f'closeit']])
         lines = array_chunk(keyboard, 2)
@@ -576,10 +576,6 @@ def sched_buttons():
 request_tips_ikb = None
 
 
-def get_resource_ikb(download_name: str):
-    # 翻页 + 下载此片 + 取消操作
-    return ikb([[(f'下载本片', f'download_{download_name}'), ('激活订阅', f'submit_{download_name}')],
-                [('❌ 关闭', 'closeit')]])
 re_download_center_ikb = ikb([
     [('🍿 点播', 'get_resource'), ('📶 下载进度', 'download_rate')],
     [('🔙 返回', 'members')]])
@@ -587,21 +583,6 @@ continue_search_ikb = ikb([
     [('🔄 继续搜索', 'continue_search'), ('❌ 取消搜索', 'cancel_search')],
     [('🔙 返回', 'download_center')]
 ])
-def download_resource_ids_ikb(resource_ids: list):
-    buttons = []
-    row = []
-    for i in range(0, len(resource_ids), 2):
-        current_id = resource_ids[i]
-        current_button = [f"资源编号: {current_id}", f'download_resource_id_{current_id}']
-        if i + 1 < len(resource_ids):
-            next_id = resource_ids[i + 1]
-            next_button = [f"资源编号: {next_id}", f'download_resource_id_{next_id}']
-            row.append([current_button, next_button])
-        else:
-            row.append([current_button])
-    buttons.extend(row)
-    buttons.append([('❌ 取消', 'cancel_download')])
-    return ikb(buttons)
 def request_record_page_ikb(has_prev: bool, has_next: bool):
     buttons = []
     if has_prev:

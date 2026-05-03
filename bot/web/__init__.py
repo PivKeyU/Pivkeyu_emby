@@ -36,8 +36,6 @@ class Web:
         self.app.include_router(auth_api_route)
         self.app.include_router(admin_api_route)
         self.app.include_router(miniapp_api_route)
-        load_plugins()
-        register_web_plugins(self.app)
 
         if STATIC_DIR.exists():
             self.app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -105,6 +103,8 @@ class Web:
             LOGGER.error("【API服务】启动失败，退出")
             raise SystemExit from None
 
+        load_plugins()
+        register_web_plugins(self.app)
         LOGGER.info("【API服务】启动成功")
 
     def stop(self):

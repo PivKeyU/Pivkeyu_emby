@@ -10,8 +10,6 @@ from bot.modules.commands import *
 # 其他
 from bot.modules.extra import *
 from bot.modules.callback import *
-from bot.plugins import load_plugins
 from bot.web import *
 
-load_plugins()
 bot.run()

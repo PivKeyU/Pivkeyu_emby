@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from .catalog import (
+from .materials import (
     ALL_EXTRA_MATERIALS,
-    DEFAULT_ENCOUNTER_TEMPLATES,
     EXTRA_ARTIFACT_MATERIALS,
-    EXTRA_ARTIFACTS,
     EXTRA_MATERIALS,
     EXTRA_PILL_MATERIALS,
-    EXTRA_PILLS,
-    EXTRA_RECIPES,
-    EXTRA_SCENES,
     EXTRA_TALISMAN_MATERIALS,
-    EXTRA_TALISMANS,
     NEW_MATERIALS,
     _merge_material_catalogs,
     apply_farmable_material_overrides,
 )
+from .artifacts import EXTRA_ARTIFACTS
+from .pills import EXTRA_PILLS
+from .talismans import EXTRA_TALISMANS
+from .recipes import EXTRA_RECIPES
+from .scenes import EXTRA_SCENES
+from .encounters import DEFAULT_ENCOUNTER_TEMPLATES

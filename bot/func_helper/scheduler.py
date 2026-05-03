@@ -44,10 +44,6 @@ class Scheduler(metaclass=Singleton):
         # 返回调度器是否正在运行
         return self.SCHEDULER.running
 
-    @property
-    def paused(self):
-        # 返回调度器是否处于暂停状态
-        return self.SCHEDULER.state == 2
 
     def pause(self): \
             # 调用调度器的pause方法，暂停调度器

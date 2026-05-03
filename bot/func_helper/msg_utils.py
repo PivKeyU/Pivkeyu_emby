@@ -212,23 +212,6 @@ async def callListen(callbackquery, timer: int = 120, buttons=None):
         return False
 
 
-async def call_dice_listen(callbackquery, timer: int = 120, buttons=None):
-    try:
-        return await callbackquery.message.chat.listen(filters.dice, timeout=timer)
-    except ListenerTimeout:
-        await editMessage(callbackquery, '💦 __没有获取到您的输入__ **会话状态自动取消！**', buttons=buttons)
-        return False
-
-
-async def callAsk(callbackquery, text, timer: int = 120, button=None):
-    # 使用ask方法发送一条消息，并等待用户的回复，最多120秒，只接受文本类型的消息
-    try:
-        txt = await callbackquery.message.chat.ask(text, filters=filters.CallbackQuery, timeout=timer, button=button)
-        return True
-    except:
-        return False
-
-
 async def ask_return(update, text, timer: int = 120, button=None):
     if isinstance(update, CallbackQuery):
         update = update.message
@@ -239,24 +222,4 @@ async def ask_return(update, text, timer: int = 120, button=None):
         return None
 
 
-import re
-import html
 
-
-# 转义特殊字符
-def escape_html_special_chars(text):
-    # 定义一些常用的字符
-    pattern = r"[\\`*_{}[\]()#+-.!|]"
-    # 使用正则表达式替换掉特殊字符
-    text = re.sub(pattern, r"\\\g<0>", text)
-    # 使用html模块转义HTML的特殊字符
-    text = html.escape(text)
-    return text
-
-
-def escape_markdown(text):
-    return (
-        re.sub(r"([_*\[\]()~`>\#\+\-=|{}\.!\\])", r"\\\1", html.unescape(text))
-        if text
-        else str()
-    )

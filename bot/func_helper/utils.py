@@ -367,11 +367,6 @@ async def get_users():
     return members_dict
 
 
-def bytes_to_gb(size_in_bytes):
-    # 1 GB = 1024^3 字节
-    size_in_gb = size_in_bytes / (1024 ** 3)
-    return f"{round(size_in_gb)} G"
-
 def split_long_message(content, max_length=2000):
     """
     将过长的消息内容分割成多个部分，确保每部分都不超过Telegram的长度限制

@@ -140,26 +140,22 @@ class Embyservice(metaclass=Singleton):
 
     @asynccontextmanager
     async def session(self):
-        """
-        异步上下文管理器，管理 aiohttp 会话
-        自动处理会话的创建和复用
-        """
-        async with self._session_lock:
-            if self._session is None or self._session.closed:
-                connector = aiohttp.TCPConnector(
-                    limit=EMBY_HTTP_LIMIT,  # 连接池大小
-                    limit_per_host=EMBY_HTTP_LIMIT_PER_HOST,  # 每个主机的连接数
-                    keepalive_timeout=EMBY_HTTP_KEEPALIVE_TIMEOUT,  # 保持连接时间
-                    enable_cleanup_closed=True,
-                    ttl_dns_cache=EMBY_HTTP_DNS_CACHE_TTL
-                )
-                self._session = aiohttp.ClientSession(
-                    headers=self.headers,
-                    timeout=self.timeout,
-                    connector=connector,
-                    raise_for_status=False  # 手动处理HTTP状态码
-                )
-        
+        if self._session is None or self._session.closed:
+            async with self._session_lock:
+                if self._session is None or self._session.closed:
+                    connector = aiohttp.TCPConnector(
+                        limit=EMBY_HTTP_LIMIT,
+                        limit_per_host=EMBY_HTTP_LIMIT_PER_HOST,
+                        keepalive_timeout=EMBY_HTTP_KEEPALIVE_TIMEOUT,
+                        enable_cleanup_closed=True,
+                        ttl_dns_cache=EMBY_HTTP_DNS_CACHE_TTL
+                    )
+                    self._session = aiohttp.ClientSession(
+                        headers=self.headers,
+                        timeout=self.timeout,
+                        connector=connector,
+                        raise_for_status=False
+                    )
         try:
             yield self._session
         except Exception as e:
@@ -389,6 +385,7 @@ class Embyservice(metaclass=Singleton):
             LOGGER.error(f"设置用户权限异常: {emby_id} - {str(e)}")
             return False
 
+    @async_memoize(ttl=300)
     async def get_emby_libs(self) -> Optional[Dict[str, str]]:
         """
         获取所有媒体库
@@ -408,6 +405,7 @@ class Embyservice(metaclass=Singleton):
             LOGGER.error(f"获取媒体库异常: {str(e)}")
             return None
 
+    @async_memoize(ttl=300)
     async def get_folder_ids_by_names(self, folder_names: List[str]) -> List[str]:
         """
         根据媒体库名称获取对应的ID列表
@@ -765,6 +763,7 @@ class Embyservice(metaclass=Singleton):
             LOGGER.error(f"获取用户列表异常: {str(e)}")
             return False, {'error': str(e)}
 
+    @async_memoize(ttl=10)
     async def user(self, emby_id: str) -> Tuple[bool, Union[Dict, Dict[str, str]]]:
         """
         通过ID获取用户信息
