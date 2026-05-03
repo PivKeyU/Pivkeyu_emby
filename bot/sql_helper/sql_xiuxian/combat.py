@@ -28,6 +28,7 @@ from bot.plugins.xiuxian_game import cache as xiuxian_cache
 from bot.sql_helper import Base, Session
 from bot.sql_helper.sql_emby import Emby
 from .constants import *  # noqa: F401 F403
+from .constants import _default_arena_stage_rule
 from .models import *  # noqa: F401 F403
 from .serializers import *  # noqa: F401 F403
 from .profile import *  # noqa: F401 F403

@@ -6,6 +6,7 @@ from .materials import (
     EXTRA_MATERIALS,
     EXTRA_PILL_MATERIALS,
     EXTRA_TALISMAN_MATERIALS,
+    FARMABLE_MATERIAL_RULES,
     NEW_MATERIALS,
     _merge_material_catalogs,
     apply_farmable_material_overrides,

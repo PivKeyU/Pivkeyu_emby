@@ -12,6 +12,7 @@ from .catalog import (
     EXTRA_SCENES,
     EXTRA_TALISMAN_MATERIALS,
     EXTRA_TALISMANS,
+    FARMABLE_MATERIAL_RULES,
     NEW_MATERIALS,
     _merge_material_catalogs,
     apply_farmable_material_overrides,
