@@ -80,6 +80,8 @@ class Web:
         import uvicorn
 
         self.init_api()
+        load_plugins()
+        register_web_plugins(self.app)
         self.web_api = uvicorn.Server(
             config=uvicorn.Config(
                 self.app,
@@ -103,8 +105,6 @@ class Web:
             LOGGER.error("【API服务】启动失败，退出")
             raise SystemExit from None
 
-        load_plugins()
-        register_web_plugins(self.app)
         LOGGER.info("【API服务】启动成功")
 
     def stop(self):
