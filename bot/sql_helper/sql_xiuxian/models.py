@@ -29,6 +29,11 @@ from bot.sql_helper import Base, Session
 from bot.sql_helper.sql_emby import Emby
 from .constants import *  # noqa: F401 F403
 
+
+def utcnow() -> datetime:
+    return datetime.utcnow()
+
+
 class XiuxianSetting(Base):
     __tablename__ = "xiuxian_settings"
 

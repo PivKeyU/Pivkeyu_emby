@@ -354,6 +354,8 @@ def create_title(**fields) -> dict[str, Any]:
 
 
 def sync_title_by_name(**fields) -> dict[str, Any]:
+    from .items import _sync_named_entity
+
     return _sync_named_entity(
         XiuxianTitle,
         serialize_title,
@@ -821,3 +823,6 @@ def mark_user_achievement_notification(tg: int, achievement_id: int, channel: st
         session.commit()
         achievement = session.query(XiuxianAchievement).filter(XiuxianAchievement.id == achievement_id).first()
         return serialize_user_achievement(row, serialize_achievement(achievement))
+
+
+__all__ = [name for name in globals() if not name.startswith("__")]

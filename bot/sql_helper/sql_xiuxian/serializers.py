@@ -46,6 +46,23 @@ def serialize_datetime(value: datetime | None) -> str | None:
     return value.astimezone(SHANGHAI_TZ).isoformat()
 
 
+def _sanitize_json_value(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(key): _sanitize_json_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_sanitize_json_value(item) for item in value]
+    return str(value)
+
+
+def _slugify_achievement_key(raw: str | None, fallback: str) -> str:
+    source = str(raw or fallback or "").strip().lower()
+    key = re.sub(r"[^a-z0-9_\-]+", "_", source)
+    key = re.sub(r"_+", "_", key).strip("_-")
+    return key or "achievement"
+
+
 def normalize_realm_stage(stage: str | None) -> str:
     raw = str(stage or "").strip()
     if not raw:
@@ -1412,6 +1429,12 @@ _PENDING_PROFILE_CACHE_INVALIDATIONS = "xiuxian_pending_profile_cache_invalidati
 _PENDING_USER_VIEW_CACHE_INVALIDATIONS = "xiuxian_pending_user_view_cache_invalidations"
 _PENDING_CATALOG_CACHE_INVALIDATIONS = "xiuxian_pending_catalog_cache_invalidations"
 _PENDING_SETTINGS_CACHE_INVALIDATIONS = "xiuxian_pending_settings_cache_invalidations"
+_BOSS_LOOT_FIELDS = (
+    "loot_artifacts",
+    "loot_pills",
+    "loot_talismans",
+    "loot_materials",
+)
 
 
 def _restore_datetime_value(value: Any) -> datetime | None:
@@ -1949,3 +1972,6 @@ def _normalize_boss_config_fields(fields: dict[str, Any]) -> dict[str, Any]:
     for field in _BOSS_LOOT_FIELDS:
         payload[field] = _normalize_boss_loot_list(fields.get(field))
     return payload
+
+
+__all__ = [name for name in globals() if not name.startswith("__")]

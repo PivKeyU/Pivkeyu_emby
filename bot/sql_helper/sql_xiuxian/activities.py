@@ -917,3 +917,6 @@ def list_error_logs(
             )
         rows = query.order_by(XiuxianErrorLog.id.desc()).limit(max(int(limit or 0), 1)).all()
         return [serialize_error_log(row) for row in rows]
+
+
+__all__ = [name for name in globals() if not name.startswith("__")]

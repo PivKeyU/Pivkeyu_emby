@@ -981,3 +981,6 @@ def cancel_personal_shop_item(owner_tg: int, item_id: int) -> dict[str, Any]:
             "item": serialize_shop_item(item),
             "restored_quantity": restore_quantity,
         }
+
+
+__all__ = [name for name in globals() if not name.startswith("__")]

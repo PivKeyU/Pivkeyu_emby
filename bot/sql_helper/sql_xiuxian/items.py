@@ -1408,6 +1408,8 @@ def reindex_equipped_artifact_slots_in_session(
 
 
 def plunder_random_artifact_to_user(receiver_tg: int, owner_tg: int) -> dict[str, Any] | None:
+    from .activities import _starter_artifact_id_in_session, _starter_artifact_protection_active_in_session
+
     if receiver_tg == owner_tg:
         raise ValueError("不能从自己身上掠夺法宝。")
 
@@ -1827,6 +1829,8 @@ def admin_set_user_material_inventory(tg: int, material_id: int, quantity: int) 
 
 
 def use_user_artifact_listing_stock(tg: int, artifact_id: int, quantity: int = 1) -> bool:
+    from .activities import _starter_artifact_id_in_session, release_starter_artifact_protection
+
     with Session() as session:
         remaining = max(int(quantity or 0), 1)
         rows = _ordered_owner_rows(session, XiuxianArtifactInventory, tg, "artifact_id", artifact_id)
@@ -2643,3 +2647,6 @@ def list_recipe_ingredients(recipe_id: int) -> list[dict[str, Any]]:
         ttl=xiuxian_cache.CATALOG_TTL,
         loader=_loader,
     )
+
+
+__all__ = [name for name in globals() if not name.startswith("__")]

@@ -54,6 +54,7 @@ REALM_ORDER = [
     "仙尊",
     "仙帝",
 ]
+FIRST_REALM_STAGE = REALM_ORDER[0]
 LEGACY_REALM_ORDER = ["凡人", "炼气", "筑基", "结丹", "元婴", "化神", "须弥", "芥子", "混元一体", "炼虚", "合体", "渡劫", "真仙"]
 REALM_LAYER_LIMIT = 9
 DEFAULT_TECHNIQUE_CAPACITY = 2
@@ -294,3 +295,274 @@ DEFAULT_FISHING_QUALITY_WEIGHT_RULES = {
 }
 
 
+def calculate_arena_cultivation_cap(stage: str | None) -> int:
+    normalized = str(stage or "").strip()
+    if normalized not in REALM_STAGE_RULES:
+        normalized = FIRST_REALM_STAGE
+    threshold_base = int((REALM_STAGE_RULES.get(normalized) or REALM_STAGE_RULES[FIRST_REALM_STAGE])["threshold_base"])
+    return max(int(round(threshold_base * 0.05)), 15)
+
+
+def _default_arena_stage_rule(stage: str, index: int) -> dict[str, Any]:
+    duration_minutes = 60 if index < 2 else 90 if index < 5 else 120 if index < 9 else 180
+    return {
+        "realm_stage": stage,
+        "duration_minutes": duration_minutes,
+        "reward_cultivation": calculate_arena_cultivation_cap(stage),
+    }
+
+
+DEFAULT_ARENA_STAGE_RULES = [_default_arena_stage_rule(stage, index) for index, stage in enumerate(REALM_ORDER)]
+
+
+def _shared_reward_pool_entry(
+    item_kind: str,
+    item_name: str,
+    quantity_min: int,
+    quantity_max: int,
+    base_weight: float,
+    *,
+    enabled: bool = True,
+    fishing_weight: float | None = None,
+    gambling_weight: float | None = None,
+    fishing_enabled: bool | None = None,
+    gambling_enabled: bool | None = None,
+) -> dict[str, Any]:
+    resolved_gambling_weight = float(base_weight if gambling_weight is None else gambling_weight)
+    resolved_fishing_weight = float(base_weight if fishing_weight is None else fishing_weight)
+    resolved_enabled = bool(enabled)
+    return {
+        "item_kind": item_kind,
+        "item_name": item_name,
+        "quantity_min": quantity_min,
+        "quantity_max": quantity_max,
+        "base_weight": resolved_gambling_weight,
+        "enabled": resolved_enabled,
+        "gambling_weight": resolved_gambling_weight,
+        "fishing_weight": resolved_fishing_weight,
+        "gambling_enabled": resolved_enabled if gambling_enabled is None else bool(gambling_enabled),
+        "fishing_enabled": resolved_enabled if fishing_enabled is None else bool(fishing_enabled),
+    }
+
+
+DEFAULT_GAMBLING_REWARD_POOL = [
+    _shared_reward_pool_entry("material", "灵露滴", 2, 5, 120),
+    _shared_reward_pool_entry("artifact", "凡铁剑", 1, 1, 90),
+    _shared_reward_pool_entry("material", "霜凌草", 1, 3, 84),
+    _shared_reward_pool_entry("pill", "聚气丹", 1, 2, 72),
+    _shared_reward_pool_entry("pill", "轻灵丹", 1, 2, 68),
+    _shared_reward_pool_entry("talisman", "御风符", 1, 1, 60),
+    _shared_reward_pool_entry("talisman", "护心符", 1, 1, 52),
+    _shared_reward_pool_entry("material", "冰魄珠", 1, 2, 54),
+    _shared_reward_pool_entry("material", "星河砂", 1, 2, 42),
+    _shared_reward_pool_entry("artifact", "青罡剑", 1, 1, 38),
+    _shared_reward_pool_entry("artifact", "逐云履", 1, 1, 34),
+    _shared_reward_pool_entry("pill", "回春丹", 1, 2, 36),
+    _shared_reward_pool_entry("pill", "聚宝含光丹", 1, 2, 28),
+    _shared_reward_pool_entry("artifact", "玄龟盾", 1, 1, 26),
+    _shared_reward_pool_entry("pill", "龙髓丹", 1, 1, 24),
+    _shared_reward_pool_entry("material", "地脉玉髓", 1, 1, 20),
+    _shared_reward_pool_entry("material", "玄冰精髓", 1, 1, 18),
+    _shared_reward_pool_entry("talisman", "镇岳符", 1, 1, 14),
+    _shared_reward_pool_entry("artifact", "定海镇心佩", 1, 1, 8),
+    _shared_reward_pool_entry("material", "九幽寒莲", 1, 1, 8),
+    _shared_reward_pool_entry("talisman", "化毒符", 1, 1, 7),
+    _shared_reward_pool_entry("artifact", "流霞问心簪", 1, 1, 6),
+    _shared_reward_pool_entry("talisman", "摄魂符", 1, 1, 6),
+    _shared_reward_pool_entry("pill", "太和解厄丹", 1, 1, 5),
+    _shared_reward_pool_entry("material", "天道精华", 1, 1, 4),
+    _shared_reward_pool_entry("material", "鸿蒙紫莲", 1, 1, 3),
+    _shared_reward_pool_entry("material", "命运之种", 1, 1, 2),
+    _shared_reward_pool_entry("talisman", "裂空符", 1, 1, 2),
+    _shared_reward_pool_entry("material", "本源雷种", 1, 1, 1.5),
+    _shared_reward_pool_entry("material", "开天神石", 1, 1, 1),
+]
+
+DEFAULT_SETTINGS = {
+    "coin_stone_exchange_enabled": True,
+    "coin_exchange_rate": 100,
+    "exchange_fee_percent": 1,
+    "min_coin_exchange": 1,
+    "message_auto_delete_seconds": 180,
+    "equipment_unbind_cost": 100,
+    "artifact_plunder_chance": 20,
+    "shop_broadcast_cost": 20,
+    "shop_notice_group_id": 0,
+    "official_shop_name": "官方商店",
+    "auction_fee_percent": 5,
+    "auction_duration_minutes": 60,
+    "auction_notice_group_id": 0,
+    "allow_user_task_publish": True,
+    "task_publish_cost": 20,
+    "user_task_daily_limit": 3,
+    "artifact_equip_limit": 3,
+    "duel_bet_enabled": True,
+    "duel_bet_seconds": 120,
+    "duel_bet_min_amount": 10,
+    "duel_bet_max_amount": 100,
+    "duel_bet_amount_options": [10, 50, 100],
+    "duel_winner_steal_percent": 25,
+    "duel_invite_timeout_seconds": 90,
+    "arena_open_fee_stone": 0,
+    "arena_challenge_fee_stone": 0,
+    "arena_notice_group_id": 0,
+    "arena_stage_rules": DEFAULT_ARENA_STAGE_RULES,
+    "event_summary_interval_minutes": 10,
+    "allow_non_admin_image_upload": False,
+    "chat_cultivation_chance": 6,
+    "chat_cultivation_min_gain": 1,
+    "chat_cultivation_max_gain": 2,
+    "robbery_daily_limit": 3,
+    "robbery_max_steal": 180,
+    "exploration_daily_limit": 10,
+    "fishing_daily_limit": 30,
+    "encounter_claim_daily_limit": 5,
+    "high_quality_broadcast_level": 6,
+    "gambling_exchange_cost_stone": 120,
+    "gambling_exchange_max_count": 20,
+    "gambling_open_max_count": 100,
+    "gambling_broadcast_quality_level": 6,
+    "gambling_fortune_divisor": 6,
+    "gambling_fortune_bonus_per_quality_percent": 8,
+    "gambling_quality_weight_rules": DEFAULT_GAMBLING_QUALITY_WEIGHT_RULES,
+    "fishing_quality_weight_rules": DEFAULT_FISHING_QUALITY_WEIGHT_RULES,
+    "gambling_reward_pool": DEFAULT_GAMBLING_REWARD_POOL,
+    "root_quality_value_rules": DEFAULT_ROOT_QUALITY_VALUE_RULES,
+    "exploration_drop_weight_rules": DEFAULT_EXPLORATION_DROP_WEIGHT_RULES,
+    "item_quality_value_rules": DEFAULT_ITEM_QUALITY_VALUE_RULES,
+    "activity_stat_growth_rules": DEFAULT_ACTIVITY_STAT_GROWTH_RULES,
+    "immortal_touch_infusion_layers": 1,
+    "encounter_auto_dispatch_enabled": True,
+    "encounter_auto_dispatch_hour": 12,
+    "encounter_auto_dispatch_minute": 0,
+    "encounter_auto_dispatch_last_dates": {},
+    "encounter_spawn_chance": 5,
+    "encounter_group_cooldown_minutes": 12,
+    "encounter_active_seconds": 90,
+    "slave_tribute_percent": 20,
+    "slave_challenge_cooldown_hours": 24,
+    "rebirth_cooldown_enabled": False,
+    "rebirth_cooldown_base_hours": 12,
+    "rebirth_cooldown_increment_hours": 6,
+    "furnace_harvest_cultivation_percent": 10,
+    "sect_salary_min_stay_days": 30,
+    "sect_betrayal_cooldown_days": 7,
+    "marriage_divorce_cooldown_days": 7,
+    "sect_betrayal_stone_percent": 10,
+    "sect_betrayal_stone_min": 20,
+    "sect_betrayal_stone_max": 300,
+    "error_log_retention_count": 500,
+    "seclusion_cultivation_efficiency_percent": 60,
+}
+DEFAULT_SETTINGS["duel_bet_minutes"] = 2
+
+SHANGHAI_TZ = timezone(timedelta(hours=8))
+UTC_TZ = timezone.utc
+
+QUALITY_LEVEL_LABELS = {
+    1: "凡品",
+    2: "下品",
+    3: "中品",
+    4: "上品",
+    5: "极品",
+    6: "仙品",
+    7: "先天至宝",
+}
+QUALITY_LABEL_LEVELS = {label: level for level, label in QUALITY_LEVEL_LABELS.items()}
+QUALITY_LEVEL_COLORS = {
+    1: "#9ca3af",
+    2: "#22c55e",
+    3: "#3b82f6",
+    4: "#8b5cf6",
+    5: "#f59e0b",
+    6: "#ef4444",
+    7: "linear-gradient(135deg, #fb7185 0%, #f59e0b 18%, #fde047 36%, #34d399 54%, #60a5fa 72%, #a78bfa 88%, #f472b6 100%)",
+}
+QUALITY_LEVEL_DESCRIPTIONS = {
+    1: "凡铁凡草，灵韵初生。多为刚入道途者随手可得的寻常之物，胜在稳妥。",
+    2: "略有打磨，已蕴一丝灵气。散修行走江湖时最常依仗的品阶，不求惊艳但求踏实。",
+    3: "锻火初成，器纹浮现。此阶宝物已能隐约引动天地灵气，入手便觉与凡物截然不同。",
+    4: "地脉滋养，百炼成器。或藏前辈心血，或吸一方灵气，已能隐约改变斗法走势。",
+    5: "天工开物，宝光自生。材取天地至纯，火候十年方成，持之如携一小天地在身。",
+    6: "见之如见传说。古籍里零星留下名字，能得一件便是气运加身，坊间数年未必现世一次。",
+    7: "先天之宝，道痕自生。混沌初开时便已存在，或从劫灭中幸存，天下仅此一件。",
+}
+QUALITY_LEVEL_FEATURES = {
+    1: "灵纹未显，胜在质朴稳妥",
+    2: "仅凝一道灵纹，妙用虽浅却实在可靠",
+    3: "灵纹渐明，偶有微末异象相随",
+    4: "灵纹交织，已能引动小范围灵潮变动",
+    5: "灵纹自成小周天，特效不卑不亢",
+    6: "宝纹通玄，御敌之时如臂使指，斗法节奏为之一变",
+    7: "混沌道纹，天地间仅此一缕，可逆转乾坤",
+}
+
+SOCIAL_MODE_LABELS = {
+    "worldly": "入世",
+    "secluded": "避世",
+}
+GENDER_LABELS = {
+    "male": "男",
+    "female": "女",
+}
+MENTORSHIP_REQUEST_ROLE_LABELS = {
+    "mentor": "收徒邀请",
+    "disciple": "拜师申请",
+}
+MENTORSHIP_STATUS_LABELS = {
+    "active": "师徒在籍",
+    "graduated": "已出师",
+    "dissolved": "已解除",
+}
+MENTORSHIP_REQUEST_STATUS_LABELS = {
+    "pending": "待处理",
+    "accepted": "已接受",
+    "rejected": "已婉拒",
+    "cancelled": "已撤回",
+    "expired": "已过期",
+}
+MARRIAGE_STATUS_LABELS = {
+    "active": "已结为道侣",
+    "divorced": "已和离",
+}
+MARRIAGE_REQUEST_STATUS_LABELS = {
+    "pending": "待处理",
+    "accepted": "已接受",
+    "rejected": "已婉拒",
+    "cancelled": "已撤回",
+    "expired": "已过期",
+}
+MATERIAL_QUALITY_NOTES = {
+    1: "常见基础灵材，适合入门炼制、任务收集与日常积累。",
+    2: "灵性稳定的常备材料，足以支撑前中期常规配方。",
+    3: "已具明显灵韵，可作为中阶丹器符配方的主辅材料。",
+    4: "材质精纯、灵息凝实，常用于高阶炼制与精修。",
+    5: "珍稀核心灵材，往往决定成品的上限与方向。",
+    6: "传说层次的异材，多见于险地奇遇、榜单奖励或古修遗藏。",
+    7: "天材地宝级重宝，足以左右顶级炼制与机缘布局。",
+}
+REMOVED_PILL_TYPES = {"stone"}
+PILL_EFFECT_VALUE_LABELS = {
+    "foundation": "突破增幅",
+    "clear_poison": "解毒值",
+    "cultivation": "修为增量",
+    "bone": "根骨增量",
+    "comprehension": "悟性增量",
+    "divine_sense": "神识增量",
+    "fortune": "机缘增量",
+    "willpower": "心志增量",
+    "charisma": "魅力增量",
+    "karma": "因果增量",
+    "qi_blood": "气血增量",
+    "true_yuan": "真元增量",
+    "body_movement": "身法增量",
+    "attack": "攻击增量",
+    "defense": "防御增量",
+    "root_refine": "淬灵阶数",
+    "root_remold": "保底品阶",
+    "root_single": "保底品阶",
+    "root_double": "保底品阶",
+    "root_earth": "效果值未用",
+    "root_heaven": "效果值未用",
+    "root_variant": "效果值未用",
+}

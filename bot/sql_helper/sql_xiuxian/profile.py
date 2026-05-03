@@ -130,6 +130,9 @@ def _clear_xiuxian_cache_invalidations(session) -> None:
 
 def get_xiuxian_settings() -> dict[str, Any]:
     def _loader() -> dict[str, Any]:
+        from .activities import DEPRECATED_XIUXIAN_SETTING_KEYS, _merge_default_gambling_reward_pool
+        from .combat import _merge_default_arena_stage_rules, resolve_duel_bet_settings
+
         with Session() as session:
             rows = session.query(XiuxianSetting).all()
             settings = {row.setting_key: row.setting_value for row in rows}
@@ -375,6 +378,8 @@ def assert_currency_operation_allowed(
     session: Session | None = None,
     profile: XiuxianProfile | None = None,
 ) -> None:
+    from .combat import _active_duel_pool_row, _cleanup_stale_duel_locks
+
     own_session = session is None
     active_session = session or Session()
     try:
@@ -741,3 +746,6 @@ def admin_patch_profile(tg: int, **fields) -> dict[str, Any] | None:
         _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         return serialize_profile(profile)
+
+
+__all__ = [name for name in globals() if not name.startswith("__")]
