@@ -18,9 +18,6 @@ from bot.sql_helper.sql_emby import sql_get_emby
 from bot.sql_helper.sql_invite import (
     INVITE_CREDIT_TYPE_ACCOUNT_OPEN,
     INVITE_CREDIT_TYPE_GROUP,
-    grant_invite_credits,
-    has_viewing_access,
-    validate_invite_credit_grant,
 )
 from bot.sql_helper.sql_shop import (
     create_shop_item,
@@ -117,6 +114,14 @@ def _item_invite_credit_type(item_type: str | None) -> str | None:
 
 def _item_invite_label(item_type: str | None) -> str:
     return "开号资格" if _item_invite_credit_type(item_type) == INVITE_CREDIT_TYPE_ACCOUNT_OPEN else "入群资格"
+
+
+def _invite_credit_purchase_disabled_message(invite_credit_type: str | None) -> str:
+    if invite_credit_type == INVITE_CREDIT_TYPE_GROUP:
+        return "入群资格已改为拥有观影资格后自动获得一次，暂不支持商店购买"
+    if invite_credit_type == INVITE_CREDIT_TYPE_ACCOUNT_OPEN:
+        return "开号资格已改为申请制，暂不支持商店购买"
+    return "该邀请资格暂不支持购买"
 
 
 def _public_url_root(base_url: str | None = None) -> str:
@@ -414,31 +419,12 @@ def register_web(app) -> None:
             raise HTTPException(status_code=404, detail="商品不存在")
         invite_credit_type = _item_invite_credit_type(item.get("item_type"))
         if invite_credit_type:
-            account = sql_get_emby(int(user["id"]))
-            if not has_viewing_access(account):
-                raise HTTPException(status_code=403, detail="只有拥有 Emby 观影资格的用户才能购买邀请资格")
-            try:
-                validate_invite_credit_grant(
-                    owner_tg=int(user["id"]),
-                    count=max(int(item.get("invite_credit_quantity") or 1), 1) * max(int(payload.quantity or 1), 1),
-                    credit_type=invite_credit_type,
-                )
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise HTTPException(status_code=403, detail=_invite_credit_purchase_disabled_message(invite_credit_type))
         result = purchase_shop_item(buyer_tg=int(user["id"]), item_id=payload.item_id, quantity=payload.quantity)
         granted_invites = []
         result_invite_type = _item_invite_credit_type(result["item"].get("item_type"))
         if result_invite_type:
-            invite_count = max(int(result["item"].get("invite_credit_quantity") or 1), 1) * max(int(payload.quantity or 1), 1)
-            granted_invites = grant_invite_credits(
-                owner_tg=int(user["id"]),
-                count=invite_count,
-                granted_by_tg=result["order"].get("seller_tg"),
-                source="shop",
-                source_ref=f"order:{result['order']['id']}",
-                note=f"购买商品《{result['item']['title']}》",
-                credit_type=result_invite_type,
-            )
+            raise HTTPException(status_code=403, detail=_invite_credit_purchase_disabled_message(result_invite_type))
         await _deliver_order_notice(
             buyer_tg=int(user["id"]),
             item=result["item"],

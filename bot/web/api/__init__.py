@@ -48,16 +48,16 @@ async def verify_token(request: Request):
     try:
         token = _resolve_token(request)
         if not token:
-            raise HTTPException(status_code=401, detail="缺少访问令牌")
+            raise HTTPException(status_code=401, detail="本女仆没看到访问令牌呢...")
         if token != bot_token:
             LOGGER.warning("Invalid token attempt")
-            raise HTTPException(status_code=403, detail="访问令牌无效")
+            raise HTTPException(status_code=403, detail="这个令牌不对啦，本女仆不认识！")
         return True
     except HTTPException:
         raise
     except Exception as exc:
         LOGGER.error(f"Token verification error: {exc}")
-        raise HTTPException(status_code=500, detail="访问令牌校验失败")
+        raise HTTPException(status_code=500, detail="令牌校验出错了...才不是本女仆的问题！")
 
 
 async def verify_admin_token(request: Request):
@@ -79,13 +79,13 @@ async def verify_admin_token(request: Request):
             return True
 
         LOGGER.warning(f"Telegram user {telegram_user['id']} tried to access admin API without admin rights")
-        raise HTTPException(status_code=403, detail="当前聊天账号没有后台权限")
+        raise HTTPException(status_code=403, detail="哼，你这个账号没有后台权限啦！")
 
     if token:
         LOGGER.warning("Invalid admin token attempt")
-        raise HTTPException(status_code=403, detail="后台令牌无效")
+        raise HTTPException(status_code=403, detail="后台令牌无效呢...才不给你进！")
 
-    raise HTTPException(status_code=401, detail="缺少后台认证信息")
+    raise HTTPException(status_code=401, detail="本女仆没收到后台认证信息哦~")
 
 
 emby_api_route.include_router(

@@ -168,10 +168,8 @@ class Open(BaseModel):
     srank_cost: int = 5
     change_pwd2_cost: int = 100
 
-    # 每次创建 Open 对象时被重置为 0
-    def __init__(self, **data):
-        super().__init__(**data)
-        self.timing = 0
+    # timing 持久化到 config.json 中，不再在初始化时强制重置。
+    # 若重启前有活跃的计时任务，会在 bot 启动时由 _reset_stale_timing() 清理。
 
 
 class Ranks(BaseModel):

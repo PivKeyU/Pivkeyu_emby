@@ -238,15 +238,16 @@ function renderInviteRecords(records = [], type = "group_join") {
     root.innerHTML = `
       <article class="stack-item">
         <strong>暂无邀请记录</strong>
-        <p>${type === "account_open" ? "成功发放开号资格后，这里会显示最近的开号邀请状态。" : "成功发送邀请链接后，这里会显示最近的入群邀请状态。"}</p>
+        <p>${type === "account_open" ? "提交开号申请后，这里会显示最近的审核状态。" : "成功发送邀请链接后，这里会显示最近的入群邀请状态。"}</p>
       </article>
     `;
     return;
   }
   root.innerHTML = records.map((item) => `
     <article class="stack-item">
-      <strong>邀请 TG ${escapeHtml(item.invitee_tg)} · ${escapeHtml(item.status_text || item.status || "待处理")}</strong>
-      <p>${type === "account_open" ? `开号天数：${escapeHtml(item.invite_days || 0)} 天` : `目标群：${escapeHtml(item.target_chat_id || "-")}`} · 创建：${escapeHtml(formatDate(item.created_at, "未知"))}</p>
+      <strong>${type === "account_open" ? "申请 TG" : "邀请 TG"} ${escapeHtml(item.invitee_tg)} · ${escapeHtml(item.status_text || item.status || "待处理")}</strong>
+      <p>${type === "account_open" ? `申请天数：${escapeHtml(item.invite_days || 0)} 天` : `目标群：${escapeHtml(item.target_chat_id || "-")}`} · 创建：${escapeHtml(formatDate(item.created_at, "未知"))}</p>
+      ${type === "account_open" ? `<p>审核：${escapeHtml(formatDate(item.reviewed_at, "待审核"))}</p>` : ""}
       ${type === "account_open" ? "" : `<p>过期：${escapeHtml(formatDate(item.expires_at, "未设置"))}</p>`}
     </article>
   `).join("");
@@ -277,8 +278,12 @@ function renderInviteBundle(invite = {}) {
   if (status) {
     if (!permissions.has_viewing_access) {
       status.textContent = "当前账号没有 Emby 观影资格，暂时不能获取入群资格。";
+    } else if (permissions.group_invite_revoked) {
+      status.textContent = "你的入群邀请资格已被后台撤销。";
     } else if (count <= 0) {
-      status.textContent = "当前没有可用的入群资格，可通过管理员赠送或商店购买获取。";
+      status.textContent = permissions.group_invite_used
+        ? "你已经使用过本次入群邀请资格。"
+        : "当前没有可用的入群邀请资格。";
     } else {
       status.textContent = "填写被邀请人的 TGID 后，机器人会把专属入群链接私聊发送给对方。";
     }
@@ -293,22 +298,24 @@ function renderInviteBundle(invite = {}) {
 
   const openStatus = document.querySelector("#invite-open-status");
   const openCount = Number(accountOpen.available_credits || 0);
-  const canCreateOpen = Boolean(permissions.can_create && openCount > 0);
+  const canCreateOpen = Boolean(permissions.can_create && permissions.has_account_open_application_qualification);
   document.querySelector("#invite-open-credit-count").textContent = String(openCount);
   document.querySelector("#invite-open-days").textContent = `${settings.account_open_days || 30} 天`;
   if (openStatus) {
     if (!permissions.has_viewing_access) {
-      openStatus.textContent = "当前账号没有 Emby 观影资格，暂时不能获取开号资格。";
-    } else if (openCount <= 0) {
-      openStatus.textContent = "当前没有可用的开号资格。";
+      openStatus.textContent = "当前账号没有 Emby 观影资格，暂时不能申请开号资格。";
+    } else if (permissions.account_open_application_revoked) {
+      openStatus.textContent = "你的开号申请资格已被后台撤销。";
+    } else if (permissions.account_open_application_used) {
+      openStatus.textContent = "你已经提交或完成过开号申请，不能重复申请。";
     } else {
-      openStatus.textContent = "填写未开通用户的 TGID 后，会直接为对方增加一次注册资格。";
+      openStatus.textContent = "填写群组中未开通用户的 TGID 后，会提交给后台审核。";
     }
   }
   const openSubmit = document.querySelector("#invite-open-submit");
   if (openSubmit) {
     openSubmit.disabled = !canCreateOpen;
-    openSubmit.textContent = canCreateOpen ? "发放开号资格" : "暂无可用开号资格";
+    openSubmit.textContent = canCreateOpen ? "提交开号申请" : "暂无申请资格";
   }
   renderInviteRecords(accountOpen.records || [], "account_open");
   syncFoldToolbar();
@@ -589,13 +596,13 @@ async function createAccountOpenInviteFromMiniApp(event) {
     }
     renderInviteBundle(result.data?.invite || {});
     document.querySelector("#invite-open-form")?.reset();
-    window.alert("开号资格已发放，被邀请人可私聊机器人 /start 后注册。");
+    window.alert("开号申请已提交，请等待管理员审核。");
   } catch (error) {
     renderInviteBundle(currentInviteBundle || {});
     window.alert(normalizeError(error));
   } finally {
     if (button) {
-      button.textContent = previous || "发放开号资格";
+      button.textContent = previous || "提交开号申请";
     }
     renderInviteBundle(currentInviteBundle || {});
     storeMiniAppBootstrapCache(currentMiniAppUserId, {

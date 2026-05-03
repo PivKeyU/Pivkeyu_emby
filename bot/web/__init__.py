@@ -108,12 +108,12 @@ class Web:
         LOGGER.info("【API服务】启动成功")
 
     def stop(self):
-        if self.start_api:
+        if self.web_api is not None:
             LOGGER.info("正在停止 API 服务...")
             try:
-                self.start_api.cancel()
-                asyncio.run(self.start_api)
-            except asyncio.CancelledError:
+                self.web_api.should_exit = True
+                self.web_api.handle_exit(sig=None, frame=None)
+            except Exception:
                 pass
             finally:
                 LOGGER.info("API 服务已停止")

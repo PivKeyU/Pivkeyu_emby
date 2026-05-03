@@ -395,7 +395,7 @@
             <strong id="invite-total">-</strong>
           </article>
           <article class="metric-card">
-            <span>可用入群资格</span>
+            <span>入群资格来源</span>
             <strong id="invite-available">-</strong>
           </article>
           <article class="metric-card">
@@ -473,6 +473,40 @@
 
         <section class="plugin-import-card">
           <div>
+            <p class="eyebrow">资格控制</p>
+            <h3>撤销与恢复</h3>
+          </div>
+          <form id="invite-qualification-form" class="grid-form">
+            <label>
+              用户 TGID
+              <input id="invite-qualification-owner" type="number" min="1" placeholder="例如 123456789">
+            </label>
+            <label>
+              资格类型
+              <select id="invite-qualification-type">
+                <option value="group_join">入群资格</option>
+                <option value="account_open">开号申请资格</option>
+              </select>
+            </label>
+            <label>
+              操作
+              <select id="invite-qualification-enabled">
+                <option value="false">撤销资格</option>
+                <option value="true">恢复资格</option>
+              </select>
+            </label>
+            <label class="wide-field">
+              原因
+              <input id="invite-qualification-reason" type="text" maxlength="255" placeholder="例如 管理员手动撤销、恢复权限">
+            </label>
+            <div class="form-actions">
+              <button id="invite-qualification-submit" type="submit">更新资格</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="plugin-import-card">
+          <div>
             <p class="eyebrow">开号资格</p>
             <h3>发放与代发</h3>
           </div>
@@ -492,7 +526,7 @@
             </label>
             <div class="form-actions">
               <button id="invite-open-grant-use-selected" type="button" class="secondary">带入当前选中用户</button>
-              <button id="invite-open-grant-submit" type="submit">赠送开号资格</button>
+              <button id="invite-open-grant-submit" type="submit">赠送旧版开号资格</button>
             </div>
           </form>
           <form id="invite-open-create-form" class="grid-form">
@@ -533,7 +567,7 @@
           <div class="plugin-card-top">
             <div>
               <div class="plugin-name">开号邀请关系</div>
-              <p class="plugin-meta">展示邀请人和被邀请人的开号资格关系。</p>
+              <p class="plugin-meta">展示申请人、被申请人、审核人和处理状态。</p>
             </div>
           </div>
           <div id="invite-open-record-list" class="stack-list code-list"></div>
@@ -549,7 +583,7 @@
             <p class="eyebrow">手动发放</p>
             <h3>赠送入群资格</h3>
           </div>
-          <p id="invite-grant-status" class="plugin-meta">只能发放给已有 Emby 观影资格的用户，购买后可生成一次性入群链接。</p>
+          <p id="invite-grant-status" class="plugin-meta">入群资格已改为拥有观影资格后自动获得一次；此表单仅保留旧库存兼容。</p>
           <form id="invite-grant-form" class="grid-form">
             <label>
               用户 TGID
@@ -565,7 +599,7 @@
             </label>
             <div class="form-actions">
               <button id="invite-grant-use-selected" type="button" class="secondary">带入当前选中用户</button>
-              <button id="invite-grant-submit" type="submit">赠送入群资格</button>
+              <button id="invite-grant-submit" type="submit">赠送旧版入群资格</button>
             </div>
           </form>
         </section>
@@ -574,7 +608,7 @@
           <div class="code-toolbar">
             <div>
               <div class="plugin-name">入群资格库存</div>
-              <p class="plugin-meta">可用资格被用户生成邀请链接后会变为已使用。</p>
+              <p class="plugin-meta">新版入群邀请由观影资格自动派生，旧库存仅用于历史记录查看和删除。</p>
             </div>
             <div class="control-actions">
               <button id="invite-credit-select-page" type="button" class="secondary">全选可删</button>

@@ -4,7 +4,7 @@ from datetime import datetime, timezone, timedelta
 
 from bot import bot, bot_photo, group, sakura_b, LOGGER, ranks, _open 
 from bot.func_helper.emby import emby
-from bot.func_helper.utils import convert_to_beijing_time, convert_s, cache, get_users, tem_deluser
+from bot.func_helper.utils import convert_to_beijing_time, convert_s, cache, get_users, tem_deluser, async_memoize
 from bot.sql_helper import Session
 from bot.sql_helper.sql_emby import sql_get_emby, sql_update_embys, Emby, sql_update_emby
 from bot.func_helper.fix_bottons import plays_list_button
@@ -14,7 +14,7 @@ class Uplaysinfo:
     client = emby
 
     @classmethod
-    @cache.memoize(ttl=120)
+    @async_memoize(ttl=120)
     async def users_playback_list(cls, days):
         try:
             play_list = await emby.emby_cust_commit(emby_id=None, days=days, method='sp')

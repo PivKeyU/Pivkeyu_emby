@@ -19,7 +19,7 @@ from bot import bot, prefixes, sakura_b, bot_photo, red_envelope, _open
 from bot.func_helper.filters import user_in_group_on_filter
 from bot.func_helper.fix_bottons import users_iv_button
 from bot.func_helper.msg_utils import sendPhoto, sendMessage, callAnswer, editMessage
-from bot.func_helper.utils import pwd_create, judge_admins, get_users, cache
+from bot.func_helper.utils import pwd_create, judge_admins, get_users, cache, async_memoize
 from bot.sql_helper import Session
 from bot.sql_helper.sql_emby import Emby, sql_get_emby, sql_update_emby
 from bot.ranks_helper.ranks_draw import RanksDraw
@@ -464,7 +464,7 @@ async def s_rank(_, msg):
     )
 
 
-@cache.memoize(ttl=120)
+@async_memoize(ttl=120)
 async def users_iv_rank():
     with Session() as session:
         # 查询 Emby 表的所有数据，且>0 的条数

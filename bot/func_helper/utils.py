@@ -1,3 +1,7 @@
+import functools
+import hashlib
+import json
+
 import pytz
 
 from bot import bot, _open, save_config, owner, admins, bot_name, ranks, schedall, group, config
@@ -6,6 +10,36 @@ from bot.sql_helper.sql_emby import sql_count_emby, sql_get_emby
 from cacheout import Cache
 
 cache = Cache()
+
+
+def async_memoize(ttl=120):
+    """Async-safe memoization decorator.
+
+    Unlike cacheout.Cache.memoize which caches the coroutine object when
+    applied to async functions, this decorator awaits the coroutine and
+    caches the actual result.
+    """
+
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            raw = ":".join([
+                func.__qualname__,
+                hashlib.md5(json.dumps(args, sort_keys=True, default=str).encode()).hexdigest(),
+                hashlib.md5(json.dumps(kwargs, sort_keys=True, default=str).encode()).hexdigest(),
+            ])
+            key = f"async_memoize:{raw}"
+            result = cache.get(key)
+            if result is not None:
+                return result
+            result = await func(*args, **kwargs)
+            if result is not None:
+                cache.set(key, result, ttl=ttl)
+            return result
+
+        return wrapper
+
+    return decorator
 
 
 def judge_admins(uid):
@@ -321,7 +355,7 @@ def convert_to_beijing_time(original_date):
     return dt
 
 
-@cache.memoize(ttl=300)
+@async_memoize(ttl=300)
 async def get_users():
     # 创建一个空字典来存储用户的 first_name 和 id
     members_dict = {}

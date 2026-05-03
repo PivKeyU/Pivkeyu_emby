@@ -13,7 +13,7 @@ import aiohttp
 
 from bot import emby_url, emby_api, emby_block, extra_emby_libs, LOGGER
 from bot.sql_helper.sql_emby import sql_update_emby, Emby
-from bot.func_helper.utils import pwd_create, convert_runtime, cache, Singleton
+from bot.func_helper.utils import pwd_create, convert_runtime, cache, Singleton, async_memoize
 
 
 def _env_int(name: str, default: int, minimum: int = 0) -> int:
@@ -122,7 +122,7 @@ class Embyservice(metaclass=Singleton):
         self.url = url.rstrip('/')
         self.api_key = api_key
         self.max_retries = max_retries
-        self.timeout = aiohttp.ClientTimeout(total=timeout)
+        self.timeout = aiohttp.ClientTimeout(total=timeout, connect=min(timeout, 10))
         
         # 请求头配置
         self.headers = {
@@ -607,7 +607,7 @@ class Embyservice(metaclass=Singleton):
             enable_all_folders=False
         )
 
-    @cache.memoize(ttl=120)
+    @async_memoize(ttl=120)
     async def get_current_playing_count(self) -> int:
         """
         获取当前播放用户数量
@@ -1514,13 +1514,11 @@ class Embyservice(metaclass=Singleton):
             return False, '获取设备信息异常'
 
     def __del__(self):
-        """析构函数，确保资源清理"""
         if hasattr(self, '_session') and self._session and not self._session.closed:
-            # 在事件循环中清理会话
             try:
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_event_loop_policy().get_event_loop()
                 if loop.is_running():
-                    loop.create_task(self.close())
+                    asyncio.ensure_future(self.close(), loop=loop)
             except Exception:
                 pass
 

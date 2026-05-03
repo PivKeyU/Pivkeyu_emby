@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 import threading
@@ -48,16 +49,20 @@ from bot.sql_helper.sql_emby import Emby, sql_invalidate_emby_namespace
 from bot.sql_helper.sql_invite import (
     INVITE_CREDIT_TYPE_ACCOUNT_OPEN,
     INVITE_CREDIT_TYPE_GROUP,
+    approve_account_open_invite_record,
     create_account_open_invite_record,
+    decline_account_open_invite_record,
     get_invite_record,
     get_invite_settings,
-    grant_invite_credits,
     invite_credit_summary,
+    invite_qualification_status,
     list_invite_credits,
     list_invite_records,
     normalize_invite_credit_type,
+    revoke_account_open_invite_record,
     revoke_invite_credit,
     revoke_invite_record,
+    set_invite_qualification,
     set_invite_settings,
     update_invite_credit,
 )
@@ -145,9 +150,22 @@ class AdminInviteCreditPatchPayload(BaseModel):
     note: str | None = Field(default=None, max_length=255)
 
 
+class AdminInviteQualificationPatchPayload(BaseModel):
+    owner_tg: int = Field(..., ge=1)
+    credit_type: str = Field(default=INVITE_CREDIT_TYPE_GROUP)
+    enabled: bool = True
+    reason: str | None = Field(default=None, max_length=255)
+
+
 class AdminAccountOpenInviteCreatePayload(BaseModel):
     inviter_tg: int = Field(..., ge=1)
     invitee_tg: int = Field(..., ge=1)
+    note: str | None = Field(default=None, max_length=255)
+
+
+class AdminAccountOpenInviteReviewPayload(BaseModel):
+    action: str = Field(default="approve")
+    invite_days: int | None = Field(default=None, ge=1, le=3650)
     note: str | None = Field(default=None, max_length=255)
 
 
@@ -213,6 +231,16 @@ def _telegram_display_label(tg: int, identity: dict[str, str] | None) -> str:
     return f"TG {tg}"
 
 
+async def _telegram_actor_label(tg: int | None) -> str:
+    if tg is None:
+        return "后台"
+    try:
+        identity = (await _fetch_telegram_identity_map([int(tg)])).get(int(tg)) or {}
+    except Exception:
+        identity = {}
+    return _telegram_display_label(int(tg), identity)
+
+
 def _serialize_admin_user(user: Emby, identity: dict[str, str] | None = None) -> dict[str, Any]:
     payload = serialize_emby_user(user)
     identity = identity or {}
@@ -232,6 +260,14 @@ def _serialize_moderation_member(
 ) -> dict[str, Any]:
     payload = dict(member or {})
     tg = int(payload.get("tg") or 0)
+    display_name = str(payload.get("display_name") or "").strip()
+    username = str(payload.get("username") or "").strip().lstrip("@")
+    if display_name:
+        payload["display_label"] = display_name
+    elif username:
+        payload["display_label"] = f"@{username}"
+    else:
+        payload["display_label"] = f"TG {tg}"
     warning = (warning_map or {}).get(tg)
     emby_user = (emby_map or {}).get(tg)
     level_meta = get_level_meta(getattr(emby_user, "lv", None)) if emby_user is not None else None
@@ -456,7 +492,7 @@ def _normalize_bot_access_payload(payload: AdminBotAccessBlockCreatePayload) -> 
     note = str(payload.note or "").strip() or None
 
     if tg is None and username is None:
-        raise HTTPException(status_code=400, detail="TGID 和 TG 用户名至少需要填写一项")
+        raise HTTPException(status_code=400, detail="TGID 和 TG 用户名至少填一项啦，本女仆没法猜呢...")
 
     return {
         "tg": tg,
@@ -527,6 +563,17 @@ def _serialize_invite_record_admin(
     payload["invitee"] = _serialize_code_actor(payload.get("invitee_tg"), identity_map, emby_map)
     payload["created_by"] = _serialize_code_actor(payload.get("created_by_tg"), identity_map, emby_map)
     payload["last_requester"] = _serialize_code_actor(payload.get("last_request_tg"), identity_map, emby_map)
+    payload["reviewer"] = _serialize_code_actor(payload.get("reviewed_by_tg"), identity_map, emby_map)
+    return payload
+
+
+def _serialize_invite_qualification_admin(
+    owner_tg: int,
+    identity_map: dict[int, dict[str, str]],
+    emby_map: dict[int, Emby],
+) -> dict[str, Any]:
+    payload = invite_qualification_status(owner_tg)
+    payload["owner"] = _serialize_code_actor(owner_tg, identity_map, emby_map)
     return payload
 
 
@@ -557,7 +604,7 @@ def _invite_record_matches_keyword(
     normalized = str(keyword or "").strip().lower().lstrip("@")
     if not normalized:
         return True
-    for key in ("inviter_tg", "invitee_tg", "created_by_tg", "last_request_tg"):
+    for key in ("inviter_tg", "invitee_tg", "created_by_tg", "last_request_tg", "reviewed_by_tg"):
         if normalized in _actor_search_text(item.get(key), identity_map, emby_map):
             return True
     return False
@@ -598,9 +645,11 @@ async def _invite_admin_bundle(
             if item.get(key) is not None:
                 tg_ids.add(int(item[key]))
     for item in [*account_records, *group_records]:
-        for key in ("inviter_tg", "invitee_tg", "created_by_tg", "last_request_tg"):
+        for key in ("inviter_tg", "invitee_tg", "created_by_tg", "last_request_tg", "reviewed_by_tg"):
             if item.get(key) is not None:
                 tg_ids.add(int(item[key]))
+    if str(search_query or "").strip().isdigit():
+        tg_ids.add(int(str(search_query).strip()))
 
     with Session() as session:
         emby_rows = session.query(Emby).filter(Emby.tg.in_(tg_ids)).all() if tg_ids else []
@@ -621,12 +670,22 @@ async def _invite_admin_bundle(
         "credits": [_serialize_invite_credit_admin(item, identity_map, emby_map) for item in account_credits],
         "records": [_serialize_invite_record_admin(item, identity_map, emby_map) for item in account_page_records],
         "records_pagination": account_pagination,
+        "searched_qualification": (
+            _serialize_invite_qualification_admin(int(search_query), identity_map, emby_map)
+            if str(search_query or "").strip().isdigit()
+            else None
+        ),
     }
     group_join = {
         "summary": invite_credit_summary(credit_type=INVITE_CREDIT_TYPE_GROUP),
         "credits": [_serialize_invite_credit_admin(item, identity_map, emby_map) for item in group_credits],
         "records": [_serialize_invite_record_admin(item, identity_map, emby_map) for item in group_page_records],
         "records_pagination": group_pagination,
+        "searched_qualification": (
+            _serialize_invite_qualification_admin(int(search_query), identity_map, emby_map)
+            if str(search_query or "").strip().isdigit()
+            else None
+        ),
     }
 
     return {
@@ -652,6 +711,50 @@ async def _safe_revoke_invite_link(chat_id: int, invite_link: str) -> None:
         LOGGER.warning(f"admin revoke invite link failed chat={chat_id}: {exc}")
 
 
+async def _safe_send_account_open_review_notice(record: dict[str, Any] | None, action: str) -> None:
+    if not record:
+        return
+    invitee_tg = record.get("invitee_tg")
+    if not invitee_tg:
+        return
+    action_text = {
+        "approve": f"已审核通过，获得 {int(record.get('invite_days') or 0)} 天开户注册资格。",
+        "decline": "已被拒绝。",
+        "reject": "已被拒绝。",
+        "revoke": "已被撤销。",
+    }.get(action, "已处理。")
+    inviter_label, invitee_label, reviewer_label = await asyncio.gather(
+        _telegram_actor_label(record.get("inviter_tg")),
+        _telegram_actor_label(record.get("invitee_tg")),
+        _telegram_actor_label(record.get("reviewed_by_tg")),
+    )
+    text = (
+        f"你的 Emby 开号申请{action_text}\n\n"
+        f"申请人：{inviter_label}\n"
+        f"被申请人：{invitee_label}\n"
+        f"审核人：{reviewer_label}"
+    )
+    try:
+        await bot.send_message(chat_id=int(invitee_tg), text=text)
+    except Exception as exc:
+        LOGGER.warning(f"admin account-open review notice failed tg={invitee_tg}: {exc}")
+
+
+async def _ensure_target_user_in_invite_group(invitee_tg: int) -> None:
+    settings = get_invite_settings()
+    target_chat_id = settings.get("target_chat_id")
+    if not target_chat_id:
+        raise HTTPException(status_code=400, detail="主人还没配置邀请目标群组呢...催催主人吧")
+    try:
+        member = await bot.get_chat_member(chat_id=int(target_chat_id), user_id=int(invitee_tg))
+    except Exception as exc:
+        LOGGER.warning(f"admin check account-open target group member failed chat={target_chat_id} tg={invitee_tg}: {exc}")
+        raise HTTPException(status_code=400, detail="被申请人不在目标群组里呢，不能通过开号申请啦~") from exc
+    status = str(getattr(member, "status", "") or "").lower()
+    if "left" in status or "ban" in status or "kick" in status:
+        raise HTTPException(status_code=400, detail="被申请人不在目标群组里呢，不能通过开号申请啦~")
+
+
 def _normalize_code_create_payload(payload: AdminCodeCreatePayload) -> dict[str, Any]:
     method = str(payload.method or "").strip().lower()
     code_type = str(payload.type or "").strip().upper()
@@ -659,13 +762,13 @@ def _normalize_code_create_payload(payload: AdminCodeCreatePayload) -> dict[str,
     suffix_text = payload.suffix_text.strip() if payload.suffix_text else None
 
     if method not in {"code", "link"}:
-        raise HTTPException(status_code=400, detail="模式只能是 code 或 link")
+        raise HTTPException(status_code=400, detail="模式只能是 code 或 link 啦~")
     if code_type not in {"F", "T"}:
-        raise HTTPException(status_code=400, detail="类型只能是 F 或 T")
+        raise HTTPException(status_code=400, detail="类型只能是 F 或 T 啦~")
     if suffix_mode not in {"random", "fixed"}:
-        raise HTTPException(status_code=400, detail="后缀模式只能是 random 或 fixed")
+        raise HTTPException(status_code=400, detail="后缀模式只能是 random 或 fixed 啦~")
     if suffix_mode == "fixed" and not suffix_text:
-        raise HTTPException(status_code=400, detail="固定后缀模式必须提供后缀文本")
+        raise HTTPException(status_code=400, detail="固定后缀模式必须提供后缀文本啦~")
 
     return {
         "days": int(payload.days),
@@ -754,7 +857,7 @@ async def import_migration_bundle_api(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         LOGGER.exception("migration bundle import failed")
-        raise HTTPException(status_code=500, detail="迁移压缩包导入失败，请检查日志。") from exc
+        raise HTTPException(status_code=500, detail="压缩包导入失败了...本女仆也不知道为什么，主人快看看日志啦~") from exc
     finally:
         await file.close()
 
@@ -823,7 +926,7 @@ async def get_user(tg: int):
     with Session() as session:
         user = session.query(Emby).filter(Emby.tg == tg).first()
         if user is None:
-            raise HTTPException(status_code=404, detail="未找到对应用户")
+            raise HTTPException(status_code=404, detail="哼，本女仆找不到这个用户啦~")
     identity_map = await _fetch_telegram_identity_map([tg])
     return {"code": 200, "data": _serialize_admin_user(user, identity_map.get(int(tg)))}
 
@@ -837,7 +940,7 @@ async def update_user(tg: int, payload: AdminUserPatch):
     with Session() as session:
         user = session.query(Emby).filter(Emby.tg == tg).first()
         if user is None:
-            raise HTTPException(status_code=404, detail="未找到对应用户")
+            raise HTTPException(status_code=404, detail="哼，本女仆找不到这个用户啦~")
 
         for key, value in changes.items():
             setattr(user, key, value)
@@ -878,27 +981,26 @@ async def toggle_emby_service(request: Request):
     actor_tg = _resolve_admin_actor_id(request)
     new_state = not config.emby_service_suspended
 
-    # 获取所有有 embyid 的用户
     with Session() as session:
         users_with_emby = session.query(Emby).filter(Emby.embyid.isnot(None)).all()
         emby_ids = [str(row.embyid) for row in users_with_emby if row.embyid]
 
-    # 调用 Emby API 批量禁用/启用
     emby = Embyservice(emby_url, emby_api_key)
-    success_count = 0
-    fail_count = 0
-    for emby_id in emby_ids:
-        try:
-            result = await emby.emby_change_policy(emby_id, admin=False, disable=new_state)
-            if result:
-                success_count += 1
-            else:
-                fail_count += 1
-        except Exception as exc:
-            LOGGER.warning(f"emby service toggle failed for {emby_id}: {exc}")
-            fail_count += 1
+    semaphore = asyncio.Semaphore(16)
 
-    # 持久化状态
+    async def _toggle_one(emby_id: str) -> bool:
+        async with semaphore:
+            try:
+                result = await emby.emby_change_policy(emby_id, admin=False, disable=new_state)
+                return bool(result)
+            except Exception as exc:
+                LOGGER.warning(f"emby service toggle failed for {emby_id}: {exc}")
+                return False
+
+    results = await asyncio.gather(*[_toggle_one(eid) for eid in emby_ids]) if emby_ids else []
+    success_count = sum(1 for r in results if r)
+    fail_count = len(results) - success_count
+
     config.emby_service_suspended = new_state
     save_config()
 
@@ -956,7 +1058,7 @@ async def moderation_search_members(
 ):
     keyword = str(q or "").strip()
     if not keyword:
-        raise HTTPException(status_code=400, detail="搜索关键词不能为空")
+        raise HTTPException(status_code=400, detail="搜索关键词不能为空啦，本女仆怎么找嘛...")
 
     items = await search_chat_members(chat_id, keyword, limit=limit)
     tg_ids = [int(item["tg"]) for item in items if item.get("tg") is not None]
@@ -1122,7 +1224,7 @@ async def create_bot_access_block(payload: AdminBotAccessBlockCreatePayload):
     existing = find_existing_bot_access_block(tg=normalized["tg"], username=normalized["username"])
     if existing is not None:
         target = serialize_bot_access_block(existing).get("target_text") or f"规则 {existing.id}"
-        raise HTTPException(status_code=409, detail=f"{target} 已存在于 Bot 黑名单中")
+        raise HTTPException(status_code=409, detail=f"{target} 已经在黑名单里了啦~")
 
     with Session() as session:
         try:
@@ -1137,7 +1239,7 @@ async def create_bot_access_block(payload: AdminBotAccessBlockCreatePayload):
         except Exception as exc:
             session.rollback()
             LOGGER.warning(f"create bot access block failed: {exc}")
-            raise HTTPException(status_code=500, detail="创建 Bot 黑名单规则失败") from exc
+            raise HTTPException(status_code=500, detail="黑名单规则创建失败了...才不是本女仆的错！") from exc
 
     invalidate_bot_access_cache()
     return {"code": 200, "data": serialize_bot_access_block(row)}
@@ -1148,7 +1250,7 @@ async def delete_bot_access_block(block_id: int):
     with Session() as session:
         row = session.query(BotAccessBlock).filter(BotAccessBlock.id == block_id).first()
         if row is None:
-            raise HTTPException(status_code=404, detail="未找到对应黑名单规则")
+            raise HTTPException(status_code=404, detail="哼，本女仆找不到这条黑名单规则啦~")
 
         payload = serialize_bot_access_block(row)
         try:
@@ -1157,7 +1259,7 @@ async def delete_bot_access_block(block_id: int):
         except Exception as exc:
             session.rollback()
             LOGGER.warning(f"delete bot access block failed: {exc}")
-            raise HTTPException(status_code=500, detail="删除 Bot 黑名单规则失败") from exc
+            raise HTTPException(status_code=500, detail="黑名单规则删除失败了...才不是本女仆的错！") from exc
 
     invalidate_bot_access_cache()
     return {"code": 200, "data": {"deleted": True, "item": payload}}
@@ -1171,7 +1273,7 @@ async def list_codes(
 ):
     normalized_status = str(status or "all").strip().lower()
     if normalized_status not in {"all", "unused", "used"}:
-        raise HTTPException(status_code=400, detail="status 只能是 all、unused 或 used")
+        raise HTTPException(status_code=400, detail="status 只能是 all、unused 或 used 啦~")
 
     with Session() as session:
         all_total = session.query(func.count(Code.code)).scalar() or 0
@@ -1264,7 +1366,7 @@ async def create_codes(payload: AdminCodeCreatePayload, request: Request):
     normalized = _normalize_code_create_payload(payload)
     admin_id = _resolve_admin_actor_id(request)
     if admin_id is None:
-        raise HTTPException(status_code=400, detail="无法识别当前管理员身份")
+        raise HTTPException(status_code=400, detail="本女仆无法识别当前管理员身份...你是谁呀？")
 
     generator = cr_link_one if normalized["type"] == "F" else rn_link_one
     generated_output = await generator(
@@ -1278,7 +1380,7 @@ async def create_codes(payload: AdminCodeCreatePayload, request: Request):
         suffix_text=normalized["suffix_text"],
     )
     if generated_output is None:
-        raise HTTPException(status_code=500, detail="数据库写入失败，请稍后重试")
+        raise HTTPException(status_code=500, detail="数据库写入失败了...才不是本女仆的错！请稍后重试啦~")
 
     items = _parse_generated_items(generated_output, normalized["method"])
     return {
@@ -1302,9 +1404,9 @@ async def create_codes(payload: AdminCodeCreatePayload, request: Request):
 async def delete_codes(payload: AdminCodeDeletePayload):
     codes = [str(code).strip() for code in payload.codes if str(code).strip()]
     if not codes:
-        raise HTTPException(status_code=400, detail="至少需要提供一个注册码")
+        raise HTTPException(status_code=400, detail="至少需要提供一个注册码啦~")
     if len(codes) > 1000:
-        raise HTTPException(status_code=400, detail="单次最多删除 1000 个注册码")
+        raise HTTPException(status_code=400, detail="单次最多删除 1000 个注册码啦，太多了本女仆处理不过来~")
 
     unique_codes = list(dict.fromkeys(codes))
     with Session() as session:
@@ -1323,7 +1425,7 @@ async def delete_codes(payload: AdminCodeDeletePayload):
         except Exception as exc:
             session.rollback()
             LOGGER.warning(f"admin code batch delete failed: {exc}")
-            raise HTTPException(status_code=500, detail="批量删除注册码失败") from exc
+            raise HTTPException(status_code=500, detail="批量删除注册码失败了...才不是本女仆的错！") from exc
 
     return {
         "code": 200,
@@ -1366,24 +1468,18 @@ async def grant_invite_credit_api(payload: AdminInviteGrantPayload, request: Req
     actor_tg = _resolve_admin_actor_id(request)
     try:
         credit_type = normalize_invite_credit_type(payload.credit_type)
-        granted = grant_invite_credits(
-            owner_tg=payload.owner_tg,
-            count=payload.count,
-            granted_by_tg=actor_tg,
-            source="admin",
-            note=payload.note or "",
-            credit_type=credit_type,
-            invite_days=payload.invite_days,
-        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    detail = (
+        "开号资格已改为申请制，请在后台处理开号申请或使用管理员代发。"
+        if credit_type == INVITE_CREDIT_TYPE_ACCOUNT_OPEN
+        else "入群资格已改为观影用户自动拥有一次，不支持手动发放。"
+    )
     LOGGER.info(
-        f"admin invite credits grant actor={actor_tg} owner={payload.owner_tg} "
+        f"admin legacy invite credits grant rejected actor={actor_tg} owner={payload.owner_tg} "
         f"type={credit_type} count={payload.count}"
     )
-    bundle = await _invite_admin_bundle()
-    bundle["last_granted"] = granted
-    return {"code": 200, "data": bundle}
+    raise HTTPException(status_code=410, detail=detail)
 
 
 @router.patch("/invites/credits/{credit_id}")
@@ -1394,22 +1490,49 @@ async def patch_invite_credit_api(credit_id: int, payload: AdminInviteCreditPatc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if updated is None:
-        raise HTTPException(status_code=404, detail="未找到对应邀请资格")
+        raise HTTPException(status_code=404, detail="哼，本女仆找不到这条邀请资格啦~")
     LOGGER.info(f"admin invite credit edit actor={actor_tg} credit={credit_id}")
     bundle = await _invite_admin_bundle()
     bundle["updated_credit"] = updated
     return {"code": 200, "data": bundle}
 
 
+@router.patch("/invites/qualification")
+async def patch_invite_qualification_api(payload: AdminInviteQualificationPatchPayload, request: Request):
+    actor_tg = _resolve_admin_actor_id(request)
+    try:
+        credit_type = normalize_invite_credit_type(payload.credit_type)
+        qualification = set_invite_qualification(
+            owner_tg=payload.owner_tg,
+            credit_type=credit_type,
+            enabled=payload.enabled,
+            actor_tg=actor_tg,
+            reason=payload.reason or "",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    LOGGER.info(
+        f"admin invite qualification edit actor={actor_tg} owner={payload.owner_tg} "
+        f"type={credit_type} enabled={payload.enabled}"
+    )
+    bundle = await _invite_admin_bundle(search_query=str(payload.owner_tg))
+    bundle["updated_qualification"] = qualification
+    return {"code": 200, "data": bundle}
+
+
 @router.post("/invites/account-open/create")
 async def create_account_open_invite_api(payload: AdminAccountOpenInviteCreatePayload, request: Request):
     actor_tg = _resolve_admin_actor_id(request)
+    await _ensure_target_user_in_invite_group(payload.invitee_tg)
     try:
         record = create_account_open_invite_record(
             inviter_tg=payload.inviter_tg,
             invitee_tg=payload.invitee_tg,
             created_by_tg=actor_tg,
             note=payload.note or "",
+            auto_approve=True,
+            reviewed_by_tg=actor_tg,
+            review_note="后台代发通过",
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1422,12 +1545,58 @@ async def create_account_open_invite_api(payload: AdminAccountOpenInviteCreatePa
     return {"code": 200, "data": bundle}
 
 
+@router.post("/invites/account-open/records/{record_id}/review")
+async def review_account_open_invite_api(
+    record_id: int,
+    payload: AdminAccountOpenInviteReviewPayload,
+    request: Request,
+):
+    actor_tg = _resolve_admin_actor_id(request)
+    action = str(payload.action or "approve").strip().lower()
+    try:
+        if action == "approve":
+            pending_record = get_invite_record(record_id)
+            if pending_record is None:
+                raise HTTPException(status_code=404, detail="哼，本女仆找不到这条开号申请啦~")
+            await _ensure_target_user_in_invite_group(int(pending_record.get("invitee_tg") or 0))
+        if action == "approve":
+            record = approve_account_open_invite_record(
+                record_id,
+                reviewer_tg=actor_tg,
+                invite_days=payload.invite_days,
+                review_note=payload.note or "",
+            )
+        elif action in {"decline", "reject"}:
+            record = decline_account_open_invite_record(
+                record_id,
+                reviewer_tg=actor_tg,
+                review_note=payload.note or "",
+            )
+        elif action == "revoke":
+            record = revoke_account_open_invite_record(
+                record_id,
+                reviewer_tg=actor_tg,
+                review_note=payload.note or "后台撤销",
+            )
+        else:
+            raise HTTPException(status_code=400, detail="审核动作不正确啦，只能是 approve/decline/reject/revoke 哦~")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if record is None:
+        raise HTTPException(status_code=404, detail="哼，本女仆找不到这条开号申请啦~")
+    await _safe_send_account_open_review_notice(record, action)
+    LOGGER.info(f"admin account open invite review actor={actor_tg} record={record_id} action={action}")
+    bundle = await _invite_admin_bundle()
+    bundle["reviewed_record"] = record
+    return {"code": 200, "data": bundle}
+
+
 @router.post("/invites/credits/delete")
 async def delete_invite_credits_api(payload: AdminInviteCreditDeletePayload, request: Request):
     actor_tg = _resolve_admin_actor_id(request)
     unique_ids = [int(item) for item in dict.fromkeys(payload.credit_ids) if int(item) > 0]
     if not unique_ids:
-        raise HTTPException(status_code=400, detail="至少需要选择一个邀请资格")
+        raise HTTPException(status_code=400, detail="至少需要选择一个邀请资格啦~")
     deleted = 0
     skipped = 0
     for credit_id in unique_ids:
@@ -1447,10 +1616,13 @@ async def revoke_invite_record_api(record_id: int, request: Request):
     actor_tg = _resolve_admin_actor_id(request)
     record = get_invite_record(record_id)
     if record is None:
-        raise HTTPException(status_code=404, detail="未找到对应邀请记录")
+        raise HTTPException(status_code=404, detail="哼，本女仆找不到这条邀请记录啦~")
     if record.get("status") == "pending":
         await _safe_revoke_invite_link(record.get("target_chat_id"), record.get("invite_link") or "")
-    updated = revoke_invite_record(record_id, requester_tg=actor_tg)
+    try:
+        updated = revoke_invite_record(record_id, requester_tg=actor_tg)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     LOGGER.info(f"admin invite record revoke actor={actor_tg} record={record_id}")
     bundle = await _invite_admin_bundle()
     bundle["revoked_record"] = updated
@@ -1475,9 +1647,9 @@ async def plugins():
 async def patch_plugin(plugin_id: str, payload: AdminPluginPatch, request: Request):
     plugins = {plugin["id"]: plugin for plugin in list_plugins()}
     if plugin_id not in plugins:
-        raise HTTPException(status_code=404, detail="未找到对应插件")
+        raise HTTPException(status_code=404, detail="哼，本女仆找不到这个插件啦~")
     if payload.enabled is None and payload.bottom_nav_visible is None:
-        raise HTTPException(status_code=400, detail="至少需要提供 enabled 或 bottom_nav_visible 之一")
+        raise HTTPException(status_code=400, detail="至少需要提供 enabled 或 bottom_nav_visible 之一啦~")
 
     plugin = plugins[plugin_id]
     if payload.enabled is not None:

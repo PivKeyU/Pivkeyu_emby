@@ -25,7 +25,10 @@ from bot.sql_helper.sql_invite import (
     create_invite_record,
     get_invite_settings,
     has_viewing_access,
+    invite_qualification_status,
     list_invite_records,
+    user_has_account_open_history,
+    user_has_group_invite_history,
 )
 from bot.web.presenters import serialize_emby_user
 
@@ -55,9 +58,6 @@ def _public_invite_bundle(user_id: int, account=None) -> dict:
     settings = get_invite_settings()
     has_access = has_viewing_access(account)
     group_count = available_invite_credit_count(user_id, credit_type=INVITE_CREDIT_TYPE_GROUP) if has_access else 0
-    account_open_count = (
-        available_invite_credit_count(user_id, credit_type=INVITE_CREDIT_TYPE_ACCOUNT_OPEN) if has_access else 0
-    )
     group_records = [
         _public_invite_record(item)
         for item in list_invite_records(inviter_tg=user_id, credit_type=INVITE_CREDIT_TYPE_GROUP, limit=20)
@@ -66,6 +66,9 @@ def _public_invite_bundle(user_id: int, account=None) -> dict:
         _public_invite_record(item)
         for item in list_invite_records(inviter_tg=user_id, credit_type=INVITE_CREDIT_TYPE_ACCOUNT_OPEN, limit=20)
     ]
+    account_open_history = user_has_account_open_history(user_id) if has_access else False
+    qualification = invite_qualification_status(user_id)
+    account_open_count = 1 if qualification.get("account_open", {}).get("available") else 0
     return {
         "settings": {
             "enabled": bool(settings.get("enabled")),
@@ -77,6 +80,14 @@ def _public_invite_bundle(user_id: int, account=None) -> dict:
         "permissions": {
             "has_viewing_access": bool(has_access),
             "can_create": bool(settings.get("enabled") and has_access),
+            "has_invite_qualification": bool(settings.get("enabled") and has_access and group_count > 0),
+            "has_account_open_application_qualification": bool(
+                settings.get("enabled") and qualification.get("account_open", {}).get("available")
+            ),
+            "group_invite_used": bool(user_has_group_invite_history(user_id)) if has_access else False,
+            "account_open_application_used": bool(account_open_history),
+            "group_invite_revoked": bool(qualification.get("group_join", {}).get("revoked")),
+            "account_open_application_revoked": bool(qualification.get("account_open", {}).get("revoked")),
         },
         "available_credits": group_count,
         "records": group_records,
@@ -99,6 +110,21 @@ def _invite_link_value(invite_link_obj) -> str:
     return str(invite_link_obj or "").strip()
 
 
+def _telegram_user_label(user: dict | None) -> str:
+    user = user or {}
+    display_name = " ".join(
+        str(part or "").strip()
+        for part in [user.get("first_name"), user.get("last_name")]
+        if str(part or "").strip()
+    ).strip()
+    if display_name:
+        return display_name
+    username = str(user.get("username") or "").strip().lstrip("@")
+    if username:
+        return f"@{username}"
+    return str(user.get("id") or "未知用户")
+
+
 async def _create_targeted_invite_link(chat_id: int, invitee_tg: int, expire_hours: int) -> tuple[str, datetime, str]:
     expires_at = datetime.utcnow() + timedelta(hours=max(int(expire_hours or 24), 1))
     link_name = f"emby-invite-{invitee_tg}-{int(time())}"
@@ -110,10 +136,10 @@ async def _create_targeted_invite_link(chat_id: int, invitee_tg: int, expire_hou
             creates_join_request=True,
         )
     except TypeError as exc:
-        raise RuntimeError("当前 Pyrogram 版本不支持定向入群申请链接，请升级 Pyrogram。") from exc
+        raise RuntimeError("呜...当前 Pyrogram 版本太旧了，不支持这个功能，快催主人升级啦~") from exc
     invite_link = _invite_link_value(invite_link_obj)
     if not invite_link:
-        raise RuntimeError("Telegram 未返回邀请链接")
+        raise RuntimeError("Telegram 没给本女仆邀请链接...可能是被限制了啦")
     return invite_link, expires_at, link_name
 
 
@@ -144,6 +170,20 @@ async def _send_account_open_notice(invitee_tg: int, inviter_name: str, days: in
     await bot.send_message(chat_id=int(invitee_tg), text=text)
 
 
+async def _ensure_target_user_in_group(invitee_tg: int, settings: dict) -> None:
+    target_chat_id = settings.get("target_chat_id")
+    if not target_chat_id:
+        raise HTTPException(status_code=400, detail="主人还没配置邀请目标群组呢...催催主人吧")
+    try:
+        member = await bot.get_chat_member(chat_id=int(target_chat_id), user_id=int(invitee_tg))
+    except Exception as exc:
+        LOGGER.warning(f"check invite target group member failed chat={target_chat_id} tg={invitee_tg}: {exc}")
+        raise HTTPException(status_code=400, detail="被申请人不在目标群组里呢，不能申请开号资格啦~") from exc
+    status = str(getattr(member, "status", "") or "").lower()
+    if "left" in status or "ban" in status or "kick" in status:
+        raise HTTPException(status_code=400, detail="被申请人不在目标群组里呢，不能申请开号资格啦~")
+
+
 def is_admin_user_id(user_id: int) -> bool:
     normalized_admins = set()
     for item in admins:
@@ -163,22 +203,22 @@ def verify_init_data(init_data: str) -> dict:
     their_hash = parsed.pop("hash", None)
 
     if not their_hash:
-        raise HTTPException(status_code=400, detail="缺少小程序签名参数")
+        raise HTTPException(status_code=400, detail="本女仆没收到小程序签名参数哦~")
 
     data_check_string = "\n".join(f"{key}={value}" for key, value in sorted(parsed.items()))
     secret_key = hmac.new(b"WebAppData", bot_token.encode("utf-8"), sha256).digest()
     our_hash = hmac.new(secret_key, data_check_string.encode("utf-8"), sha256).hexdigest()
 
     if not hmac.compare_digest(our_hash, their_hash):
-        raise HTTPException(status_code=403, detail="小程序初始化数据校验失败")
+        raise HTTPException(status_code=403, detail="小程序数据校验失败了...才不是本女仆的问题！")
 
     auth_date = int(parsed.get("auth_date", "0"))
     if auth_date and int(time()) - auth_date > api_config.webapp_auth_max_age:
-        raise HTTPException(status_code=401, detail="小程序初始化数据已过期，请重新进入页面")
+        raise HTTPException(status_code=401, detail="小程序数据过期了啦，重新进入页面吧~")
 
     user_data = parsed.get("user")
     if not user_data:
-        raise HTTPException(status_code=400, detail="缺少小程序用户信息")
+        raise HTTPException(status_code=400, detail="本女仆没收到小程序用户信息呢...")
 
     parsed["user"] = json.loads(user_data)
     matched_block = find_bot_access_block(
@@ -186,7 +226,7 @@ def verify_init_data(init_data: str) -> dict:
         username=parsed["user"].get("username"),
     )
     if matched_block is not None:
-        raise HTTPException(status_code=403, detail="当前 Telegram 账号已被禁止使用 Bot")
+        raise HTTPException(status_code=403, detail="哼！你这个账号已经被主人禁止使用本女仆了！")
     return parsed
 
 
@@ -255,14 +295,14 @@ async def create_user_invite(payload: MiniAppInviteCreateRequest):
     settings = get_invite_settings()
 
     if not settings.get("enabled"):
-        raise HTTPException(status_code=403, detail="邀请功能当前未开启")
+        raise HTTPException(status_code=403, detail="主人还没开启邀请功能呢~")
     if not has_viewing_access(account):
-        raise HTTPException(status_code=403, detail="只有拥有 Emby 观影资格的用户才能获取入群资格")
+        raise HTTPException(status_code=403, detail="哼，只有拥有 Emby 观影资格的人才能获取入群资格啦~")
     if available_invite_credit_count(user_id, credit_type=INVITE_CREDIT_TYPE_GROUP) <= 0:
-        raise HTTPException(status_code=400, detail="你当前没有可用的入群资格")
+        raise HTTPException(status_code=400, detail="你当前没有可用的入群资格呢...想邀请别人？先看看自己够不够格啦~")
     target_chat_id = settings.get("target_chat_id")
     if not target_chat_id:
-        raise HTTPException(status_code=400, detail="管理员尚未配置邀请目标群组")
+        raise HTTPException(status_code=400, detail="主人还没配置邀请目标群组呢...催催主人吧")
 
     invite_link = ""
     record = None
@@ -282,7 +322,7 @@ async def create_user_invite(payload: MiniAppInviteCreateRequest):
             created_by_tg=user_id,
             note=payload.note or "",
         )
-        inviter_name = telegram_user.get("first_name") or telegram_user.get("username") or str(user_id)
+        inviter_name = _telegram_user_label(telegram_user)
         await _send_invite_link_to_invitee(
             invitee_tg,
             inviter_name,
@@ -297,7 +337,7 @@ async def create_user_invite(payload: MiniAppInviteCreateRequest):
         if record:
             cancel_pending_invite_record(record["id"], reason="私聊发送邀请链接失败，已自动撤销")
         LOGGER.warning(f"create user invite failed inviter={user_id} invitee={invitee_tg}: {exc}")
-        raise HTTPException(status_code=500, detail="邀请链接生成或发送失败，请确认被邀请人已私聊启动过机器人") from exc
+        raise HTTPException(status_code=500, detail="邀请链接生成或发送失败了...让对方先私聊启动本女仆啦！") from exc
 
     return {
         "code": 200,
@@ -318,12 +358,10 @@ async def create_account_open_invite(payload: MiniAppInviteCreateRequest):
     settings = get_invite_settings()
 
     if not settings.get("enabled"):
-        raise HTTPException(status_code=403, detail="邀请功能当前未开启")
+        raise HTTPException(status_code=403, detail="主人还没开启邀请功能呢~")
     if not has_viewing_access(account):
-        raise HTTPException(status_code=403, detail="只有拥有 Emby 观影资格的用户才能获取开号资格")
-    if available_invite_credit_count(user_id, credit_type=INVITE_CREDIT_TYPE_ACCOUNT_OPEN) <= 0:
-        raise HTTPException(status_code=400, detail="你当前没有可用的开号资格")
-
+        raise HTTPException(status_code=403, detail="哼，只有拥有 Emby 观影资格的人才能获取开号资格啦~")
+    await _ensure_target_user_in_group(invitee_tg, settings)
     try:
         record = create_account_open_invite_record(
             inviter_tg=user_id,
@@ -335,13 +373,7 @@ async def create_account_open_invite(payload: MiniAppInviteCreateRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         LOGGER.warning(f"create account open invite failed inviter={user_id} invitee={invitee_tg}: {exc}")
-        raise HTTPException(status_code=500, detail="开号资格发放失败，请稍后重试") from exc
-
-    inviter_name = telegram_user.get("first_name") or telegram_user.get("username") or str(user_id)
-    try:
-        await _send_account_open_notice(invitee_tg, inviter_name, int(record.get("invite_days") or 0))
-    except Exception as exc:
-        LOGGER.warning(f"send account open notice failed inviter={user_id} invitee={invitee_tg}: {exc}")
+        raise HTTPException(status_code=500, detail="开号资格申请提交失败了...才不是本女仆的错！稍后重试啦~") from exc
 
     return {
         "code": 200,

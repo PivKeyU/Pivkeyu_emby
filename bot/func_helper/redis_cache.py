@@ -190,7 +190,7 @@ def delete_keys(*keys: str) -> int:
         return 0
 
 
-def delete_pattern(*patterns: str) -> int:
+def delete_pattern(*patterns: str, max_scan: int = 10000) -> int:
     client = get_client()
     normalized = [str(pattern).strip() for pattern in patterns if pattern and str(pattern).strip()]
     if client is None or not normalized:
@@ -200,7 +200,12 @@ def delete_pattern(*patterns: str) -> int:
     try:
         for pattern in normalized:
             batch: list[str] = []
+            scanned = 0
             for key in client.scan_iter(match=pattern, count=200):
+                scanned += 1
+                if scanned > max_scan:
+                    LOGGER.warning(f"Redis scan 超过上限 {max_scan} pattern={pattern}，提前终止")
+                    break
                 batch.append(key)
                 if len(batch) >= 200:
                     deleted += int(client.delete(*batch) or 0)

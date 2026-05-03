@@ -1,4 +1,3 @@
-import requests
 import json
 from bot import LOGGER, moviepilot, save_config
 import aiohttp
@@ -31,7 +30,8 @@ def aiohttp_retry(retry_count):
     return decorator
 @aiohttp_retry(3)
 async def _do_request(request):
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(total=TIMEOUT, connect=10)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.request(method=request['method'], url=request['url'], headers=request['headers'], data=request.get('data')) as response:
             if response.status == 401 or response.status == 403:
                 LOGGER.error("MP Token过期, 尝试重新登录.")
@@ -45,16 +45,22 @@ async def login():
     url = f"{mp.url}/api/v1/login/access-token"
     payload = f"username={mp.username}&password={mp.password}"
     headers = {'Content-Type': 'application/x-www-form-urlencoded'}
-    response = requests.post(url, data=payload, headers=headers, timeout=TIMEOUT)
-    result = response.json()
-    if 'access_token' in result:
-        mp.access_token = result['token_type'] + ' ' + result['access_token']
-        moviepilot.access_token = mp.access_token # 保存到config
-        save_config()
-        LOGGER.info("MP 登录成功, token已保存")
-        return True
-    else:
-        LOGGER.error(f"MP 登录失败: {result}")
+    timeout = aiohttp.ClientTimeout(total=TIMEOUT, connect=10)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(url, data=payload, headers=headers) as response:
+                result = await response.json()
+                if 'access_token' in result:
+                    mp.access_token = result['token_type'] + ' ' + result['access_token']
+                    moviepilot.access_token = mp.access_token
+                    save_config()
+                    LOGGER.info("MP 登录成功, token已保存")
+                    return True
+                else:
+                    LOGGER.error(f"MP 登录失败: {result}")
+                    return False
+    except Exception as e:
+        LOGGER.error(f"MP 登录异常: {str(e)}")
         return False
 
 async def search(title):

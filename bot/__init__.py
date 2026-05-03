@@ -44,6 +44,14 @@ sakura_b = pivkeyu
 ranks = config.ranks
 prefixes = ['/', '!', '.', '，', '。']
 schedall = config.schedall
+
+# 等级到数值的映射，数值越大权限越高。新等级需要在此注册。
+_LV_RANK = {"a": 4, "b": 3, "c": 2, "d": 1}
+
+
+def lv_allowed(user_lv: str, required_lv: str) -> bool:
+    """返回 user_lv 是否满足 required_lv 的最低等级要求。"""
+    return _LV_RANK.get(user_lv, 0) >= _LV_RANK.get(required_lv, 0)
 # emby设置
 emby_api = config.emby_api
 emby_url = config.emby_url
@@ -141,6 +149,14 @@ def _validate_telegram_credentials():
 
 _validate_telegram_credentials()
 save_config()
+
+# 启动时清理残留的定时注册状态（计时任务已随进程退出而丢失）
+if _open.timing > 0:
+    LOGGER.warning(f"检测到残留的定时注册状态 timing={_open.timing}，已自动重置")
+    _open.timing = 0
+    _open.stat = False
+    save_config()
+
 configure_runtime_limits()
 
 LOGGER.info("配置文件加载完毕")

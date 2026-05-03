@@ -19,8 +19,9 @@ def _env_int(name: str, default: int, minimum: int = 1) -> int:
         return default
 
 
-REGISTER_QUEUE_WORKERS = _env_int("PIVKEYU_REGISTER_QUEUE_WORKERS", 1, 1)
+REGISTER_QUEUE_WORKERS = _env_int("PIVKEYU_REGISTER_QUEUE_WORKERS", 2, 1)
 REGISTER_QUEUE_MAXSIZE = _env_int("PIVKEYU_REGISTER_QUEUE_MAXSIZE", 64, 1)
+REGISTER_QUEUE_JOB_TIMEOUT = max(float(os.getenv("PIVKEYU_REGISTER_QUEUE_JOB_TIMEOUT") or 120), 10.0)
 
 
 @dataclass(slots=True)
@@ -112,7 +113,9 @@ class RegisterQueue:
                 with contextlib.suppress(ValueError):
                     self._pending_user_ids.remove(user_id)
                 self._running_user_ids.add(user_id)
-                await job.runner()
+                await asyncio.wait_for(job.runner(), timeout=REGISTER_QUEUE_JOB_TIMEOUT)
+            except asyncio.TimeoutError:
+                LOGGER.error(f"注册队列任务超时 user={user_id}，已跳过")
             except Exception as exc:
                 LOGGER.exception(f"注册队列任务执行失败 user={user_id}: {exc}")
             finally:

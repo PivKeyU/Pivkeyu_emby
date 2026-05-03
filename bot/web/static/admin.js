@@ -123,6 +123,12 @@ const refs = {
   inviteSearchForm: document.querySelector("#invite-search-form"),
   inviteSearchInput: document.querySelector("#invite-search-input"),
   inviteSearchSubmit: document.querySelector("#invite-search-submit"),
+  inviteQualificationForm: document.querySelector("#invite-qualification-form"),
+  inviteQualificationOwner: document.querySelector("#invite-qualification-owner"),
+  inviteQualificationType: document.querySelector("#invite-qualification-type"),
+  inviteQualificationEnabled: document.querySelector("#invite-qualification-enabled"),
+  inviteQualificationReason: document.querySelector("#invite-qualification-reason"),
+  inviteQualificationSubmit: document.querySelector("#invite-qualification-submit"),
   inviteOpenGrantForm: document.querySelector("#invite-open-grant-form"),
   inviteOpenGrantTg: document.querySelector("#invite-open-grant-tg"),
   inviteOpenGrantDays: document.querySelector("#invite-open-grant-days"),
@@ -661,17 +667,39 @@ function formatCount(value) {
   return Number(value ?? 0).toLocaleString("zh-CN");
 }
 
+function actorPrimaryLabel(actor) {
+  if (!actor) return "暂无信息";
+  if (actor.tg_display_name) return actor.tg_display_name;
+  if (actor.tg_username) return `@${actor.tg_username}`;
+  if (actor.tg_display_label && !String(actor.tg_display_label).startsWith("TG ")) {
+    return actor.tg_display_label;
+  }
+  return actor.tg ? `TG ${actor.tg}` : "暂无信息";
+}
+
 function fmtActor(actor) {
   if (!actor) return "暂无信息";
   const parts = [
-    actor.tg_display_label || `TG ${actor.tg}`,
-    actor.tg ? `TG ${actor.tg}` : "",
-    actor.tg_username ? `@${actor.tg_username}` : "",
+    actorPrimaryLabel(actor),
     actor.emby_name ? `Emby ${actor.emby_name}` : "",
-    actor.embyid ? `ID ${actor.embyid}` : "",
     actor.lv_text || ""
   ].filter(Boolean);
   return parts.join(" · ");
+}
+
+function actorLikeLabel(item) {
+  if (!item) return "暂无信息";
+  return actorPrimaryLabel({
+    tg: item.tg,
+    tg_display_name: item.tg_display_name || item.display_name,
+    tg_username: item.tg_username || item.username,
+    tg_display_label: item.tg_display_label || item.display_label
+  });
+}
+
+function targetDisplayLabel(target) {
+  if (!target) return "暂无信息";
+  return actorLikeLabel(target);
 }
 
 function fmtBotBlockTarget(item) {
@@ -689,7 +717,7 @@ function fmtBotBlockTarget(item) {
 function fmtModerationMember(item) {
   if (!item) return "未选择成员";
   const parts = [
-    item.display_label || item.tg_display_label || item.display_name || `TG ${item.tg}`,
+    actorLikeLabel(item),
     item.tg ? `TG ${item.tg}` : "",
     item.username ? `@${item.username}` : "",
     item.status_text || "",
@@ -735,8 +763,8 @@ function fillModerationTarget(item) {
   }
   refs.moderationTargetDisplay.value = fmtModerationMember(item);
   refs.moderationTargetStatus.textContent = item.warn_count
-    ? `当前选中 ${item.display_label || `TG ${item.tg}`}，已有 ${item.warn_count} 次警告。`
-    : `当前选中 ${item.display_label || `TG ${item.tg}`}，暂时没有警告记录。`;
+    ? `当前选中 ${actorLikeLabel(item)}，已有 ${item.warn_count} 次警告。`
+    : `当前选中 ${actorLikeLabel(item)}，暂时没有警告记录。`;
   refs.moderationTargetStatus.dataset.tone = item.warn_count ? "warning" : "info";
 }
 
@@ -771,7 +799,7 @@ function renderModerationMembers(items) {
     card.innerHTML = `
       <div class="user-card-top">
         <div>
-          <div class="user-name">${escapeHtml(item.display_label || item.display_name || `TG ${item.tg}`)}</div>
+          <div class="user-name">${escapeHtml(actorLikeLabel(item))}</div>
           <div class="user-subline">TG ${escapeHtml(item.tg)}${item.username ? ` · @${escapeHtml(item.username)}` : ""}</div>
         </div>
         <div class="code-card-badges">${badges.join("")}</div>
@@ -812,7 +840,7 @@ function renderModerationWarnings(items) {
     card.className = "plugin-card";
     card.innerHTML = `
       <div class="plugin-card-top">
-        <div class="plugin-name">${escapeHtml(item.tg_display_label || item.emby_name || `TG ${item.tg}`)}</div>
+        <div class="plugin-name">${escapeHtml(actorLikeLabel(item))}</div>
         <span class="badge badge--danger">警告 ${escapeHtml(item.warn_count)}</span>
       </div>
       <div class="plugin-meta">TG ${escapeHtml(item.tg)}${item.tg_username ? ` · @${escapeHtml(item.tg_username)}` : ""}${item.emby_name ? ` · Emby ${escapeHtml(item.emby_name)}` : ""}</div>
@@ -958,7 +986,7 @@ function renderUsers(items) {
 
   for (const item of items) {
     const level = getLevelMeta(item.lv);
-    const primaryName = item.tg_display_label || item.name || item.embyid || `TG ${item.tg}`;
+    const primaryName = actorLikeLabel(item);
     const secondaryBits = [
       `账号 ID ${escapeHtml(item.tg)}`,
       item.embyid ? `Emby ID ${escapeHtml(item.embyid)}` : "",
@@ -1057,7 +1085,7 @@ function renderCodes(items) {
 
 function setInviteSummary(summary = {}) {
   document.querySelector("#invite-total").textContent = formatCount(summary.total);
-  document.querySelector("#invite-available").textContent = formatCount(summary.available);
+  document.querySelector("#invite-available").textContent = "按观影用户派发";
   document.querySelector("#invite-used").textContent = formatCount(summary.used);
   document.querySelector("#invite-revoked").textContent = formatCount(summary.revoked);
 }
@@ -1114,15 +1142,36 @@ function syncInviteCreditSelectionActions(type = "group_join") {
 function renderInviteCredits(items = [], type = "group_join") {
   const root = type === "account_open" ? refs.inviteOpenCreditList : refs.inviteCreditList;
   const selected = inviteSelectedSet(type);
+  const qualification = inviteSection(type).searched_qualification;
   if (!root) return;
   root.innerHTML = "";
+  if (qualification) {
+    const info = type === "account_open" ? qualification.account_open : qualification.group_join;
+    const label = type === "account_open" ? "开号申请资格" : "入群邀请资格";
+    const article = document.createElement("article");
+    article.className = "code-card";
+    article.innerHTML = `
+      <div class="code-card-top">
+        <div class="code-card-badges">
+          <span class="badge badge--${info.available ? "normal" : "danger"}">${info.available ? "可用" : "不可用"}</span>
+          <span class="badge badge--vip">${escapeHtml(label)}</span>
+        </div>
+      </div>
+      <div class="user-name">${escapeHtml(label)} · ${escapeHtml(fmtActor(qualification.owner))}</div>
+      <div class="plugin-meta">观影资格：${qualification.has_viewing_access ? "有" : "无"} · 已使用：${info.used ? "是" : "否"} · 已撤销：${info.revoked ? "是" : "否"}</div>
+      <div class="plugin-actions">
+        <button type="button" class="secondary" data-invite-qualification-owner="${escapeHtml(qualification.owner_tg)}" data-invite-qualification-type="${escapeHtml(type)}" data-invite-qualification-enabled="${info.revoked ? "true" : "false"}">${info.revoked ? "恢复资格" : "撤销资格"}</button>
+      </div>
+    `;
+    root.appendChild(article);
+  }
   if (!items.length) {
-    root.innerHTML = `
+    root.insertAdjacentHTML("beforeend", `
       <article class="user-card">
         <div class="user-name">当前还没有${type === "account_open" ? "开号资格" : "入群资格"}</div>
         <p class="user-meta stack-empty">可以通过后台手动赠送，或在商店上架对应资格商品。</p>
       </article>
-    `;
+    `);
     syncInviteCreditSelectionActions(type);
     return;
   }
@@ -1172,6 +1221,15 @@ function renderInviteRecords(items = [], type = "group_join") {
   for (const item of items) {
     const pending = item.status === "pending";
     const isAccountOpen = type === "account_open";
+    const reviewerLine = isAccountOpen
+      ? `<div class="plugin-meta">审核人：${escapeHtml(fmtActor(item.reviewer))} · 审核时间：${escapeHtml(fmtDateTime(item.reviewed_at))}</div>`
+      : "";
+    const accountActions = isAccountOpen
+      ? `<div class="plugin-actions">
+          ${pending ? `<button type="button" data-invite-open-review="${escapeHtml(item.id)}" data-invite-open-action="approve">通过</button><button type="button" class="secondary" data-invite-open-review="${escapeHtml(item.id)}" data-invite-open-action="decline">拒绝</button>` : ""}
+          ${["pending", "approved", "granted"].includes(item.status) ? `<button type="button" class="secondary" data-invite-open-review="${escapeHtml(item.id)}" data-invite-open-action="revoke">撤销</button>` : ""}
+        </div>`
+      : "";
     const card = document.createElement("article");
     card.className = "code-card";
     card.innerHTML = `
@@ -1181,11 +1239,13 @@ function renderInviteRecords(items = [], type = "group_join") {
           <span class="badge badge--normal">${isAccountOpen ? `开号 ${escapeHtml(item.invite_days || 0)} 天` : `群 ${escapeHtml(item.target_chat_id)}`}</span>
         </div>
       </div>
-      <div class="user-name">${isAccountOpen ? "开号邀请" : "入群邀请"} #${escapeHtml(item.id)} · ${escapeHtml(fmtActor(item.inviter))} -> ${escapeHtml(fmtActor(item.invitee))}</div>
+      <div class="user-name">${isAccountOpen ? "开号申请" : "入群邀请"} #${escapeHtml(item.id)} · ${escapeHtml(fmtActor(item.inviter))} -> ${escapeHtml(fmtActor(item.invitee))}</div>
       <div class="user-subline">创建：${escapeHtml(fmtDateTime(item.created_at))} · 过期：${escapeHtml(fmtDateTime(item.expires_at))}</div>
+      <div class="plugin-meta">${isAccountOpen ? "申请人" : "邀请人"}：${escapeHtml(fmtActor(item.inviter))} · ${isAccountOpen ? "被申请人" : "被邀请人"}：${escapeHtml(fmtActor(item.invitee))}</div>
       <div class="plugin-meta">最近请求：${escapeHtml(fmtActor(item.last_requester))} · 使用时间：${escapeHtml(fmtDateTime(item.used_at))}</div>
-      ${isAccountOpen ? `<div class="plugin-meta">备注：${escapeHtml(item.note || "无")}</div>` : `<div class="plugin-meta">邀请链接：${escapeHtml(item.invite_link || "已隐藏或不可用")}</div>`}
-      ${pending ? `<div class="plugin-actions"><button type="button" data-invite-record-revoke="${escapeHtml(item.id)}">撤销邀请</button></div>` : ""}
+      ${reviewerLine}
+      ${isAccountOpen ? `<div class="plugin-meta">申请备注：${escapeHtml(item.note || "无")} · 审核备注：${escapeHtml(item.review_note || "无")}</div>` : `<div class="plugin-meta">邀请链接：${escapeHtml(item.invite_link || "已隐藏或不可用")}</div>`}
+      ${isAccountOpen ? accountActions : pending ? `<div class="plugin-actions"><button type="button" data-invite-record-revoke="${escapeHtml(item.id)}">撤销邀请</button></div>` : ""}
     `;
     root.appendChild(card);
   }
@@ -1359,7 +1419,7 @@ function fillEditor(item) {
   refs.editorStatus.textContent = item.bot_access_blocked
     ? `当前正在编辑账号 ${item.tg} · ${item.lv_text || level.text} · 已加入 Bot 黑名单`
     : `当前正在编辑账号 ${item.tg} · ${item.lv_text || level.text}`;
-  setSelectedUserPill(`正在编辑 ${item.tg_display_label || item.name || item.embyid || `TG ${item.tg}`}`);
+  setSelectedUserPill(`正在编辑 ${actorLikeLabel(item)}`);
   syncEditorShortcut();
 }
 
@@ -1994,7 +2054,7 @@ async function moderationMuteAction(minutes) {
     }));
     fillModerationTarget({ ...target, ...(result.data?.target || {}) });
     await refreshModerationAfterAction();
-    const message = `${result.data?.target?.display_label || target.display_label || `TG ${target.tg}`} ${result.data?.result?.message || "操作已完成。"}`
+    const message = `${targetDisplayLabel(result.data?.target || target)} ${result.data?.result?.message || "操作已完成。"}`
     setAdminStatus(message, "success");
     setModerationStatus(message, "success");
     showToast(message, "success");
@@ -2015,7 +2075,7 @@ async function moderationKickAction() {
     return;
   }
 
-  const confirmed = window.confirm(`确认将 ${target.display_label || `TG ${target.tg}`} 踢出当前群吗？`);
+  const confirmed = window.confirm(`确认将 ${targetDisplayLabel(target)} 踢出当前群吗？`);
   if (!confirmed) {
     return;
   }
@@ -2029,7 +2089,7 @@ async function moderationKickAction() {
       })
     }));
     await refreshModerationAfterAction();
-    const message = `${result.data?.target?.display_label || target.display_label || `TG ${target.tg}`} ${result.data?.result?.message || "已踢出群组。"}`
+    const message = `${targetDisplayLabel(result.data?.target || target)} ${result.data?.result?.message || "已踢出群组。"}`
     setAdminStatus(message, "success");
     setModerationStatus(message, "success");
     showToast(message, "success");
@@ -2062,7 +2122,7 @@ async function moderationWarnAction() {
     fillModerationTarget({ ...target, ...(result.data?.target || {}), warn_count: result.data?.warning?.warn_count || target.warn_count || 0 });
     await refreshModerationAfterAction();
     const warning = result.data?.warning || {};
-    let message = `${result.data?.target?.display_label || target.display_label || `TG ${target.tg}`} 当前警告 ${warning.warn_count || 0} / ${result.data?.settings?.warn_threshold || 0}。`;
+    let message = `${targetDisplayLabel(result.data?.target || target)} 当前警告 ${warning.warn_count || 0} / ${result.data?.settings?.warn_threshold || 0}。`;
     if (result.data?.action_triggered && result.data?.action_result?.message) {
       message += ` 已自动执行：${result.data.action_result.message}`;
     } else if (result.data?.action_error) {
@@ -2100,8 +2160,8 @@ async function moderationClearWarnAction() {
     await refreshModerationAfterAction();
     const removed = Boolean(result.data?.result?.removed);
     const message = removed
-      ? `${result.data?.target?.display_label || target.display_label || `TG ${target.tg}`} 的警告已清空。`
-      : `${result.data?.target?.display_label || target.display_label || `TG ${target.tg}`} 当前没有警告记录。`;
+      ? `${targetDisplayLabel(result.data?.target || target)} 的警告已清空。`
+      : `${targetDisplayLabel(result.data?.target || target)} 当前没有警告记录。`;
     setAdminStatus(message, removed ? "success" : "warning");
     setModerationStatus(message, removed ? "success" : "warning");
     showToast(message, removed ? "success" : "warning");
@@ -2141,7 +2201,7 @@ async function moderationTitleAction() {
       })
     }));
     fillModerationTarget({ ...target, ...(result.data?.target || {}) });
-    const message = `${result.data?.target?.display_label || target.display_label || `TG ${target.tg}`} ${result.data?.result?.message || "头衔已更新。"}`
+    const message = `${targetDisplayLabel(result.data?.target || target)} ${result.data?.result?.message || "头衔已更新。"}`
     setAdminStatus(message, "success");
     setModerationStatus(message, "success");
     showToast(message, "success");
@@ -2279,6 +2339,11 @@ async function saveInviteSettings(event) {
 
 async function grantInviteCredits(event) {
   event.preventDefault();
+  const message = "入群资格已改为观影用户自动拥有一次，不再需要后台发放。";
+  if (refs.inviteGrantStatus) refs.inviteGrantStatus.textContent = message;
+  setAdminStatus(message, "warning");
+  showToast(message, "warning");
+  return;
   const ownerTg = Number(refs.inviteGrantTg?.value || 0);
   if (!ownerTg) {
     const message = "请先填写需要赠送的用户 TGID。";
@@ -2335,6 +2400,11 @@ function useSelectedUserForInviteOpenGrant() {
 
 async function grantInviteOpenCredits(event) {
   event.preventDefault();
+  const message = "开号资格已改为申请制，请在下方开号申请关系中审核，或使用管理员代发。";
+  if (refs.inviteOpenGrantStatus) refs.inviteOpenGrantStatus.textContent = message;
+  setAdminStatus(message, "warning");
+  showToast(message, "warning");
+  return;
   const ownerTg = Number(refs.inviteOpenGrantTg?.value || 0);
   if (!ownerTg) {
     const message = "请先填写需要赠送开号资格的用户 TGID。";
@@ -2395,6 +2465,86 @@ async function createAccountOpenInviteFromAdmin(event) {
     setAdminStatus(message, "error");
     showToast(message, "error");
     await popup("代发失败", message, "error");
+  }
+}
+
+async function updateInviteQualification(eventOrOptions = {}) {
+  if (eventOrOptions?.preventDefault) {
+    eventOrOptions.preventDefault();
+  }
+  const ownerTg = Number(eventOrOptions.owner_tg || refs.inviteQualificationOwner?.value || 0);
+  const creditType = eventOrOptions.credit_type || refs.inviteQualificationType?.value || "group_join";
+  const enabled = eventOrOptions.enabled !== undefined
+    ? Boolean(eventOrOptions.enabled)
+    : refs.inviteQualificationEnabled?.value === "true";
+  const reason = eventOrOptions.reason ?? refs.inviteQualificationReason?.value?.trim() ?? "";
+  if (!ownerTg) {
+    const message = "请先填写需要更改资格的用户 TGID。";
+    setAdminStatus(message, "warning");
+    showToast(message, "warning");
+    return;
+  }
+  try {
+    const result = await runButtonAction(refs.inviteQualificationSubmit, "更新中...", () => api("/admin-api/invites/qualification", {
+      method: "PATCH",
+      body: JSON.stringify({
+        owner_tg: ownerTg,
+        credit_type: creditType,
+        enabled,
+        reason
+      })
+    }));
+    state.inviteSearchQuery = String(ownerTg);
+    if (refs.inviteSearchInput) refs.inviteSearchInput.value = state.inviteSearchQuery;
+    applyInviteBundle(result.data || {});
+    const label = creditType === "account_open" ? "开号申请资格" : "入群资格";
+    const message = `已${enabled ? "恢复" : "撤销"} TG ${ownerTg} 的${label}。`;
+    setAdminStatus(message, "success");
+    showToast(message, "success");
+  } catch (error) {
+    const message = normalizeError(error, "更新邀请资格失败。");
+    setAdminStatus(message, "error");
+    showToast(message, "error");
+    await popup("更新失败", message, "error");
+  }
+}
+
+async function reviewAccountOpenInvite(recordId, action) {
+  const section = inviteSection("account_open");
+  const item = (section.records || []).find((row) => Number(row.id) === Number(recordId));
+  let inviteDays = item?.invite_days || refs.inviteAccountOpenDays?.value || 30;
+  let note = "";
+  if (action === "approve") {
+    const daysValue = window.prompt("通过申请并发放开号天数：", inviteDays);
+    if (daysValue === null) return;
+    inviteDays = Number(daysValue || inviteDays || 30);
+    note = window.prompt("审核备注：", "审核通过") || "";
+  } else if (action === "decline") {
+    const confirmed = window.confirm(`确认拒绝开号申请 #${recordId} 吗？`);
+    if (!confirmed) return;
+    note = window.prompt("拒绝原因：", "后台拒绝") || "";
+  } else if (action === "revoke") {
+    const confirmed = window.confirm(`确认撤销开号申请 #${recordId} 吗？已发放但未注册的资格会扣回。`);
+    if (!confirmed) return;
+    note = window.prompt("撤销原因：", "后台撤销") || "";
+  }
+  try {
+    const result = await api(`/admin-api/invites/account-open/records/${encodeURIComponent(recordId)}/review`, {
+      method: "POST",
+      body: JSON.stringify({
+        action,
+        invite_days: action === "approve" ? inviteDays : null,
+        note
+      })
+    });
+    applyInviteBundle(result.data || {});
+    setAdminStatus(`开号申请 #${recordId} 已处理。`, "success");
+    showToast("开号申请已处理。", "success");
+  } catch (error) {
+    const message = normalizeError(error, "处理开号申请失败。");
+    setAdminStatus(message, "error");
+    showToast(message, "error");
+    await popup("处理失败", message, "error");
   }
 }
 
@@ -2521,6 +2671,7 @@ refs.inviteSearchForm?.addEventListener("submit", async (event) => {
     showToast(message, "error");
   }
 });
+refs.inviteQualificationForm?.addEventListener("submit", updateInviteQualification);
 refs.inviteOpenGrantForm?.addEventListener("submit", grantInviteOpenCredits);
 refs.inviteOpenGrantUseSelected?.addEventListener("click", useSelectedUserForInviteOpenGrant);
 refs.inviteOpenCreateForm?.addEventListener("submit", createAccountOpenInviteFromAdmin);
@@ -2630,7 +2781,7 @@ refs.moderationWarningList?.addEventListener("click", (event) => {
   fillModerationTarget({
     chat_id: state.selectedModerationChatId,
     tg: item.tg,
-    display_label: item.tg_display_label || item.emby_name || `TG ${item.tg}`,
+    display_label: actorLikeLabel(item),
     display_name: item.tg_display_name,
     username: item.tg_username,
     status_text: "警告成员",
@@ -2869,6 +3020,16 @@ refs.inviteCreditClearSelection?.addEventListener("click", () => {
 refs.inviteCreditDeleteSelected?.addEventListener("click", () => deleteSelectedInviteCredits("group_join"));
 
 refs.inviteCreditList?.addEventListener("click", async (event) => {
+  const qualificationButton = event.target.closest("[data-invite-qualification-owner]");
+  if (qualificationButton) {
+    await updateInviteQualification({
+      owner_tg: qualificationButton.dataset.inviteQualificationOwner,
+      credit_type: qualificationButton.dataset.inviteQualificationType || "group_join",
+      enabled: qualificationButton.dataset.inviteQualificationEnabled === "true",
+      reason: "后台列表操作"
+    });
+    return;
+  }
   const button = event.target.closest("[data-invite-credit-edit]");
   if (!button) return;
   await editInviteCredit(button.dataset.inviteCreditEdit, button.dataset.inviteCreditType || "group_join");
@@ -2911,9 +3072,25 @@ refs.inviteOpenCreditClearSelection?.addEventListener("click", () => {
 refs.inviteOpenCreditDeleteSelected?.addEventListener("click", () => deleteSelectedInviteCredits("account_open"));
 
 refs.inviteOpenCreditList?.addEventListener("click", async (event) => {
+  const qualificationButton = event.target.closest("[data-invite-qualification-owner]");
+  if (qualificationButton) {
+    await updateInviteQualification({
+      owner_tg: qualificationButton.dataset.inviteQualificationOwner,
+      credit_type: qualificationButton.dataset.inviteQualificationType || "account_open",
+      enabled: qualificationButton.dataset.inviteQualificationEnabled === "true",
+      reason: "后台列表操作"
+    });
+    return;
+  }
   const button = event.target.closest("[data-invite-credit-edit]");
   if (!button) return;
   await editInviteCredit(button.dataset.inviteCreditEdit, "account_open");
+});
+
+refs.inviteOpenRecordList?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-invite-open-review]");
+  if (!button) return;
+  await reviewAccountOpenInvite(button.dataset.inviteOpenReview, button.dataset.inviteOpenAction || "approve");
 });
 
 refs.inviteRecordList?.addEventListener("click", async (event) => {

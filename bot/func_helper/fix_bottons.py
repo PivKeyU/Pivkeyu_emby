@@ -6,7 +6,17 @@ from bot import chanel, main_group, bot_name, extra_emby_libs, tz_id, tz_ad, tz_
     schedall, auto_update, fuxx_pitao, moviepilot, red_envelope, config, LOGGER
 from bot.func_helper import nezha_res
 from bot.func_helper.emby import emby
-from bot.func_helper.utils import members_info
+from bot.func_helper.utils import members_info, async_memoize
+from bot.sql_helper.sql_invite import (
+    INVITE_CREDIT_TYPE_ACCOUNT_OPEN,
+    INVITE_CREDIT_TYPE_GROUP,
+    available_invite_credit_count,
+    has_viewing_access,
+    list_invite_records,
+    qualification_revoked,
+    user_has_account_open_history,
+)
+from bot.sql_helper.sql_emby import sql_get_emby
 
 cache = Cache()
 
@@ -33,7 +43,7 @@ def judge_start_ikb(is_admin: bool, account: bool, user_id: int | None = None) -
         if schedall.partition_check and len(config.partition_libs) > 0:
             d.append(['🎟️ 使用分区码', 'partitioncode'])
     if _open.checkin:
-        d.append(['🎯 签到', 'checkin'])
+        d.append(['🎯 签、签一下', 'checkin'])
     lines = array_chunk(d, 2)
     if is_admin: lines.append([['👮🏻‍♂️ admin', 'manage']])
     keyword = ikb(lines)
@@ -71,16 +81,16 @@ def members_ikb(is_admin: bool = False, account: bool = False) -> InlineKeyboard
         #      [('♻️ 主界面', 'back_start')]])
 
 
-back_start_ikb = ikb([[('💫 回到首页', 'back_start')]])
-back_members_ikb = ikb([[('💨 返回', 'members')]])
-back_manage_ikb = ikb([[('💨 返回', 'manage')]])
-re_create_ikb = ikb([[('🍥 重新输入', 'create'), ('💫 用户主页', 'members')]])
+back_start_ikb = ikb([[('💫 回、回去啦', 'back_start')]])
+back_members_ikb = ikb([[('💨 勉强返回', 'members')]])
+back_manage_ikb = ikb([[('💨 勉强返回', 'manage')]])
+re_create_ikb = ikb([[('🍥 真是的，重新输入', 'create'), ('💫 用户主页', 'members')]])
 re_changetg_ikb = ikb([[('✨ 换绑TG', 'changetg'), ('💫 用户主页', 'members')]])
 re_bindtg_ikb = ikb([[('✨ 绑定TG', 'bindtg'), ('💫 用户主页', 'members')]])
-re_delme_ikb = ikb([[('♻️ 重试', 'delme')], [('🔙 返回', 'members')]])
+re_delme_ikb = ikb([[('♻️ 再试一次啦', 'delme')], [('🔙 算了返回', 'members')]])
 re_reset_ikb = ikb([[('♻️ 重试', 'reset')], [('🔙 返回', 'members')]])
 re_change_pwd2_ikb = ikb([[('♻️ 重试', 'change_pwd2')], [('🔙 返回', 'members')]])
-re_exchange_b_ikb = ikb([[('♻️ 重试', 'exchange'), ('❌ 关闭', 'closeit')]])
+re_exchange_b_ikb = ikb([[('♻️ 再给你一次机会', 'exchange'), ('❌ 算了', 'closeit')]])
 re_born_ikb = ikb([[('✨ 重输', 'store-reborn'), ('💫 返回', 'storeall')]])
 
 
@@ -117,7 +127,7 @@ user_emby_unblock_ikb = ikb([[('❎ 已显示', 'members')]])
 """server ↓"""
 
 
-@cache.memoize(ttl=120)
+@async_memoize(ttl=120)
 async def cr_page_server():
     """
     翻页服务器面板
@@ -450,6 +460,42 @@ async def cr_kk_ikb(uid, first):
                 f"**· 🍥 持有{sakura_b}** | {iv}\n" \
                 f"**· 💠 账号名称** | {name}\n" \
                 f"**· 🚨 到期时间** | **{ex}**\n"
+        try:
+            account = sql_get_emby(uid)
+            viewing_access = has_viewing_access(account)
+            group_credit_count = available_invite_credit_count(uid, credit_type=INVITE_CREDIT_TYPE_GROUP)
+            group_revoked = qualification_revoked(uid, credit_type=INVITE_CREDIT_TYPE_GROUP)
+            account_revoked = qualification_revoked(uid, credit_type=INVITE_CREDIT_TYPE_ACCOUNT_OPEN)
+            account_open_records = list_invite_records(
+                inviter_tg=uid,
+                credit_type=INVITE_CREDIT_TYPE_ACCOUNT_OPEN,
+                limit=1,
+            )
+            group_records = list_invite_records(
+                inviter_tg=uid,
+                credit_type=INVITE_CREDIT_TYPE_GROUP,
+                limit=1,
+            )
+            latest_open = account_open_records[0] if account_open_records else None
+            latest_group = group_records[0] if group_records else None
+            account_history = user_has_account_open_history(uid) if viewing_access else False
+            account_apply_text = "有" if viewing_access and not account_history and not account_revoked else "无"
+            if latest_open:
+                account_apply_text += f"（最近：TG {latest_open.get('invitee_tg')} · {latest_open.get('status_text')}）"
+            if account_revoked:
+                account_apply_text += "（后台已撤销）"
+            invite_text = "有" if group_credit_count > 0 else "无"
+            if latest_group:
+                invite_text += f"（最近：TG {latest_group.get('invitee_tg')} · {latest_group.get('status_text')}）"
+            if group_revoked:
+                invite_text += "（后台已撤销）"
+            text += (
+                f"**· 🎬 观影资格** | {'有' if viewing_access else '无'}\n"
+                f"**· 📨 入群邀请资格** | {invite_text}\n"
+                f"**· 📝 开号申请资格** | {account_apply_text}\n"
+            )
+        except Exception as exc:
+            LOGGER.warning(f"kk invite qualification load failed uid={uid}: {exc}")
         text += text1
         keyboard.extend([['🚫 踢出并封禁', f'fuckoff-{uid}'], ['❌ 删除消息', f'closeit']])
         lines = array_chunk(keyboard, 2)

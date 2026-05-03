@@ -12,7 +12,7 @@ import random
 import re
 from datetime import timedelta, datetime
 from bot.schemas import ExDate, Yulv
-from bot import bot, LOGGER, _open, emby_line, sakura_b, ranks, group, config, schedall
+from bot import bot, LOGGER, _open, emby_line, sakura_b, ranks, group, config, schedall, lv_allowed
 from pyrogram import filters
 from bot.func_helper.emby import emby
 from bot.func_helper.filters import user_in_group_on_filter
@@ -39,7 +39,7 @@ def _is_valid_security_code(value: str) -> bool:
 # 创号函数
 async def create_user(_, call, us, stats):
     msg = await ask_return(call,
-                           text='🤖**注意：您已进入注册状态:\n\n• 请在2min内输入 `[用户名][空格][安全码]`\n• 举个例子🌰：`苏苏 1234`**\n\n• 用户名中不限制中/英文/emoji，🚫**特殊字符**'
+                           text='🤖**哼...既然你要注册，本女仆勉为其难告诉你规则：\n\n• 请在2min内输入 `[用户名][空格][安全码]`\n• 举个例子🌰：`苏苏 1234`**\n\n• 用户名中不限制中/英文/emoji，🚫**特殊字符**'
                                 '\n• 安全码为敏感操作时附加验证，请填入最熟悉的数字4~6位；退出请点 /cancel', timer=120,
                            button=close_it_ikb)
     if not msg:
@@ -51,7 +51,7 @@ async def create_user(_, call, us, stats):
     try:
         emby_name, emby_pwd2 = msg.text.split()
     except (IndexError, ValueError):
-        await msg.reply(f'⚠️ 输入格式错误\n\n`{msg.text}`\n **会话已结束！**')
+        await msg.reply(f'⚠️ 格式错了啦！才不是本女仆的问题...\n\n`{msg.text}`\n **真是的，会话结束！**')
     else:
         send = await msg.reply(
             f'🆗 会话结束，收到设置\n\n用户名：**{emby_name}**  安全码：**{emby_pwd2}** \n\n__正在接入注册队列__......'
@@ -114,18 +114,18 @@ async def create_user(_, call, us, stats):
 async def _perform_create_user(status_message, user_id: int, username: str, security_code: str, days: int, open_register: bool):
     current_user = sql_get_emby(tg=user_id)
     if not current_user:
-        await editMessage(status_message, '⚠️ 数据库没有你，请重新 /start 录入后再试。', re_create_ikb)
+        await editMessage(status_message, '⚠️ 数据库里找不到你呢...才、才不是本女仆把你弄丢的！请重新 /start 录入啦。', re_create_ikb)
         return
 
     if current_user.embyid:
-        await editMessage(status_message, '💦 你已经有账户啦！请勿重复注册。', back_members_ikb)
+        await editMessage(status_message, '💦 哼，不是已经有账户了嘛...别、别贪心啦！', back_members_ikb)
         return
 
     current_registered = int(refresh_registration_slots() or 0)
     if current_registered >= _open.all_user:
         await editMessage(
             status_message,
-            f'**🚫 很抱歉，注册总数({current_registered})已达限制({_open.all_user})。**',
+            f'**🚫 注、注册满了啦...({current_registered}/{_open.all_user})。这不是本女仆的错！等主人加位置吧。**',
             back_members_ikb,
         )
         return
@@ -191,7 +191,7 @@ async def _perform_create_user(status_message, user_id: int, username: str, secu
 
     await editMessage(
         status_message,
-        f'**▎创建用户成功🎉**\n\n'
+        f'**▎哼，才不是特别为你创建的呢...其实是成功啦！🎉**\n\n'
         f'· 用户名称 | `{username}`\n'
         f'· 用户密码 | `{password}`\n'
         f'· 安全密码 | `{security_code}`（仅发送一次）\n'
@@ -212,10 +212,10 @@ async def _perform_create_user(status_message, user_id: int, username: str, secu
 async def members(_, call):
     data = await members_info(tg=call.from_user.id)
     if not data:
-        return await callAnswer(call, '⚠️ 数据库没有你，请重新 /start录入', True)
+        return await callAnswer(call, '⚠️ 找不到你...才、才不是本女仆忘了！重新 /start 一下啦。', True)
     await callAnswer(call, f"✅ 用户界面")
     name, lv, ex, us, embyid, pwd2 = data
-    text = f"▎__欢迎进入用户面板！{call.from_user.first_name}__\n\n" \
+    text = f"▎__哼...又来看面板了？{call.from_user.first_name}？才、才没说不让你看呢。__\n\n" \
            f"**· 🆔 用户のID** | `{call.from_user.id}`\n" \
            f"**· 📊 当前状态** | {lv}\n" \
            f"**· 🍒 积分{sakura_b}** | {us}\n" \
@@ -242,7 +242,7 @@ async def create(_, call):
     """
     e = sql_get_emby(tg=call.from_user.id)
     if not e:
-        return await callAnswer(call, '⚠️ 数据库没有你，请重新 /start录入', True)
+        return await callAnswer(call, '⚠️ 找不到你...才、才不是本女仆忘了！重新 /start 一下啦。', True)
 
     if e.embyid:
         await callAnswer(call, '💦 你已经有账户啦！请勿重复注册。', True)
@@ -312,7 +312,7 @@ async def change_tg(_, call):
         pass
     d = sql_get_emby(tg=call.from_user.id)
     if not d:
-        return await callAnswer(call, '⚠️ 数据库没有你，请重新 /start录入', True)
+        return await callAnswer(call, '⚠️ 找不到你...才、才不是本女仆忘了！重新 /start 一下啦。', True)
     if d.embyid:
         return await callAnswer(call, '⚖️ 您已经拥有账户，请不要钻空子', True)
 
@@ -482,7 +482,7 @@ async def bind_tg(_, call):
 async def del_me(_, call):
     e = sql_get_emby(tg=call.from_user.id)
     if e is None:
-        return await callAnswer(call, '⚠️ 数据库没有你，请重新 /start录入', True)
+        return await callAnswer(call, '⚠️ 找不到你...才、才不是本女仆忘了！重新 /start 一下啦。', True)
     else:
         if e.embyid is None:
             return await callAnswer(call, '未查询到账户，不许乱点！💢', True)
@@ -502,8 +502,7 @@ async def del_me(_, call):
         else:
             if m.text == e.pwd2:
                 await m.delete()
-                await editMessage(call, '**⚠️ 如果您的账户到期，我们将封存您的账户，但仍保留数据'
-                                        '而如果您选择删除，这意味着服务器会将您此前的活动数据全部删除。\n**',
+                await editMessage(call, '**⚠️ 哼...真的要删吗？到期的话本女仆会帮你封存的。但删了的话，就、就真的什么都没有了...才不是舍不得你呢。\n**',
                                   buttons=del_me_ikb(e.embyid))
             else:
                 await m.delete()
@@ -536,7 +535,7 @@ async def del_emby(_, call):
 async def reset(_, call):
     e = sql_get_emby(tg=call.from_user.id)
     if e is None:
-        return await callAnswer(call, '⚠️ 数据库没有你，请重新 /start录入', True)
+        return await callAnswer(call, '⚠️ 找不到你...才、才不是本女仆忘了！重新 /start 一下啦。', True)
     if e.embyid is None:
         return await bot.answer_callback_query(call.id, '未查询到账户，不许乱点！💢', show_alert=True)
     else:
@@ -591,7 +590,7 @@ async def reset(_, call):
 async def change_pwd2(_, call):
     e = sql_get_emby(tg=call.from_user.id)
     if e is None:
-        return await callAnswer(call, '⚠️ 数据库没有你，请重新 /start录入', True)
+        return await callAnswer(call, '⚠️ 找不到你...才、才不是本女仆忘了！重新 /start 一下啦。', True)
     if e.embyid is None:
         return await bot.answer_callback_query(call.id, '未查询到账户，不许乱点！💢', show_alert=True)
 
@@ -699,7 +698,7 @@ async def change_pwd2(_, call):
 async def embyblocks(_, call):
     data = sql_get_emby(tg=call.from_user.id)
     if not data:
-        return await callAnswer(call, '⚠️ 数据库没有你，请重新 /start录入', True)
+        return await callAnswer(call, '⚠️ 找不到你...才、才不是本女仆忘了！重新 /start 一下啦。', True)
     if data.embyid is None:
         return await callAnswer(call, '❓ 未查询到账户，不许乱点!', True)
     elif data.lv == "c":
@@ -885,7 +884,7 @@ async def do_store_invite(_, call):
             return
         # 用户等级为 a（白名单） b(普通用户) c(已禁用) d（未注册用户）
         # 比如当 _open.invite_lv 设置为 d 时，用户等级为 小于等于d 的用户可以兑换，否则无法兑换
-        if e.lv > _open.invite_lv:
+        if not lv_allowed(e.lv, _open.invite_lv):
             return await callAnswer(call, '❌ 账号等级不足，无法兑换', True)
         if e.iv < _open.invite_cost:
             return await callAnswer(call,
