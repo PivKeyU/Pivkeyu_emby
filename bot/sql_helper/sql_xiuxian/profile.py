@@ -156,6 +156,8 @@ def get_xiuxian_settings() -> dict[str, Any]:
 
 
 def set_xiuxian_settings(patch: dict[str, Any]) -> dict[str, Any]:
+    from .activities import DEPRECATED_XIUXIAN_SETTING_KEYS
+
     sanitized_patch = {key: value for key, value in patch.items() if key not in DEPRECATED_XIUXIAN_SETTING_KEYS}
     with Session() as session:
         for key, value in sanitized_patch.items():
