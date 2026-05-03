@@ -113,7 +113,6 @@ from bot.sql_helper.sql_xiuxian import (
     normalize_marriage_status,
     normalize_realm_stage,
     normalize_social_mode,
-    rebase_immortal_realm_state,
     finalize_auction_item as sql_finalize_auction_item,
     place_auction_bid as sql_place_auction_bid,
     purchase_shop_item as sql_purchase_shop_item,
@@ -249,11 +248,11 @@ PILL_BATCH_USE_TYPES = {
     "true_yuan",
     "willpower",
 }
-# clear_poison intentionally excluded from batch use to prevent
-# infinite stat stacking via the dan_poison cycling exploit:
-# 1. batch-use stat pills until dan_poison >= 100
-# 2. batch-use clear_poison pills to reset dan_poison to 0
-# 3. repeat — the only limit becomes inventory count
+# clear_poison 刻意不加入批量使用，防止丹毒循环叠加：
+# 1. 批量服用属性丹药 → 丹毒 >= 100
+# 2. 批量服用清毒丹 → 丹毒归零
+# 3. 循环往复 → 唯一限制只剩背包数量
+# 排除后，清毒只能单次手动使用，数值体系不会被无限放大。
 ROOT_COMBAT_BASELINE_QUALITY = "中品灵根"
 ROOT_COMBAT_FACTOR_MIN = 0.97
 ROOT_COMBAT_FACTOR_MAX = 1.06
@@ -3173,12 +3172,6 @@ def _repair_profile_realm_state(tg: int) -> XiuxianProfile | None:
     target_layer = int(repair["target_layer"])
     target_cultivation = int(repair["target_cultivation"])
     changed = bool(repair.get("changed"))
-    if not changed:
-        repair = rebase_immortal_realm_state(profile.realm_stage, profile.realm_layer, profile.cultivation)
-        target_stage = repair["target_stage"]
-        target_layer = int(repair["target_layer"])
-        target_cultivation = int(repair["target_cultivation"])
-        changed = bool(repair.get("changed"))
 
     target_stage = normalize_realm_stage(target_stage or FIRST_REALM_STAGE)
     settled_layer, settled_cultivation, _, _ = apply_cultivation_gain(
@@ -7099,7 +7092,7 @@ def _mentorship_validate_pair(
     if _mentorship_chain_has_target(session, mentor_tg, disciple_tg):
         raise ValueError("当前传承链会形成循环师门，暂不允许这样结成师徒。")
 
-    # Block re-forming mentorship within cooldown period after graduation/dissolution
+    # 出师/解除关系后的冷却期内禁止重新结成师徒
     prior = (
         session.query(XiuxianMentorship)
         .filter(
@@ -7927,7 +7920,7 @@ def _marriage_validate_pair(session: Session, husband_profile: XiuxianProfile, w
         raise ValueError("女方当前已有道侣，需先和离。")
     if husband_relation is not None and wife_relation is not None:
         raise ValueError("双方当前已经是道侣，无需重复缔结。")
-    # Divorce cooldown: configurable days before remarrying anyone
+    # 和离后冷却期，期间不可再与他人缔结道侣
     divorce_cooldown_days = max(int(get_xiuxian_settings().get("marriage_divorce_cooldown_days", DEFAULT_SETTINGS.get("marriage_divorce_cooldown_days", 7)) or 0), 1)
     cooldown_deadline = utcnow() - timedelta(days=divorce_cooldown_days)
     for tg, label in [(husband_tg, "男方"), (wife_tg, "女方")]:
@@ -11912,7 +11905,7 @@ def _apply_pill_effect_once(
     raw_poison_delta = float(effects.get("poison_delta", 0) or 0)
     effective_poison = raw_poison_delta * (1 - total_resistance) * (1 - poison_resist)
     dan_poison = min(int(profile.dan_poison or 0) + int(round(effective_poison)), poison_cap)
-    # Per-realm stat caps to prevent infinite pill stacking
+    # 每个大境界的属性上限，防止丹药无限堆叠
     _max_base = {0: 300, 1: 600, 2: 1200, 3: 2500, 4: 5000, 5: 10000, 6: 20000, 7: 40000, 8: 80000}
     stat_cap = _max_base.get(realm_index(profile.realm_stage or FIRST_REALM_STAGE), 100000)
     combat_cap = stat_cap * 3

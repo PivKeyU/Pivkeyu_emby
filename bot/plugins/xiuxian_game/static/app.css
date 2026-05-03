@@ -366,7 +366,7 @@ h3 {
   padding: 16px 18px;
   list-style: none;
   cursor: pointer;
-  background: rgba(16, 185, 129, 0.05); /* Jade tint */
+  background: rgba(16, 185, 129, 0.05); /* 淡翠绿底色 */
   border-bottom: 1px solid transparent;
   transition: background 0.2s ease;
 }
@@ -2065,9 +2065,9 @@ button.is-blocked:not(:disabled) {
   }
 }
 
-/* --- Redesign Additions --- */
+/* --- 界面优化补充样式 --- */
 
-/* --- Redesign Additions: Sorting & FABs --- */
+/* --- 卡片排序与悬浮按钮 --- */
 
 .card-sort-controls {
   display: flex;
@@ -2079,7 +2079,7 @@ button.is-blocked:not(:disabled) {
   font-size: 11px;
 }
 
-/* Floating Action Buttons (FABs) */
+/* 悬浮操作按钮 */
 .fab-container {
   position: fixed;
   right: 16px;

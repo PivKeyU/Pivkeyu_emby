@@ -1108,8 +1108,8 @@ function applyInviteSettings(settings = {}) {
   if (refs.inviteStrictTarget) refs.inviteStrictTarget.checked = settings.strict_target !== false;
   if (refs.inviteSettingsStatus) {
     refs.inviteSettingsStatus.textContent = settings.enabled
-      ? `邀请功能已开启，目标群组 ${settings.target_chat_id || "未配置"}，链接有效期 ${formatCount(settings.expire_hours || 24)} 小时。`
-      : "邀请功能当前关闭，用户无法生成新的入群邀请。";
+      ? `邀请模块已开启：观影用户可生成一次入群邀请，也可提交一次账号开通申请；目标群组 ${settings.target_chat_id || "未配置"}，入群链接有效期 ${formatCount(settings.expire_hours || 24)} 小时，注册天数 ${formatCount(settings.account_open_days || 30)} 天。`
+      : "邀请模块当前关闭，用户界面的入群邀请和账号开通申请都会隐藏。";
     refs.inviteSettingsStatus.dataset.tone = settings.enabled ? "success" : "warning";
   }
 }
@@ -1147,7 +1147,7 @@ function renderInviteCredits(items = [], type = "group_join") {
   root.innerHTML = "";
   if (qualification) {
     const info = type === "account_open" ? qualification.account_open : qualification.group_join;
-    const label = type === "account_open" ? "开号申请资格" : "入群邀请资格";
+    const label = type === "account_open" ? "开通申请资格" : "入群邀请资格";
     const article = document.createElement("article");
     article.className = "code-card";
     article.innerHTML = `
@@ -1168,8 +1168,8 @@ function renderInviteCredits(items = [], type = "group_join") {
   if (!items.length) {
     root.insertAdjacentHTML("beforeend", `
       <article class="user-card">
-        <div class="user-name">当前还没有${type === "account_open" ? "开号资格" : "入群资格"}</div>
-        <p class="user-meta stack-empty">可以通过后台手动赠送，或在商店上架对应资格商品。</p>
+        <div class="user-name">当前还没有${type === "account_open" ? "注册资格" : "入群资格"}</div>
+        <p class="user-meta stack-empty">${type === "account_open" ? "注册资格已改为申请制，优先处理下方开通申请。" : "入群资格由观影用户自动拥有一次。"}</p>
       </article>
     `);
     syncInviteCreditSelectionActions(type);
@@ -1178,7 +1178,7 @@ function renderInviteCredits(items = [], type = "group_join") {
 
   for (const item of items) {
     const selectable = Boolean(item.available);
-    const typeLabel = item.credit_type_text || (type === "account_open" ? "开号资格" : "入群资格");
+    const typeLabel = item.credit_type_text || (type === "account_open" ? "注册资格" : "入群资格");
     const card = document.createElement("article");
     card.className = "code-card";
     card.innerHTML = `
@@ -1194,7 +1194,7 @@ function renderInviteCredits(items = [], type = "group_join") {
         </div>
       </div>
       <div class="user-name">${escapeHtml(typeLabel)} #${escapeHtml(item.id)} · ${escapeHtml(fmtActor(item.owner))}</div>
-      <div class="user-subline">发放时间：${escapeHtml(fmtDateTime(item.granted_at))} · 来源：${escapeHtml(item.source_ref || item.source || "后台")}${item.invite_days ? ` · 开号 ${escapeHtml(item.invite_days)} 天` : ""}</div>
+      <div class="user-subline">发放时间：${escapeHtml(fmtDateTime(item.granted_at))} · 来源：${escapeHtml(item.source_ref || item.source || "后台")}${item.invite_days ? ` · 注册 ${escapeHtml(item.invite_days)} 天` : ""}</div>
       <div class="plugin-meta">发放人：${escapeHtml(fmtActor(item.granted_by))}</div>
       <div class="plugin-meta">备注：${escapeHtml(item.note || item.revoke_reason || "无")}</div>
       ${item.available ? `<div class="plugin-actions"><button type="button" class="secondary" data-invite-credit-edit="${escapeHtml(item.id)}" data-invite-credit-type="${escapeHtml(type)}">编辑资格</button></div>` : ""}
@@ -1236,10 +1236,10 @@ function renderInviteRecords(items = [], type = "group_join") {
       <div class="code-card-top">
         <div class="code-card-badges">
           <span class="badge badge--${pending ? "pending" : item.status === "approved" ? "normal" : "danger"}">${escapeHtml(item.status_text)}</span>
-          <span class="badge badge--normal">${isAccountOpen ? `开号 ${escapeHtml(item.invite_days || 0)} 天` : `群 ${escapeHtml(item.target_chat_id)}`}</span>
+          <span class="badge badge--normal">${isAccountOpen ? `注册 ${escapeHtml(item.invite_days || 0)} 天` : `群 ${escapeHtml(item.target_chat_id)}`}</span>
         </div>
       </div>
-      <div class="user-name">${isAccountOpen ? "开号申请" : "入群邀请"} #${escapeHtml(item.id)} · ${escapeHtml(fmtActor(item.inviter))} -> ${escapeHtml(fmtActor(item.invitee))}</div>
+      <div class="user-name">${isAccountOpen ? "开通申请" : "入群邀请"} #${escapeHtml(item.id)} · ${escapeHtml(fmtActor(item.inviter))} -> ${escapeHtml(fmtActor(item.invitee))}</div>
       <div class="user-subline">创建：${escapeHtml(fmtDateTime(item.created_at))} · 过期：${escapeHtml(fmtDateTime(item.expires_at))}</div>
       <div class="plugin-meta">${isAccountOpen ? "申请人" : "邀请人"}：${escapeHtml(fmtActor(item.inviter))} · ${isAccountOpen ? "被申请人" : "被邀请人"}：${escapeHtml(fmtActor(item.invitee))}</div>
       <div class="plugin-meta">最近请求：${escapeHtml(fmtActor(item.last_requester))} · 使用时间：${escapeHtml(fmtDateTime(item.used_at))}</div>
@@ -2394,20 +2394,20 @@ function useSelectedUserForInviteOpenGrant() {
     showToast(message, "warning");
     return;
   }
-  refs.inviteOpenGrantTg.value = state.selectedUser.tg;
+  refs.inviteOpenCreateInviter.value = state.selectedUser.tg;
   focusSection("invites-section");
 }
 
 async function grantInviteOpenCredits(event) {
   event.preventDefault();
-  const message = "开号资格已改为申请制，请在下方开号申请关系中审核，或使用管理员代发。";
+  const message = "注册资格已改为申请制，请在下方开通申请关系中审核，或使用管理员代发。";
   if (refs.inviteOpenGrantStatus) refs.inviteOpenGrantStatus.textContent = message;
   setAdminStatus(message, "warning");
   showToast(message, "warning");
   return;
   const ownerTg = Number(refs.inviteOpenGrantTg?.value || 0);
   if (!ownerTg) {
-    const message = "请先填写需要赠送开号资格的用户 TGID。";
+    const message = "请先填写需要赠送注册资格的用户 TGID。";
     setAdminStatus(message, "warning");
     showToast(message, "warning");
     return;
@@ -2424,12 +2424,12 @@ async function grantInviteOpenCredits(event) {
       })
     }));
     applyInviteBundle(result.data || {});
-    const message = `已向 TG ${ownerTg} 发放 1 个开号资格。`;
+    const message = `已向 TG ${ownerTg} 发放 1 个注册资格。`;
     if (refs.inviteOpenGrantStatus) refs.inviteOpenGrantStatus.textContent = message;
     setAdminStatus(message, "success");
     showToast(message, "success");
   } catch (error) {
-    const message = normalizeError(error, "赠送开号资格失败。");
+    const message = normalizeError(error, "赠送注册资格失败。");
     if (refs.inviteOpenGrantStatus) refs.inviteOpenGrantStatus.textContent = message;
     setAdminStatus(message, "error");
     showToast(message, "error");
@@ -2457,11 +2457,11 @@ async function createAccountOpenInviteFromAdmin(event) {
       })
     }));
     applyInviteBundle(result.data || {});
-    const message = `已由 TG ${inviterTg} 向 TG ${inviteeTg} 发放开号资格。`;
+    const message = `已由 TG ${inviterTg} 向 TG ${inviteeTg} 发放注册资格。`;
     setAdminStatus(message, "success");
     showToast(message, "success");
   } catch (error) {
-    const message = normalizeError(error, "代发开号资格失败。");
+    const message = normalizeError(error, "代发注册资格失败。");
     setAdminStatus(message, "error");
     showToast(message, "error");
     await popup("代发失败", message, "error");
@@ -2497,7 +2497,7 @@ async function updateInviteQualification(eventOrOptions = {}) {
     state.inviteSearchQuery = String(ownerTg);
     if (refs.inviteSearchInput) refs.inviteSearchInput.value = state.inviteSearchQuery;
     applyInviteBundle(result.data || {});
-    const label = creditType === "account_open" ? "开号申请资格" : "入群资格";
+    const label = creditType === "account_open" ? "开通申请资格" : "入群资格";
     const message = `已${enabled ? "恢复" : "撤销"} TG ${ownerTg} 的${label}。`;
     setAdminStatus(message, "success");
     showToast(message, "success");
@@ -2515,16 +2515,16 @@ async function reviewAccountOpenInvite(recordId, action) {
   let inviteDays = item?.invite_days || refs.inviteAccountOpenDays?.value || 30;
   let note = "";
   if (action === "approve") {
-    const daysValue = window.prompt("通过申请并发放开号天数：", inviteDays);
+    const daysValue = window.prompt("通过申请并发放注册天数：", inviteDays);
     if (daysValue === null) return;
     inviteDays = Number(daysValue || inviteDays || 30);
     note = window.prompt("审核备注：", "审核通过") || "";
   } else if (action === "decline") {
-    const confirmed = window.confirm(`确认拒绝开号申请 #${recordId} 吗？`);
+    const confirmed = window.confirm(`确认拒绝开通申请 #${recordId} 吗？`);
     if (!confirmed) return;
     note = window.prompt("拒绝原因：", "后台拒绝") || "";
   } else if (action === "revoke") {
-    const confirmed = window.confirm(`确认撤销开号申请 #${recordId} 吗？已发放但未注册的资格会扣回。`);
+    const confirmed = window.confirm(`确认撤销开通申请 #${recordId} 吗？已发放但未注册的资格会扣回。`);
     if (!confirmed) return;
     note = window.prompt("撤销原因：", "后台撤销") || "";
   }
@@ -2538,10 +2538,10 @@ async function reviewAccountOpenInvite(recordId, action) {
       })
     });
     applyInviteBundle(result.data || {});
-    setAdminStatus(`开号申请 #${recordId} 已处理。`, "success");
-    showToast("开号申请已处理。", "success");
+    setAdminStatus(`开通申请 #${recordId} 已处理。`, "success");
+    showToast("开通申请已处理。", "success");
   } catch (error) {
-    const message = normalizeError(error, "处理开号申请失败。");
+    const message = normalizeError(error, "处理开通申请失败。");
     setAdminStatus(message, "error");
     showToast(message, "error");
     await popup("处理失败", message, "error");
@@ -2561,7 +2561,7 @@ async function editInviteCredit(creditId, type = "group_join") {
     note: noteValue
   };
   if (type === "account_open") {
-    const daysValue = window.prompt("修改开号天数：", item.invite_days || refs.inviteAccountOpenDays?.value || 30);
+    const daysValue = window.prompt("修改注册天数：", item.invite_days || refs.inviteAccountOpenDays?.value || 30);
     if (daysValue === null) return;
     payload.invite_days = Number(daysValue || item.invite_days || 30);
   }

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import aiohttp
+import unicodedata
 from datetime import datetime, timedelta
 from typing import Any
 
 from pyrogram import enums
 from pyrogram.types import ChatPermissions
 
-from bot import LOGGER, bot, group
+from bot import LOGGER, bot, bot_token, group
 from bot.sql_helper.sql_moderation import (
     get_group_moderation_setting,
     get_group_moderation_warning,
@@ -126,6 +128,48 @@ def _exact_member_match(payload: dict[str, Any], keyword: str) -> bool:
     username = str(payload.get("username") or "").strip().lower()
     tg_text = str(payload.get("tg") or "").strip()
     return normalized in {display_name, username, tg_text}
+
+
+async def _telegram_bot_api_post(method: str, payload: dict[str, Any]) -> Any:
+    endpoint = f"https://api.telegram.org/bot{bot_token}/{method}"
+    timeout = aiohttp.ClientTimeout(total=10)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(endpoint, json=payload) as response:
+                data = await response.json(content_type=None)
+    except Exception as exc:
+        raise ModerationServiceError(f"调用 Telegram Bot API {method} 失败：{exc}") from exc
+
+    if not isinstance(data, dict) or not data.get("ok"):
+        description = str((data or {}).get("description") or f"Telegram Bot API {method} 失败。").strip()
+        raise ModerationServiceError(description)
+    return data.get("result")
+
+
+def normalize_telegram_member_badge_text(value: str | None) -> str:
+    text = str(value or "").strip()
+    rows: list[str] = []
+    for char in text:
+        codepoint = ord(char)
+        if codepoint in {0x200D, 0xFE0E, 0xFE0F}:
+            continue
+        if (
+            0x1F000 <= codepoint <= 0x1FAFF
+            or 0x2600 <= codepoint <= 0x27BF
+            or unicodedata.category(char) == "So"
+        ):
+            continue
+        rows.append(char)
+    return "".join(rows).strip()[:16]
+
+
+async def get_chat_member_details(chat_id: int | str, tg: int | str) -> dict[str, Any]:
+    chat_id = int(chat_id)
+    tg = int(tg)
+    result = await _telegram_bot_api_post("getChatMember", {"chat_id": chat_id, "user_id": tg})
+    if not isinstance(result, dict):
+        raise ModerationServiceError("未能获取群成员状态。")
+    return result
 
 
 async def list_managed_chats() -> list[dict[str, Any]]:
@@ -378,13 +422,14 @@ async def set_chat_member_title(chat_id: int | str, tg: int | str, title: str) -
     if not normalized_title:
         raise ModerationServiceError("头衔不能为空。")
 
-    set_title = getattr(bot, "set_administrator_title", None)
-    if not callable(set_title):
-        raise ModerationServiceError("当前 Bot 运行环境不支持设置管理员头衔。")
-
-    safe_title = normalized_title[:16]
+    safe_title = normalize_telegram_member_badge_text(normalized_title)
+    if not safe_title:
+        raise ModerationServiceError("头衔不能只包含 emoji 或特殊符号。")
     try:
-        await set_title(chat_id, tg, safe_title)
+        await _telegram_bot_api_post(
+            "setChatAdministratorCustomTitle",
+            {"chat_id": chat_id, "user_id": tg, "custom_title": safe_title},
+        )
     except Exception as exc:
         raise ModerationServiceError("设置头衔失败，请确认目标已是管理员且 Bot 拥有修改头衔权限。") from exc
 
@@ -394,6 +439,33 @@ async def set_chat_member_title(chat_id: int | str, tg: int | str, title: str) -
         "title": safe_title,
         "action": "title",
         "message": f"已设置头衔：{safe_title}",
+    }
+
+
+async def set_chat_member_tag(chat_id: int | str, tg: int | str, tag: str | None) -> dict[str, Any]:
+    chat_id = int(chat_id)
+    tg = int(tg)
+    normalized_tag = normalize_telegram_member_badge_text(tag)
+    try:
+        await _telegram_bot_api_post(
+            "setChatMemberTag",
+            {"chat_id": chat_id, "user_id": tg, "tag": normalized_tag},
+        )
+    except ModerationServiceError as exc:
+        message = str(exc)
+        lowered = message.lower()
+        if any(keyword in lowered for keyword in ("not enough rights", "administrator", "manage tags", "can_manage_tags")):
+            raise ModerationServiceError("设置群成员标签失败，请确认 Bot 已是群管理员并开启管理标签权限（can_manage_tags）。") from exc
+        if any(keyword in lowered for keyword in ("user not found", "member not found", "user not participant", "not participant")):
+            raise ModerationServiceError("被操作用户不在目标群组里。") from exc
+        raise
+
+    return {
+        "chat_id": chat_id,
+        "tg": tg,
+        "tag": normalized_tag,
+        "action": "tag",
+        "message": "已设置群成员标签。" if normalized_tag else "已清除群成员标签。",
     }
 
 

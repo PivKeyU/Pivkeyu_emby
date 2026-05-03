@@ -19,7 +19,8 @@ const refs = {
   myProductList: document.querySelector("#my-product-list"),
   listingForm: document.querySelector("#listing-form"),
   listingSubmit: document.querySelector("#listing-submit"),
-  listingUpload: document.querySelector("#listing-upload")
+  listingUpload: document.querySelector("#listing-upload"),
+  adminEntry: document.querySelector("#shop-admin-entry")
 };
 
 function escapeHtml(value) {
@@ -101,8 +102,8 @@ function inviteItemType(itemType) {
 function inviteItemLabel(item) {
   const type = inviteItemType(item?.item_type);
   if (type === "group") return "入群资格";
-  if (type === "account") return "开号资格";
-  return item?.official ? "官方" : "用户";
+  if (type === "account") return "注册资格";
+  return item?.official ? "官方" : "个人";
 }
 
 function renderProducts(items = []) {
@@ -181,12 +182,16 @@ function applyBundle(bundle) {
   const permissions = bundle.permissions || {};
   const account = bundle.account || {};
   refs.title.textContent = settings.shop_title || "仙舟小铺";
-  refs.notice.textContent = settings.shop_notice || "欢迎使用 Emby 货币购买数字商品。";
+  refs.notice.textContent = settings.shop_notice || "欢迎使用积分购买数字商品。";
   refs.balance.textContent = `${account.iv ?? 0} ${settings.currency_name || ""}`.trim();
   refs.itemCount.textContent = String((bundle.items || []).length);
   refs.myItemCount.textContent = String((bundle.my_items || []).length);
   refs.version.textContent = `v${bundle.meta?.version || "-"}`;
-  refs.role.textContent = permissions.is_admin ? "管理员" : permissions.can_publish ? "可上架用户" : "普通买家";
+  refs.role.textContent = permissions.is_admin ? "管理员" : permissions.can_publish ? "卖家" : "普通用户";
+  refs.adminEntry?.classList.toggle("hidden", !permissions.is_admin);
+  if (refs.adminEntry && permissions.admin_url) {
+    refs.adminEntry.href = permissions.admin_url;
+  }
   refs.listingSection.classList.toggle("hidden", !permissions.can_publish);
   renderProducts(bundle.items || []);
   renderMyItems(bundle.my_items || []);
@@ -218,7 +223,7 @@ async function bootstrap() {
   setStatus("正在同步商店数据...");
   const data = await request("POST", "/plugins/shop/api/bootstrap", { init_data: state.initData });
   applyBundle(data);
-  setStatus("商店数据已同步完成。", "success");
+  setStatus("商店数据已同步。", "success");
 }
 
 refs.refresh?.addEventListener("click", () => {
@@ -239,7 +244,7 @@ refs.listingUpload?.addEventListener("click", async () => {
   try {
     const payload = await uploadImage(file);
     document.querySelector("#listing-image").value = payload.url || payload.relative_url || "";
-    setStatus("商品图片上传成功。", "success");
+    setStatus("图片上传成功。", "success");
   } catch (error) {
     setStatus(String(error.message || error), "error");
     window.alert(String(error.message || error));
@@ -267,7 +272,7 @@ refs.listingForm?.addEventListener("submit", async (event) => {
     });
     applyBundle(payload);
     refs.listingForm.reset();
-    setStatus("商品已经发布成功。", "success");
+    setStatus("商品发布成功。", "success");
   } catch (error) {
     setStatus(String(error.message || error), "error");
     window.alert(String(error.message || error));

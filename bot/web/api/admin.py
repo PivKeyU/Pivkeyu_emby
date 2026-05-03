@@ -718,7 +718,7 @@ async def _safe_send_account_open_review_notice(record: dict[str, Any] | None, a
     if not invitee_tg:
         return
     action_text = {
-        "approve": f"已审核通过，获得 {int(record.get('invite_days') or 0)} 天开户注册资格。",
+        "approve": f"已审核通过，获得 {int(record.get('invite_days') or 0)} 天注册资格。",
         "decline": "已被拒绝。",
         "reject": "已被拒绝。",
         "revoke": "已被撤销。",
@@ -729,7 +729,7 @@ async def _safe_send_account_open_review_notice(record: dict[str, Any] | None, a
         _telegram_actor_label(record.get("reviewed_by_tg")),
     )
     text = (
-        f"你的 Emby 开号申请{action_text}\n\n"
+        f"你的 Emby 开通申请{action_text}\n\n"
         f"申请人：{inviter_label}\n"
         f"被申请人：{invitee_label}\n"
         f"审核人：{reviewer_label}"
@@ -749,10 +749,10 @@ async def _ensure_target_user_in_invite_group(invitee_tg: int) -> None:
         member = await bot.get_chat_member(chat_id=int(target_chat_id), user_id=int(invitee_tg))
     except Exception as exc:
         LOGGER.warning(f"admin check account-open target group member failed chat={target_chat_id} tg={invitee_tg}: {exc}")
-        raise HTTPException(status_code=400, detail="被申请人不在目标群组里呢，不能通过开号申请啦~") from exc
+        raise HTTPException(status_code=400, detail="被申请人不在目标群组里呢，不能通过开通申请啦~") from exc
     status = str(getattr(member, "status", "") or "").lower()
     if "left" in status or "ban" in status or "kick" in status:
-        raise HTTPException(status_code=400, detail="被申请人不在目标群组里呢，不能通过开号申请啦~")
+        raise HTTPException(status_code=400, detail="被申请人不在目标群组里呢，不能通过开通申请啦~")
 
 
 def _normalize_code_create_payload(payload: AdminCodeCreatePayload) -> dict[str, Any]:
@@ -1471,7 +1471,7 @@ async def grant_invite_credit_api(payload: AdminInviteGrantPayload, request: Req
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     detail = (
-        "开号资格已改为申请制，请在后台处理开号申请或使用管理员代发。"
+        "注册资格已改为申请制，请在后台处理开通申请或使用管理员代发。"
         if credit_type == INVITE_CREDIT_TYPE_ACCOUNT_OPEN
         else "入群资格已改为观影用户自动拥有一次，不支持手动发放。"
     )
@@ -1557,7 +1557,7 @@ async def review_account_open_invite_api(
         if action == "approve":
             pending_record = get_invite_record(record_id)
             if pending_record is None:
-                raise HTTPException(status_code=404, detail="哼，本女仆找不到这条开号申请啦~")
+                raise HTTPException(status_code=404, detail="哼，本女仆找不到这条开通申请啦~")
             await _ensure_target_user_in_invite_group(int(pending_record.get("invitee_tg") or 0))
         if action == "approve":
             record = approve_account_open_invite_record(
@@ -1583,7 +1583,7 @@ async def review_account_open_invite_api(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if record is None:
-        raise HTTPException(status_code=404, detail="哼，本女仆找不到这条开号申请啦~")
+        raise HTTPException(status_code=404, detail="哼，本女仆找不到这条开通申请啦~")
     await _safe_send_account_open_review_notice(record, action)
     LOGGER.info(f"admin account open invite review actor={actor_tg} record={record_id} action={action}")
     bundle = await _invite_admin_bundle()

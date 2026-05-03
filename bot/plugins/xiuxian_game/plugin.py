@@ -22,6 +22,13 @@ from pyrogram.enums import ChatMemberStatus
 from pyrogram.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot import LOGGER, admin_p, api as api_config, bot, config, group, owner, owner_p, prefixes, user_p
+from bot.func_helper.moderation import (
+    ModerationServiceError,
+    get_chat_member_details,
+    normalize_telegram_member_badge_text,
+    set_chat_member_tag,
+    set_chat_member_title,
+)
 from bot.func_helper.msg_utils import callAnswer
 from bot.plugins import list_miniapp_plugins
 from bot.sql_helper import Session
@@ -1354,6 +1361,100 @@ async def _is_group_admin(client, chat_id: int, user_id: int) -> bool:
         LOGGER.warning(f"xiuxian group admin check failed chat={chat_id} user={user_id}: {exc}")
         return False
     return member.status in {ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR}
+
+
+def _chat_member_status_value(member: Any) -> str:
+    if isinstance(member, dict):
+        raw_status = member.get("status")
+    else:
+        raw_status = getattr(member, "status", None)
+    return str(getattr(raw_status, "value", raw_status) or "").strip().lower()
+
+
+def _chat_member_has_privilege(member: Any, privilege_name: str) -> bool:
+    if isinstance(member, dict):
+        return bool(member.get(privilege_name))
+    direct = getattr(member, privilege_name, None)
+    if direct is not None:
+        return bool(direct)
+    privileges = getattr(member, "privileges", None)
+    return bool(getattr(privileges, privilege_name, False))
+
+
+def _chat_member_can_manage_tags(member: Any) -> bool:
+    if isinstance(member, dict):
+        if "can_manage_tags" in member:
+            return bool(member.get("can_manage_tags"))
+        if "can_pin_messages" in member:
+            return bool(member.get("can_pin_messages"))
+        return True
+    direct = getattr(member, "can_manage_tags", None)
+    if direct is not None:
+        return bool(direct)
+    privileges = getattr(member, "privileges", None)
+    if privileges is not None and getattr(privileges, "can_manage_tags", None) is not None:
+        return bool(getattr(privileges, "can_manage_tags", False))
+    if _chat_member_has_privilege(member, "can_pin_messages"):
+        return True
+    return not (
+        getattr(member, "can_pin_messages", None) is False
+        or getattr(getattr(member, "privileges", None), "can_pin_messages", None) is False
+    )
+
+
+async def _sync_xiuxian_title_to_group(chat_id: int, user_id: int, title_name: str) -> dict[str, Any]:
+    safe_title = normalize_telegram_member_badge_text(title_name)
+    if not safe_title:
+        raise HTTPException(status_code=400, detail="称号不能为空，或仅包含 Telegram 不支持的特殊符号，无法同步到群成员标签。")
+
+    try:
+        me = await bot.get_me()
+        bot_member = await get_chat_member_details(chat_id, int(me.id))
+    except Exception as exc:
+        LOGGER.warning(f"xiuxian title sync bot privilege check failed chat={chat_id}: {exc}")
+        raise HTTPException(status_code=400, detail="无法确认 Bot 在目标群组中的管理权限。") from exc
+
+    if _chat_member_status_value(bot_member) not in {"administrator", "owner", "creator"}:
+        raise HTTPException(status_code=400, detail="Bot 需要先成为目标群组管理员，才能同步群成员标签。")
+
+    try:
+        target_member = await get_chat_member_details(chat_id, user_id)
+    except Exception as exc:
+        LOGGER.warning(f"xiuxian title sync target check failed chat={chat_id} user={user_id}: {exc}")
+        raise HTTPException(status_code=400, detail="请先加入目标群组，再同步群成员标签。") from exc
+
+    target_status = _chat_member_status_value(target_member)
+    if target_status in {"left", "banned", "kicked"}:
+        raise HTTPException(status_code=400, detail="请先加入目标群组，再同步群成员标签。")
+    if target_status in {"owner", "creator"}:
+        raise HTTPException(status_code=400, detail="群主头衔无法由 Bot 修改。")
+
+    try:
+        if target_status == "administrator":
+            if not _chat_member_has_privilege(bot_member, "can_promote_members"):
+                raise HTTPException(status_code=400, detail="Bot 缺少修改管理员头衔权限，请在群管理权限中开启提升管理员权限。")
+            result = await set_chat_member_title(chat_id, user_id, safe_title)
+            mode = "administrator_custom_title"
+        else:
+            if not _chat_member_can_manage_tags(bot_member):
+                raise HTTPException(status_code=400, detail="Bot 缺少管理成员标签权限，请在群管理权限中开启 can_manage_tags。")
+            result = await set_chat_member_tag(chat_id, user_id, safe_title)
+            mode = "regular_member_tag"
+    except HTTPException:
+        raise
+    except ModerationServiceError as exc:
+        LOGGER.warning(f"xiuxian title sync set title failed chat={chat_id} user={user_id}: {exc}")
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc) or "群成员标签同步失败，请确认 Bot 拥有管理成员标签权限。",
+        ) from exc
+
+    return {
+        "chat_id": chat_id,
+        "title": safe_title,
+        "mode": mode,
+        "telegram_result": result,
+    }
 
 
 async def _can_manage_upload_permissions(client, msg) -> bool:
@@ -4040,13 +4141,13 @@ def register_bot(bot_instance) -> None:
 
         ENCOUNTER_AUTO_DISPATCH_LOOP_TASK = loop.create_task(encounter_auto_dispatch_loop())
 
-    # World boss scheduler
+    # 世界 Boss 定时器
     _WORLD_BOSS_LOOP_TASK = globals().get("_WORLD_BOSS_LOOP_TASK")
     if _WORLD_BOSS_LOOP_TASK is None or _WORLD_BOSS_LOOP_TASK.done():
         loop = asyncio.get_event_loop()
 
         async def world_boss_loop() -> None:
-            # Wait before first spawn so the bot is fully ready
+            # 启动后稍等片刻再首次生成，确保 bot 已完全就绪
             await asyncio.sleep(30)
             while True:
                 try:
@@ -5689,30 +5790,16 @@ def register_web(app) -> None:
         current_title = bundle.get("current_title") or {}
         title_name = str(current_title.get("name") or "").strip()
         if not title_name:
-            raise HTTPException(status_code=400, detail="请先佩戴称号，再同步到群头衔。")
+            raise HTTPException(status_code=400, detail="请先佩戴称号，再同步到群成员标签。")
         chat_id = int(payload.chat_id or _main_group_chat_id() or 0)
         if not chat_id:
             raise HTTPException(status_code=400, detail="当前未配置可同步的群组。")
-        set_title = getattr(bot, "set_administrator_title", None)
-        if not callable(set_title):
-            raise HTTPException(status_code=501, detail="当前 Bot 运行环境暂不支持设置群头衔。")
-        sync_title = title_name[:16]
-        try:
-            await set_title(chat_id, telegram_user["id"], sync_title)
-        except Exception as exc:
-            LOGGER.warning(f"xiuxian title sync failed chat={chat_id} tg={telegram_user['id']}: {exc}")
-            raise HTTPException(
-                status_code=400,
-                detail="同步失败。需要先将你设为群管理员，并确保 Bot 拥有修改管理员头衔的权限。",
-            ) from exc
+        result = await _sync_xiuxian_title_to_group(chat_id, telegram_user["id"], title_name)
         return {
             "code": 200,
             "data": _with_core_bundle(
                 telegram_user["id"],
-                {
-                    "chat_id": chat_id,
-                    "title": sync_title,
-                },
+                result,
             ),
         }
 

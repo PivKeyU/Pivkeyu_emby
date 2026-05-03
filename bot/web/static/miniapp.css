@@ -1,22 +1,22 @@
 @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700;900&display=swap');
 
 :root {
-  /* Theme Variables */
-  --bg-top: #fefce8; /* Ancient scroll beige */
-  --bg-bottom: #e0f2fe; /* Light azure / qi mist */
+  /* 主题变量 */
+  --bg-top: #fefce8; /* 古卷米色 */
+  --bg-bottom: #e0f2fe; /* 浅蓝 / 灵气薄雾 */
   --surface: rgba(254, 252, 232, 0.55);
   --surface-strong: rgba(254, 252, 232, 0.85);
   --surface-soft: rgba(254, 252, 232, 0.4);
-  --ink: #1e293b; /* Ink black */
+  --ink: #1e293b; /* 墨黑 */
   --muted: #475569;
-  --line: rgba(5, 150, 105, 0.3); /* Soft jade line */
+  --line: rgba(5, 150, 105, 0.3); /* 柔和翠线 */
   --line-strong: rgba(5, 150, 105, 0.6);
-  --accent: #059669; /* Jade green */
-  --accent-strong: #047857; /* Deep jade */
+  --accent: #059669; /* 翠绿 */
+  --accent-strong: #047857; /* 深翠 */
   --accent-soft: rgba(5, 150, 105, 0.15);
   --success: #10b981;
-  --warning: #d97706; /* Spiritual gold */
-  --danger: #991b1b; /* Blood red */
+  --warning: #d97706; /* 灵金 */
+  --danger: #991b1b; /* 血红 */
   --gold: #b45309;
   --radius-xl: 18px;
   --radius-lg: 14px;
@@ -35,7 +35,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg-top: #0f172a; /* Night sky / dark abyss */
+    --bg-top: #0f172a; /* 夜空 / 深渊 */
     --bg-bottom: #020617;
     --surface: rgba(15, 23, 42, 0.6);
     --surface-strong: rgba(15, 23, 42, 0.85);
@@ -71,7 +71,7 @@ html {
   color-scheme: light dark;
 }
 
-/* Animated gradient background */
+/* 动态渐变背景 */
 @keyframes qiFlow {
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
@@ -84,7 +84,7 @@ body {
   padding-bottom: calc(92px + env(safe-area-inset-bottom));
   color: var(--ink);
   
-  /* Smooth gradient flow */
+  /* 平滑渐变流动 */
   background: linear-gradient(-45deg, #fefce8, #d1fae5, #ecfeff, #fef08a);
   background-size: 400% 400%;
   animation: qiFlow 25s ease-in-out infinite;
@@ -108,7 +108,7 @@ body {
   gap: 20px;
 }
 
-/* Card Styles */
+/* 卡片样式 */
 .card {
   border: var(--glass-border);
   border-radius: var(--radius-xl);
@@ -276,7 +276,7 @@ h2 {
   position: relative;
 }
 
-/* Drag indicator for plugins (desktop only) */
+/* 功能卡片拖拽指示器（仅桌面端） */
 .plugin-item::before {
   content: '≡';
   position: absolute;
@@ -318,7 +318,7 @@ h2 {
   word-break: break-word;
 }
 
-/* Admin Entry */
+/* 管理入口 */
 .hero-admin {
   padding: 20px;
   border-radius: var(--radius-lg);
@@ -501,7 +501,7 @@ h2 {
   gap: 14px;
 }
 
-/* Jade token arrays (plugins) */
+/* 功能图标列表 */
 .plugin-item {
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr);
@@ -615,7 +615,7 @@ h2 {
   background: var(--surface-soft);
 }
 
-/* Talisman Buttons */
+/* 操作按钮 */
 button {
   width: 100%;
   border-radius: 4px;
@@ -634,7 +634,7 @@ button {
   overflow: hidden;
 }
 
-/* Admin glowing button override */
+/* 管理按钮发光样式覆盖 */
 #admin-entry-button {
   background: linear-gradient(135deg, var(--gold), var(--warning));
   border: 1px solid rgba(251, 191, 36, 0.5);
@@ -710,7 +710,7 @@ button:disabled {
   overflow-x: auto;
   padding: 12px;
   border: var(--glass-border);
-  border-radius: 8px; /* matching scroll corners */
+  border-radius: 8px; /* 与滚动角匹配 */
   background: var(--surface-strong);
   box-shadow: 0 16px 40px rgba(4, 120, 87, 0.2);
   backdrop-filter: blur(24px);

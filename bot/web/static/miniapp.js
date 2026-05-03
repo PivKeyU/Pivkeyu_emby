@@ -2,25 +2,25 @@ const LEVEL_META = {
   a: {
     text: "白名单用户",
     shortText: "白名单",
-    description: "享有最高权限，可访问全部媒体库。",
+    description: "最高权限，畅享全部内容。",
     tone: "vip"
   },
   b: {
     text: "普通用户",
     shortText: "普通",
-    description: "已绑定 Emby 账号，可正常使用观影服务。",
+    description: "已绑定账号，畅享观影。",
     tone: "normal"
   },
   c: {
     text: "已封禁",
     shortText: "封禁",
-    description: "账号已被管理员封禁，无法使用任何服务。",
+    description: "账号已被封禁，如有疑问请联系管理员。",
     tone: "danger"
   },
   d: {
     text: "未注册",
     shortText: "未注册",
-    description: "尚未绑定 Emby 账号，请联系管理员或使用注册码开通。",
+    description: "还没绑定账号，用注册码开通或联系管理员吧。",
     tone: "pending"
   }
 };
@@ -39,9 +39,9 @@ function escapeHtml(value) {
 
 function getLevelMeta(code) {
   return LEVEL_META[(code || "").toLowerCase()] || {
-    text: "未知状态",
+    text: "未知",
     shortText: "未知",
-    description: "系统暂时无法判断当前账号状态。",
+    description: "暂时无法获取账号状态。",
     tone: "unknown"
   };
 }
@@ -57,7 +57,7 @@ function normalizeError(error) {
     return "网络连接失败，请稍后重试。";
   }
   if (message === "Internal Server Error") {
-    return "服务器内部错误，请稍后再试。";
+    return "服务器繁忙，请稍后再试。";
   }
   return message;
 }
@@ -124,7 +124,7 @@ function syncFoldToolbar() {
 
   const count = document.querySelector("#fold-count");
   if (count) {
-    count.textContent = `共 ${cards.length} 个模块`;
+    count.textContent = `共 ${cards.length} 个功能`;
   }
 
   const openAllButton = document.querySelector("[data-fold-open-all]");
@@ -163,13 +163,13 @@ function renderPlugins(items) {
         <div class="plugin-mark">空</div>
         <div class="plugin-main">
           <div class="plugin-head">
-            <strong>暂无可用模块</strong>
+            <strong>暂无可用功能</strong>
             <span class="plugin-state is-off">未启用</span>
           </div>
-          <p class="plugin-copy">当前没有已启用的功能模块，请联系管理员开启。</p>
+          <p class="plugin-copy">当前没有已启用的功能，请联系管理员开启。</p>
           <div class="plugin-foot">
             <div class="plugin-meta-row">
-              <span class="plugin-meta">无可用模块</span>
+              <span class="plugin-meta">无可用功能</span>
             </div>
             <span class="plugin-ghost">暂未开启</span>
           </div>
@@ -183,10 +183,10 @@ function renderPlugins(items) {
     const item = document.createElement("a");
     const hasError = Boolean(plugin.error);
     const stateClass = hasError ? "is-error" : plugin.loaded ? "is-on" : "is-off";
-    const stateText = hasError ? "加载失败" : plugin.loaded ? "运行中" : "未加载";
-    const mark = escapeHtml(String(plugin.miniapp_icon || plugin.icon || plugin.name?.slice?.(0, 1) || "模").trim().slice(0, 2));
+    const stateText = hasError ? "加载失败" : plugin.loaded ? "运行中" : "未启用";
+    const mark = escapeHtml(String(plugin.miniapp_icon || plugin.icon || plugin.name?.slice?.(0, 1) || "功").trim().slice(0, 2));
     const description = escapeHtml(plugin.description || "暂无描述信息。");
-    const name = escapeHtml(plugin.miniapp_label || plugin.name || "未命名模块");
+    const name = escapeHtml(plugin.miniapp_label || plugin.name || "未命名功能");
     const version = escapeHtml(plugin.version || "v0.0");
     const errorText = hasError ? `<p class="plugin-warning">错误：${escapeHtml(plugin.error)}</p>` : "";
 
@@ -238,7 +238,7 @@ function renderInviteRecords(records = [], type = "group_join") {
     root.innerHTML = `
       <article class="stack-item">
         <strong>暂无邀请记录</strong>
-        <p>${type === "account_open" ? "提交开号申请后，这里会显示最近的审核状态。" : "成功发送邀请链接后，这里会显示最近的入群邀请状态。"}</p>
+        <p>${type === "account_open" ? "提交开通申请后，这里会显示最近的审核状态。" : "成功发送邀请链接后，这里会显示最近的入群邀请状态。"}</p>
       </article>
     `;
     return;
@@ -279,7 +279,7 @@ function renderInviteBundle(invite = {}) {
     if (!permissions.has_viewing_access) {
       status.textContent = "当前账号没有 Emby 观影资格，暂时不能获取入群资格。";
     } else if (permissions.group_invite_revoked) {
-      status.textContent = "你的入群邀请资格已被后台撤销。";
+      status.textContent = "你的入群邀请资格已被撤销。";
     } else if (count <= 0) {
       status.textContent = permissions.group_invite_used
         ? "你已经使用过本次入群邀请资格。"
@@ -303,19 +303,19 @@ function renderInviteBundle(invite = {}) {
   document.querySelector("#invite-open-days").textContent = `${settings.account_open_days || 30} 天`;
   if (openStatus) {
     if (!permissions.has_viewing_access) {
-      openStatus.textContent = "当前账号没有 Emby 观影资格，暂时不能申请开号资格。";
+      openStatus.textContent = "当前账号没有 Emby 观影资格，暂时不能提交开通申请。";
     } else if (permissions.account_open_application_revoked) {
-      openStatus.textContent = "你的开号申请资格已被后台撤销。";
+      openStatus.textContent = "你的开通申请资格已被撤销。";
     } else if (permissions.account_open_application_used) {
-      openStatus.textContent = "你已经提交或完成过开号申请，不能重复申请。";
+      openStatus.textContent = "你已经提交或完成过开通申请，不能重复申请。";
     } else {
-      openStatus.textContent = "填写群组中未开通用户的 TGID 后，会提交给后台审核。";
+      openStatus.textContent = "填写群组中未开通用户的 TGID 后，提交给管理员审核。";
     }
   }
   const openSubmit = document.querySelector("#invite-open-submit");
   if (openSubmit) {
     openSubmit.disabled = !canCreateOpen;
-    openSubmit.textContent = canCreateOpen ? "提交开号申请" : "暂无申请资格";
+    openSubmit.textContent = canCreateOpen ? "提交开通申请" : "暂无申请资格";
   }
   renderInviteRecords(accountOpen.records || [], "account_open");
   syncFoldToolbar();
@@ -341,7 +341,7 @@ function writeLocalStorage(key, value) {
     }
     window.localStorage.setItem(key, value);
   } catch {
-    // ignore storage failures
+    // 忽略存储不可用等错误
   }
 }
 
@@ -405,8 +405,8 @@ function applyMiniAppBootstrapData(data, userId) {
   document.querySelector("#hero-name").textContent = displayName;
   document.querySelector("#hero-id").textContent = telegram_user.id || "-";
 
-  pluginCount.textContent = `已加载 ${loadedCount} / ${visiblePlugins.length}`;
-  pluginCountPill.textContent = `${visiblePlugins.length} 个模块`;
+  pluginCount.textContent = `${loadedCount} / ${visiblePlugins.length} 个可用`;
+  pluginCountPill.textContent = `${visiblePlugins.length} 个功能`;
   rolePill.textContent = permissions?.is_admin ? "管理员" : "普通用户";
 
   if (permissions?.is_admin && permissions?.admin_url) {
@@ -473,8 +473,8 @@ async function bootstrapMiniApp() {
   const rolePill = document.querySelector("#role-pill");
 
   if (!tg) {
-    welcomeText.textContent = "请在 Telegram 小程序中打开此页面。";
-    heroNote.textContent = "当前环境不支持直接访问，请使用 Telegram 客户端打开。";
+    welcomeText.textContent = "请在 Telegram 中打开此页面。";
+    heroNote.textContent = "当前环境不支持直接访问，请在 Telegram 中打开。";
     return;
   }
 
@@ -593,17 +593,17 @@ async function createAccountOpenInviteFromMiniApp(event) {
     });
     const result = await readResponsePayload(response);
     if (!response.ok || result.code !== 200) {
-      throw new Error(result.detail || result.message || "开号资格发放失败。");
+      throw new Error(result.detail || result.message || "开通申请提交失败。");
     }
     renderInviteBundle(result.data?.invite || {});
     document.querySelector("#invite-open-form")?.reset();
-    window.alert("开号申请已提交，请等待管理员审核。");
+    window.alert("开通申请已提交，请等待管理员审核。");
   } catch (error) {
     renderInviteBundle(currentInviteBundle || {});
     window.alert(normalizeError(error));
   } finally {
     if (button) {
-      button.textContent = previous || "提交开号申请";
+      button.textContent = previous || "提交开通申请";
     }
     renderInviteBundle(currentInviteBundle || {});
     storeMiniAppBootstrapCache(currentMiniAppUserId, {

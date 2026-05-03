@@ -94,7 +94,7 @@ function inviteItemLabel(itemType, quantity = 0) {
     return `入群资格 ${escapeHtml(quantity || 1)} 次/份`;
   }
   if (itemType === "account_open_credit") {
-    return `开号资格 ${escapeHtml(quantity || 1)} 次/份`;
+    return `注册资格 ${escapeHtml(quantity || 1)} 次/份`;
   }
   return "普通数字商品";
 }
@@ -119,6 +119,7 @@ function renderItems(items = []) {
         ${item.notify_group ? `<span class="tag">群通知开启</span>` : ""}
       </div>
       <div class="form-actions">
+        <button type="button" class="secondary" data-edit="${escapeHtml(item.id)}">编辑</button>
         <button type="button" class="secondary" data-toggle="${escapeHtml(item.id)}">${item.enabled ? "下架" : "上架"}</button>
         <button type="button" class="secondary" data-delete="${escapeHtml(item.id)}">删除</button>
       </div>
@@ -142,6 +143,28 @@ function renderItems(items = []) {
     });
   });
 
+  refs.productList.querySelectorAll("[data-edit]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const itemId = Number(button.dataset.edit);
+      const item = items.find((row) => Number(row.id) === itemId);
+      if (!item) return;
+      const patch = promptItemPatch(item);
+      if (!patch) return;
+      try {
+        button.disabled = true;
+        button.textContent = "保存中...";
+        const payload = await request("PATCH", `/plugins/shop/admin-api/item/${itemId}`, patch);
+        applyPayload({ ...state.payload, items: payload.items || [] });
+        setStatus("商品信息已更新。", "success");
+      } catch (error) {
+        setStatus(String(error.message || error), "error");
+      } finally {
+        button.disabled = false;
+        button.textContent = "编辑";
+      }
+    });
+  });
+
   refs.productList.querySelectorAll("[data-delete]").forEach((button) => {
     button.addEventListener("click", async () => {
       const itemId = Number(button.dataset.delete);
@@ -156,6 +179,54 @@ function renderItems(items = []) {
       }
     });
   });
+}
+
+function promptItemPatch(item) {
+  const title = window.prompt("商品标题：", item.title || "");
+  if (title === null) return null;
+  const itemType = window.prompt("商品类型（digital / group_invite_credit / account_open_credit）：", item.item_type || "digital");
+  if (itemType === null) return null;
+  const inviteQuantity = window.prompt("每份资格数量：", item.invite_credit_quantity ?? 0);
+  if (inviteQuantity === null) return null;
+  const priceIv = window.prompt("价格（Emby 货币）：", item.price_iv ?? 0);
+  if (priceIv === null) return null;
+  const stock = window.prompt("库存：", item.stock ?? 0);
+  if (stock === null) return null;
+  const imageUrl = window.prompt("图片地址：", item.image_url || "");
+  if (imageUrl === null) return null;
+  const description = window.prompt("商品描述：", item.description || "");
+  if (description === null) return null;
+  const deliveryText = window.prompt("自动发货内容：", item.delivery_text || "");
+  if (deliveryText === null) return null;
+  const notifyGroup = parseBooleanPrompt("是否通知群组（true/false）", item.notify_group);
+  if (notifyGroup === null) return null;
+  const official = parseBooleanPrompt("是否标记为官方商品（true/false）", item.official);
+  if (official === null) return null;
+  const enabled = parseBooleanPrompt("是否立即上架（true/false）", item.enabled);
+  if (enabled === null) return null;
+  return {
+    title: title.trim(),
+    item_type: itemType.trim(),
+    invite_credit_quantity: Number(inviteQuantity || 0),
+    price_iv: Number(priceIv || 0),
+    stock: Number(stock || 0),
+    image_url: imageUrl.trim(),
+    description: description.trim(),
+    delivery_text: deliveryText.trim(),
+    notify_group: notifyGroup,
+    official,
+    enabled
+  };
+}
+
+function parseBooleanPrompt(message, currentValue) {
+  const raw = window.prompt(message, currentValue ? "true" : "false");
+  if (raw === null) return null;
+  const normalized = raw.trim().toLowerCase();
+  if (["true", "1", "yes", "y", "是", "开", "开启"].includes(normalized)) return true;
+  if (["false", "0", "no", "n", "否", "关", "关闭"].includes(normalized)) return false;
+  window.alert("请输入 true 或 false。");
+  return parseBooleanPrompt(message, currentValue);
 }
 
 function applyPayload(payload = {}) {

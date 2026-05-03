@@ -163,7 +163,7 @@ async def _send_invite_link_to_invitee(invitee_tg: int, inviter_name: str, invit
 
 async def _send_account_open_notice(invitee_tg: int, inviter_name: str, days: int) -> None:
     text = (
-        f"你收到来自 {inviter_name} 的 Emby 开号资格。\n\n"
+        f"你收到来自 {inviter_name} 的 Emby 注册资格。\n\n"
         f"注册天数：{int(days)} 天\n\n"
         "请私聊机器人发送 /start，然后点击“注册”完成开通。"
     )
@@ -178,10 +178,10 @@ async def _ensure_target_user_in_group(invitee_tg: int, settings: dict) -> None:
         member = await bot.get_chat_member(chat_id=int(target_chat_id), user_id=int(invitee_tg))
     except Exception as exc:
         LOGGER.warning(f"check invite target group member failed chat={target_chat_id} tg={invitee_tg}: {exc}")
-        raise HTTPException(status_code=400, detail="被申请人不在目标群组里呢，不能申请开号资格啦~") from exc
+        raise HTTPException(status_code=400, detail="被申请人不在目标群组里呢，不能提交开通申请啦~") from exc
     status = str(getattr(member, "status", "") or "").lower()
     if "left" in status or "ban" in status or "kick" in status:
-        raise HTTPException(status_code=400, detail="被申请人不在目标群组里呢，不能申请开号资格啦~")
+        raise HTTPException(status_code=400, detail="被申请人不在目标群组里呢，不能提交开通申请啦~")
 
 
 def is_admin_user_id(user_id: int) -> bool:
@@ -332,6 +332,12 @@ async def create_user_invite(payload: MiniAppInviteCreateRequest):
     except ValueError as exc:
         await _safe_revoke_invite_link(int(target_chat_id), invite_link)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        await _safe_revoke_invite_link(int(target_chat_id), invite_link)
+        if record:
+            cancel_pending_invite_record(record["id"], reason=str(exc))
+        LOGGER.warning(f"create user invite failed inviter={user_id} invitee={invitee_tg}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     except Exception as exc:
         await _safe_revoke_invite_link(int(target_chat_id), invite_link)
         if record:
@@ -360,7 +366,7 @@ async def create_account_open_invite(payload: MiniAppInviteCreateRequest):
     if not settings.get("enabled"):
         raise HTTPException(status_code=403, detail="主人还没开启邀请功能呢~")
     if not has_viewing_access(account):
-        raise HTTPException(status_code=403, detail="哼，只有拥有 Emby 观影资格的人才能获取开号资格啦~")
+        raise HTTPException(status_code=403, detail="哼，只有拥有 Emby 观影资格的人才能提交开通申请啦~")
     await _ensure_target_user_in_group(invitee_tg, settings)
     try:
         record = create_account_open_invite_record(
@@ -373,7 +379,7 @@ async def create_account_open_invite(payload: MiniAppInviteCreateRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         LOGGER.warning(f"create account open invite failed inviter={user_id} invitee={invitee_tg}: {exc}")
-        raise HTTPException(status_code=500, detail="开号资格申请提交失败了...才不是本女仆的错！稍后重试啦~") from exc
+        raise HTTPException(status_code=500, detail="开通申请提交失败了...才不是本女仆的错！稍后重试啦~") from exc
 
     return {
         "code": 200,

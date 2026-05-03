@@ -121,10 +121,6 @@ REALM_STAGE_RULES = {
     ) in REALM_STAGE_RULE_ROWS
 }
 REALM_LAYER_THRESHOLD_GROWTH_RATE = 0.05
-IMMORTAL_REBASE_START_STAGE = "人仙"
-IMMORTAL_REBASE_START_INDEX = REALM_ORDER.index(IMMORTAL_REBASE_START_STAGE)
-IMMORTAL_REBASE_SOURCE_STAGES = REALM_ORDER[IMMORTAL_REBASE_START_INDEX:]
-IMMORTAL_REBASE_TARGET_STAGES = REALM_ORDER[: len(IMMORTAL_REBASE_SOURCE_STAGES)]
 FIVE_ELEMENTS = ["金", "木", "水", "火", "土"]
 ELEMENT_GENERATES = {"木": "火", "火": "土", "土": "金", "金": "水", "水": "木"}
 ELEMENT_CONTROLS = {"木": "土", "土": "水", "水": "火", "火": "金", "金": "木"}
@@ -870,56 +866,6 @@ def migrate_legacy_realm_state(stage: str | None, layer: int | str | None, culti
             or final_cultivation != current_cultivation
         ),
         "legacy": True,
-    }
-
-
-def rebase_immortal_realm_state(stage: str | None, layer: int | str | None, cultivation: int | str | None) -> dict[str, Any]:
-    raw_stage = str(stage or "").strip()
-    target_stage = normalize_realm_stage(raw_stage)
-    normalized_layer = normalize_realm_layer(layer)
-    try:
-        current_cultivation = max(int(cultivation or 0), 0)
-    except (TypeError, ValueError):
-        current_cultivation = 0
-    try:
-        original_layer = int(layer or normalized_layer)
-    except (TypeError, ValueError):
-        original_layer = normalized_layer
-
-    if target_stage not in IMMORTAL_REBASE_SOURCE_STAGES:
-        threshold = calculate_realm_threshold(target_stage, normalized_layer)
-        capped_cultivation = min(current_cultivation, threshold)
-        return {
-            "source_stage": raw_stage or target_stage,
-            "target_stage": target_stage,
-            "target_layer": normalized_layer,
-            "target_cultivation": capped_cultivation,
-            "changed": (
-                target_stage != raw_stage
-                or normalized_layer != original_layer
-                or capped_cultivation != current_cultivation
-            ),
-            "rebased": False,
-        }
-
-    source_index = IMMORTAL_REBASE_SOURCE_STAGES.index(target_stage)
-    final_stage = IMMORTAL_REBASE_TARGET_STAGES[source_index]
-    source_threshold = calculate_realm_threshold(target_stage, normalized_layer)
-    capped_cultivation = min(current_cultivation, source_threshold)
-    progress_ratio = min(capped_cultivation / max(source_threshold, 1), 1.0)
-    final_threshold = calculate_realm_threshold(final_stage, normalized_layer)
-    final_cultivation = min(int(round(final_threshold * progress_ratio)), final_threshold)
-    return {
-        "source_stage": raw_stage or target_stage,
-        "target_stage": final_stage,
-        "target_layer": normalized_layer,
-        "target_cultivation": final_cultivation,
-        "changed": (
-            final_stage != raw_stage
-            or normalized_layer != original_layer
-            or final_cultivation != current_cultivation
-        ),
-        "rebased": True,
     }
 
 
@@ -3686,8 +3632,6 @@ def migrate_all_profile_realms(preview_limit: int = 20) -> dict[str, Any]:
         )
         for row in rows:
             result = migrate_legacy_realm_state(row.realm_stage, row.realm_layer, row.cultivation)
-            if not result["changed"]:
-                result = rebase_immortal_realm_state(row.realm_stage, row.realm_layer, row.cultivation)
             if not result["changed"]:
                 unchanged += 1
                 continue

@@ -13,12 +13,12 @@
   <main class="app-shell">
     <section class="hero-panel card">
       <div class="hero-main">
-        <p class="eyebrow">控制中枢</p>
+        <p class="eyebrow">个人中心</p>
         <h1>片刻面板</h1>
         <p id="welcome-text" class="hero-copy">正在连接服务器...</p>
         <div class="hero-pills">
-          <span id="account-level-badge" class="badge badge--pending">未验证</span>
-          <span id="plugin-count-pill" class="hero-pill">0 个模块</span>
+          <span id="account-level-badge" class="badge badge--pending">未绑定</span>
+          <span id="plugin-count-pill" class="hero-pill">0 个功能</span>
           <span id="role-pill" class="hero-pill">普通用户</span>
         </div>
         <p id="hero-note" class="hero-note">绑定账号后，即可在此管理你的观影服务与各项功能。</p>
@@ -29,11 +29,11 @@
           <p class="eyebrow">账户概览</p>
           <div class="overview-grid">
             <article class="profile-item">
-              <span>服务名称</span>
+              <span>观影服务</span>
               <strong id="brand-name">-</strong>
             </article>
             <article class="profile-item">
-              <span>货币名称</span>
+              <span>积分</span>
               <strong id="currency-name">-</strong>
             </article>
             <article class="profile-item">
@@ -50,7 +50,7 @@
         <section id="admin-entry-card" class="hero-admin hidden">
           <div class="hero-admin-copy">
             <span class="hero-admin-label">管理后台</span>
-            <p>进入管理面板，查看用户数据与系统设置。</p>
+            <p>查看用户数据与系统设置。</p>
           </div>
           <button id="admin-entry-button" type="button" class="ghost">进入后台</button>
         </section>
@@ -59,8 +59,8 @@
 
     <section id="fold-toolbar" class="card fold-toolbar">
       <div class="fold-toolbar-copy">
-        <p class="eyebrow">功能模块</p>
-        <p id="fold-count" class="section-copy">共 0 个模块</p>
+        <p class="eyebrow">功能区</p>
+        <p id="fold-count" class="section-copy">共 0 个功能</p>
       </div>
       <div class="fold-toolbar-actions">
         <button type="button" class="ghost" data-fold-open-all>全部展开</button>
@@ -73,9 +73,9 @@
         <summary class="fold-summary">
           <div>
             <p class="eyebrow">我的账户</p>
-            <h2>账号与到期</h2>
+            <h2>账户信息</h2>
           </div>
-          <span class="summary-tip">等级、余额、到期时间与配额</span>
+          <span class="summary-tip">查看等级、余额、到期时间</span>
         </summary>
         <div class="fold-body">
           <p id="account-level-desc" class="section-copy">正在获取账户信息...</p>
@@ -111,20 +111,20 @@
       <details id="invite-open-card" class="card fold-card hidden">
         <summary class="fold-summary">
           <div>
-            <p class="eyebrow">开号资格</p>
-            <h2>申请开户</h2>
+            <p class="eyebrow">注册资格</p>
+            <h2>账号开通申请</h2>
           </div>
-          <span class="summary-tip">为群组用户提交 Emby 开号申请</span>
+          <span class="summary-tip">帮群友申请开通 Emby 账号</span>
         </summary>
         <div class="fold-body">
-          <p id="invite-open-status" class="section-copy">正在同步开号资格...</p>
+          <p id="invite-open-status" class="section-copy">正在同步开通申请资格...</p>
           <div class="profile-grid">
             <article class="profile-item">
               <span>申请资格</span>
               <strong id="invite-open-credit-count">-</strong>
             </article>
             <article class="profile-item">
-              <span>开号天数</span>
+              <span>注册天数</span>
               <strong id="invite-open-days">-</strong>
             </article>
           </div>
@@ -137,7 +137,7 @@
               备注
               <input id="invite-open-note" type="text" maxlength="255" placeholder="可选，方便后台识别">
             </label>
-            <button id="invite-open-submit" type="submit">提交开号申请</button>
+            <button id="invite-open-submit" type="submit">提交开通申请</button>
           </form>
           <div id="invite-open-records" class="stack-list"></div>
         </div>
@@ -149,7 +149,7 @@
             <p class="eyebrow">入群资格邀请</p>
             <h2>一次性入群链接</h2>
           </div>
-          <span class="summary-tip">为指定 TGID 发送一次性入群链接</span>
+          <span class="summary-tip">邀请朋友加入观影群组</span>
         </summary>
         <div class="fold-body">
           <p id="invite-status" class="section-copy">正在同步邀请资格...</p>
@@ -181,15 +181,15 @@
       <details class="card fold-card span-2">
         <summary class="fold-summary">
           <div>
-            <p class="eyebrow">已启用模块</p>
+            <p class="eyebrow">快捷入口</p>
             <h2>功能入口</h2>
           </div>
-          <span class="summary-tip">展示所有已启用的功能模块</span>
+          <span class="summary-tip">点击下方卡片进入对应功能</span>
         </summary>
         <div class="fold-body">
           <div class="section-top">
-            <p class="section-copy">点击卡片即可进入对应功能，长按可拖动排序。</p>
-            <span id="plugin-count" class="section-pill">已加载 0 / 0</span>
+            <p class="section-copy">点击卡片进入功能，长按可拖动排序。</p>
+            <span id="plugin-count" class="section-pill">0 个功能可用</span>
           </div>
           <div id="plugin-grid" class="plugin-grid"></div>
         </div>

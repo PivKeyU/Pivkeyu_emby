@@ -113,14 +113,14 @@ def _item_invite_credit_type(item_type: str | None) -> str | None:
 
 
 def _item_invite_label(item_type: str | None) -> str:
-    return "开号资格" if _item_invite_credit_type(item_type) == INVITE_CREDIT_TYPE_ACCOUNT_OPEN else "入群资格"
+    return "注册资格" if _item_invite_credit_type(item_type) == INVITE_CREDIT_TYPE_ACCOUNT_OPEN else "入群资格"
 
 
 def _invite_credit_purchase_disabled_message(invite_credit_type: str | None) -> str:
     if invite_credit_type == INVITE_CREDIT_TYPE_GROUP:
         return "入群资格已改为拥有观影资格后自动获得一次，暂不支持商店购买"
     if invite_credit_type == INVITE_CREDIT_TYPE_ACCOUNT_OPEN:
-        return "开号资格已改为申请制，暂不支持商店购买"
+        return "注册资格已改为申请制，暂不支持商店购买"
     return "该邀请资格暂不支持购买"
 
 
@@ -276,7 +276,7 @@ async def _deliver_order_notice(
             + (
                 "请进入 miniapp 主页的“入群资格邀请”模块，为指定 TGID 发送一次性入群链接。"
                 if invite_credit_type == INVITE_CREDIT_TYPE_GROUP
-                else "请进入 miniapp 主页的“开号资格”模块，把注册资格发放给未开通 Emby 的 TGID。"
+                else "请进入 miniapp 主页的“注册资格申请”模块，把申请提交给后台审核。"
             )
         )
     buyer_text = (
@@ -316,6 +316,7 @@ async def _deliver_order_notice(
 
 def _serialize_shop_bundle(user_id: int | None = None, *, include_orders: bool = False) -> dict[str, Any]:
     account = sql_get_emby(user_id) if user_id is not None else None
+    is_admin = bool(user_id is not None and is_admin_user_id(user_id))
     payload = {
         "meta": {
             "plugin_name": PLUGIN_MANIFEST.get("name"),
@@ -323,13 +324,14 @@ def _serialize_shop_bundle(user_id: int | None = None, *, include_orders: bool =
             "bottom_nav": _build_bottom_nav(),
         },
         "settings": get_shop_settings(),
-        "items": list_shop_items(enabled_only=True),
+        "items": list_shop_items(enabled_only=not include_orders),
         "orders": list_shop_orders(limit=20) if include_orders else [],
         "my_items": list_shop_items(enabled_only=False, owner_tg=user_id) if user_id is not None else [],
         "account": None if account is None else serialize_emby_user(account),
         "permissions": {
-            "is_admin": bool(user_id is not None and is_admin_user_id(user_id)),
+            "is_admin": is_admin,
             "can_publish": bool(user_id is not None and _can_user_publish(user_id)),
+            "admin_url": "/plugins/shop/admin" if is_admin else None,
         },
     }
     return payload

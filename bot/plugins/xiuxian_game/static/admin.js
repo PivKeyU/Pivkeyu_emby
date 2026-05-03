@@ -4678,7 +4678,7 @@ renderWorld = function renderWorldEnhanced() {
   }).join("") || `<article class="stack-item"><strong>暂无任务</strong></article>`);
 };
 
-/* ---------- Player Management ---------- */
+/* ---------- 玩家管理 ---------- */
 const PLAYER_EDIT_FIELDS = [
   "spiritual_stone", "cultivation", "realm_stage", "realm_layer",
   "root_type", "root_primary", "root_secondary", "root_relation", "root_bonus", "root_quality",

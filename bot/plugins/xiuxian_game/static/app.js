@@ -640,7 +640,7 @@ function writeSessionStorage(key, value) {
     }
     window.sessionStorage.setItem(key, value);
   } catch (error) {
-    // Ignore storage quota and unavailable storage errors.
+    // 忽略存储配额不足或不可用等错误。
   }
 }
 
@@ -660,7 +660,7 @@ function writeLocalStorage(key, value) {
     }
     window.localStorage.setItem(key, value);
   } catch (error) {
-    // Ignore storage quota and unavailable storage errors.
+    // 忽略存储配额不足或不可用等错误。
   }
 }
 
@@ -6991,8 +6991,8 @@ renderTitleAchievementArea = function renderTitleAchievementAreaEnhanced(bundle)
   const currentTitleName = bundle.current_title?.name || "";
   if (syncHint) {
     syncHint.textContent = currentTitleName
-      ? `当前佩戴「${currentTitleName}」，若你在群内拥有管理员身份，可尝试同步到群头衔。`
-      : "请先佩戴称号，再同步到群头衔。";
+      ? `当前佩戴「${currentTitleName}」，可同步到群成员标签；无需你自己成为管理员。`
+      : "请先佩戴称号，再同步到群成员标签。";
   }
   if (syncButton) {
     setDisabled(syncButton, !currentTitleName, currentTitleName ? "" : "当前未佩戴称号");
@@ -7085,10 +7085,10 @@ document.querySelector("#title-group-sync-btn")?.addEventListener("click", async
     await runButtonAction(button, "同步中...", async () => {
       const payload = await postJson("/plugins/xiuxian/api/title/group-sync", {});
       syncActionBundle(payload);
-      await popup("同步成功", "当前佩戴称号已尝试同步到群组头衔。若群内未生效，请确认你是否为该群管理员，以及 bot 是否拥有修改管理员头衔的权限。");
+      await popup("同步成功", "当前佩戴称号已同步到群成员标签。若群内未生效，请确认 bot 拥有管理成员标签权限。");
     });
   } catch (error) {
-    await popup("同步失败", normalizeError(error, "群头衔同步失败。"), "error");
+    await popup("同步失败", normalizeError(error, "群成员标签同步失败。"), "error");
   }
 });
 
@@ -7986,7 +7986,7 @@ function renderGamblingArea(bundle) {
   `).join("");
 }
 
-// ---- Boss 讨伐 ----
+// ---- 个人 Boss 讨伐 ----
 const BOSS_DATA_CACHE_TTL_MS = 15000;
 let _bossDataCache = null;
 let _bossDataPromise = null;
@@ -8298,7 +8298,7 @@ document.querySelector("#boss-world-status")?.addEventListener("click", async (e
   }
 });
 
-// Tab switching
+// 标签页切换
 document.querySelector("#boss-tabs")?.addEventListener("click", (event) => {
   const tab = event.target.closest("[data-boss-tab]");
   if (!tab) return;
@@ -8316,7 +8316,7 @@ document.querySelector("#boss-tabs")?.addEventListener("click", (event) => {
   }
 });
 
-// World boss HP auto-refresh (every 10s when world tab is visible)
+// 世界 Boss 血量自动刷新（世界标签页可见时每 10 秒更新一次）
 let _bossWorldPollTimer = null;
 function startBossWorldPolling() {
   stopBossWorldPolling();
@@ -8601,7 +8601,7 @@ bootstrap().catch(async (error) => {
   await popup("初始化失败", message, "error");
 });
 
-// --- Redesign Additions: Card Sorting Buttons ---
+// --- 卡片排序按钮 ---
 const boardGrid = document.querySelector(".board-grid");
 if (boardGrid) {
   const cards = Array.from(boardGrid.querySelectorAll(".fold-card"));
@@ -8667,7 +8667,7 @@ if (boardGrid) {
   };
 }
 
-// --- Redesign Additions: FABs (Admin) ---
+// --- 悬浮操作按钮（管理入口） ---
 const fabAdmin = document.getElementById("fab-admin");
 
 if (fabAdmin) {
@@ -8723,7 +8723,7 @@ function renderGroupedCards(root, cardsHtmlArray, groupingFn) {
   });
 }
 
-// --- Back to Top FAB ---
+// --- 回到顶部悬浮按钮 ---
 const fabToTop = document.querySelector("#fab-totop");
 if (fabToTop) {
   const syncFabToTop = () => {

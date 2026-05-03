@@ -27,7 +27,7 @@ LEGACY_INVITE_CREDIT_TYPE = "invite_credit"
 INVITE_CREDIT_TYPES = {INVITE_CREDIT_TYPE_GROUP, INVITE_CREDIT_TYPE_ACCOUNT_OPEN}
 INVITE_CREDIT_TYPE_TEXT = {
     INVITE_CREDIT_TYPE_GROUP: "入群资格",
-    INVITE_CREDIT_TYPE_ACCOUNT_OPEN: "开号资格",
+    INVITE_CREDIT_TYPE_ACCOUNT_OPEN: "注册资格",
 }
 INVITE_CREDIT_SOURCE_QUALIFICATION_REVOKE = "qualification_revoke"
 INVITE_RECORD_ACTIVE_STATUSES = {"pending"}
@@ -348,16 +348,16 @@ def validate_invite_credit_grant(
     if normalized_type == INVITE_CREDIT_TYPE_GROUP:
         raise ValueError("入群资格已改为观影用户自动拥有一次，不支持手动发放")
     if normalized_type == INVITE_CREDIT_TYPE_ACCOUNT_OPEN:
-        raise ValueError("开号资格已改为申请制，请在后台处理开号申请或使用后台代发")
+        raise ValueError("注册资格已改为申请制，请在后台处理开通申请或使用后台代发")
     with Session() as session:
         _require_invite_owner(session, int(owner_tg), normalized_type)
         if _qualification_revoked(session, int(owner_tg), normalized_type) is not None:
             raise ValueError(f"该用户的{invite_credit_type_text(normalized_type)}已被后台撤销")
         if normalized_type == INVITE_CREDIT_TYPE_ACCOUNT_OPEN:
             if int(count or 1) != 1:
-                raise ValueError("开号资格每次只能发放 1 个")
+                raise ValueError("注册资格每次只能发放 1 个")
             if _owner_has_account_open_credit(session, int(owner_tg)) or _owner_has_account_open_history(session, int(owner_tg)):
-                raise ValueError("该用户已经拥有或使用过开号资格，每个有号用户只能邀请开户一次")
+                raise ValueError("该用户已经拥有或使用过注册资格，每个观影用户只能提交一次开通申请")
 
 
 def invite_credit_summary(owner_tg: int | None = None, *, credit_type: str | None = None) -> dict[str, int]:
@@ -396,11 +396,11 @@ def grant_invite_credits(
     if normalized_type == INVITE_CREDIT_TYPE_GROUP:
         raise ValueError("入群资格已改为观影用户自动拥有一次，不支持手动发放")
     if normalized_type == INVITE_CREDIT_TYPE_ACCOUNT_OPEN:
-        raise ValueError("开号资格已改为申请制，请在后台处理开号申请或使用后台代发")
+        raise ValueError("注册资格已改为申请制，请在后台处理开通申请或使用后台代发")
     normalized_count = min(max(int(count or 1), 1), 500)
     if normalized_type == INVITE_CREDIT_TYPE_ACCOUNT_OPEN:
         if int(count or 1) != 1:
-            raise ValueError("开号资格每次只能发放 1 个")
+            raise ValueError("注册资格每次只能发放 1 个")
         normalized_count = 1
     normalized_days = normalize_invite_days(invite_days) if normalized_type == INVITE_CREDIT_TYPE_ACCOUNT_OPEN else 0
     with Session() as session:
@@ -408,7 +408,7 @@ def grant_invite_credits(
         if normalized_type == INVITE_CREDIT_TYPE_ACCOUNT_OPEN and (
             _owner_has_account_open_credit(session, int(owner_tg)) or _owner_has_account_open_history(session, int(owner_tg))
         ):
-            raise ValueError("该用户已经拥有或使用过开号资格，每个有号用户只能邀请开户一次")
+            raise ValueError("该用户已经拥有或使用过注册资格，每个观影用户只能提交一次开通申请")
         rows = [
             InviteCredit(
                 credit_type=normalized_type,
@@ -700,14 +700,14 @@ def create_account_open_invite_record(
     if invitee <= 0:
         raise ValueError("被邀请人 TGID 不正确")
     if invitee == inviter:
-        raise ValueError("不能把开号资格发给自己")
+        raise ValueError("不能给自己提交开通申请")
 
     with Session() as session:
         _require_invite_owner(session, inviter, INVITE_CREDIT_TYPE_ACCOUNT_OPEN, for_update=True)
         if _qualification_revoked(session, inviter, INVITE_CREDIT_TYPE_ACCOUNT_OPEN) is not None:
-            raise ValueError("你的开号申请资格已被后台撤销")
+            raise ValueError("你的开通申请资格已被后台撤销")
         if _owner_has_account_open_history(session, inviter):
-            raise ValueError("该用户已经提交或完成过开号申请，不能重复申请")
+            raise ValueError("该用户已经提交或完成过开通申请，不能重复申请")
 
         invitee_row = session.query(Emby).filter(Emby.tg == invitee).with_for_update().first()
         if invitee_row is None:
@@ -715,7 +715,7 @@ def create_account_open_invite_record(
             session.add(invitee_row)
             session.flush()
         if invitee_row.embyid:
-            raise ValueError("被邀请人已经拥有 Emby 账号，不能发放开号资格")
+            raise ValueError("被邀请人已经拥有 Emby 账号，不能发放注册资格")
         if int(invitee_row.us or 0) > 0:
             raise ValueError("被邀请人已经拥有注册资格，请先使用现有资格")
 
@@ -775,7 +775,7 @@ def update_invite_credit(
             _require_invite_owner(session, new_owner, credit_type)
             if credit_type == INVITE_CREDIT_TYPE_ACCOUNT_OPEN and new_owner != int(row.owner_tg):
                 if _owner_has_account_open_credit(session, new_owner) or _owner_has_account_open_history(session, new_owner):
-                    raise ValueError("新归属用户已经拥有或使用过开号资格")
+                    raise ValueError("新归属用户已经拥有或使用过注册资格")
             row.owner_tg = new_owner
         if invite_days is not None and credit_type == INVITE_CREDIT_TYPE_ACCOUNT_OPEN:
             row.invite_days = normalize_invite_days(invite_days)
@@ -799,9 +799,9 @@ def approve_account_open_invite_record(
         if row is None:
             return None
         if normalize_invite_credit_type(row.record_type) != INVITE_CREDIT_TYPE_ACCOUNT_OPEN:
-            raise ValueError("该记录不是开号申请")
+            raise ValueError("该记录不是开通申请")
         if row.status != "pending":
-            raise ValueError("只有待审核的开号申请可以通过")
+            raise ValueError("只有待审核的开通申请可以通过")
 
         invitee = int(row.invitee_tg)
         invitee_row = session.query(Emby).filter(Emby.tg == invitee).with_for_update().first()
@@ -810,7 +810,7 @@ def approve_account_open_invite_record(
             session.add(invitee_row)
             session.flush()
         if invitee_row.embyid:
-            raise ValueError("被申请人已经拥有 Emby 账号，不能发放开号资格")
+            raise ValueError("被申请人已经拥有 Emby 账号，不能发放注册资格")
         if int(invitee_row.us or 0) > 0:
             raise ValueError("被申请人已经拥有注册资格，请先使用现有资格")
 
@@ -844,9 +844,9 @@ def decline_account_open_invite_record(
         if row is None:
             return None
         if normalize_invite_credit_type(row.record_type) != INVITE_CREDIT_TYPE_ACCOUNT_OPEN:
-            raise ValueError("该记录不是开号申请")
+            raise ValueError("该记录不是开通申请")
         if row.status != "pending":
-            raise ValueError("只有待审核的开号申请可以拒绝")
+            raise ValueError("只有待审核的开通申请可以拒绝")
         row.status = "declined"
         row.reviewed_by_tg = int(reviewer_tg) if reviewer_tg is not None else None
         row.reviewed_at = utcnow()
@@ -868,7 +868,7 @@ def revoke_account_open_invite_record(
         if row is None:
             return None
         if normalize_invite_credit_type(row.record_type) != INVITE_CREDIT_TYPE_ACCOUNT_OPEN:
-            raise ValueError("该记录不是开号申请")
+            raise ValueError("该记录不是开通申请")
         if row.status == "revoked":
             session.refresh(row)
             return serialize_invite_record(row)
@@ -997,7 +997,7 @@ def revoke_invite_record(record_id: int, *, requester_tg: int | None = None) -> 
         if row is None:
             return None
         if normalize_invite_credit_type(row.record_type) == INVITE_CREDIT_TYPE_ACCOUNT_OPEN:
-            raise ValueError("开号申请请使用审核撤销")
+            raise ValueError("开通申请请使用审核撤销")
         if row.status == "pending":
             row.status = "revoked"
             row.revoked_at = utcnow()

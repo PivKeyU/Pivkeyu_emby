@@ -40,7 +40,7 @@ def _grant_item_by_kind(tg: int, kind: str, ref_id: int, quantity: int) -> dict[
     return _grant(tg, kind, ref_id, quantity)
 
 
-# ── Personal Boss ──────────────────────────────────────────────
+# ── 个人 Boss ──────────────────────────────────────────────────
 
 
 def list_personal_bosses_for_user(tg: int) -> dict[str, Any]:
@@ -95,7 +95,7 @@ def challenge_personal_boss(tg: int, boss_id: int) -> dict[str, Any]:
     if boss_stage_index > player_stage_index:
         raise ValueError("你境界未至，贸然挑战无异于送死。")
 
-    # Daily limit check
+    # 每日次数检查
     from datetime import date
     today = date.today().strftime("%Y%m%d")
     defeat_record = get_boss_defeat(tg, boss_id)
@@ -106,44 +106,44 @@ def challenge_personal_boss(tg: int, boss_id: int) -> dict[str, Any]:
     if daily_used >= daily_limit:
         raise ValueError(f"今日挑战次数已尽（{daily_used}/{daily_limit}），明日再来吧。")
 
-    # Ticket cost
+    # 门票消耗
     ticket_cost = int(boss.get("ticket_cost_stone") or 0)
     from bot.sql_helper.sql_xiuxian import get_shared_spiritual_stone_total
     current_stone = max(int(get_shared_spiritual_stone_total(tg) or 0), 0)
     if ticket_cost > 0 and current_stone < ticket_cost:
         raise ValueError(f"囊中灵石不足，挑战此兽需 {ticket_cost} 灵石作为门票。")
 
-    # Retreat check
+    # 闭关检查
     from bot.plugins.xiuxian_game.features.retreat import is_retreating
     if is_retreating(profile_data):
         raise ValueError("闭关之中，心神内敛，不宜外出挑战。")
 
-    # Build player battle bundle
+    # 构建玩家战斗数据
     bundle = legacy_service.serialize_full_profile(tg)
     player_bundle = legacy_service._battle_bundle(bundle, apply_random=True)
     player_state = player_bundle.copy()
 
-    # Build boss battle bundle
+    # 构建 Boss 战斗数据
     boss_bundle = _build_boss_battle_bundle(boss)
     boss_state = boss_bundle.copy()
 
-    # Run duel simulation
+    # 执行对战模拟
     result = legacy_service._simulate_duel_battle(player_bundle, boss_bundle, player_state, boss_state)
 
     won = result.get("winner_tg") == tg
 
-    # Apply ticket cost
+    # 扣除门票
     with Session() as session:
         if ticket_cost > 0:
             apply_spiritual_stone_delta(session, tg, -ticket_cost, action_text="挑战Boss门票")
 
-        # Update defeat record
+        # 更新讨伐记录
         upsert_boss_defeat(tg, boss_id, won)
 
-        # Grant rewards if won
+        # 胜利后发奖
         rewards: dict[str, Any] = {"items": [], "stone": 0, "cultivation": 0}
         if won:
-            # Roll loot
+            # 掉落物随机
             loot_items = _roll_boss_loot(boss)
             for loot in loot_items:
                 granted = _grant_item_by_kind(tg, loot["kind"], loot["ref_id"], loot["quantity"])
@@ -155,7 +155,7 @@ def challenge_personal_boss(tg: int, boss_id: int) -> dict[str, Any]:
                         "item": granted,
                     })
 
-            # Stone reward
+            # 灵石奖励
             stone_min = int(boss.get("stone_reward_min") or 0)
             stone_max = int(boss.get("stone_reward_max") or 0)
             if stone_max > 0:
@@ -164,7 +164,7 @@ def challenge_personal_boss(tg: int, boss_id: int) -> dict[str, Any]:
                     apply_spiritual_stone_delta(session, tg, stone_amount, action_text="击败Boss灵石奖励")
                     rewards["stone"] = stone_amount
 
-            # Cultivation reward
+            # 修为奖励
             cultivation_gain = int(boss.get("cultivation_reward") or 0)
             if cultivation_gain > 0:
                 from bot.plugins.xiuxian_game.core.realm import apply_cultivation_gain
@@ -181,16 +181,16 @@ def challenge_personal_boss(tg: int, boss_id: int) -> dict[str, Any]:
 
             session.commit()
 
-            # Record boss kill achievement
+            # 记录击杀成就
             record_boss_metrics(tg, kill=1)
 
-        # Build battle report
+        # 生成战报
         battle_log = result.get("battle_log") or []
         summary = _format_boss_battle_summary(boss, result, won, rewards)
         challenger_actor = result.get("challenger_actor") or {}
         defender_actor = result.get("defender_actor") or {}
 
-        # Journal
+        # 写入手札
         if won:
             create_journal(tg, "boss", "Boss讨伐胜利",
                            f"击败【{boss['name']}】{'，获得灵石 ' + str(rewards['stone']) if rewards['stone'] else ''}"
@@ -267,7 +267,7 @@ def _build_boss_battle_bundle(boss: dict[str, Any]) -> dict[str, Any]:
     )
     power = (realm_score + (attribute_score + combat_score) * 1.0) * 0.75
 
-    # Build combat_config for the boss's synthetic technique
+    # 为 Boss 构建合成功法配置
     combat_config: dict[str, Any] = {"skills": [], "passives": [], "openings": []}
 
     skill_name = boss.get("skill_name")
@@ -363,7 +363,7 @@ def _format_boss_battle_summary(boss: dict[str, Any], result: dict[str, Any], wo
         return f"与【{boss['name']}】苦战 {result.get('round_count', 0)} 合，终究不敌，败下阵来。"
 
 
-# ── World Boss ─────────────────────────────────────────────────
+# ── 世界 Boss ──────────────────────────────────────────────────
 
 
 _WORLD_BOSS_ATTACK_COOLDOWN_SECONDS = 30
@@ -400,7 +400,7 @@ def get_world_boss_status_for_user(tg: int) -> dict[str, Any]:
             player_damage = dmg
             break
 
-    # Ranking (top 10)
+    # 伤害排名（前十）
     ranking = all_damages[:10]
     from bot.sql_helper.sql_xiuxian import get_emby_name_map
     tgs = [int(r["tg"]) for r in ranking]
@@ -408,7 +408,7 @@ def get_world_boss_status_for_user(tg: int) -> dict[str, Any]:
     for r in ranking:
         r["display_name"] = name_map.get(int(r["tg"]), f"TG {r['tg']}")
 
-    # Cooldown
+    # 攻击冷却
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
     cooldown_remaining = 0
@@ -442,7 +442,7 @@ def attack_world_boss(tg: int) -> dict[str, Any]:
     if not boss:
         raise ValueError("Boss已消散，等待下次降临吧。")
 
-    # Cooldown check
+    # 冷却检查
     from datetime import datetime, timezone
     all_damages = list_world_boss_damages(int(instance["id"]))
     player_dmg = None
@@ -461,12 +461,12 @@ def attack_world_boss(tg: int) -> dict[str, Any]:
             remaining = int(_WORLD_BOSS_ATTACK_COOLDOWN_SECONDS - elapsed)
             raise ValueError(f"气力未复，还需等待 {remaining} 秒方可再次出手。")
 
-    # Compute player combat power
+    # 计算玩家战力
     bundle = legacy_service.serialize_full_profile(tg)
     player_bundle = legacy_service._battle_bundle(bundle, apply_random=False)
     stats = player_bundle.get("stats") or {}
 
-    # Simplified damage formula
+    # 伤害公式（简化版）
     attack_power = float(stats.get("attack_power") or 0)
     defense_power = float(boss.get("defense_power") or 0)
     divine_sense = float(stats.get("divine_sense") or 0)
@@ -486,24 +486,24 @@ def attack_world_boss(tg: int) -> dict[str, Any]:
     damage_floor = max(8, int(attack_power * 0.6), int(combat_power * 0.004))
     effective_damage = max(int(base_damage - defense_power * 0.18), damage_floor)
 
-    # Apply damage to boss
+    # 应用伤害
     updated_instance = update_world_boss_hp(int(instance["id"]), -effective_damage)
     damage_record = upsert_world_boss_damage(int(instance["id"]), tg, effective_damage)
 
-    # Check if boss was just defeated
+    # 判断是否击杀了 Boss
     boss_defeated = updated_instance and updated_instance.get("status") == "defeated"
 
-    # If defeated, settle
+    # 击杀则结算奖励
     settlement = None
     if boss_defeated:
         settlement = _settle_world_boss_kill(int(instance["id"]))
 
-    # Journal
+    # 写入手札
     create_journal(tg, "boss", "攻击世界Boss",
                    f"对【{boss['name']}】造成 {effective_damage} 点伤害{'（暴击）' if crit else ''}。"
                    f"{' Boss已被击败！' if boss_defeated else ''}")
 
-    # Record world boss damage achievement
+    # 记录世界 Boss 伤害成就
     record_boss_metrics(tg, world_damage=effective_damage)
 
     return {
@@ -554,7 +554,7 @@ def _settle_world_boss_kill(instance_id: int) -> dict[str, Any]:
             "rewarded": False,
         })
 
-    # Grant rewards
+    # 发放排名奖励
     boss_id = None
     instance = _get_world_boss_instance_raw(instance_id)
     if instance:
@@ -566,13 +566,13 @@ def _settle_world_boss_kill(instance_id: int) -> dict[str, Any]:
             for entry in rankings:
                 tg = entry["tg"]
                 multiplier = entry["loot_multiplier"]
-                # Stone reward
+                # 灵石奖励
                 stone_min = int(boss.get("stone_reward_min") or 0)
                 stone_max = int(boss.get("stone_reward_max") or 0)
                 stone_amount = random.randint(stone_min, max(stone_max, stone_min)) * multiplier
                 if stone_amount > 0:
                     apply_spiritual_stone_delta(session, tg, stone_amount, action_text="世界Boss排名灵石奖励")
-                # Loot (multiplier times rolls)
+                # 掉落物（按倍率多轮抽取）
                 for _ in range(multiplier):
                     loot_items = _roll_boss_loot(boss)
                     for loot in loot_items:
@@ -581,7 +581,7 @@ def _settle_world_boss_kill(instance_id: int) -> dict[str, Any]:
                 entry["rewarded"] = True
             session.commit()
 
-        # Send MVP journal
+        # 写入 MVP 手札
         mvp = rankings[0] if rankings else None
         if mvp:
             create_journal(mvp["tg"], "boss", "世界Boss MVP",
@@ -640,7 +640,7 @@ def spawn_world_boss(boss_id: int | None = None) -> dict[str, Any]:
 
     instance = create_world_boss_instance(int(boss["id"]), max_hp, expires_at)
 
-    # Broadcast to main group
+    # 向主群广播降临消息
     from bot.plugins.xiuxian_game import plugin as _plugin
     try:
         chat_id = _plugin._main_group_chat_id()
@@ -652,7 +652,7 @@ def spawn_world_boss(boss_id: int | None = None) -> dict[str, Any]:
                 f"存在时限：{expires_at.strftime('%m月%d日 %H:%M')} (北京时间)\n\n"
                 f"所有在群道友速来降妖除魔！"
             )
-            # Schedule to be sent via bot client
+            # 挂载到实例上，由 bot 客户端代为发送
             instance["broadcast_text"] = text
             instance["broadcast_chat_id"] = chat_id
     except Exception:
