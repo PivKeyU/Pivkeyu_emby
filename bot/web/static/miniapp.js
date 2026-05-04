@@ -370,6 +370,38 @@ function storeMiniAppBootstrapCache(userId, payload) {
   writeLocalStorage(miniAppBootstrapCacheKey(userId), JSON.stringify(payload));
 }
 
+function renderMiniAppNotFound(userId) {
+  writeLocalStorage(miniAppBootstrapCacheKey(userId), null);
+  currentInviteBundle = null;
+  document.title = "404";
+
+  const welcomeText = document.querySelector("#welcome-text");
+  const heroNote = document.querySelector("#hero-note");
+  const badge = document.querySelector("#account-level-badge");
+  const levelDesc = document.querySelector("#account-level-desc");
+  const pluginCount = document.querySelector("#plugin-count");
+  const pluginCountPill = document.querySelector("#plugin-count-pill");
+  const rolePill = document.querySelector("#role-pill");
+
+  if (welcomeText) welcomeText.textContent = "404";
+  if (heroNote) heroNote.textContent = "Not Found";
+  if (badge) {
+    badge.className = "badge badge--danger";
+    badge.textContent = "404";
+  }
+  if (levelDesc) levelDesc.textContent = "Not Found";
+  if (pluginCount) pluginCount.textContent = "0 个可用";
+  if (pluginCountPill) pluginCountPill.textContent = "0 个功能";
+  if (rolePill) rolePill.textContent = "不可访问";
+
+  document.querySelector("#admin-entry-card")?.classList.add("hidden");
+  document.querySelector("#fold-toolbar")?.classList.add("hidden");
+  document.querySelector("#invite-card")?.classList.add("hidden");
+  document.querySelector("#invite-open-card")?.classList.add("hidden");
+  renderPlugins([]);
+  renderBottomNav([]);
+}
+
 function applyMiniAppBootstrapData(data, userId) {
   const welcomeText = document.querySelector("#welcome-text");
   const heroNote = document.querySelector("#hero-note");
@@ -484,9 +516,6 @@ async function bootstrapMiniApp() {
   const userId = tg.initDataUnsafe?.user?.id || "default";
   currentMiniAppUserId = userId;
   const cachedData = hydrateMiniAppBootstrapCache(userId);
-  if (cachedData) {
-    applyMiniAppBootstrapData(cachedData, userId);
-  }
 
   try {
     const response = await fetch("/miniapp-api/bootstrap", {
@@ -497,6 +526,10 @@ async function bootstrapMiniApp() {
     const result = await readResponsePayload(response);
 
     if (!response.ok || result.code !== 200) {
+      if (response.status === 404 || result.code === 404) {
+        renderMiniAppNotFound(userId);
+        return;
+      }
       throw new Error(result.detail || result.message || "服务器连接失败。");
     }
 
@@ -513,6 +546,7 @@ async function bootstrapMiniApp() {
       renderBottomNav([]);
       return;
     }
+    applyMiniAppBootstrapData(cachedData, userId);
     heroNote.textContent = `已展示本地缓存，最新数据同步失败：${message}`;
   }
 }

@@ -226,7 +226,7 @@ def verify_init_data(init_data: str) -> dict:
         username=parsed["user"].get("username"),
     )
     if matched_block is not None:
-        raise HTTPException(status_code=403, detail="哼！你这个账号已经被主人禁止使用本女仆了！")
+        raise HTTPException(status_code=404, detail="Not Found")
     return parsed
 
 

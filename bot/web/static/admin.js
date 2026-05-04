@@ -1468,7 +1468,7 @@ function renderBotAccessBlocks(items) {
     refs.botBlockList.innerHTML = `
       <article class="plugin-card">
         <div class="plugin-name">当前没有黑名单规则</div>
-        <p class="plugin-meta stack-empty">加入黑名单后，Bot 会直接忽略该用户的消息、回调按钮和内联查询。</p>
+        <p class="plugin-meta stack-empty">加入黑名单后，Bot 会直接忽略该用户的消息、回调按钮和内联查询，Mini App 会返回 404。</p>
       </article>
     `;
     return;
@@ -2069,7 +2069,7 @@ async function createBotAccessBlock(event) {
     await Promise.all([loadBotAccessBlocks(), loadUsers(), refreshSelectedUser().catch(() => null)]);
     setAdminStatus(`已禁止 ${fmtBotBlockTarget(result.data)} 使用 Bot。`, "success");
     showToast(`已禁止 ${fmtBotBlockTarget(result.data)} 使用 Bot。`, "success");
-    await popup("已加入黑名单", `规则已生效：${fmtBotBlockTarget(result.data)}。Bot 将不再响应该用户的消息、按钮和内联查询。`, "success");
+    await popup("已加入黑名单", `规则已生效：${fmtBotBlockTarget(result.data)}。Bot 将不再响应该用户的消息、按钮和内联查询，Mini App 会返回 404。`, "success");
   } catch (error) {
     const message = normalizeError(error);
     refs.botBlockStatus.textContent = `加入黑名单失败：${message}`;
