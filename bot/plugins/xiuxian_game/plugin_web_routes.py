@@ -809,15 +809,15 @@ def register_web(app) -> None:
         )
 
     @user_router.get("/", include_in_schema=False)
-    async def xiuxian_root_page():
+    def xiuxian_root_page():
         return RedirectResponse(url="/plugins/xiuxian/app", status_code=302)
 
     @user_router.get("/app")
-    async def xiuxian_app_page():
+    def xiuxian_app_page():
         return render_versioned_static_page("app.html")
 
     @user_router.get("/admin")
-    async def xiuxian_admin_page():
+    def xiuxian_admin_page():
         return render_versioned_static_page("admin.html")
 
     @user_router.post("/api/bootstrap")
@@ -849,7 +849,7 @@ def register_web(app) -> None:
 
     @user_router.post("/api/wiki")
     async def xiuxian_wiki_api(payload: InitDataPayload):
-        _verify_user_from_init_data(payload.init_data)
+        await run_in_threadpool(_verify_user_from_init_data, payload.init_data)
 
         def _cached_wiki():
             from bot.plugins.xiuxian_game.cache import load_versioned_json, CATALOG_TTL
@@ -869,138 +869,144 @@ def register_web(app) -> None:
         folder: str = Form("tasks"),
         file: UploadFile = File(...),
     ):
-        telegram_user = _verify_user_from_init_data(init_data)
-        allowed, reason = _can_user_upload_images(telegram_user["id"])
-        if not allowed:
-            raise HTTPException(status_code=403, detail=reason)
+        def _verify_upload_permission():
+            telegram_user = _verify_user_from_init_data(init_data)
+            allowed, reason = _can_user_upload_images(telegram_user["id"])
+            if not allowed:
+                raise HTTPException(status_code=403, detail=reason)
+            return telegram_user
+
+        telegram_user = await run_in_threadpool(_verify_upload_permission)
         result = await _save_uploaded_image(file, f"user/{telegram_user['id']}/{folder}", str(request.base_url))
         return {"code": 200, "data": result}
 
     @user_router.post("/api/enter")
-    async def xiuxian_enter(payload: InitDataPayload):
+    def xiuxian_enter(payload: InitDataPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         init_path_for_user(telegram_user["id"])
         create_foundation_pill_for_user_if_missing(telegram_user["id"])
         return {"code": 200, "data": _full_bundle(telegram_user["id"])}
 
     @user_router.post("/api/train")
-    async def xiuxian_train_api(payload: InitDataPayload):
+    def xiuxian_train_api(payload: InitDataPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = practice_for_user(telegram_user["id"])
         return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/commission/claim")
-    async def xiuxian_commission_claim_api(payload: CommissionClaimPayload):
+    def xiuxian_commission_claim_api(payload: CommissionClaimPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = claim_spirit_stone_commission(telegram_user["id"], payload.commission_key)
         return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/breakthrough")
-    async def xiuxian_breakthrough_api(payload: BreakthroughPayload):
+    def xiuxian_breakthrough_api(payload: BreakthroughPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = breakthrough_for_user(telegram_user["id"], use_pill=payload.use_pill)
         return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/pill/use")
-    async def xiuxian_use_pill_api(payload: ConsumePillPayload):
+    def xiuxian_use_pill_api(payload: ConsumePillPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = consume_pill_for_user(telegram_user["id"], payload.pill_id, quantity=payload.quantity)
         return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/artifact/equip")
-    async def xiuxian_equip_api(payload: EquipArtifactPayload):
+    def xiuxian_equip_api(payload: EquipArtifactPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = equip_artifact_for_user(telegram_user["id"], payload.artifact_id)
         return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/artifact/bind")
-    async def xiuxian_bind_artifact_api(payload: ArtifactBindingPayload):
+    def xiuxian_bind_artifact_api(payload: ArtifactBindingPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = bind_artifact_for_user(telegram_user["id"], payload.artifact_id)
         return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/artifact/unbind")
-    async def xiuxian_unbind_artifact_api(payload: ArtifactBindingPayload):
+    def xiuxian_unbind_artifact_api(payload: ArtifactBindingPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = unbind_artifact_for_user(telegram_user["id"], payload.artifact_id)
         return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/talisman/activate")
-    async def xiuxian_activate_talisman_api(payload: ActivateTalismanPayload):
+    def xiuxian_activate_talisman_api(payload: ActivateTalismanPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = activate_talisman_for_user(telegram_user["id"], payload.talisman_id)
         return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/talisman/bind")
-    async def xiuxian_bind_talisman_api(payload: TalismanBindingPayload):
+    def xiuxian_bind_talisman_api(payload: TalismanBindingPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = bind_talisman_for_user(telegram_user["id"], payload.talisman_id)
         return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/talisman/unbind")
-    async def xiuxian_unbind_talisman_api(payload: TalismanBindingPayload):
+    def xiuxian_unbind_talisman_api(payload: TalismanBindingPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = unbind_talisman_for_user(telegram_user["id"], payload.talisman_id)
         return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/technique/activate")
-    async def xiuxian_activate_technique_api(payload: ActivateTechniquePayload):
+    def xiuxian_activate_technique_api(payload: ActivateTechniquePayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = activate_technique_for_user(telegram_user["id"], payload.technique_id)
         return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/title/equip")
-    async def xiuxian_equip_title_api(payload: TitleEquipPayload):
+    def xiuxian_equip_title_api(payload: TitleEquipPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = set_current_title_for_user(telegram_user["id"], payload.title_id)
         return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/title/group-sync")
     async def xiuxian_sync_title_to_group_api(payload: TitleGroupSyncPayload):
-        telegram_user = _verify_user_from_init_data(payload.init_data)
-        bundle = serialize_full_profile(telegram_user["id"])
-        current_title = bundle.get("current_title") or {}
-        title_name = str(current_title.get("name") or "").strip()
-        if not title_name:
-            raise HTTPException(status_code=400, detail="请先佩戴称号，再同步到群成员标签。")
-        chat_id = int(payload.chat_id or _main_group_chat_id() or 0)
-        if not chat_id:
-            raise HTTPException(status_code=400, detail="当前未配置可同步的群组。")
+        def _prepare_title_sync():
+            telegram_user = _verify_user_from_init_data(payload.init_data)
+            bundle = serialize_full_profile(telegram_user["id"])
+            current_title = bundle.get("current_title") or {}
+            title_name = str(current_title.get("name") or "").strip()
+            if not title_name:
+                raise HTTPException(status_code=400, detail="请先佩戴称号，再同步到群成员标签。")
+            chat_id = int(payload.chat_id or _main_group_chat_id() or 0)
+            if not chat_id:
+                raise HTTPException(status_code=400, detail="当前未配置可同步的群组。")
+            return telegram_user, title_name, chat_id
+
+        telegram_user, title_name, chat_id = await run_in_threadpool(_prepare_title_sync)
         result = await _sync_xiuxian_title_to_group(chat_id, telegram_user["id"], title_name)
+        data = await run_in_threadpool(_with_core_bundle, telegram_user["id"], result)
         return {
             "code": 200,
-            "data": _with_core_bundle(
-                telegram_user["id"],
-                result,
-            ),
+            "data": data,
         }
 
     @user_router.post("/api/retreat/start")
-    async def xiuxian_retreat_start_api(payload: RetreatPayload):
+    def xiuxian_retreat_start_api(payload: RetreatPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = start_retreat_for_user(telegram_user["id"], payload.hours)
         return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/retreat/finish")
-    async def xiuxian_retreat_finish_api(payload: InitDataPayload):
+    def xiuxian_retreat_finish_api(payload: InitDataPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = finish_retreat_for_user(telegram_user["id"])
         return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/social-mode")
-    async def xiuxian_social_mode_api(payload: SocialModePayload):
+    def xiuxian_social_mode_api(payload: SocialModePayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = switch_social_mode_for_user(telegram_user["id"], payload.social_mode)
         return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/furnace/harvest")
-    async def xiuxian_furnace_harvest_api(payload: FurnaceHarvestPayload):
+    def xiuxian_furnace_harvest_api(payload: FurnaceHarvestPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = harvest_furnace_for_user(telegram_user["id"], payload.target_tg)
         return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/mentorship/request")
-    async def xiuxian_mentorship_request_api(payload: MentorshipRequestPayload):
+    def xiuxian_mentorship_request_api(payload: MentorshipRequestPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = create_mentorship_request_for_user(
             telegram_user["id"],
@@ -1012,70 +1018,86 @@ def register_web(app) -> None:
 
     @user_router.post("/api/mentorship/request/respond")
     async def xiuxian_mentorship_request_respond_api(payload: MentorshipRequestActionPayload):
-        telegram_user = _verify_user_from_init_data(payload.init_data)
-        result = respond_mentorship_request_for_user(telegram_user["id"], payload.request_id, payload.action)
+        def _work():
+            telegram_user = _verify_user_from_init_data(payload.init_data)
+            result = respond_mentorship_request_for_user(telegram_user["id"], payload.request_id, payload.action)
+            return telegram_user, result, _with_result_core_bundle(telegram_user["id"], result)
+
+        telegram_user, result, data = await run_in_threadpool(_work)
         await _notify_achievement_unlocks(result.get("achievement_unlocks"))
-        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": data}
 
     @user_router.post("/api/mentorship/teach")
     async def xiuxian_mentorship_teach_api(payload: MentorshipTeachPayload):
-        telegram_user = _verify_user_from_init_data(payload.init_data)
-        result = mentor_teach_for_user(telegram_user["id"], payload.disciple_tg)
+        def _work():
+            telegram_user = _verify_user_from_init_data(payload.init_data)
+            result = mentor_teach_for_user(telegram_user["id"], payload.disciple_tg)
+            return telegram_user, result, _with_result_core_bundle(telegram_user["id"], result)
+
+        telegram_user, result, data = await run_in_threadpool(_work)
         await _notify_achievement_unlocks(result.get("achievement_unlocks"))
-        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": data}
 
     @user_router.post("/api/mentorship/consult")
     async def xiuxian_mentorship_consult_api(payload: InitDataPayload):
-        telegram_user = _verify_user_from_init_data(payload.init_data)
-        result = consult_mentor_for_user(telegram_user["id"])
+        def _work():
+            telegram_user = _verify_user_from_init_data(payload.init_data)
+            result = consult_mentor_for_user(telegram_user["id"])
+            return telegram_user, result, _with_result_core_bundle(telegram_user["id"], result)
+
+        telegram_user, result, data = await run_in_threadpool(_work)
         await _notify_achievement_unlocks(result.get("achievement_unlocks"))
-        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": data}
 
     @user_router.post("/api/mentorship/graduate")
     async def xiuxian_mentorship_graduate_api(payload: MentorshipTargetPayload):
-        telegram_user = _verify_user_from_init_data(payload.init_data)
-        result = graduate_mentorship_for_user(telegram_user["id"], payload.target_tg)
+        def _work():
+            telegram_user = _verify_user_from_init_data(payload.init_data)
+            result = graduate_mentorship_for_user(telegram_user["id"], payload.target_tg)
+            return telegram_user, result, _with_result_core_bundle(telegram_user["id"], result)
+
+        telegram_user, result, data = await run_in_threadpool(_work)
         await _notify_achievement_unlocks(result.get("achievement_unlocks"))
-        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": data}
 
     @user_router.post("/api/mentorship/dissolve")
-    async def xiuxian_mentorship_dissolve_api(payload: MentorshipTargetPayload):
+    def xiuxian_mentorship_dissolve_api(payload: MentorshipTargetPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = dissolve_mentorship_for_user(telegram_user["id"], payload.target_tg)
         return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/gender/set")
-    async def xiuxian_gender_set_api(payload: GenderSetPayload):
+    def xiuxian_gender_set_api(payload: GenderSetPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = set_gender_for_user(telegram_user["id"], payload.gender)
         return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/marriage/request")
-    async def xiuxian_marriage_request_api(payload: MarriageRequestPayload):
+    def xiuxian_marriage_request_api(payload: MarriageRequestPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = create_marriage_request_for_user(telegram_user["id"], payload.target_tg, message=payload.message)
         return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/marriage/request/respond")
-    async def xiuxian_marriage_request_respond_api(payload: MarriageRequestActionPayload):
+    def xiuxian_marriage_request_respond_api(payload: MarriageRequestActionPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = respond_marriage_request_for_user(telegram_user["id"], payload.request_id, payload.action)
         return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/marriage/dual-cultivate")
-    async def xiuxian_marriage_dual_cultivate_api(payload: InitDataPayload):
+    def xiuxian_marriage_dual_cultivate_api(payload: InitDataPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = dual_cultivate_with_spouse(telegram_user["id"])
         return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/marriage/divorce")
-    async def xiuxian_marriage_divorce_api(payload: InitDataPayload):
+    def xiuxian_marriage_divorce_api(payload: InitDataPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = divorce_with_spouse(telegram_user["id"])
         return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/exchange")
-    async def xiuxian_exchange_api(payload: ExchangePayload):
+    def xiuxian_exchange_api(payload: ExchangePayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         if payload.direction == "coin_to_stone":
             result = convert_emby_coin_to_stone(telegram_user["id"], payload.amount)
@@ -1086,50 +1108,54 @@ def register_web(app) -> None:
         return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/gambling/exchange")
-    async def xiuxian_gambling_exchange_api(payload: GamblingExchangePayload):
+    def xiuxian_gambling_exchange_api(payload: GamblingExchangePayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = exchange_immortal_stones(telegram_user["id"], payload.count)
         return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/gambling/open")
     async def xiuxian_gambling_open_api(payload: GamblingOpenPayload):
-        telegram_user = _verify_user_from_init_data(payload.init_data)
-        result = open_immortal_stones(telegram_user["id"], payload.count)
+        def _work():
+            telegram_user = _verify_user_from_init_data(payload.init_data)
+            result = open_immortal_stones(telegram_user["id"], payload.count)
+            return telegram_user, result, _with_result_core_bundle(telegram_user["id"], result)
+
+        telegram_user, result, data = await run_in_threadpool(_work)
         await _maybe_broadcast_gambling(telegram_user["id"], result)
-        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": data}
 
     @user_router.post("/api/sect/join")
-    async def xiuxian_join_sect_api(payload: SectJoinPayload):
+    def xiuxian_join_sect_api(payload: SectJoinPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = join_sect_for_user(telegram_user["id"], payload.sect_id)
         return {"code": 200, "data": _with_core_bundle(telegram_user["id"], {"sect": result})}
 
     @user_router.post("/api/sect/leave")
-    async def xiuxian_leave_sect_api(payload: InitDataPayload):
+    def xiuxian_leave_sect_api(payload: InitDataPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = leave_sect_for_user(telegram_user["id"])
         return {"code": 200, "data": _with_core_bundle(telegram_user["id"], {"sect": result})}
 
     @user_router.post("/api/sect/salary")
-    async def xiuxian_claim_salary_api(payload: InitDataPayload):
+    def xiuxian_claim_salary_api(payload: InitDataPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = claim_sect_salary_for_user(telegram_user["id"])
         return {"code": 200, "data": _with_core_bundle(telegram_user["id"], {"salary": result["salary"]})}
 
     @user_router.post("/api/sect/attendance")
-    async def xiuxian_sect_attendance_api(payload: InitDataPayload):
+    def xiuxian_sect_attendance_api(payload: InitDataPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = perform_sect_attendance(telegram_user["id"])
         return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/sect/teach")
-    async def xiuxian_sect_teach_api(payload: SectTeachPayload):
+    def xiuxian_sect_teach_api(payload: SectTeachPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = perform_sect_teach(telegram_user["id"], payload.cultivation_amount)
         return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/sect/donate")
-    async def xiuxian_sect_donate_api(payload: SectDonatePayload):
+    def xiuxian_sect_donate_api(payload: SectDonatePayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = donate_item_to_sect_treasury(
             telegram_user["id"],
@@ -1141,47 +1167,59 @@ def register_web(app) -> None:
 
     @user_router.post("/api/task/create")
     async def xiuxian_create_task_api(payload: UserTaskPayload):
-        telegram_user = _verify_user_from_init_data(payload.init_data)
-        task = create_bounty_task(
-            actor_tg=telegram_user["id"],
-            title=payload.title,
-            description=payload.description,
-            task_scope=payload.task_scope,
-            task_type=payload.task_type,
-            question_text=payload.question_text,
-            answer_text=payload.answer_text,
-            image_url=payload.image_url,
-            required_item_kind=payload.required_item_kind,
-            required_item_ref_id=payload.required_item_ref_id,
-            required_item_quantity=payload.required_item_quantity,
-            requirement_metric_key=payload.requirement_metric_key,
-            requirement_metric_target=payload.requirement_metric_target,
-            reward_stone=payload.reward_stone,
-            reward_cultivation=payload.reward_cultivation,
-            reward_scale_mode=payload.reward_scale_mode,
-            reward_item_kind=payload.reward_item_kind,
-            reward_item_ref_id=payload.reward_item_ref_id,
-            reward_item_quantity=payload.reward_item_quantity,
-            max_claimants=payload.max_claimants,
-            active_in_group=payload.active_in_group,
-            group_chat_id=payload.group_chat_id or _main_group_chat_id(),
-        )
+        def _create_task():
+            telegram_user = _verify_user_from_init_data(payload.init_data)
+            task = create_bounty_task(
+                actor_tg=telegram_user["id"],
+                title=payload.title,
+                description=payload.description,
+                task_scope=payload.task_scope,
+                task_type=payload.task_type,
+                question_text=payload.question_text,
+                answer_text=payload.answer_text,
+                image_url=payload.image_url,
+                required_item_kind=payload.required_item_kind,
+                required_item_ref_id=payload.required_item_ref_id,
+                required_item_quantity=payload.required_item_quantity,
+                requirement_metric_key=payload.requirement_metric_key,
+                requirement_metric_target=payload.requirement_metric_target,
+                reward_stone=payload.reward_stone,
+                reward_cultivation=payload.reward_cultivation,
+                reward_scale_mode=payload.reward_scale_mode,
+                reward_item_kind=payload.reward_item_kind,
+                reward_item_ref_id=payload.reward_item_ref_id,
+                reward_item_quantity=payload.reward_item_quantity,
+                max_claimants=payload.max_claimants,
+                active_in_group=payload.active_in_group,
+                group_chat_id=payload.group_chat_id or _main_group_chat_id(),
+            )
+            return telegram_user, task
+
+        telegram_user, task = await run_in_threadpool(_create_task)
         push_warning = None
         if task.get("active_in_group"):
             task, push_warning = await _safe_push_task_to_group(task)
-        _remember_journal(telegram_user["id"], "task", "发布任务", f"发布了任务【{task['title']}】")
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], {"task": task, "push_warning": push_warning})}
+
+        def _finish_task():
+            _remember_journal(telegram_user["id"], "task", "发布任务", f"发布了任务【{task['title']}】")
+            return _with_core_bundle(telegram_user["id"], {"task": task, "push_warning": push_warning})
+
+        return {"code": 200, "data": await run_in_threadpool(_finish_task)}
 
     @user_router.post("/api/task/claim")
-    async def xiuxian_claim_task_api(payload: TaskClaimPayload):
+    def xiuxian_claim_task_api(payload: TaskClaimPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = claim_task_for_user(telegram_user["id"], payload.task_id)
         return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/task/cancel")
     async def xiuxian_cancel_task_api(payload: TaskCancelPayload):
-        telegram_user = _verify_user_from_init_data(payload.init_data)
-        result = cancel_task_for_user(telegram_user["id"], payload.task_id)
+        def _cancel_task():
+            telegram_user = _verify_user_from_init_data(payload.init_data)
+            result = cancel_task_for_user(telegram_user["id"], payload.task_id)
+            return telegram_user, result
+
+        telegram_user, result = await run_in_threadpool(_cancel_task)
         task = result.get("task") or {}
         try:
             task_chat_id = int(task.get("group_chat_id") or _main_group_chat_id() or 0)
@@ -1206,48 +1244,56 @@ def register_web(app) -> None:
                     )
         except Exception as exc:
             LOGGER.warning(f"xiuxian task cancel message refresh failed: {exc}")
-        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
+
+        def _finish_cancel_task():
+            return _with_result_core_bundle(telegram_user["id"], result)
+
+        return {"code": 200, "data": await run_in_threadpool(_finish_cancel_task)}
 
     @user_router.post("/api/recipe/craft")
     async def xiuxian_craft_recipe_api(payload: CraftPayload):
-        telegram_user = _verify_user_from_init_data(payload.init_data)
-        result = craft_recipe_for_user(telegram_user["id"], payload.recipe_id, payload.quantity)
+        def _work():
+            telegram_user = _verify_user_from_init_data(payload.init_data)
+            result = craft_recipe_for_user(telegram_user["id"], payload.recipe_id, payload.quantity)
+            return telegram_user, result, _with_result_core_bundle(telegram_user["id"], result)
+
+        telegram_user, result, data = await run_in_threadpool(_work)
         await _maybe_broadcast_craft(telegram_user["id"], result)
         await _notify_achievement_unlocks(result.get("achievement_unlocks"))
-        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": data}
 
     @user_router.post("/api/recipe/synthesize")
-    async def xiuxian_recipe_fragment_synthesis_api(payload: RecipeFragmentSynthesisPayload):
+    def xiuxian_recipe_fragment_synthesis_api(payload: RecipeFragmentSynthesisPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = synthesize_recipe_fragment_for_user(telegram_user["id"], payload.recipe_id)
         return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/farm/plant")
-    async def xiuxian_farm_plant_api(payload: FarmPlantPayload):
+    def xiuxian_farm_plant_api(payload: FarmPlantPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = plant_crop_for_user(telegram_user["id"], payload.slot_index, payload.material_id)
         return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/farm/care")
-    async def xiuxian_farm_care_api(payload: FarmCarePayload):
+    def xiuxian_farm_care_api(payload: FarmCarePayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = tend_farm_plot_for_user(telegram_user["id"], payload.slot_index, payload.action)
         return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/farm/harvest")
-    async def xiuxian_farm_harvest_api(payload: FarmHarvestPayload):
+    def xiuxian_farm_harvest_api(payload: FarmHarvestPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = harvest_farm_plot_for_user(telegram_user["id"], payload.slot_index)
         return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/farm/auto-harvest")
-    async def xiuxian_farm_auto_harvest_api(payload: InitDataPayload):
+    def xiuxian_farm_auto_harvest_api(payload: InitDataPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = auto_harvest_farm_for_user(telegram_user["id"])
         return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/farm/unlock")
-    async def xiuxian_farm_unlock_api(payload: FarmUnlockPayload):
+    def xiuxian_farm_unlock_api(payload: FarmUnlockPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = unlock_farm_plot_for_user(telegram_user["id"], payload.slot_index)
         return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
@@ -1255,31 +1301,31 @@ def register_web(app) -> None:
     # ── Boss API ──
 
     @user_router.post("/api/boss/list")
-    async def xiuxian_boss_list_api(payload: InitDataPayload):
+    def xiuxian_boss_list_api(payload: InitDataPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = list_personal_bosses_for_user(telegram_user["id"])
         return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/boss/challenge")
-    async def xiuxian_boss_challenge_api(payload: BossChallengePayload):
+    def xiuxian_boss_challenge_api(payload: BossChallengePayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = challenge_personal_boss(telegram_user["id"], payload.boss_id)
         return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/boss/world/status")
-    async def xiuxian_boss_world_status_api(payload: InitDataPayload):
+    def xiuxian_boss_world_status_api(payload: InitDataPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = get_world_boss_status_for_user(telegram_user["id"])
         return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/boss/world/attack")
-    async def xiuxian_boss_world_attack_api(payload: InitDataPayload):
+    def xiuxian_boss_world_attack_api(payload: InitDataPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = attack_world_boss(telegram_user["id"])
         return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/fishing/cast")
-    async def xiuxian_fishing_cast_api(payload: FishingCastPayload):
+    def xiuxian_fishing_cast_api(payload: FishingCastPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = cast_fishing_line_for_user(telegram_user["id"], payload.spot_key)
         return {
@@ -1294,47 +1340,59 @@ def register_web(app) -> None:
         }
 
     @user_router.post("/api/explore/start")
-    async def xiuxian_explore_start_api(payload: ExploreStartPayload):
+    def xiuxian_explore_start_api(payload: ExploreStartPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = start_exploration_for_user(telegram_user["id"], payload.scene_id, payload.minutes)
         return {"code": 200, "data": _with_core_bundle(telegram_user["id"], {"exploration": result})}
 
     @user_router.post("/api/explore/claim")
     async def xiuxian_explore_claim_api(payload: ExploreClaimPayload):
-        telegram_user = _verify_user_from_init_data(payload.init_data)
-        result = claim_exploration_for_user(telegram_user["id"], payload.exploration_id)
+        def _work():
+            telegram_user = _verify_user_from_init_data(payload.init_data)
+            result = claim_exploration_for_user(telegram_user["id"], payload.exploration_id)
+            return telegram_user, result, _with_result_core_bundle(telegram_user["id"], result)
+
+        telegram_user, result, data = await run_in_threadpool(_work)
         await _notify_achievement_unlocks(result.get("achievement_unlocks"))
-        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": data}
 
     @user_router.post("/api/red-envelope/create")
     async def xiuxian_create_red_envelope_api(payload: RedEnvelopePayload):
-        telegram_user = _verify_user_from_init_data(payload.init_data)
-        result = create_red_envelope_for_user(
-            tg=telegram_user["id"],
-            cover_text=payload.cover_text,
-            image_url=payload.image_url,
-            mode=payload.mode,
-            amount_total=payload.amount_total,
-            count_total=payload.count_total,
-            target_tg=payload.target_tg,
-            group_chat_id=_main_group_chat_id(),
-        )
+        def _create_red_envelope():
+            telegram_user = _verify_user_from_init_data(payload.init_data)
+            result = create_red_envelope_for_user(
+                tg=telegram_user["id"],
+                cover_text=payload.cover_text,
+                image_url=payload.image_url,
+                mode=payload.mode,
+                amount_total=payload.amount_total,
+                count_total=payload.count_total,
+                target_tg=payload.target_tg,
+                group_chat_id=_main_group_chat_id(),
+            )
+            return telegram_user, result, _with_result_core_bundle(telegram_user["id"], result)
+
+        telegram_user, result, data = await run_in_threadpool(_create_red_envelope)
         await _push_red_envelope_notice(result["envelope"])
         await _notify_achievement_unlocks(result.get("achievement_unlocks"))
-        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": data}
 
     @user_router.post("/api/shop/personal")
     async def xiuxian_personal_shop_api(payload: PersonalShopPayload):
-        telegram_user = _verify_user_from_init_data(payload.init_data)
-        result = create_personal_shop_listing(
-            tg=telegram_user["id"],
-            shop_name=payload.shop_name or generate_shop_name(telegram_user.get("first_name", "道友")),
-            item_kind=payload.item_kind,
-            item_ref_id=payload.item_ref_id,
-            quantity=payload.quantity,
-            price_stone=payload.price_stone,
-            broadcast=payload.broadcast,
-        )
+        def _create_listing():
+            telegram_user = _verify_user_from_init_data(payload.init_data)
+            result = create_personal_shop_listing(
+                tg=telegram_user["id"],
+                shop_name=payload.shop_name or generate_shop_name(telegram_user.get("first_name", "道友")),
+                item_kind=payload.item_kind,
+                item_ref_id=payload.item_ref_id,
+                quantity=payload.quantity,
+                price_stone=payload.price_stone,
+                broadcast=payload.broadcast,
+            )
+            return telegram_user, result
+
+        telegram_user, result = await run_in_threadpool(_create_listing)
         push_warning = None
 
         if payload.broadcast:
@@ -1345,67 +1403,95 @@ def register_web(app) -> None:
                 push_warning = str(exc) or "小铺通知推送失败。"
                 LOGGER.warning(f"xiuxian shop notice push failed: {exc}")
 
-        _remember_journal(telegram_user["id"], "shop", "上架商品", f"上架了【{result['listing']['item_name']}】")
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], {**result, "push_warning": push_warning})}
+        def _finish_listing():
+            _remember_journal(telegram_user["id"], "shop", "上架商品", f"上架了【{result['listing']['item_name']}】")
+            return _with_core_bundle(telegram_user["id"], {**result, "push_warning": push_warning})
+
+        return {"code": 200, "data": await run_in_threadpool(_finish_listing)}
 
     @user_router.post("/api/auction/personal")
     async def xiuxian_personal_auction_api(payload: PersonalAuctionPayload):
-        telegram_user = _verify_user_from_init_data(payload.init_data)
-        seller_name = " ".join(
-            part for part in [telegram_user.get("first_name"), telegram_user.get("last_name")] if part
-        ).strip()
-        if not seller_name:
-            username = str(telegram_user.get("username") or "").strip()
-            seller_name = f"@{username}" if username else f"TG {telegram_user['id']}"
+        def _create_auction():
+            telegram_user = _verify_user_from_init_data(payload.init_data)
+            seller_name = " ".join(
+                part for part in [telegram_user.get("first_name"), telegram_user.get("last_name")] if part
+            ).strip()
+            if not seller_name:
+                username = str(telegram_user.get("username") or "").strip()
+                seller_name = f"@{username}" if username else f"TG {telegram_user['id']}"
 
-        result = create_personal_auction_listing(
-            tg=telegram_user["id"],
-            seller_name=seller_name,
-            item_kind=payload.item_kind,
-            item_ref_id=payload.item_ref_id,
-            quantity=payload.quantity,
-            opening_price_stone=payload.opening_price_stone,
-            bid_increment_stone=payload.bid_increment_stone,
-            buyout_price_stone=payload.buyout_price_stone,
-        )
+            result = create_personal_auction_listing(
+                tg=telegram_user["id"],
+                seller_name=seller_name,
+                item_kind=payload.item_kind,
+                item_ref_id=payload.item_ref_id,
+                quantity=payload.quantity,
+                opening_price_stone=payload.opening_price_stone,
+                bid_increment_stone=payload.bid_increment_stone,
+                buyout_price_stone=payload.buyout_price_stone,
+            )
+            return telegram_user, result
+
+        telegram_user, result = await run_in_threadpool(_create_auction)
         auction = dict(result.get("auction") or {})
         push_warning = None
         try:
             auction, push_warning = await _push_auction_to_group(auction)
         except Exception:
             try:
-                cancel_personal_auction_listing(telegram_user["id"], int(auction.get("id") or 0))
+                await run_in_threadpool(cancel_personal_auction_listing, telegram_user["id"], int(auction.get("id") or 0))
             except Exception as rollback_exc:
                 LOGGER.warning(f"xiuxian auction rollback failed auction={auction.get('id')}: {rollback_exc}")
             raise
 
-        _remember_journal(
-            telegram_user["id"],
-            "auction",
-            "发起拍卖",
-            f"拍卖了【{auction.get('item_name') or '未知拍品'}】",
-        )
+        def _finish_auction():
+            _remember_journal(
+                telegram_user["id"],
+                "auction",
+                "发起拍卖",
+                f"拍卖了【{auction.get('item_name') or '未知拍品'}】",
+            )
+            return _with_core_bundle(telegram_user["id"], {"auction": auction, "push_warning": push_warning})
+
         return {
             "code": 200,
-            "data": _with_core_bundle(telegram_user["id"], {"auction": auction, "push_warning": push_warning}),
+            "data": await run_in_threadpool(_finish_auction),
         }
 
     @user_router.post("/api/shop/cancel")
     async def xiuxian_cancel_listing_api(payload: ShopCancelPayload):
-        telegram_user = _verify_user_from_init_data(payload.init_data)
-        result = cancel_personal_shop_item(telegram_user["id"], payload.item_id)
+        def _cancel_listing():
+            telegram_user = _verify_user_from_init_data(payload.init_data)
+            result = cancel_personal_shop_item(telegram_user["id"], payload.item_id)
+            return telegram_user, result
+
+        telegram_user, result = await run_in_threadpool(_cancel_listing)
         await _refresh_shop_notice_message((result or {}).get("item") or {})
         _queue_event_summary_refresh(int(((result or {}).get("item") or {}).get("notice_group_chat_id") or 0) or None)
-        _remember_journal(telegram_user["id"], "shop", "取消上架", f"取消了商品 #{payload.item_id} 的上架")
-        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
+
+        def _finish_cancel_listing():
+            _remember_journal(telegram_user["id"], "shop", "取消上架", f"取消了商品 #{payload.item_id} 的上架")
+            return _with_result_core_bundle(telegram_user["id"], result)
+
+        return {"code": 200, "data": await run_in_threadpool(_finish_cancel_listing)}
 
     @user_router.post("/api/shop/purchase")
     async def xiuxian_purchase_api(payload: PurchasePayload):
-        telegram_user = _verify_user_from_init_data(payload.init_data)
-        result = purchase_shop_item(telegram_user["id"], payload.item_id, payload.quantity)
+        def _purchase_listing():
+            telegram_user = _verify_user_from_init_data(payload.init_data)
+            result = purchase_shop_item(telegram_user["id"], payload.item_id, payload.quantity)
+            return telegram_user, result
+
+        telegram_user, result = await run_in_threadpool(_purchase_listing)
         await _refresh_shop_notice_message((result or {}).get("item") or {})
         _queue_event_summary_refresh(int((result.get("item") or {}).get("notice_group_chat_id") or 0) or None)
-        _remember_journal(telegram_user["id"], "shop", "购买商品", f"购买了【{result['item']['item_name']}】")
+        await run_in_threadpool(
+            _remember_journal,
+            telegram_user["id"],
+            "shop",
+            "购买商品",
+            f"购买了【{result['item']['item_name']}】",
+        )
         seller_tg = result.get("seller_tg")
         if seller_tg and int(seller_tg) != int(telegram_user["id"]):
             try:
@@ -1416,10 +1502,10 @@ def register_web(app) -> None:
                 )
             except Exception as exc:
                 LOGGER.warning(f"xiuxian seller notify failed: {exc}")
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": await run_in_threadpool(_with_core_bundle, telegram_user["id"], result)}
 
     @user_router.post("/api/recycle/official")
-    async def xiuxian_official_recycle_api(payload: OfficialRecyclePayload):
+    def xiuxian_official_recycle_api(payload: OfficialRecyclePayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = recycle_item_to_official_shop(
             tg=telegram_user["id"],
@@ -1438,7 +1524,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/player/search")
-    async def xiuxian_player_search_api(payload: PlayerLookupPayload):
+    def xiuxian_player_search_api(payload: PlayerLookupPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         keyword = str(payload.query or "").strip()
         if not keyword:
@@ -1448,13 +1534,17 @@ def register_web(app) -> None:
 
     @user_router.post("/api/gift")
     async def xiuxian_gift_api(payload: GiftPayload):
-        telegram_user = _verify_user_from_init_data(payload.init_data)
-        result = gift_spirit_stone(telegram_user["id"], payload.target_tg, payload.amount)
+        def _work():
+            telegram_user = _verify_user_from_init_data(payload.init_data)
+            result = gift_spirit_stone(telegram_user["id"], payload.target_tg, payload.amount)
+            return telegram_user, result, _with_result_core_bundle(telegram_user["id"], result)
+
+        telegram_user, result, data = await run_in_threadpool(_work)
         await _notify_achievement_unlocks(result.get("achievement_unlocks"))
-        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
+        return {"code": 200, "data": data}
 
     @user_router.post("/api/gift/item")
-    async def xiuxian_item_gift_api(payload: ItemGiftPayload):
+    def xiuxian_item_gift_api(payload: ItemGiftPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         result = gift_inventory_item(
             telegram_user["id"],
@@ -1466,7 +1556,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/journal")
-    async def xiuxian_journal_api(payload: InitDataPayload):
+    def xiuxian_journal_api(payload: InitDataPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
         return {"code": 200, "data": list_recent_journals(telegram_user["id"])}
 
@@ -1477,18 +1567,16 @@ def register_web(app) -> None:
         return {"code": 200, "data": result}
 
     @user_router.get("/api/shop")
-    async def xiuxian_public_shop_api():
+    def xiuxian_public_shop_api():
         return {"code": 200, "data": list_public_shop_items()}
 
     @admin_router.post("/bootstrap")
     async def xiuxian_admin_bootstrap(payload: AdminBootstrapPayload):
-        admin_user = _verify_admin_credential(payload.token, payload.init_data)
-        # 管理页启动时先同步一次默认种子，确保拉新镜像后能立即看到最新配置。
-        ensure_seed_data()
-        world = _admin_world_snapshot()
-        return {
-            "code": 200,
-            "data": {
+        def _admin_bootstrap_core():
+            admin_user = _verify_admin_credential(payload.token, payload.init_data)
+            # 管理页启动时先同步一次默认种子，确保拉新镜像后能立即看到最新配置。
+            ensure_seed_data()
+            return {
                 "admin_user": admin_user,
                 "settings": update_xiuxian_settings({}),
                 "pill_type_options": list_pill_type_options(),
@@ -1497,23 +1585,28 @@ def register_web(app) -> None:
                 "talismans": list_talismans(),
                 "techniques": list_techniques(),
                 "official_shop": list_shop_items(official_only=True, include_disabled=True),
-                "player_search": await _admin_player_search_payload(
-                    payload.player_query,
-                    page=max(int(payload.player_page or 1), 1),
-                    page_size=max(int(payload.player_page_size or 10), 1),
-                ),
-                **world,
-            },
+                **_admin_world_snapshot(),
+            }
+
+        data = await run_in_threadpool(_admin_bootstrap_core)
+        data["player_search"] = await _admin_player_search_payload(
+            payload.player_query,
+            page=max(int(payload.player_page or 1), 1),
+            page_size=max(int(payload.player_page_size or 10), 1),
+        )
+        return {
+            "code": 200,
+            "data": data,
         }
 
     @admin_router.post("/settings")
     async def xiuxian_settings_api(payload: AdminSettingPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        _verify_admin_credential(token, init_data)
+        await run_in_threadpool(_verify_admin_credential, token, init_data)
         patch = {key: value for key, value in payload.model_dump().items() if value is not None}
         patch = await _resolve_notice_group_settings_patch(patch)
-        settings = update_xiuxian_settings(patch)
+        settings = await run_in_threadpool(update_xiuxian_settings, patch)
         if {
             "shop_notice_group_id",
             "auction_notice_group_id",
@@ -1527,7 +1620,7 @@ def register_web(app) -> None:
     async def xiuxian_event_summary_refresh_api(payload: EventSummaryRefreshPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        _verify_admin_credential(token, init_data)
+        await run_in_threadpool(_verify_admin_credential, token, init_data)
         target_chat_ids: set[int] = set()
         raw_chat_id = payload.chat_id
         if str(raw_chat_id or "").strip():
@@ -1554,7 +1647,7 @@ def register_web(app) -> None:
         }
 
     @admin_router.post("/error-logs")
-    async def xiuxian_error_logs_api(payload: ErrorLogQueryPayload, request: Request):
+    def xiuxian_error_logs_api(payload: ErrorLogQueryPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1576,12 +1669,12 @@ def register_web(app) -> None:
     ):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        _verify_admin_credential(token, init_data)
+        await run_in_threadpool(_verify_admin_credential, token, init_data)
         result = await _save_uploaded_image(file, f"admin/{folder}", str(request.base_url))
         return {"code": 200, "data": result}
 
     @admin_router.post("/upload-permission/grant")
-    async def xiuxian_admin_grant_upload_permission_api(payload: UploadPermissionPayload, request: Request):
+    def xiuxian_admin_grant_upload_permission_api(payload: UploadPermissionPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1591,7 +1684,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": {"tg": payload.tg, "granted": True, "builtin": False}}
 
     @admin_router.post("/upload-permission/revoke")
-    async def xiuxian_admin_revoke_upload_permission_api(payload: UploadPermissionPayload, request: Request):
+    def xiuxian_admin_revoke_upload_permission_api(payload: UploadPermissionPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1599,14 +1692,14 @@ def register_web(app) -> None:
         return {"code": 200, "data": {"tg": payload.tg, "removed": removed}}
 
     @admin_router.post("/title")
-    async def xiuxian_title_api(payload: TitlePayload, request: Request):
+    def xiuxian_title_api(payload: TitlePayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
         return {"code": 200, "data": sync_title_by_name(**payload.model_dump())}
 
     @admin_router.patch("/title/{title_id}")
-    async def xiuxian_patch_title_api(title_id: int, payload: TitlePayload, request: Request):
+    def xiuxian_patch_title_api(title_id: int, payload: TitlePayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1616,7 +1709,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": result}
 
     @admin_router.post("/title/grant")
-    async def xiuxian_grant_title_api(payload: TitleGrantPayload, request: Request):
+    def xiuxian_grant_title_api(payload: TitleGrantPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1624,14 +1717,14 @@ def register_web(app) -> None:
         return {"code": 200, "data": result}
 
     @admin_router.post("/achievement")
-    async def xiuxian_achievement_api(payload: AchievementPayload, request: Request):
+    def xiuxian_achievement_api(payload: AchievementPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
         return {"code": 200, "data": create_achievement(**payload.model_dump())}
 
     @admin_router.patch("/achievement/{achievement_id}")
-    async def xiuxian_patch_achievement_api(achievement_id: int, payload: AchievementPayload, request: Request):
+    def xiuxian_patch_achievement_api(achievement_id: int, payload: AchievementPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1644,13 +1737,16 @@ def register_web(app) -> None:
     async def xiuxian_achievement_progress_api(payload: AchievementProgressPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        _verify_admin_credential(token, init_data)
-        result = record_achievement_progress(payload.tg, payload.increments, source=payload.source or "admin")
+        def _record_progress():
+            _verify_admin_credential(token, init_data)
+            return record_achievement_progress(payload.tg, payload.increments, source=payload.source or "admin")
+
+        result = await run_in_threadpool(_record_progress)
         await _notify_achievement_unlocks(result.get("unlocks"))
         return {"code": 200, "data": result}
 
     @admin_router.post("/artifact")
-    async def xiuxian_artifact_api(payload: ArtifactPayload, request: Request):
+    def xiuxian_artifact_api(payload: ArtifactPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1658,7 +1754,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": artifact}
 
     @admin_router.patch("/artifact/{artifact_id}")
-    async def xiuxian_artifact_patch_api(artifact_id: int, payload: ArtifactPayload, request: Request):
+    def xiuxian_artifact_patch_api(artifact_id: int, payload: ArtifactPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1668,7 +1764,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": result}
 
     @admin_router.post("/pill")
-    async def xiuxian_pill_api(payload: PillPayload, request: Request):
+    def xiuxian_pill_api(payload: PillPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1676,7 +1772,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": pill}
 
     @admin_router.patch("/pill/{pill_id}")
-    async def xiuxian_pill_patch_api(pill_id: int, payload: PillPayload, request: Request):
+    def xiuxian_pill_patch_api(pill_id: int, payload: PillPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1686,7 +1782,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": result}
 
     @admin_router.post("/talisman")
-    async def xiuxian_talisman_api(payload: TalismanPayload, request: Request):
+    def xiuxian_talisman_api(payload: TalismanPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1694,7 +1790,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": talisman}
 
     @admin_router.patch("/talisman/{talisman_id}")
-    async def xiuxian_talisman_patch_api(talisman_id: int, payload: TalismanPayload, request: Request):
+    def xiuxian_talisman_patch_api(talisman_id: int, payload: TalismanPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1704,7 +1800,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": result}
 
     @admin_router.post("/technique")
-    async def xiuxian_technique_api(payload: TechniquePayload, request: Request):
+    def xiuxian_technique_api(payload: TechniquePayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1712,7 +1808,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": technique}
 
     @admin_router.patch("/technique/{technique_id}")
-    async def xiuxian_technique_patch_api(technique_id: int, payload: TechniquePayload, request: Request):
+    def xiuxian_technique_patch_api(technique_id: int, payload: TechniquePayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1722,14 +1818,14 @@ def register_web(app) -> None:
         return {"code": 200, "data": result}
 
     @admin_router.post("/artifact-set")
-    async def xiuxian_artifact_set_api(payload: ArtifactSetPayload, request: Request):
+    def xiuxian_artifact_set_api(payload: ArtifactSetPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
         return {"code": 200, "data": create_artifact_set(**payload.model_dump())}
 
     @admin_router.patch("/artifact-set/{artifact_set_id}")
-    async def xiuxian_artifact_set_patch_api(artifact_set_id: int, payload: ArtifactSetPayload, request: Request):
+    def xiuxian_artifact_set_patch_api(artifact_set_id: int, payload: ArtifactSetPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1739,7 +1835,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": result}
 
     @admin_router.post("/sect")
-    async def xiuxian_sect_api(payload: SectPayload, request: Request):
+    def xiuxian_sect_api(payload: SectPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1773,7 +1869,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": sect}
 
     @admin_router.patch("/sect/{sect_id}")
-    async def xiuxian_patch_sect_api(sect_id: int, payload: SectPayload, request: Request):
+    def xiuxian_patch_sect_api(sect_id: int, payload: SectPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1810,21 +1906,21 @@ def register_web(app) -> None:
         return {"code": 200, "data": result}
 
     @admin_router.post("/sect/role")
-    async def xiuxian_sect_role_assign_api(payload: SectRoleAssignPayload, request: Request):
+    def xiuxian_sect_role_assign_api(payload: SectRoleAssignPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
         return {"code": 200, "data": set_user_sect_role(payload.tg, payload.sect_id, payload.role_key)}
 
     @admin_router.post("/material")
-    async def xiuxian_material_api(payload: MaterialPayload, request: Request):
+    def xiuxian_material_api(payload: MaterialPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
         return {"code": 200, "data": create_material(**payload.model_dump())}
 
     @admin_router.patch("/material/{material_id}")
-    async def xiuxian_material_patch_api(material_id: int, payload: MaterialPayload, request: Request):
+    def xiuxian_material_patch_api(material_id: int, payload: MaterialPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1834,7 +1930,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": result}
 
     @admin_router.post("/recipe")
-    async def xiuxian_recipe_api(payload: RecipePayload, request: Request):
+    def xiuxian_recipe_api(payload: RecipePayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1851,7 +1947,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": recipe}
 
     @admin_router.patch("/recipe/{recipe_id}")
-    async def xiuxian_recipe_patch_api(recipe_id: int, payload: RecipePayload, request: Request):
+    def xiuxian_recipe_patch_api(recipe_id: int, payload: RecipePayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1869,7 +1965,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": recipe}
 
     @admin_router.post("/scene")
-    async def xiuxian_scene_api(payload: ScenePayload, request: Request):
+    def xiuxian_scene_api(payload: ScenePayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1887,7 +1983,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": scene}
 
     @admin_router.patch("/scene/{scene_id}")
-    async def xiuxian_scene_patch_api(scene_id: int, payload: ScenePayload, request: Request):
+    def xiuxian_scene_patch_api(scene_id: int, payload: ScenePayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1906,7 +2002,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": scene}
 
     @admin_router.post("/encounter")
-    async def xiuxian_encounter_api(payload: EncounterPayload, request: Request):
+    def xiuxian_encounter_api(payload: EncounterPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1914,7 +2010,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": encounter}
 
     @admin_router.patch("/encounter/{encounter_id}")
-    async def xiuxian_encounter_patch_api(encounter_id: int, payload: EncounterPayload, request: Request):
+    def xiuxian_encounter_patch_api(encounter_id: int, payload: EncounterPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1927,11 +2023,15 @@ def register_web(app) -> None:
     async def xiuxian_encounter_dispatch_api(payload: EncounterDispatchPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        _verify_admin_credential(token, init_data)
-        chat_id = int(payload.group_chat_id or _main_group_chat_id() or 0)
-        if not chat_id:
-            raise HTTPException(status_code=400, detail="当前未配置可投放奇遇的群组。")
-        encounter_payload = spawn_group_encounter(chat_id, template_id=payload.template_id)
+
+        def _spawn_encounter():
+            _verify_admin_credential(token, init_data)
+            chat_id = int(payload.group_chat_id or _main_group_chat_id() or 0)
+            if not chat_id:
+                raise HTTPException(status_code=400, detail="当前未配置可投放奇遇的群组。")
+            return spawn_group_encounter(chat_id, template_id=payload.template_id)
+
+        encounter_payload = await run_in_threadpool(_spawn_encounter)
         message_payload = await _push_group_encounter_notice(encounter_payload)
         return {"code": 200, "data": {"encounter": encounter_payload, "message": message_payload}}
 
@@ -1939,8 +2039,11 @@ def register_web(app) -> None:
     async def xiuxian_admin_world_boss_spawn_api(payload: BossWorldSpawnPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        _verify_admin_credential(token, init_data)
-        result = spawn_world_boss(payload.boss_id)
+        def _spawn_world_boss():
+            _verify_admin_credential(token, init_data)
+            return spawn_world_boss(payload.boss_id)
+
+        result = await run_in_threadpool(_spawn_world_boss)
         instance = result.get("instance") or {}
         text = instance.get("broadcast_text")
         chat_id = int(instance.get("broadcast_chat_id") or 0)
@@ -1951,7 +2054,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": {"world_boss": result, "message": message_payload}}
 
     @admin_router.patch("/mentorship/{mentorship_id}")
-    async def xiuxian_admin_mentorship_patch_api(mentorship_id: int, payload: AdminSocialPatchPayload, request: Request):
+    def xiuxian_admin_mentorship_patch_api(mentorship_id: int, payload: AdminSocialPatchPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1965,7 +2068,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": result}
 
     @admin_router.patch("/mentorship-request/{request_id}")
-    async def xiuxian_admin_mentorship_request_patch_api(request_id: int, payload: AdminSocialPatchPayload, request: Request):
+    def xiuxian_admin_mentorship_request_patch_api(request_id: int, payload: AdminSocialPatchPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1975,7 +2078,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": result}
 
     @admin_router.patch("/marriage/{marriage_id}")
-    async def xiuxian_admin_marriage_patch_api(marriage_id: int, payload: AdminSocialPatchPayload, request: Request):
+    def xiuxian_admin_marriage_patch_api(marriage_id: int, payload: AdminSocialPatchPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1989,7 +2092,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": result}
 
     @admin_router.patch("/marriage-request/{request_id}")
-    async def xiuxian_admin_marriage_request_patch_api(request_id: int, payload: AdminSocialPatchPayload, request: Request):
+    def xiuxian_admin_marriage_request_patch_api(request_id: int, payload: AdminSocialPatchPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -1999,14 +2102,14 @@ def register_web(app) -> None:
         return {"code": 200, "data": result}
 
     @admin_router.post("/boss")
-    async def xiuxian_admin_boss_api(payload: BossPayload, request: Request):
+    def xiuxian_admin_boss_api(payload: BossPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
         return {"code": 200, "data": create_boss_config(**payload.model_dump())}
 
     @admin_router.patch("/boss/{boss_id}")
-    async def xiuxian_admin_boss_patch_api(boss_id: int, payload: BossPayload, request: Request):
+    def xiuxian_admin_boss_patch_api(boss_id: int, payload: BossPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -2019,32 +2122,35 @@ def register_web(app) -> None:
     async def xiuxian_admin_task_api(payload: AdminTaskPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        _verify_admin_credential(token, init_data)
-        task = create_bounty_task(
-            actor_tg=None,
-            title=payload.title,
-            description=payload.description,
-            task_scope=payload.task_scope,
-            task_type=payload.task_type,
-            question_text=payload.question_text,
-            answer_text=payload.answer_text,
-            image_url=payload.image_url,
-            required_item_kind=payload.required_item_kind,
-            required_item_ref_id=payload.required_item_ref_id,
-            required_item_quantity=payload.required_item_quantity,
-            requirement_metric_key=payload.requirement_metric_key,
-            requirement_metric_target=payload.requirement_metric_target,
-            reward_stone=payload.reward_stone,
-            reward_cultivation=payload.reward_cultivation,
-            reward_scale_mode=payload.reward_scale_mode,
-            reward_item_kind=payload.reward_item_kind,
-            reward_item_ref_id=payload.reward_item_ref_id,
-            reward_item_quantity=payload.reward_item_quantity,
-            max_claimants=payload.max_claimants,
-            sect_id=payload.sect_id,
-            active_in_group=payload.active_in_group,
-            group_chat_id=payload.group_chat_id or _main_group_chat_id(),
-        )
+        def _create_admin_task():
+            _verify_admin_credential(token, init_data)
+            return create_bounty_task(
+                actor_tg=None,
+                title=payload.title,
+                description=payload.description,
+                task_scope=payload.task_scope,
+                task_type=payload.task_type,
+                question_text=payload.question_text,
+                answer_text=payload.answer_text,
+                image_url=payload.image_url,
+                required_item_kind=payload.required_item_kind,
+                required_item_ref_id=payload.required_item_ref_id,
+                required_item_quantity=payload.required_item_quantity,
+                requirement_metric_key=payload.requirement_metric_key,
+                requirement_metric_target=payload.requirement_metric_target,
+                reward_stone=payload.reward_stone,
+                reward_cultivation=payload.reward_cultivation,
+                reward_scale_mode=payload.reward_scale_mode,
+                reward_item_kind=payload.reward_item_kind,
+                reward_item_ref_id=payload.reward_item_ref_id,
+                reward_item_quantity=payload.reward_item_quantity,
+                max_claimants=payload.max_claimants,
+                sect_id=payload.sect_id,
+                active_in_group=payload.active_in_group,
+                group_chat_id=payload.group_chat_id or _main_group_chat_id(),
+            )
+
+        task = await run_in_threadpool(_create_admin_task)
         if task.get("active_in_group"):
             task, push_warning = await _safe_push_task_to_group(task)
             if push_warning:
@@ -2052,7 +2158,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": task}
 
     @admin_router.post("/grant")
-    async def xiuxian_grant_api(payload: GrantPayload, request: Request):
+    def xiuxian_grant_api(payload: GrantPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -2064,13 +2170,15 @@ def register_web(app) -> None:
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
-        result = create_official_shop_listing(
+        result = await run_in_threadpool(
+            create_official_shop_listing,
             item_kind=payload.item_kind,
             item_ref_id=payload.item_ref_id,
             quantity=payload.quantity,
             price_stone=payload.price_stone,
             shop_name=payload.shop_name,
         )
+        _queue_event_summary_refresh(delay_seconds=0.2, force_create=True)
         return {"code": 200, "data": result}
 
     @admin_router.patch("/shop/{item_id}")
@@ -2079,104 +2187,105 @@ def register_web(app) -> None:
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
         patch = {key: value for key, value in payload.model_dump().items() if value is not None}
-        result = patch_shop_listing(item_id, **patch)
+        result = await run_in_threadpool(patch_shop_listing, item_id, **patch)
         if result is None:
             raise HTTPException(status_code=404, detail="Shop item not found")
+        _queue_event_summary_refresh(delay_seconds=0.2, force_create=True)
         return {"code": 200, "data": result}
 
     @admin_router.delete("/artifact/{artifact_id}")
-    async def xiuxian_delete_artifact_api(artifact_id: int, request: Request):
+    def xiuxian_delete_artifact_api(artifact_id: int, request: Request):
         _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
         if not delete_artifact(artifact_id):
             raise HTTPException(status_code=404, detail="Artifact not found")
         return {"code": 200, "data": {"deleted": True, "id": artifact_id}}
 
     @admin_router.delete("/artifact-set/{artifact_set_id}")
-    async def xiuxian_delete_artifact_set_api(artifact_set_id: int, request: Request):
+    def xiuxian_delete_artifact_set_api(artifact_set_id: int, request: Request):
         _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
         if not delete_artifact_set(artifact_set_id):
             raise HTTPException(status_code=404, detail="Artifact set not found")
         return {"code": 200, "data": {"deleted": True, "id": artifact_set_id}}
 
     @admin_router.delete("/pill/{pill_id}")
-    async def xiuxian_delete_pill_api(pill_id: int, request: Request):
+    def xiuxian_delete_pill_api(pill_id: int, request: Request):
         _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
         if not delete_pill(pill_id):
             raise HTTPException(status_code=404, detail="Pill not found")
         return {"code": 200, "data": {"deleted": True, "id": pill_id}}
 
     @admin_router.delete("/talisman/{talisman_id}")
-    async def xiuxian_delete_talisman_api(talisman_id: int, request: Request):
+    def xiuxian_delete_talisman_api(talisman_id: int, request: Request):
         _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
         if not delete_talisman(talisman_id):
             raise HTTPException(status_code=404, detail="Talisman not found")
         return {"code": 200, "data": {"deleted": True, "id": talisman_id}}
 
     @admin_router.delete("/technique/{technique_id}")
-    async def xiuxian_delete_technique_api(technique_id: int, request: Request):
+    def xiuxian_delete_technique_api(technique_id: int, request: Request):
         _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
         if not delete_technique(technique_id):
             raise HTTPException(status_code=404, detail="Technique not found")
         return {"code": 200, "data": {"deleted": True, "id": technique_id}}
 
     @admin_router.delete("/title/{title_id}")
-    async def xiuxian_delete_title_api(title_id: int, request: Request):
+    def xiuxian_delete_title_api(title_id: int, request: Request):
         _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
         if not delete_title(title_id):
             raise HTTPException(status_code=404, detail="Title not found")
         return {"code": 200, "data": {"deleted": True, "id": title_id}}
 
     @admin_router.delete("/achievement/{achievement_id}")
-    async def xiuxian_delete_achievement_api(achievement_id: int, request: Request):
+    def xiuxian_delete_achievement_api(achievement_id: int, request: Request):
         _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
         if not delete_achievement(achievement_id):
             raise HTTPException(status_code=404, detail="Achievement not found")
         return {"code": 200, "data": {"deleted": True, "id": achievement_id}}
 
     @admin_router.delete("/boss/{boss_id}")
-    async def xiuxian_delete_boss_api(boss_id: int, request: Request):
+    def xiuxian_delete_boss_api(boss_id: int, request: Request):
         _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
         if not delete_boss_config(boss_id):
             raise HTTPException(status_code=404, detail="Boss not found")
         return {"code": 200, "data": {"deleted": True, "id": boss_id}}
 
     @admin_router.delete("/sect/{sect_id}")
-    async def xiuxian_delete_sect_api(sect_id: int, request: Request):
+    def xiuxian_delete_sect_api(sect_id: int, request: Request):
         _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
         if not delete_sect(sect_id):
             raise HTTPException(status_code=404, detail="Sect not found")
         return {"code": 200, "data": {"deleted": True, "id": sect_id}}
 
     @admin_router.delete("/material/{material_id}")
-    async def xiuxian_delete_material_api(material_id: int, request: Request):
+    def xiuxian_delete_material_api(material_id: int, request: Request):
         _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
         if not delete_material(material_id):
             raise HTTPException(status_code=404, detail="Material not found")
         return {"code": 200, "data": {"deleted": True, "id": material_id}}
 
     @admin_router.delete("/recipe/{recipe_id}")
-    async def xiuxian_delete_recipe_api(recipe_id: int, request: Request):
+    def xiuxian_delete_recipe_api(recipe_id: int, request: Request):
         _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
         if not delete_recipe(recipe_id):
             raise HTTPException(status_code=404, detail="Recipe not found")
         return {"code": 200, "data": {"deleted": True, "id": recipe_id}}
 
     @admin_router.delete("/scene/{scene_id}")
-    async def xiuxian_delete_scene_api(scene_id: int, request: Request):
+    def xiuxian_delete_scene_api(scene_id: int, request: Request):
         _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
         if not delete_scene(scene_id):
             raise HTTPException(status_code=404, detail="Scene not found")
         return {"code": 200, "data": {"deleted": True, "id": scene_id}}
 
     @admin_router.delete("/encounter/{encounter_id}")
-    async def xiuxian_delete_encounter_api(encounter_id: int, request: Request):
+    def xiuxian_delete_encounter_api(encounter_id: int, request: Request):
         _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
         if not delete_encounter_template(encounter_id):
             raise HTTPException(status_code=404, detail="Encounter not found")
         return {"code": 200, "data": {"deleted": True, "id": encounter_id}}
 
     @admin_router.delete("/task/{task_id}")
-    async def xiuxian_delete_task_api(task_id: int, request: Request):
+    def xiuxian_delete_task_api(task_id: int, request: Request):
         _verify_admin_credential(request.headers.get("x-admin-token"), request.headers.get("x-telegram-init-data"))
         if not delete_task(task_id):
             raise HTTPException(status_code=404, detail="Task not found")
@@ -2186,12 +2295,12 @@ def register_web(app) -> None:
     async def xiuxian_admin_players_api(request: Request, q: str = "", page: int = 1, page_size: int = 10):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        _verify_admin_credential(token, init_data)
+        await run_in_threadpool(_verify_admin_credential, token, init_data)
         result = await _admin_player_search_payload(q or None, page=page, page_size=page_size)
         return {"code": 200, "data": result}
 
     @admin_router.post("/system/reset-player-data")
-    async def xiuxian_admin_reset_player_data_api(request: Request):
+    def xiuxian_admin_reset_player_data_api(request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -2202,82 +2311,101 @@ def register_web(app) -> None:
     async def xiuxian_admin_player_detail_api(tg: int, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        _verify_admin_credential(token, init_data)
+        await run_in_threadpool(_verify_admin_credential, token, init_data)
         return {"code": 200, "data": await _admin_player_bundle_payload(tg)}
 
     @admin_router.patch("/players/{tg}")
     async def xiuxian_admin_player_patch_api(tg: int, payload: PlayerPatchPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        _verify_admin_credential(token, init_data)
-        patch = {key: value for key, value in payload.model_dump().items() if value is not None}
-        result = admin_patch_player(tg, **patch)
-        if result is None:
-            raise HTTPException(status_code=404, detail="Player not found")
-        create_journal(tg, "admin", "主人修改", f"主人修改了属性: {', '.join(patch.keys())}")
+        def _patch_player():
+            _verify_admin_credential(token, init_data)
+            patch = {key: value for key, value in payload.model_dump().items() if value is not None}
+            result = admin_patch_player(tg, **patch)
+            if result is None:
+                raise HTTPException(status_code=404, detail="Player not found")
+            create_journal(tg, "admin", "主人修改", f"主人修改了属性: {', '.join(patch.keys())}")
+
+        await run_in_threadpool(_patch_player)
         return {"code": 200, "data": await _admin_player_bundle_payload(tg)}
 
     @admin_router.post("/players/{tg}/resource/grant")
     async def xiuxian_admin_player_grant_resource_api(tg: int, payload: PlayerResourceGrantPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        _verify_admin_credential(token, init_data)
-        admin_grant_player_resource(
-            tg,
-            payload.item_kind,
-            payload.item_ref_id,
-            quantity=payload.quantity,
-            equip=payload.equip,
-        )
-        create_journal(tg, "admin", "主人发放", f"主人发放了 {payload.item_kind}:{payload.item_ref_id}")
+        def _grant_resource():
+            _verify_admin_credential(token, init_data)
+            admin_grant_player_resource(
+                tg,
+                payload.item_kind,
+                payload.item_ref_id,
+                quantity=payload.quantity,
+                equip=payload.equip,
+            )
+            create_journal(tg, "admin", "主人发放", f"主人发放了 {payload.item_kind}:{payload.item_ref_id}")
+
+        await run_in_threadpool(_grant_resource)
         return {"code": 200, "data": await _admin_player_bundle_payload(tg)}
 
     @admin_router.post("/players/{tg}/resource/inventory")
     async def xiuxian_admin_player_inventory_api(tg: int, payload: PlayerInventoryPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        _verify_admin_credential(token, init_data)
-        admin_set_player_inventory(
-            tg,
-            payload.item_kind,
-            payload.item_ref_id,
-            payload.quantity,
-            bound_quantity=payload.bound_quantity,
-        )
-        create_journal(tg, "admin", "主人调包", f"主人调整了背包: {payload.item_kind}:{payload.item_ref_id}")
+        def _set_inventory():
+            _verify_admin_credential(token, init_data)
+            admin_set_player_inventory(
+                tg,
+                payload.item_kind,
+                payload.item_ref_id,
+                payload.quantity,
+                bound_quantity=payload.bound_quantity,
+            )
+            create_journal(tg, "admin", "主人调包", f"主人调整了背包: {payload.item_kind}:{payload.item_ref_id}")
+
+        await run_in_threadpool(_set_inventory)
         return {"code": 200, "data": await _admin_player_bundle_payload(tg)}
 
     @admin_router.post("/players/{tg}/resource/select")
     async def xiuxian_admin_player_select_resource_api(tg: int, payload: PlayerSelectionPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        _verify_admin_credential(token, init_data)
-        admin_set_player_selection(tg, payload.selection_kind, payload.item_ref_id)
-        target = f"{payload.selection_kind}:{payload.item_ref_id or 0}"
-        create_journal(tg, "admin", "主人设定", f"主人切换了当前配置: {target}")
+        def _set_selection():
+            _verify_admin_credential(token, init_data)
+            admin_set_player_selection(tg, payload.selection_kind, payload.item_ref_id)
+            target = f"{payload.selection_kind}:{payload.item_ref_id or 0}"
+            create_journal(tg, "admin", "主人设定", f"主人切换了当前配置: {target}")
+
+        await run_in_threadpool(_set_selection)
         return {"code": 200, "data": await _admin_player_bundle_payload(tg)}
 
     @admin_router.post("/players/{tg}/resource/revoke")
     async def xiuxian_admin_player_revoke_resource_api(tg: int, payload: PlayerRevokePayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        _verify_admin_credential(token, init_data)
-        admin_revoke_player_resource(tg, payload.item_kind, payload.item_ref_id)
-        create_journal(tg, "admin", "主人回收", f"主人移除了 {payload.item_kind}:{payload.item_ref_id}")
+        def _revoke_resource():
+            _verify_admin_credential(token, init_data)
+            admin_revoke_player_resource(tg, payload.item_kind, payload.item_ref_id)
+            create_journal(tg, "admin", "主人回收", f"主人移除了 {payload.item_kind}:{payload.item_ref_id}")
+
+        await run_in_threadpool(_revoke_resource)
         return {"code": 200, "data": await _admin_player_bundle_payload(tg)}
 
     @admin_router.post("/players/resource/batch")
     async def xiuxian_admin_player_batch_resource_api(payload: PlayerBatchResourcePayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        _verify_admin_credential(token, init_data)
-        result = admin_batch_update_player_resource(
-            payload.item_kind,
-            payload.item_ref_id,
-            payload.quantity,
-            operation=payload.operation,
-            equip=payload.equip,
-        )
+
+        def _batch_update():
+            _verify_admin_credential(token, init_data)
+            return admin_batch_update_player_resource(
+                payload.item_kind,
+                payload.item_ref_id,
+                payload.quantity,
+                operation=payload.operation,
+                equip=payload.equip,
+            )
+
+        result = await run_in_threadpool(_batch_update)
         if payload.announce_in_group:
             chat_id = _main_group_chat_id()
             if chat_id:

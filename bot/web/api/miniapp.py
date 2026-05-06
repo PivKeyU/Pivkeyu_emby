@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
-from bot import LOGGER, admins, api as api_config, bot, bot_token, config, owner, pivkeyu, ranks
+from bot import LOGGER, admins, api as api_config, bot, bot_token, chanel, config, owner, pivkeyu, ranks
 from bot.plugins import list_miniapp_plugins
 from bot.sql_helper.sql_bot_access import find_bot_access_block
 from bot.sql_helper.sql_emby import sql_get_emby
@@ -75,6 +75,8 @@ def _public_invite_bundle(user_id: int, account=None) -> dict:
             "target_chat_id": settings.get("target_chat_id"),
             "expire_hours": int(settings.get("expire_hours") or 24),
             "strict_target": bool(settings.get("strict_target", True)),
+            "group_verification_enabled": bool(settings.get("group_verification_enabled", settings.get("strict_target", True))),
+            "channel_verification_enabled": bool(settings.get("channel_verification_enabled", False)),
             "account_open_days": int(settings.get("account_open_days") or 30),
         },
         "permissions": {
@@ -84,6 +86,8 @@ def _public_invite_bundle(user_id: int, account=None) -> dict:
             "has_account_open_application_qualification": bool(
                 settings.get("enabled") and qualification.get("account_open", {}).get("available")
             ),
+            "group_verification_enabled": bool(settings.get("group_verification_enabled", settings.get("strict_target", True))),
+            "channel_verification_enabled": bool(settings.get("channel_verification_enabled", False)),
             "group_invite_used": bool(user_has_group_invite_history(user_id)) if has_access else False,
             "account_open_application_used": bool(account_open_history),
             "group_invite_revoked": bool(qualification.get("group_join", {}).get("revoked")),
@@ -170,18 +174,41 @@ async def _send_account_open_notice(invitee_tg: int, inviter_name: str, days: in
     await bot.send_message(chat_id=int(invitee_tg), text=text)
 
 
-async def _ensure_target_user_in_group(invitee_tg: int, settings: dict) -> None:
-    target_chat_id = settings.get("target_chat_id")
-    if not target_chat_id:
-        raise HTTPException(status_code=400, detail="主人还没配置邀请目标群组呢...催催主人吧")
+def _normalize_invite_chat_reference(raw_target: Any) -> int | str | None:
+    if raw_target is None:
+        return None
+    text = str(raw_target).strip()
+    if not text or text in {"0", "None", "null"}:
+        return None
+    if text.startswith("https://t.me/"):
+        text = text.rsplit("/", 1)[-1].strip()
     try:
-        member = await bot.get_chat_member(chat_id=int(target_chat_id), user_id=int(invitee_tg))
-    except Exception as exc:
-        LOGGER.warning(f"check invite target group member failed chat={target_chat_id} tg={invitee_tg}: {exc}")
-        raise HTTPException(status_code=400, detail="被申请人不在目标群组里呢，不能提交开通申请啦~") from exc
-    status = str(getattr(member, "status", "") or "").lower()
-    if "left" in status or "ban" in status or "kick" in status:
-        raise HTTPException(status_code=400, detail="被申请人不在目标群组里呢，不能提交开通申请啦~")
+        return int(text)
+    except (TypeError, ValueError):
+        return text if text.startswith("@") else f"@{text}"
+
+
+async def _ensure_target_user_in_group(invitee_tg: int, settings: dict) -> None:
+    verification_checks: list[tuple[str, int | str | None]] = []
+    if settings.get("group_verification_enabled", settings.get("strict_target", True)):
+        verification_checks.append(("群组", settings.get("target_chat_id")))
+    if settings.get("channel_verification_enabled"):
+        verification_checks.append(("频道", chanel))
+
+    for label, target_chat_id in verification_checks:
+        normalized_chat_id = _normalize_invite_chat_reference(target_chat_id)
+        if normalized_chat_id is None:
+            raise HTTPException(status_code=400, detail=f"主人还没配置{label}地址呢，不能开启{label}验证哦")
+        try:
+            member = await bot.get_chat_member(chat_id=normalized_chat_id, user_id=int(invitee_tg))
+        except Exception as exc:
+            LOGGER.warning(
+                f"check invite target {label.lower()} member failed chat={normalized_chat_id} tg={invitee_tg}: {exc}"
+            )
+            raise HTTPException(status_code=400, detail=f"被申请人不在目标{label}里呢，不能提交开通申请啦~") from exc
+        status = str(getattr(member, "status", "") or "").lower()
+        if "left" in status or "ban" in status or "kick" in status:
+            raise HTTPException(status_code=400, detail=f"被申请人不在目标{label}里呢，不能提交开通申请啦~")
 
 
 def is_admin_user_id(user_id: int) -> bool:
@@ -238,6 +265,7 @@ async def bootstrap(payload: MiniAppInitRequest):
         run_in_threadpool(sql_get_emby, telegram_user["id"]),
         run_in_threadpool(list_miniapp_plugins),
     )
+    invite_bundle = await run_in_threadpool(_public_invite_bundle, int(telegram_user["id"]), account)
     is_admin = is_admin_user_id(telegram_user["id"])
     plugins = [
         plugin
@@ -270,7 +298,7 @@ async def bootstrap(payload: MiniAppInitRequest):
         "data": {
             "telegram_user": telegram_user,
             "account": None if account is None else serialize_emby_user(account),
-            "invite": _public_invite_bundle(int(telegram_user["id"]), account),
+            "invite": invite_bundle,
             "permissions": {
                 "is_admin": is_admin,
                 "admin_url": "/admin" if is_admin else None,
@@ -291,18 +319,22 @@ async def create_user_invite(payload: MiniAppInviteCreateRequest):
     telegram_user = verified["user"]
     user_id = int(telegram_user["id"])
     invitee_tg = int(payload.invitee_tg)
-    account = await run_in_threadpool(sql_get_emby, user_id)
-    settings = get_invite_settings()
 
-    if not settings.get("enabled"):
-        raise HTTPException(status_code=403, detail="主人还没开启邀请功能呢~")
-    if not has_viewing_access(account):
-        raise HTTPException(status_code=403, detail="哼，只有拥有 Emby 观影资格的人才能获取入群资格啦~")
-    if available_invite_credit_count(user_id, credit_type=INVITE_CREDIT_TYPE_GROUP) <= 0:
-        raise HTTPException(status_code=400, detail="你当前没有可用的入群资格呢...想邀请别人？先看看自己够不够格啦~")
-    target_chat_id = settings.get("target_chat_id")
-    if not target_chat_id:
-        raise HTTPException(status_code=400, detail="主人还没配置邀请目标群组呢...催催主人吧")
+    def _prepare_invite_request():
+        account = sql_get_emby(user_id)
+        settings = get_invite_settings()
+        if not settings.get("enabled"):
+            raise HTTPException(status_code=403, detail="主人还没开启邀请功能呢~")
+        if not has_viewing_access(account):
+            raise HTTPException(status_code=403, detail="哼，只有拥有 Emby 观影资格的人才能获取入群资格啦~")
+        if available_invite_credit_count(user_id, credit_type=INVITE_CREDIT_TYPE_GROUP) <= 0:
+            raise HTTPException(status_code=400, detail="你当前没有可用的入群资格呢...想邀请别人？先看看自己够不够格啦~")
+        target_chat_id = settings.get("target_chat_id")
+        if not target_chat_id:
+            raise HTTPException(status_code=400, detail="主人还没配置邀请目标群组呢...催催主人吧")
+        return account, settings, int(target_chat_id)
+
+    account, settings, target_chat_id = await run_in_threadpool(_prepare_invite_request)
 
     invite_link = ""
     record = None
@@ -312,10 +344,11 @@ async def create_user_invite(payload: MiniAppInviteCreateRequest):
             invitee_tg,
             int(settings.get("expire_hours") or 24),
         )
-        record = create_invite_record(
+        record = await run_in_threadpool(
+            create_invite_record,
             inviter_tg=user_id,
             invitee_tg=invitee_tg,
-            target_chat_id=int(target_chat_id),
+            target_chat_id=target_chat_id,
             invite_link=invite_link,
             link_name=link_name,
             expires_at=expires_at,
@@ -330,18 +363,18 @@ async def create_user_invite(payload: MiniAppInviteCreateRequest):
             int(settings.get("expire_hours") or 24),
         )
     except ValueError as exc:
-        await _safe_revoke_invite_link(int(target_chat_id), invite_link)
+        await _safe_revoke_invite_link(target_chat_id, invite_link)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
-        await _safe_revoke_invite_link(int(target_chat_id), invite_link)
+        await _safe_revoke_invite_link(target_chat_id, invite_link)
         if record:
-            cancel_pending_invite_record(record["id"], reason=str(exc))
+            await run_in_threadpool(cancel_pending_invite_record, record["id"], reason=str(exc))
         LOGGER.warning(f"create user invite failed inviter={user_id} invitee={invitee_tg}: {exc}")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except Exception as exc:
-        await _safe_revoke_invite_link(int(target_chat_id), invite_link)
+        await _safe_revoke_invite_link(target_chat_id, invite_link)
         if record:
-            cancel_pending_invite_record(record["id"], reason="私聊发送邀请链接失败，已自动撤销")
+            await run_in_threadpool(cancel_pending_invite_record, record["id"], reason="私聊发送邀请链接失败，已自动撤销")
         LOGGER.warning(f"create user invite failed inviter={user_id} invitee={invitee_tg}: {exc}")
         raise HTTPException(status_code=500, detail="邀请链接生成或发送失败了...让对方先私聊启动本女仆啦！") from exc
 
@@ -349,7 +382,7 @@ async def create_user_invite(payload: MiniAppInviteCreateRequest):
         "code": 200,
         "data": {
             "record": _public_invite_record(record),
-            "invite": _public_invite_bundle(user_id, account),
+            "invite": await run_in_threadpool(_public_invite_bundle, user_id, account),
         },
     }
 
@@ -360,16 +393,21 @@ async def create_account_open_invite(payload: MiniAppInviteCreateRequest):
     telegram_user = verified["user"]
     user_id = int(telegram_user["id"])
     invitee_tg = int(payload.invitee_tg)
-    account = await run_in_threadpool(sql_get_emby, user_id)
-    settings = get_invite_settings()
 
-    if not settings.get("enabled"):
-        raise HTTPException(status_code=403, detail="主人还没开启邀请功能呢~")
-    if not has_viewing_access(account):
-        raise HTTPException(status_code=403, detail="哼，只有拥有 Emby 观影资格的人才能提交开通申请啦~")
+    def _prepare_account_open_request():
+        account = sql_get_emby(user_id)
+        settings = get_invite_settings()
+        if not settings.get("enabled"):
+            raise HTTPException(status_code=403, detail="主人还没开启邀请功能呢~")
+        if not has_viewing_access(account):
+            raise HTTPException(status_code=403, detail="哼，只有拥有 Emby 观影资格的人才能提交开通申请啦~")
+        return account, settings
+
+    account, settings = await run_in_threadpool(_prepare_account_open_request)
     await _ensure_target_user_in_group(invitee_tg, settings)
     try:
-        record = create_account_open_invite_record(
+        record = await run_in_threadpool(
+            create_account_open_invite_record,
             inviter_tg=user_id,
             invitee_tg=invitee_tg,
             created_by_tg=user_id,
@@ -385,6 +423,6 @@ async def create_account_open_invite(payload: MiniAppInviteCreateRequest):
         "code": 200,
         "data": {
             "record": _public_invite_record(record),
-            "invite": _public_invite_bundle(user_id, account),
+            "invite": await run_in_threadpool(_public_invite_bundle, user_id, account),
         },
     }

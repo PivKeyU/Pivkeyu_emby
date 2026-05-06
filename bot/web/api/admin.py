@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
 from starlette.background import BackgroundTask
 
-from bot import LOGGER, bot, config, save_config
+from bot import LOGGER, bot, chanel, config, save_config
 from bot.func_helper.moderation import (
     ModerationServiceError,
     clear_chat_member_warning,
@@ -136,6 +136,8 @@ class AdminInviteSettingsPatch(BaseModel):
     target_chat_id: int | None = None
     expire_hours: int | None = Field(default=None, ge=1, le=168)
     strict_target: bool | None = None
+    group_verification_enabled: bool | None = None
+    channel_verification_enabled: bool | None = None
     account_open_days: int | None = Field(default=None, ge=1, le=3650)
 
 
@@ -748,19 +750,42 @@ async def _safe_send_account_open_review_notice(record: dict[str, Any] | None, a
         LOGGER.warning(f"admin account-open review notice failed tg={invitee_tg}: {exc}")
 
 
+def _normalize_invite_chat_reference(raw_target: Any) -> int | str | None:
+    if raw_target is None:
+        return None
+    text = str(raw_target).strip()
+    if not text or text in {"0", "None", "null"}:
+        return None
+    if text.startswith("https://t.me/"):
+        text = text.rsplit("/", 1)[-1].strip()
+    try:
+        return int(text)
+    except (TypeError, ValueError):
+        return text if text.startswith("@") else f"@{text}"
+
+
 async def _ensure_target_user_in_invite_group(invitee_tg: int) -> None:
     settings = get_invite_settings()
-    target_chat_id = settings.get("target_chat_id")
-    if not target_chat_id:
-        raise HTTPException(status_code=400, detail="主人还没配置邀请目标群组呢...催催主人吧")
-    try:
-        member = await bot.get_chat_member(chat_id=int(target_chat_id), user_id=int(invitee_tg))
-    except Exception as exc:
-        LOGGER.warning(f"admin check account-open target group member failed chat={target_chat_id} tg={invitee_tg}: {exc}")
-        raise HTTPException(status_code=400, detail="被申请人不在目标群组里呢，不能通过开通申请啦~") from exc
-    status = str(getattr(member, "status", "") or "").lower()
-    if "left" in status or "ban" in status or "kick" in status:
-        raise HTTPException(status_code=400, detail="被申请人不在目标群组里呢，不能通过开通申请啦~")
+    verification_checks: list[tuple[str, int | str | None]] = []
+    if settings.get("group_verification_enabled", settings.get("strict_target", True)):
+        verification_checks.append(("群组", settings.get("target_chat_id")))
+    if settings.get("channel_verification_enabled"):
+        verification_checks.append(("频道", chanel))
+
+    for label, target_chat_id in verification_checks:
+        normalized_chat_id = _normalize_invite_chat_reference(target_chat_id)
+        if normalized_chat_id is None:
+            raise HTTPException(status_code=400, detail=f"主人还没配置{label}地址呢，不能开启{label}验证哦")
+        try:
+            member = await bot.get_chat_member(chat_id=normalized_chat_id, user_id=int(invitee_tg))
+        except Exception as exc:
+            LOGGER.warning(
+                f"admin check account-open target {label.lower()} member failed chat={normalized_chat_id} tg={invitee_tg}: {exc}"
+            )
+            raise HTTPException(status_code=400, detail=f"被申请人不在目标{label}里呢，不能通过开通申请啦~") from exc
+        status = str(getattr(member, "status", "") or "").lower()
+        if "left" in status or "ban" in status or "kick" in status:
+            raise HTTPException(status_code=400, detail=f"被申请人不在目标{label}里呢，不能通过开通申请啦~")
 
 
 def _normalize_code_create_payload(payload: AdminCodeCreatePayload) -> dict[str, Any]:

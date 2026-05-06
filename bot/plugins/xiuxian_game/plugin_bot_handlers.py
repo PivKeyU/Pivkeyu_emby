@@ -614,7 +614,7 @@ async def _refresh_profile_identity_from_telegram(tg: int) -> dict[str, str] | N
 
     from bot.sql_helper.sql_xiuxian import upsert_profile
 
-    upsert_profile(int(tg), **payload)
+    await run_in_threadpool(upsert_profile, int(tg), **payload)
     return payload
 
 
@@ -638,12 +638,12 @@ def _merge_profile_identity(profile: dict[str, Any], identity: dict[str, str] | 
 
 
 async def _admin_player_bundle_payload(tg: int) -> dict[str, Any]:
-    bundle = build_admin_player_detail(tg)
+    bundle = await run_in_threadpool(build_admin_player_detail, tg)
     if bundle is None:
         raise HTTPException(status_code=404, detail="Player not found")
     identity = await _refresh_profile_identity_from_telegram(tg)
     bundle["profile"] = _merge_profile_identity(bundle.get("profile") or {}, identity)
-    bundle["emby_account"] = get_emby_account(tg)
+    bundle["emby_account"] = await run_in_threadpool(get_emby_account, tg)
     return bundle
 
 
@@ -653,7 +653,7 @@ async def _admin_player_search_payload(
     page: int = 1,
     page_size: int = 10,
 ) -> dict[str, Any]:
-    result = search_xiuxian_players(query=query or None, page=page, page_size=page_size)
+    result = await run_in_threadpool(search_xiuxian_players, query=query or None, page=page, page_size=page_size)
     items = result.get("items") or []
     identities = await asyncio.gather(
         *(_refresh_profile_identity_from_telegram(int(item["tg"])) for item in items),
@@ -1544,7 +1544,7 @@ async def _notify_achievement_unlocks(unlocks: list[dict[str, Any]] | None) -> N
                     persistent=True,
                     parse_mode=RICH_TEXT_MODE,
                 )
-                mark_user_achievement_notification(tg, achievement_id, "private")
+                await run_in_threadpool(mark_user_achievement_notification, tg, achievement_id, "private")
             except Exception as exc:
                 LOGGER.warning(f"xiuxian achievement private notify failed tg={tg} achievement={achievement_id}: {exc}")
         if group_chat_id and achievement.get("notify_group") and not unlock.get("group_notified_at"):
@@ -1555,7 +1555,7 @@ async def _notify_achievement_unlocks(unlocks: list[dict[str, Any]] | None) -> N
                     _achievement_group_text(unlock),
                     parse_mode=RICH_TEXT_MODE,
                 )
-                mark_user_achievement_notification(tg, achievement_id, "group")
+                await run_in_threadpool(mark_user_achievement_notification, tg, achievement_id, "group")
             except Exception as exc:
                 LOGGER.warning(f"xiuxian achievement group notify failed tg={tg} achievement={achievement_id}: {exc}")
 
@@ -1828,7 +1828,11 @@ def _invalidate_event_summary_snapshot() -> None:
     EVENT_SUMMARY_SNAPSHOT_CACHE_AT = 0.0
 
 
-def _event_summary_snapshot(force_refresh: bool = False) -> dict[str, Any]:
+def _event_summary_snapshot(
+    force_refresh: bool = False,
+    *,
+    configured_notice_chat_ids: dict[str, int] | None = None,
+) -> dict[str, Any]:
     global EVENT_SUMMARY_SNAPSHOT_CACHE, EVENT_SUMMARY_SNAPSHOT_CACHE_AT
     now_monotonic = time.monotonic()
     if (
@@ -1846,16 +1850,20 @@ def _event_summary_snapshot(force_refresh: bool = False) -> dict[str, Any]:
     all_arena_rows: list[dict[str, Any]] = []
     chat_ids = {int(chat_id) for chat_id in EVENT_SUMMARY_MESSAGES if int(chat_id or 0) != 0}
     chat_ids.update(_event_summary_message_map().keys())
-    configured_notice_chat_ids: dict[str, int] = {}
+    resolved_notice_chat_ids = {
+        str(scope).strip().lower(): int(chat_id or 0)
+        for scope, chat_id in (configured_notice_chat_ids or {}).items()
+        if str(scope or "").strip() and int(chat_id or 0) != 0
+    }
 
     for scope in ("shop", "auction", "arena"):
-        configured = _notice_group_chat_id(scope, allow_main_fallback=False)
+        configured = int(resolved_notice_chat_ids.get(scope) or _notice_group_chat_id(scope, allow_main_fallback=False) or 0)
         if configured:
             chat_ids.add(int(configured))
-            configured_notice_chat_ids[scope] = int(configured)
+            resolved_notice_chat_ids[scope] = int(configured)
 
     for row in list_shop_items(official_only=False, include_disabled=False):
-        chat_id = int(configured_notice_chat_ids.get("shop") or row.get("notice_group_chat_id") or 0)
+        chat_id = int(resolved_notice_chat_ids.get("shop") or row.get("notice_group_chat_id") or 0)
         if chat_id <= 0:
             continue
         chat_ids.add(chat_id)
@@ -1863,7 +1871,7 @@ def _event_summary_snapshot(force_refresh: bool = False) -> dict[str, Any]:
         all_shop_rows.append(row)
 
     for row in list_auction_items(status="active"):
-        chat_id = int(configured_notice_chat_ids.get("auction") or row.get("group_chat_id") or 0)
+        chat_id = int(resolved_notice_chat_ids.get("auction") or row.get("group_chat_id") or 0)
         if chat_id <= 0:
             continue
         chat_ids.add(chat_id)
@@ -1871,7 +1879,7 @@ def _event_summary_snapshot(force_refresh: bool = False) -> dict[str, Any]:
         all_auction_rows.append(row)
 
     for row in list_group_arenas(status="active"):
-        chat_id = int(configured_notice_chat_ids.get("arena") or row.get("group_chat_id") or 0)
+        chat_id = int(resolved_notice_chat_ids.get("arena") or row.get("group_chat_id") or 0)
         if chat_id <= 0:
             continue
         chat_ids.add(chat_id)
@@ -2141,7 +2149,15 @@ async def _refresh_all_event_summaries(
     constrain_to_snapshot: bool = True,
 ) -> None:
     async with _event_summary_lock():
-        snapshot = _event_summary_snapshot(force_refresh=force_snapshot_refresh)
+        resolved_notice_chat_ids: dict[str, int] = {}
+        for scope in ("shop", "auction", "arena"):
+            resolved_chat_id = await _resolve_notice_group_chat_id(scope, allow_main_fallback=False)
+            if resolved_chat_id:
+                resolved_notice_chat_ids[scope] = int(resolved_chat_id)
+        snapshot = _event_summary_snapshot(
+            force_refresh=force_snapshot_refresh,
+            configured_notice_chat_ids=resolved_notice_chat_ids,
+        )
         auction_rows_by_chat = snapshot.get("auctions") or {}
         arena_rows_by_chat = snapshot.get("arenas") or {}
         shop_rows_by_chat = snapshot.get("shops") or {}
@@ -2637,7 +2653,12 @@ async def _push_shop_notice_to_group(item: dict[str, Any]) -> tuple[dict[str, An
         parse_mode=RICH_TEXT_MODE,
         persistent=True,
     )
-    updated = patch_shop_listing(int(item["id"]), notice_group_chat_id=chat_id, notice_group_message_id=sent.id) or {
+    updated = await run_in_threadpool(
+        patch_shop_listing,
+        int(item["id"]),
+        notice_group_chat_id=chat_id,
+        notice_group_message_id=sent.id,
+    ) or {
         **item,
         "notice_group_chat_id": chat_id,
         "notice_group_message_id": sent.id,
@@ -2884,7 +2905,7 @@ def _queue_auction_finalize_task(auction: dict[str, Any] | None) -> None:
             remaining = max((end_at - datetime.now(SHANGHAI_TZ)).total_seconds(), 0)
             if remaining > 0:
                 await asyncio.sleep(remaining)
-            result = finalize_auction_listing(auction_id, force=True)
+            result = await run_in_threadpool(finalize_auction_listing, auction_id, force=True)
             if result and str(result.get("result") or "") not in {"noop", ""}:
                 await _finalize_auction_flow(result)
         except asyncio.CancelledError:
@@ -2916,7 +2937,12 @@ async def _push_auction_to_group(auction: dict[str, Any]) -> tuple[dict[str, Any
         parse_mode=RICH_TEXT_MODE,
         persistent=True,
     )
-    updated = patch_auction_listing(int(auction["id"]), group_chat_id=chat_id, group_message_id=sent.id) or {
+    updated = await run_in_threadpool(
+        patch_auction_listing,
+        int(auction["id"]),
+        group_chat_id=chat_id,
+        group_message_id=sent.id,
+    ) or {
         **auction,
         "group_chat_id": chat_id,
         "group_message_id": sent.id,
@@ -3016,11 +3042,12 @@ async def _refresh_arena_group_message(arena: dict[str, Any]) -> None:
     if not chat_id or not message_id:
         return
     try:
+        text = await run_in_threadpool(_arena_group_text, arena)
         await _edit_message_text(
             bot,
             chat_id,
             message_id,
-            _arena_group_text(arena),
+            text,
             reply_markup=_arena_keyboard(arena),
             parse_mode=RICH_TEXT_MODE,
             persistent=True,
@@ -3135,7 +3162,7 @@ def _queue_arena_finalize_task(arena: dict[str, Any] | None) -> None:
             if remaining > 0:
                 await asyncio.sleep(remaining)
             while True:
-                result = finalize_group_arena(arena_id, force=True)
+                result = await run_in_threadpool(finalize_group_arena, arena_id, force=True)
                 if not result:
                     break
                 if str(result.get("result") or "") == "busy":
@@ -3165,15 +3192,21 @@ async def _push_arena_to_group(arena: dict[str, Any]) -> tuple[dict[str, Any], s
     chat_id = int(arena.get("group_chat_id") or await _resolve_notice_group_chat_id("arena") or 0)
     if not chat_id:
         raise ValueError("未配置擂台通知群，无法推送擂台消息。")
+    text = await run_in_threadpool(_arena_group_text, arena)
     sent = await _send_message(
         bot,
         chat_id,
-        _arena_group_text(arena),
+        text,
         reply_markup=_arena_keyboard(arena),
         parse_mode=RICH_TEXT_MODE,
         persistent=True,
     )
-    updated = patch_group_arena(int(arena["id"]), group_chat_id=chat_id, group_message_id=sent.id) or {
+    updated = await run_in_threadpool(
+        patch_group_arena,
+        int(arena["id"]),
+        group_chat_id=chat_id,
+        group_message_id=sent.id,
+    ) or {
         **arena,
         "group_chat_id": chat_id,
         "group_message_id": sent.id,
@@ -3381,7 +3414,7 @@ async def _push_quiz_task(task: dict[str, Any]) -> dict[str, Any] | None:
             )
     else:
         sent = await _send_message(bot, chat_id, text, parse_mode=RICH_TEXT_MODE, persistent=True)
-    return mark_task_group_message(task["id"], chat_id, sent.id)
+    return await run_in_threadpool(mark_task_group_message, task["id"], chat_id, sent.id)
 
 
 async def _push_task_to_group(task: dict[str, Any]) -> dict[str, Any] | None:
@@ -3491,7 +3524,7 @@ async def _push_group_encounter_notice(payload: dict[str, Any]) -> dict[str, Any
             parse_mode=RICH_TEXT_MODE,
             persistent=True,
         )
-    return mark_group_encounter_message(int(instance["id"]), int(sent.id))
+    return await run_in_threadpool(mark_group_encounter_message, int(instance["id"]), int(sent.id))
 
 
 async def _maybe_broadcast_craft(actor_tg: int, result: dict[str, Any]) -> None:
@@ -3503,7 +3536,7 @@ async def _maybe_broadcast_craft(actor_tg: int, result: dict[str, Any]) -> None:
     result_item = result.get("result_item") or {}
     item_name = result_item.get("name") or "未知物品"
     quality_label = str(result_item.get("quality_label") or result_item.get("rarity") or f"{int(result.get('result_quality') or 0)}阶").strip()
-    actor_profile = (serialize_full_profile(actor_tg) or {}).get("profile") or {}
+    actor_profile = (await run_in_threadpool(serialize_full_profile, actor_tg) or {}).get("profile") or {}
     success_count = max(int(result.get("success_count") or 0), 0)
     failure_count = max(int(result.get("failure_count") or 0), 0)
     total_quantity = max(int(result.get("total_reward_quantity") or 0), 0)
@@ -3533,7 +3566,7 @@ async def _maybe_broadcast_gambling(actor_tg: int, result: dict[str, Any]) -> No
     chat_id = _main_group_chat_id()
     if not chat_id:
         return
-    actor_profile = (serialize_full_profile(actor_tg) or {}).get("profile") or {}
+    actor_profile = (await run_in_threadpool(serialize_full_profile, actor_tg) or {}).get("profile") or {}
     opened_count = max(int(result.get("opened_count") or 0), 0)
     fortune_hint = str(result.get("fortune_hint") or "").strip()
     lines = [
@@ -4195,8 +4228,12 @@ def register_bot(bot_instance) -> None:
         if close_at is not None:
             await asyncio.sleep(max((close_at - datetime.now(SHANGHAI_TZ)).total_seconds(), 0))
         try:
-            result = resolve_duel(challenger_tg, defender_tg, stake, duel_mode=duel_mode)
-            bet_settlement = settle_duel_bet_pool(pool_id, result["winner_tg"]) if pool_id is not None else None
+            def _resolve_duel_flow():
+                result = resolve_duel(challenger_tg, defender_tg, stake, duel_mode=duel_mode)
+                bet_settlement = settle_duel_bet_pool(pool_id, result["winner_tg"]) if pool_id is not None else None
+                return result, bet_settlement
+
+            result, bet_settlement = await run_in_threadpool(_resolve_duel_flow)
             if pool_id is not None:
                 DUEL_MESSAGE_REFRESH_CACHE.pop(pool_id, None)
             total_pages = _duel_settlement_total_pages(bet_settlement)
@@ -4289,15 +4326,19 @@ def register_bot(bot_instance) -> None:
 
     @bot_instance.on_callback_query(filters.regex(r"^xiuxian:return$"))
     async def xiuxian_return(_, call):
-        profile = serialize_full_profile(call.from_user.id)
+        profile = await run_in_threadpool(serialize_full_profile, call.from_user.id)
         await callAnswer(call, "已回到修仙主页。")
         await _edit_text(call.message, _format_profile_text(profile), reply_markup=xiuxian_profile_keyboard(), parse_mode=RICH_TEXT_MODE)
 
     @bot_instance.on_callback_query(filters.regex(r"^xiuxian:confirm$"))
     async def xiuxian_confirm(_, call):
         try:
-            profile = init_path_for_user(call.from_user.id)
-            create_foundation_pill_for_user_if_missing(call.from_user.id)
+            def _enter_path():
+                profile = init_path_for_user(call.from_user.id)
+                create_foundation_pill_for_user_if_missing(call.from_user.id)
+                return profile
+
+            profile = await run_in_threadpool(_enter_path)
             await callAnswer(call, "仙途已启，命格已定。")
             await _edit_text(call.message, _format_profile_text(profile), reply_markup=xiuxian_profile_keyboard(), parse_mode=RICH_TEXT_MODE)
         except Exception as exc:
@@ -4306,18 +4347,21 @@ def register_bot(bot_instance) -> None:
     @bot_instance.on_callback_query(filters.regex(r"^xiuxian:train$"))
     async def xiuxian_train(_, call):
         try:
-            result = practice_for_user(call.from_user.id)
-            upgraded = ""
-            if result["upgraded_layers"]:
-                upgraded = "\n层数提升：" + "、".join(f"{layer}层" for layer in result["upgraded_layers"])
-            growth_text = _format_attribute_growth_text(result.get("attribute_growth"))
-            growth_line = f"\n{growth_text}" if growth_text else ""
-            text = (
-                f"吐纳修炼完成。\n"
-                f"本次获得：修为 +{result['gain']}、灵石 +{result['stone_gain']}"
-                f"{upgraded}{growth_line}\n\n"
-                f"{_format_profile_text(result['profile'])}"
-            )
+            def _train_text():
+                result = practice_for_user(call.from_user.id)
+                upgraded = ""
+                if result["upgraded_layers"]:
+                    upgraded = "\n层数提升：" + "、".join(f"{layer}层" for layer in result["upgraded_layers"])
+                growth_text = _format_attribute_growth_text(result.get("attribute_growth"))
+                growth_line = f"\n{growth_text}" if growth_text else ""
+                return (
+                    f"吐纳修炼完成。\n"
+                    f"本次获得：修为 +{result['gain']}、灵石 +{result['stone_gain']}"
+                    f"{upgraded}{growth_line}\n\n"
+                    f"{_format_profile_text(result['profile'])}"
+                )
+
+            text = await run_in_threadpool(_train_text)
             await callAnswer(call, "吐纳已完成。")
             await _edit_text(call.message, text, reply_markup=xiuxian_profile_keyboard(), parse_mode=RICH_TEXT_MODE)
         except Exception as exc:
@@ -4326,12 +4370,15 @@ def register_bot(bot_instance) -> None:
     @bot_instance.on_callback_query(filters.regex(r"^xiuxian:break$"))
     async def xiuxian_break(_, call):
         try:
-            result = breakthrough_for_user(call.from_user.id, use_pill=False)
-            text = (
-                f"突破掷点：{result['roll']} / 当前成功率 {result['success_rate']}%\n"
-                f"{'突破成功，气机贯通。' if result['success'] else '突破失败，灵力回落。'}\n\n"
-                f"{_format_profile_text(result['profile'])}"
-            )
+            def _breakthrough_text():
+                result = breakthrough_for_user(call.from_user.id, use_pill=False)
+                return (
+                    f"突破掷点：{result['roll']} / 当前成功率 {result['success_rate']}%\n"
+                    f"{'突破成功，气机贯通。' if result['success'] else '突破失败，灵力回落。'}\n\n"
+                    f"{_format_profile_text(result['profile'])}"
+                )
+
+            text = await run_in_threadpool(_breakthrough_text)
             await callAnswer(call, "突破结果已出。")
             await _edit_text(call.message, text, reply_markup=xiuxian_profile_keyboard(), parse_mode=RICH_TEXT_MODE)
         except Exception as exc:
@@ -4383,7 +4430,7 @@ def register_bot(bot_instance) -> None:
     @bot_instance.on_message(filters.command(["xiuxian"], prefixes) & filters.private)
     async def xiuxian_command(_, msg):
         try:
-            profile = serialize_full_profile(msg.from_user.id)
+            profile = await run_in_threadpool(serialize_full_profile, msg.from_user.id)
             if not profile["profile"]["consented"]:
                 await _reply_text(
                     msg,
@@ -4485,7 +4532,7 @@ def register_bot(bot_instance) -> None:
                 f"xiuxian me command received chat={getattr(getattr(msg, 'chat', None), 'id', None)} "
                 f"actor={getattr(getattr(msg, 'from_user', None), 'id', None)}"
             )
-            profile = serialize_full_profile(msg.from_user.id)
+            profile = await run_in_threadpool(serialize_full_profile, msg.from_user.id)
             if not profile["profile"]["consented"]:
                 return await _reply_text(msg, "道途未启，仙缘未至。请先私聊机器人点击 /xiuxian 踏入仙途。")
             fallback_name = msg.from_user.first_name or f"TG {msg.from_user.id}"
@@ -4586,7 +4633,7 @@ def register_bot(bot_instance) -> None:
             actor = await _require_message_user(msg, action_text="吐纳修炼")
             if actor is None:
                 return
-            result = practice_for_user(actor.id)
+            result = await run_in_threadpool(practice_for_user, actor.id)
             lines = [
                 f"📈 修为：`+{result['gain']}`",
                 f"💎 灵石：`+{result['stone_gain']}`",
@@ -4621,62 +4668,63 @@ def register_bot(bot_instance) -> None:
             if actor is None:
                 return
             requested_key = _normalize_commission_command_key(msg.command[1] if len(msg.command or []) > 1 else None)
-            bundle = _full_bundle(actor.id)
-            selected_rows, _ = _select_group_commissions(bundle, requested_key=requested_key)
-            if not selected_rows:
-                return await _reply_text(
-                    msg,
-                    _commission_selection_error(bundle, requested_key=requested_key),
-                    quote=True,
-                    parse_mode=RICH_TEXT_MODE,
-                )
+            def _claim_work():
+                bundle = _full_bundle(actor.id)
+                selected_rows, _ = _select_group_commissions(bundle, requested_key=requested_key)
+                if not selected_rows:
+                    return None, _commission_selection_error(bundle, requested_key=requested_key)
 
-            total_stone = 0
-            total_cultivation = 0
-            detail_rows: list[str] = []
-            growth_rows: list[str] = []
-            upgraded_layers: list[int] = []
-            for selected in selected_rows:
-                result = claim_spirit_stone_commission(actor.id, str(selected.get("key") or ""))
-                commission = result.get("commission") or {}
-                stone_gain = int(commission.get("stone_gain") or 0)
-                cultivation_gain = int(commission.get("cultivation_gain") or 0)
-                total_stone += stone_gain
-                total_cultivation += cultivation_gain
-                detail_rows.append(
-                    f"• {_md_escape(commission.get('name') or selected.get('name') or '灵石委托')}：💎 `+{stone_gain}` ｜ 📈 `+{cultivation_gain}`"
-                )
-                detail = str(commission.get("detail") or "").strip()
-                if detail:
-                    detail_rows.append(f"↳ {_md_escape(detail)}")
-                growth_text = _format_attribute_growth_text(
-                    commission.get("attribute_growth"),
-                    prefix=f"{commission.get('name') or selected.get('name') or '灵石委托'}成长",
-                )
-                if growth_text:
-                    growth_rows.append(growth_text)
-                for layer in result.get("upgraded_layers") or []:
-                    if int(layer) not in upgraded_layers:
-                        upgraded_layers.append(int(layer))
+                total_stone = 0
+                total_cultivation = 0
+                detail_rows: list[str] = []
+                growth_rows: list[str] = []
+                upgraded_layers: list[int] = []
+                for selected in selected_rows:
+                    result = claim_spirit_stone_commission(actor.id, str(selected.get("key") or ""))
+                    commission = result.get("commission") or {}
+                    stone_gain = int(commission.get("stone_gain") or 0)
+                    cultivation_gain = int(commission.get("cultivation_gain") or 0)
+                    total_stone += stone_gain
+                    total_cultivation += cultivation_gain
+                    detail_rows.append(
+                        f"• {_md_escape(commission.get('name') or selected.get('name') or '灵石委托')}：💎 `+{stone_gain}` ｜ 📈 `+{cultivation_gain}`"
+                    )
+                    detail = str(commission.get("detail") or "").strip()
+                    if detail:
+                        detail_rows.append(f"↳ {_md_escape(detail)}")
+                    growth_text = _format_attribute_growth_text(
+                        commission.get("attribute_growth"),
+                        prefix=f"{commission.get('name') or selected.get('name') or '灵石委托'}成长",
+                    )
+                    if growth_text:
+                        growth_rows.append(growth_text)
+                    for layer in result.get("upgraded_layers") or []:
+                        if int(layer) not in upgraded_layers:
+                            upgraded_layers.append(int(layer))
 
-            if len(selected_rows) == 1:
-                lines = detail_rows
-            else:
-                lines = [
-                    f"🧾 本次连做 `{len(selected_rows)}` 项委托",
-                    f"💎 合计灵石：`+{total_stone}`",
-                    f"📈 合计修为：`+{total_cultivation}`",
-                    "",
-                    "📋 明细：",
-                ]
-                lines.extend(detail_rows)
-            lines.extend(growth_rows)
-            layer_line = _format_layer_upgrade_line(upgraded_layers)
-            if layer_line:
-                lines.append(layer_line)
+                if len(selected_rows) == 1:
+                    lines = detail_rows
+                else:
+                    lines = [
+                        f"🧾 本次连做 `{len(selected_rows)}` 项委托",
+                        f"💎 合计灵石：`+{total_stone}`",
+                        f"📈 合计修为：`+{total_cultivation}`",
+                        "",
+                        "📋 明细：",
+                    ]
+                    lines.extend(detail_rows)
+                lines.extend(growth_rows)
+                layer_line = _format_layer_upgrade_line(upgraded_layers)
+                if layer_line:
+                    lines.append(layer_line)
+                return "\n".join(lines)
+
+            result_text = await run_in_threadpool(_claim_work)
+            if result_text is None:
+                return
             await _reply_text(
                 msg,
-                _format_notice_card("灵石委托完成", emoji="💼", lines=lines),
+                _format_notice_card("灵石委托完成", emoji="💼", lines=result_text.splitlines()),
                 quote=True,
                 parse_mode=RICH_TEXT_MODE,
             )
@@ -4697,16 +4745,20 @@ def register_bot(bot_instance) -> None:
             actor = await _require_message_user(msg, action_text="领取宗门俸禄")
             if actor is None:
                 return
-            result = claim_sect_salary_for_user(actor.id)
-            role = result.get("role") or {}
-            role_name = str(role.get("role_name") or "宗门职位").strip()
+            def _salary_text():
+                result = claim_sect_salary_for_user(actor.id)
+                role = result.get("role") or {}
+                role_name = str(role.get("role_name") or "宗门职位").strip()
+                return result.get("salary", 0), role_name
+
+            salary, role_name = await run_in_threadpool(_salary_text)
             await _reply_text(
                 msg,
                 _format_notice_card(
                     "宗门俸禄到账",
                     emoji="🏯",
                     lines=[
-                        f"💎 本次领取：`{result.get('salary', 0)}` 灵石",
+                        f"💎 本次领取：`{salary}` 灵石",
                         f"🎖️ 当前身份：{_md_escape(role_name)}",
                     ],
                 ),
@@ -4736,17 +4788,21 @@ def register_bot(bot_instance) -> None:
             actor_name = _telegram_user_display_name(actor, f"TG {actor.id}")
 
             try:
-                opened = open_group_arena_for_user(
-                    actor.id,
-                    group_chat_id=_notice_group_chat_id("arena", fallback_chat_id=msg.chat.id) or msg.chat.id,
-                    champion_display_name=actor_name,
-                )
+                def _open_arena():
+                    return open_group_arena_for_user(
+                        actor.id,
+                        group_chat_id=_notice_group_chat_id("arena", fallback_chat_id=msg.chat.id) or msg.chat.id,
+                        champion_display_name=actor_name,
+                    )
+
+                opened = await run_in_threadpool(_open_arena)
                 arena_payload = opened.get("arena") or {}
                 try:
                     arena_payload, pin_warning = await _push_arena_to_group(arena_payload)
                 except Exception:
                     try:
-                        cancel_group_arena(
+                        await run_in_threadpool(
+                            cancel_group_arena,
                             int(arena_payload.get("id") or 0),
                             owner_tg=actor.id,
                             reason="擂台消息推送失败，已自动撤销。",
@@ -4802,50 +4858,48 @@ def register_bot(bot_instance) -> None:
             actor = await _require_message_user(msg, action_text="发起斗法")
             if actor is None:
                 return
-            settings = get_xiuxian_settings()
-            bet_settings = _duel_bet_settings(settings)
-            bet_seconds = int(bet_settings.get("seconds") or 120)
-            invite_timeout_seconds = _duel_invite_timeout_seconds(settings)
-            stake = 0
-            numeric_args: list[str] = []
-            for arg in command_args:
-                raw = str(arg or "").strip()
-                if not raw:
-                    continue
-                if not re.fullmatch(r"-?\d+", raw):
-                    if command_name == "duel":
-                        return await _reply_text(
-                            msg,
-                            "普通斗法请使用 /duel [赌注] [下注秒数]；生死斗请用 /deathduel，炉鼎斗请用 /servitudeduel。",
-                            quote=True,
-                        )
-                    return await _reply_text(msg, "赌注和下注秒数必须填写整数。", quote=True)
-                numeric_args.append(raw)
-            if numeric_args:
-                try:
-                    stake = max(int(numeric_args[0]), 0)
-                    if len(numeric_args) > 1:
-                        bet_seconds = max(min(int(numeric_args[1]), 3600), 10)
-                except ValueError:
-                    return await _reply_text(msg, "赌注和下注秒数必须填写整数。", quote=True)
-            min_stake = int(bet_settings.get("min_amount") or 0)
-            max_stake = int(bet_settings.get("max_amount") or min_stake)
-            if stake < min_stake:
-                return await _reply_text(msg, f"斗法赌注至少需要 {min_stake} 灵石。", quote=True)
-            if stake > max_stake:
-                return await _reply_text(msg, f"斗法赌注最多只能设置为 {max_stake} 灵石。", quote=True)
-            if msg.reply_to_message is None or msg.reply_to_message.from_user is None:
-                return await _reply_text(msg, "请先回复一位目标道友，再发起斗法邀请。", quote=True)
-            if msg.reply_to_message.from_user.id == actor.id:
-                return await _reply_text(msg, "你不能自己和自己斗法。", quote=True)
-
             try:
-                duel = compute_duel_odds(actor.id, msg.reply_to_message.from_user.id, duel_mode=duel_mode)
-                assert_duel_stake_affordable(duel["challenger"]["profile"], duel["defender"]["profile"], stake)
-                preview = generate_duel_preview_text(duel, stake, duel_mode=duel_mode) + _format_duel_invite_footer(
-                    invite_timeout_seconds,
-                    {**bet_settings, "seconds": bet_seconds},
-                )
+                def _prepare_duel_preview():
+                    settings = get_xiuxian_settings()
+                    bet_settings = _duel_bet_settings(settings)
+                    bet_seconds = int(bet_settings.get("seconds") or 120)
+                    invite_timeout_seconds = _duel_invite_timeout_seconds(settings)
+                    stake = 0
+                    numeric_args: list[str] = []
+                    for arg in command_args:
+                        raw = str(arg or "").strip()
+                        if not raw:
+                            continue
+                        if not re.fullmatch(r"-?\d+", raw):
+                            if command_name == "duel":
+                                raise ValueError(
+                                    "普通斗法请使用 /duel [赌注] [下注秒数]；生死斗请用 /deathduel，炉鼎斗请用 /servitudeduel。"
+                                )
+                            raise ValueError("赌注和下注秒数必须填写整数。")
+                        numeric_args.append(raw)
+                    if numeric_args:
+                        stake = max(int(numeric_args[0]), 0)
+                        if len(numeric_args) > 1:
+                            bet_seconds = max(min(int(numeric_args[1]), 3600), 10)
+                    min_stake = int(bet_settings.get("min_amount") or 0)
+                    max_stake = int(bet_settings.get("max_amount") or min_stake)
+                    if stake < min_stake:
+                        raise ValueError(f"斗法赌注至少需要 {min_stake} 灵石。")
+                    if stake > max_stake:
+                        raise ValueError(f"斗法赌注最多只能设置为 {max_stake} 灵石。")
+                    if msg.reply_to_message is None or msg.reply_to_message.from_user is None:
+                        raise ValueError("请先回复一位目标道友，再发起斗法邀请。")
+                    if msg.reply_to_message.from_user.id == actor.id:
+                        raise ValueError("你不能自己和自己斗法。")
+                    duel = compute_duel_odds(actor.id, msg.reply_to_message.from_user.id, duel_mode=duel_mode)
+                    assert_duel_stake_affordable(duel["challenger"]["profile"], duel["defender"]["profile"], stake)
+                    preview = generate_duel_preview_text(duel, stake, duel_mode=duel_mode) + _format_duel_invite_footer(
+                        invite_timeout_seconds,
+                        {**bet_settings, "seconds": bet_seconds},
+                    )
+                    return preview, stake, bet_seconds
+
+                preview, stake, bet_seconds = await run_in_threadpool(_prepare_duel_preview)
                 sent = await _reply_text(
                     msg,
                     preview,
@@ -4930,15 +4984,20 @@ def register_bot(bot_instance) -> None:
 
         _pop_pending_duel_invite(key)
         try:
-            duel_preview = compute_duel_odds(challenger_tg, defender_tg, duel_mode=duel_mode)
-            assert_duel_stake_affordable(
-                duel_preview["challenger"]["profile"],
-                duel_preview["defender"]["profile"],
-                stake,
-            )
-            current_bet_settings = _duel_bet_settings()
+            def _prepare_duel_accept():
+                duel_preview = compute_duel_odds(challenger_tg, defender_tg, duel_mode=duel_mode)
+                assert_duel_stake_affordable(
+                    duel_preview["challenger"]["profile"],
+                    duel_preview["defender"]["profile"],
+                    stake,
+                )
+                current_bet_settings = _duel_bet_settings()
+                return duel_preview, current_bet_settings
+
+            duel_preview, current_bet_settings = await run_in_threadpool(_prepare_duel_accept)
             if current_bet_settings["enabled"]:
-                pool = create_duel_bet_pool_for_duel(
+                pool = await run_in_threadpool(
+                    create_duel_bet_pool_for_duel,
                     challenger_tg=challenger_tg,
                     defender_tg=defender_tg,
                     stake=stake,
@@ -4957,7 +5016,7 @@ def register_bot(bot_instance) -> None:
                 )
                 DUEL_MESSAGE_REFRESH_CACHE[pool["id"]] = time.monotonic()
                 try:
-                    update_duel_bet_pool_message(pool["id"], getattr(sent, "id", call.message.id))
+                    await run_in_threadpool(update_duel_bet_pool_message, pool["id"], getattr(sent, "id", call.message.id))
                 except Exception as exc:
                     LOGGER.warning(f"xiuxian duel bet message update failed: {exc}")
                 await callAnswer(call, "斗法已开始，押注倒计时启动。")
@@ -4992,7 +5051,7 @@ def register_bot(bot_instance) -> None:
         side = call.matches[0].group(2)
         amount = int(call.matches[0].group(3))
         try:
-            place_duel_bet(pool_id, call.from_user.id, side, amount)
+            await run_in_threadpool(place_duel_bet, pool_id, call.from_user.id, side, amount)
             refreshed = await _maybe_refresh_duel_bet_message(pool_id, call.message)
             answer_text = f"已下注 {amount} 灵石。"
             if not refreshed:
@@ -5008,7 +5067,7 @@ def register_bot(bot_instance) -> None:
         if buyer is None:
             return await callAnswer(call, "当前无法识别你的 TG 身份。", True)
         try:
-            result = purchase_shop_item(buyer.id, item_id, 1)
+            result = await run_in_threadpool(purchase_shop_item, buyer.id, item_id, 1)
         except Exception as exc:
             return await callAnswer(call, str(exc) or "购买失败", True)
 
@@ -5043,7 +5102,8 @@ def register_bot(bot_instance) -> None:
         bidder_name = _telegram_user_display_name(bidder, f"TG {bidder.id}")
 
         try:
-            result = place_auction_bid(
+            result = await run_in_threadpool(
+                place_auction_bid,
                 bidder.id,
                 auction_id,
                 bidder_name=bidder_name,
@@ -5052,7 +5112,7 @@ def register_bot(bot_instance) -> None:
         except Exception as exc:
             message = str(exc) or "竞拍失败"
             if "拍卖已经结束" in message:
-                finalized = finalize_auction_listing(auction_id, force=True)
+                finalized = await run_in_threadpool(finalize_auction_listing, auction_id, force=True)
                 if finalized and str(finalized.get("result") or "") not in {"noop", ""}:
                     await _finalize_auction_flow(finalized)
                 return await callAnswer(call, "这场拍卖已经结束，面板已尝试刷新。", True)
@@ -5080,7 +5140,8 @@ def register_bot(bot_instance) -> None:
         challenger_name = _telegram_user_display_name(challenger, f"TG {challenger.id}")
 
         try:
-            result = challenge_group_arena_for_user(
+            result = await run_in_threadpool(
+                challenge_group_arena_for_user,
                 arena_id,
                 challenger.id,
                 challenger_display_name=challenger_name,
@@ -5088,7 +5149,7 @@ def register_bot(bot_instance) -> None:
         except Exception as exc:
             message = str(exc) or "攻擂失败"
             if "已经结束" in message or "已经到期" in message:
-                finalized = finalize_group_arena(arena_id, force=True)
+                finalized = await run_in_threadpool(finalize_group_arena, arena_id, force=True)
                 if finalized and str(finalized.get("result") or "") not in {"noop", "busy", ""}:
                     await _finalize_arena_flow(finalized)
                 return await callAnswer(call, "这座擂台已经结束，群消息已尝试刷新。", True)
@@ -5096,7 +5157,7 @@ def register_bot(bot_instance) -> None:
 
         arena = result.get("arena") or {}
         if result.get("ended"):
-            finalized = finalize_group_arena(arena_id, force=True)
+            finalized = await run_in_threadpool(finalize_group_arena, arena_id, force=True)
             if finalized and str(finalized.get("result") or "") not in {"noop", "busy", ""}:
                 await _finalize_arena_flow(finalized)
         else:
@@ -5122,7 +5183,7 @@ def register_bot(bot_instance) -> None:
         if not getattr(msg, "text", None):
             return
         try:
-            result = resolve_quiz_answer(msg.chat.id, msg.from_user.id, msg.text)
+            result = await run_in_threadpool(resolve_quiz_answer, msg.chat.id, msg.from_user.id, msg.text)
         except Exception as exc:
             LOGGER.warning(f"xiuxian quiz resolve failed: {exc}")
             return
@@ -5217,7 +5278,7 @@ def register_bot(bot_instance) -> None:
         if not text or text.startswith(("/", "!", ".")):
             return
         try:
-            payload = maybe_spawn_group_encounter(msg.chat.id)
+            payload = await run_in_threadpool(maybe_spawn_group_encounter, msg.chat.id)
             if payload:
                 await _push_group_encounter_notice(payload)
         except Exception as exc:
@@ -5227,7 +5288,7 @@ def register_bot(bot_instance) -> None:
     async def xiuxian_red_envelope_callback(_, call):
         envelope_id = int(call.matches[0].group(1))
         try:
-            result = claim_red_envelope_for_user(envelope_id, call.from_user.id)
+            result = await run_in_threadpool(claim_red_envelope_for_user, envelope_id, call.from_user.id)
             envelope = result["envelope"]
             notice_text = _red_envelope_notice_text(envelope, result.get("claims", []))
             is_active = envelope.get("status") == "active"
@@ -5256,7 +5317,7 @@ def register_bot(bot_instance) -> None:
     async def xiuxian_group_encounter_callback(_, call):
         instance_id = int(call.matches[0].group(1))
         try:
-            result = claim_group_encounter(instance_id, call.from_user.id)
+            result = await run_in_threadpool(claim_group_encounter, instance_id, call.from_user.id)
             winner_name = call.from_user.first_name or f"TG {call.from_user.id}"
             success_text = render_group_encounter_success_text(result, winner_name)
             if getattr(call.message, "photo", None):
@@ -5341,7 +5402,7 @@ def register_bot(bot_instance) -> None:
         if int(target_tg) == int(actor.id):
             return await _reply_text(msg, "不能给自己赠送灵石。", quote=True)
         try:
-            result = gift_spirit_stone(actor.id, target_tg, amount)
+            result = await run_in_threadpool(gift_spirit_stone, actor.id, target_tg, amount)
             if int(getattr(getattr(msg, "chat", None), "id", 0) or 0) < 0:
                 await _send_message(
                     bot,
@@ -5384,7 +5445,7 @@ def register_bot(bot_instance) -> None:
             if int(msg.reply_to_message.from_user.id) == int(actor.id):
                 return await _reply_text(msg, "你不能抢劫自己。", quote=True)
             try:
-                result = rob_player(actor.id, msg.reply_to_message.from_user.id)
+                result = await run_in_threadpool(rob_player, actor.id, msg.reply_to_message.from_user.id)
                 if result["success"]:
                     if int(result["amount"] or 0) > 0:
                         lines = [f"💎 掠得灵石：`+{result['amount']}`"]
@@ -5434,7 +5495,7 @@ def register_bot(bot_instance) -> None:
             if int(msg.reply_to_message.from_user.id) == int(actor.id):
                 return await _reply_text(msg, "你不能采补自己。", quote=True)
             try:
-                result = harvest_furnace_for_user(actor.id, msg.reply_to_message.from_user.id)
+                result = await run_in_threadpool(harvest_furnace_for_user, actor.id, msg.reply_to_message.from_user.id)
                 lines = [
                     f"📝 {_md_escape(str(result.get('message') or '本次采补已完成。').strip())}",
                     f"📈 主人修为：`+{int(result.get('master_gain') or 0)}`",
@@ -5479,11 +5540,11 @@ def register_bot(bot_instance) -> None:
                 if int(msg.reply_to_message.from_user.id) == int(actor.id):
                     return await _reply_text(msg, "你观照己身即可，无需对自己施展探查。", quote=True)
 
-                seeker = serialize_full_profile(actor.id)
+                seeker = await run_in_threadpool(serialize_full_profile, actor.id)
                 if not seeker["profile"]["consented"]:
                     return await _reply_text(msg, "道途未启，仙缘未至。请先私聊机器人点击 /xiuxian 踏入仙途。", quote=True)
 
-                target = serialize_full_profile(msg.reply_to_message.from_user.id)
+                target = await run_in_threadpool(serialize_full_profile, msg.reply_to_message.from_user.id)
                 if not target["profile"]["consented"]:
                     return await _reply_text(msg, "对方尚未踏入仙途，探查不到任何灵息。", quote=True)
 
@@ -5542,5 +5603,3 @@ def register_bot(bot_instance) -> None:
             await _handle_xiuxian_gift_command(msg, inline_amount=int(match.group(1)))
         finally:
             await _delete_user_command_message(msg)
-
-

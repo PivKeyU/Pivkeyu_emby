@@ -468,7 +468,7 @@
             <p class="eyebrow">功能开关</p>
             <h3>邀请模块设置</h3>
           </div>
-          <p id="invite-settings-status" class="plugin-meta">用户端包含入群资格邀请和账号开通申请，目标群组与有效期共用这里的设置。</p>
+          <p id="invite-settings-status" class="plugin-meta">用户端包含入群资格邀请和账号开通申请，目标群组与验证开关共用这里的设置。</p>
           <form id="invite-settings-form" class="grid-form">
             <label class="wide-field inline-check">
               <input id="invite-enabled" type="checkbox">
@@ -487,8 +487,12 @@
               <input id="invite-account-open-days" type="number" min="1" max="3650" value="30">
             </label>
             <label class="wide-field inline-check">
-              <input id="invite-strict-target" type="checkbox" checked>
-              仅允许被邀请 TGID 通过入群申请
+              <input id="invite-group-verification-enabled" type="checkbox" checked>
+              启用群组验证
+            </label>
+            <label class="wide-field inline-check">
+              <input id="invite-channel-verification-enabled" type="checkbox">
+              启用频道验证
             </label>
             <div class="form-actions">
               <button id="invite-settings-save" type="submit">保存邀请设置</button>

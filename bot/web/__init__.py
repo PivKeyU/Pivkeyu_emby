@@ -7,6 +7,8 @@ Date:2024/8/27
 """
 import asyncio
 import errno
+import os
+from time import perf_counter
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -24,13 +26,52 @@ from .api import admin_api_route, auth_api_route, emby_api_route, miniapp_api_ro
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
+def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(value, maximum))
+
+
 class Web:
     def __init__(self):
         self.app: FastAPI = FastAPI(title="pivkeyu_emby Web API")
         self.web_api = None
         self.start_api = None
 
+    async def _configure_runtime_limits(self) -> None:
+        tokens = _env_int("PIVKEYU_WEB_THREADPOOL_TOKENS", 128, minimum=40, maximum=512)
+        try:
+            import anyio
+
+            limiter = anyio.to_thread.current_default_thread_limiter()
+            if int(limiter.total_tokens) != tokens:
+                limiter.total_tokens = tokens
+                LOGGER.info(f"【API服务】Web线程池并发调整为 {tokens}")
+        except Exception as exc:
+            LOGGER.warning(f"【API服务】Web线程池并发调整失败: {exc}")
+
     def init_api(self):
+        slow_request_ms = _env_int("PIVKEYU_WEB_SLOW_REQUEST_MS", 2000, minimum=200, maximum=120000)
+
+        @self.app.middleware("http")
+        async def slow_request_logger(request, call_next):
+            started_at = perf_counter()
+            try:
+                return await call_next(request)
+            finally:
+                elapsed_ms = int((perf_counter() - started_at) * 1000)
+                path = str(request.url.path or "")
+                if elapsed_ms >= slow_request_ms and (
+                    path.startswith("/miniapp")
+                    or path.startswith("/miniapp-api")
+                    or path.startswith("/plugins/")
+                ):
+                    LOGGER.warning(
+                        f"【API慢请求】{request.method} {path} 耗时 {elapsed_ms}ms"
+                    )
+
         self.app.include_router(emby_api_route)
         self.app.include_router(user_api_route)
         self.app.include_router(auth_api_route)
@@ -79,6 +120,7 @@ class Web:
         LOGGER.info("【API服务】检测到配置，开始启动")
         import uvicorn
 
+        await self._configure_runtime_limits()
         self.init_api()
         load_plugins()
         register_web_plugins(self.app)

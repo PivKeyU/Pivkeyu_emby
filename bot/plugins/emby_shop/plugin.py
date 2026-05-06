@@ -259,9 +259,10 @@ async def _notify_item_published(item: dict[str, Any]) -> None:
     if not item.get("notify_group"):
         return
     owner_text = item.get("owner_display_name") or (f"@{item['owner_username']}" if item.get("owner_username") else "官方")
+    settings = await run_in_threadpool(get_shop_settings)
     text = (
         f"🛒 商店上新：{item['title']}\n"
-        f"售价：{item['price_iv']} {get_shop_settings().get('currency_name')}\n"
+        f"售价：{item['price_iv']} {settings.get('currency_name')}\n"
         f"库存：{item['stock']}\n"
         f"卖家：{owner_text}"
     )
@@ -275,7 +276,7 @@ async def _deliver_order_notice(
     order: dict[str, Any],
     seller_tg: int | None = None,
 ) -> None:
-    currency_name = get_shop_settings().get("currency_name")
+    currency_name = (await run_in_threadpool(get_shop_settings)).get("currency_name")
     delivery_text = item.get("delivery_text") or "卖家未填写自动发货内容，请联系管理员处理。"
     invite_credit_type = _item_invite_credit_type(item.get("item_type"))
     if invite_credit_type:
@@ -385,11 +386,11 @@ def register_web(app) -> None:
     app.mount("/plugins/shop/uploads", StaticFiles(directory=UPLOAD_DIR), name="shop-uploads")
 
     @user_router.get("/app")
-    async def shop_app_page():
+    def shop_app_page():
         return FileResponse(STATIC_DIR / "app.html")
 
     @user_router.get("/admin")
-    async def shop_admin_page():
+    def shop_admin_page():
         return FileResponse(STATIC_DIR / "admin.html")
 
     @user_router.post("/api/bootstrap")
@@ -400,11 +401,11 @@ def register_web(app) -> None:
 
     @user_router.post("/api/listing")
     async def shop_create_listing(payload: UserListingPayload):
-        user = _verify_user_from_init_data(payload.init_data)
-        if not _can_user_publish(int(user["id"])):
-            raise HTTPException(status_code=403, detail="当前未开放普通用户上架商品")
-        display_name = " ".join(part for part in [user.get("first_name"), user.get("last_name")] if part).strip()
-        try:
+        def _create_listing():
+            user = _verify_user_from_init_data(payload.init_data)
+            if not _can_user_publish(int(user["id"])):
+                raise HTTPException(status_code=403, detail="当前未开放普通用户上架商品")
+            display_name = " ".join(part for part in [user.get("first_name"), user.get("last_name")] if part).strip()
             item = create_shop_item(
                 owner_tg=int(user["id"]),
                 owner_display_name=display_name,
@@ -421,40 +422,48 @@ def register_web(app) -> None:
                 official=False,
                 enabled=True,
             )
+            bundle = _serialize_shop_bundle(int(user["id"]))
+            return user, item, bundle
+
+        try:
+            user, item, bundle = await run_in_threadpool(_create_listing)
         except (ValueError, DataError) as exc:
             raise _shop_write_error(exc) from exc
         await _notify_item_published(item)
-        return {"code": 200, "data": {"item": item, **_serialize_shop_bundle(int(user["id"]))}}
+        return {"code": 200, "data": {"item": item, **bundle}}
 
     @user_router.post("/api/purchase")
     async def shop_purchase(payload: ShopPurchasePayload):
-        user = _verify_user_from_init_data(payload.init_data)
-        item = get_shop_item(payload.item_id)
-        if item is None:
-            raise HTTPException(status_code=404, detail="商品不存在")
-        invite_credit_type = _item_invite_credit_type(item.get("item_type"))
-        if invite_credit_type:
-            raise HTTPException(status_code=403, detail=_invite_credit_purchase_disabled_message(invite_credit_type))
-        try:
+        def _purchase_item():
+            user = _verify_user_from_init_data(payload.init_data)
+            item = get_shop_item(payload.item_id)
+            if item is None:
+                raise HTTPException(status_code=404, detail="商品不存在")
+            invite_credit_type = _item_invite_credit_type(item.get("item_type"))
+            if invite_credit_type:
+                raise HTTPException(status_code=403, detail=_invite_credit_purchase_disabled_message(invite_credit_type))
             result = purchase_shop_item(buyer_tg=int(user["id"]), item_id=payload.item_id, quantity=payload.quantity)
+            result_invite_type = _item_invite_credit_type(result["item"].get("item_type"))
+            if result_invite_type:
+                raise HTTPException(status_code=403, detail=_invite_credit_purchase_disabled_message(result_invite_type))
+            bundle = _serialize_shop_bundle(int(user["id"]))
+            bundle["last_order"] = result["order"]
+            bundle["buyer_balance"] = result["buyer_balance"]
+            bundle["granted_invites"] = []
+            return user, result, bundle
+
+        try:
+            user, result, bundle = await run_in_threadpool(_purchase_item)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except DataError as exc:
             raise HTTPException(status_code=400, detail="订单金额过大，请调整购买数量或联系管理员。") from exc
-        granted_invites = []
-        result_invite_type = _item_invite_credit_type(result["item"].get("item_type"))
-        if result_invite_type:
-            raise HTTPException(status_code=403, detail=_invite_credit_purchase_disabled_message(result_invite_type))
         await _deliver_order_notice(
             buyer_tg=int(user["id"]),
             item=result["item"],
             order=result["order"],
             seller_tg=result["order"].get("seller_tg"),
         )
-        bundle = _serialize_shop_bundle(int(user["id"]))
-        bundle["last_order"] = result["order"]
-        bundle["buyer_balance"] = result["buyer_balance"]
-        bundle["granted_invites"] = granted_invites
         return {"code": 200, "data": bundle}
 
     @user_router.post("/api/upload-image")
@@ -464,9 +473,12 @@ def register_web(app) -> None:
         file: UploadFile = File(...),
     ):
         init_data = request.headers.get("x-telegram-init-data")
-        user = _verify_user_from_init_data(init_data or "")
-        if not _can_user_publish(int(user["id"])):
-            raise HTTPException(status_code=403, detail="当前未开放普通用户上架商品")
+        def _verify_upload_permission():
+            user = _verify_user_from_init_data(init_data or "")
+            if not _can_user_publish(int(user["id"])):
+                raise HTTPException(status_code=403, detail="当前未开放普通用户上架商品")
+
+        await run_in_threadpool(_verify_upload_permission)
         return {"code": 200, "data": await _save_uploaded_image(file, folder, str(request.base_url))}
 
     @admin_router.post("/bootstrap")
@@ -482,7 +494,7 @@ def register_web(app) -> None:
         }
 
     @admin_router.post("/settings")
-    async def shop_settings_api(payload: ShopSettingsPayload, request: Request):
+    def shop_settings_api(payload: ShopSettingsPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -493,8 +505,9 @@ def register_web(app) -> None:
     async def shop_item_api(payload: ShopItemPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        admin_user = _verify_admin_credential(token, init_data)
-        try:
+
+        def _create_admin_item():
+            admin_user = _verify_admin_credential(token, init_data)
             item = create_shop_item(
                 owner_tg=int(admin_user.get("id")) if admin_user.get("id") is not None else None,
                 owner_display_name=admin_user.get("first_name") or "官方",
@@ -511,13 +524,17 @@ def register_web(app) -> None:
                 official=payload.official,
                 enabled=payload.enabled,
             )
+            return item, list_shop_items(enabled_only=False), list_shop_orders(limit=20)
+
+        try:
+            item, items, orders = await run_in_threadpool(_create_admin_item)
         except (ValueError, DataError) as exc:
             raise _shop_write_error(exc) from exc
         await _notify_item_published(item)
-        return {"code": 200, "data": {"item": item, "items": list_shop_items(enabled_only=False), "orders": list_shop_orders(limit=20)}}
+        return {"code": 200, "data": {"item": item, "items": items, "orders": orders}}
 
     @admin_router.patch("/item/{item_id}")
-    async def shop_item_patch_api(item_id: int, payload: ShopItemPatchPayload, request: Request):
+    def shop_item_patch_api(item_id: int, payload: ShopItemPatchPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -533,7 +550,7 @@ def register_web(app) -> None:
         return {"code": 200, "data": {"item": item, "items": list_shop_items(enabled_only=False)}}
 
     @admin_router.delete("/item/{item_id}")
-    async def shop_item_delete_api(item_id: int, request: Request):
+    def shop_item_delete_api(item_id: int, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         _verify_admin_credential(token, init_data)
@@ -550,7 +567,7 @@ def register_web(app) -> None:
     ):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        _verify_admin_credential(token, init_data)
+        await run_in_threadpool(_verify_admin_credential, token, init_data)
         return {"code": 200, "data": await _save_uploaded_image(file, folder, str(request.base_url))}
 
     app.include_router(user_router)

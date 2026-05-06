@@ -118,7 +118,8 @@ const refs = {
   inviteTargetChatId: document.querySelector("#invite-target-chat-id"),
   inviteExpireHours: document.querySelector("#invite-expire-hours"),
   inviteAccountOpenDays: document.querySelector("#invite-account-open-days"),
-  inviteStrictTarget: document.querySelector("#invite-strict-target"),
+  inviteGroupVerificationEnabled: document.querySelector("#invite-group-verification-enabled"),
+  inviteChannelVerificationEnabled: document.querySelector("#invite-channel-verification-enabled"),
   inviteSettingsSave: document.querySelector("#invite-settings-save"),
   inviteSettingsStatus: document.querySelector("#invite-settings-status"),
   inviteSearchForm: document.querySelector("#invite-search-form"),
@@ -1198,10 +1199,13 @@ function applyInviteSettings(settings = {}) {
   if (refs.inviteOpenGrantDays && !Number(refs.inviteOpenGrantDays.value || 0)) {
     refs.inviteOpenGrantDays.value = Number(settings.account_open_days || 30);
   }
-  if (refs.inviteStrictTarget) refs.inviteStrictTarget.checked = settings.strict_target !== false;
+  const groupVerificationEnabled = settings.group_verification_enabled ?? settings.strict_target ?? true;
+  const channelVerificationEnabled = settings.channel_verification_enabled ?? false;
+  if (refs.inviteGroupVerificationEnabled) refs.inviteGroupVerificationEnabled.checked = Boolean(groupVerificationEnabled);
+  if (refs.inviteChannelVerificationEnabled) refs.inviteChannelVerificationEnabled.checked = Boolean(channelVerificationEnabled);
   if (refs.inviteSettingsStatus) {
     refs.inviteSettingsStatus.textContent = settings.enabled
-      ? `邀请模块已开启：观影用户可生成一次入群邀请，也可提交一次账号开通申请；目标群组 ${settings.target_chat_id || "未配置"}，入群链接有效期 ${formatCount(settings.expire_hours || 24)} 小时，注册天数 ${formatCount(settings.account_open_days || 30)} 天。`
+      ? `邀请模块已开启：观影用户可生成一次入群邀请，也可提交一次账号开通申请；目标群组 ${settings.target_chat_id || "未配置"}，群组验证 ${groupVerificationEnabled ? "开启" : "关闭"}，频道验证 ${channelVerificationEnabled ? "开启" : "关闭"}，入群链接有效期 ${formatCount(settings.expire_hours || 24)} 小时，注册天数 ${formatCount(settings.account_open_days || 30)} 天。`
       : "邀请模块当前关闭，用户界面的入群邀请和账号开通申请都会隐藏。";
     refs.inviteSettingsStatus.dataset.tone = settings.enabled ? "success" : "warning";
   }
@@ -2511,7 +2515,9 @@ async function saveInviteSettings(event) {
         target_chat_id: Number(refs.inviteTargetChatId?.value || 0) || null,
         expire_hours: Number(refs.inviteExpireHours?.value || 24),
         account_open_days: Number(refs.inviteAccountOpenDays?.value || 30),
-        strict_target: Boolean(refs.inviteStrictTarget?.checked)
+        strict_target: Boolean(refs.inviteGroupVerificationEnabled?.checked),
+        group_verification_enabled: Boolean(refs.inviteGroupVerificationEnabled?.checked),
+        channel_verification_enabled: Boolean(refs.inviteChannelVerificationEnabled?.checked)
       })
     }));
     applyInviteBundle(result.data || {});

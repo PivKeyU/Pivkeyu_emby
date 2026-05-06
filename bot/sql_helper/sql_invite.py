@@ -18,6 +18,8 @@ DEFAULT_INVITE_SETTINGS = {
     "target_chat_id": None,
     "expire_hours": 24,
     "strict_target": True,
+    "group_verification_enabled": True,
+    "channel_verification_enabled": False,
     "account_open_days": 30,
 }
 
@@ -158,7 +160,17 @@ def _sanitize_invite_settings(data: dict[str, Any]) -> dict[str, Any]:
     merged = dict(DEFAULT_INVITE_SETTINGS)
     merged.update(data or {})
     merged["enabled"] = bool(merged.get("enabled", False))
-    merged["strict_target"] = bool(merged.get("strict_target", True))
+
+    raw_group_verification = merged.get("group_verification_enabled")
+    if raw_group_verification is None:
+        raw_group_verification = merged.get("strict_target", True)
+    merged["group_verification_enabled"] = bool(raw_group_verification)
+    merged["strict_target"] = bool(merged["group_verification_enabled"])
+
+    raw_channel_verification = merged.get("channel_verification_enabled")
+    if raw_channel_verification is None:
+        raw_channel_verification = DEFAULT_INVITE_SETTINGS["channel_verification_enabled"]
+    merged["channel_verification_enabled"] = bool(raw_channel_verification)
 
     raw_chat = merged.get("target_chat_id")
     if raw_chat in {"", 0, "0"}:
@@ -196,6 +208,8 @@ def set_invite_settings(patch: dict[str, Any]) -> dict[str, Any]:
         "target_chat_id": clean["target_chat_id"],
         "expire_hours": clean["expire_hours"],
         "strict_target": clean["strict_target"],
+        "group_verification_enabled": clean["group_verification_enabled"],
+        "channel_verification_enabled": clean["channel_verification_enabled"],
         "account_open_days": clean["account_open_days"],
     }
     with Session() as session:
