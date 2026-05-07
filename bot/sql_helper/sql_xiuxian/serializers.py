@@ -1432,11 +1432,21 @@ _PENDING_USER_VIEW_CACHE_INVALIDATIONS = "xiuxian_pending_user_view_cache_invali
 _PENDING_CATALOG_CACHE_INVALIDATIONS = "xiuxian_pending_catalog_cache_invalidations"
 _PENDING_SETTINGS_CACHE_INVALIDATIONS = "xiuxian_pending_settings_cache_invalidations"
 _BOSS_LOOT_FIELDS = (
-    "loot_artifacts",
-    "loot_pills",
-    "loot_talismans",
-    "loot_materials",
+    "loot_pills_json",
+    "loot_materials_json",
+    "loot_artifacts_json",
+    "loot_talismans_json",
+    "loot_recipes_json",
+    "loot_techniques_json",
 )
+_BOSS_LOOT_FIELD_ALIASES = {
+    "loot_pills_json": ("loot_pills",),
+    "loot_materials_json": ("loot_materials",),
+    "loot_artifacts_json": ("loot_artifacts",),
+    "loot_talismans_json": ("loot_talismans",),
+    "loot_recipes_json": ("loot_recipes",),
+    "loot_techniques_json": ("loot_techniques",),
+}
 
 
 def _restore_datetime_value(value: Any) -> datetime | None:
@@ -1917,8 +1927,6 @@ def _normalize_boss_loot_list(raw: Any) -> list[dict[str, int]]:
         if ref_id <= 0:
             continue
         chance = min(max(_coerce_int(item.get("chance"), 0), 0), 100)
-        if chance <= 0:
-            continue
         quantity_min = max(_coerce_int(item.get("quantity_min"), 1), 1)
         quantity_max = max(_coerce_int(item.get("quantity_max"), quantity_min), quantity_min)
         rows.append(
@@ -1972,7 +1980,13 @@ def _normalize_boss_config_fields(fields: dict[str, Any]) -> dict[str, Any]:
         "enabled": _coerce_bool(fields.get("enabled"), True),
     }
     for field in _BOSS_LOOT_FIELDS:
-        payload[field] = _normalize_boss_loot_list(fields.get(field))
+        raw_loot = fields.get(field)
+        if raw_loot is None:
+            for alias in _BOSS_LOOT_FIELD_ALIASES.get(field, ()):
+                if fields.get(alias) is not None:
+                    raw_loot = fields.get(alias)
+                    break
+        payload[field] = _normalize_boss_loot_list(raw_loot)
     return payload
 
 
