@@ -36,9 +36,10 @@ def _code_usage_text(record: Code) -> str:
 
 
 def _mask_code(code_value: str) -> str:
+    code_value = str(code_value or "")
     if len(code_value) <= 7:
-        return "******"
-    return f"{code_value[:-7]}{'*' * 7}"
+        return "░" * len(code_value)
+    return f"{code_value[:-7]}{'░' * 7}"
 
 
 def _code_prefix(code_value: str) -> str:

@@ -1989,24 +1989,33 @@ def _event_summary_snapshot(
             chat_ids.add(int(configured))
             resolved_notice_chat_ids[scope] = int(configured)
 
+    shop_notice_chat_id = int(resolved_notice_chat_ids.get("shop") or 0)
     for row in list_shop_items(official_only=False, include_disabled=False):
-        chat_id = int(resolved_notice_chat_ids.get("shop") or row.get("notice_group_chat_id") or 0)
+        row_chat_id = int(row.get("notice_group_chat_id") or 0)
+        row_message_id = int(row.get("notice_group_message_id") or 0)
+        chat_id = row_chat_id or (shop_notice_chat_id if row_message_id > 0 else 0)
         if chat_id <= 0:
             continue
         chat_ids.add(chat_id)
         shop_rows_by_chat[chat_id].append(row)
         all_shop_rows.append(row)
 
+    auction_notice_chat_id = int(resolved_notice_chat_ids.get("auction") or 0)
     for row in list_auction_items(status="active"):
-        chat_id = int(resolved_notice_chat_ids.get("auction") or row.get("group_chat_id") or 0)
+        row_chat_id = int(row.get("group_chat_id") or 0)
+        row_message_id = int(row.get("group_message_id") or 0)
+        chat_id = row_chat_id or (auction_notice_chat_id if row_message_id > 0 else 0)
         if chat_id <= 0:
             continue
         chat_ids.add(chat_id)
         auction_rows_by_chat[chat_id].append(row)
         all_auction_rows.append(row)
 
+    arena_notice_chat_id = int(resolved_notice_chat_ids.get("arena") or 0)
     for row in list_group_arenas(status="active"):
-        chat_id = int(resolved_notice_chat_ids.get("arena") or row.get("group_chat_id") or 0)
+        row_chat_id = int(row.get("group_chat_id") or 0)
+        row_message_id = int(row.get("group_message_id") or 0)
+        chat_id = row_chat_id or (arena_notice_chat_id if row_message_id > 0 else 0)
         if chat_id <= 0:
             continue
         chat_ids.add(chat_id)
@@ -2341,8 +2350,6 @@ def _queue_event_summary_refresh(
     force_create: bool = False,
 ) -> None:
     global EVENT_SUMMARY_REFRESH_TASK, EVENT_SUMMARY_FORCE_FULL_REFRESH, EVENT_SUMMARY_FORCE_CREATE, EVENT_SUMMARY_REQUEST_TOKEN
-    if _event_summary_interval_minutes() <= 0:
-        return
     normalized_chat_ids = _normalize_event_summary_chat_ids(chat_ids)
     if normalized_chat_ids:
         EVENT_SUMMARY_DIRTY_CHATS.update(normalized_chat_ids)
@@ -2370,6 +2377,7 @@ def _queue_event_summary_refresh(
                     await asyncio.sleep(next_delay)
                 await _refresh_all_event_summaries(
                     None if force_full else pending_chat_ids,
+                    force_snapshot_refresh=True,
                     force_create=force_create_now,
                     constrain_to_snapshot=not force_create_now,
                 )
@@ -2790,7 +2798,7 @@ async def _push_shop_notice_to_group(item: dict[str, Any]) -> tuple[dict[str, An
         "notice_group_chat_id": chat_id,
         "notice_group_message_id": sent.id,
     }
-    _queue_event_summary_refresh(chat_id)
+    _queue_event_summary_refresh(chat_id, delay_seconds=0.2)
     return updated, None
 
 
@@ -3075,7 +3083,7 @@ async def _push_auction_to_group(auction: dict[str, Any]) -> tuple[dict[str, Any
         "group_message_id": sent.id,
     }
     _queue_auction_finalize_task(updated)
-    _queue_event_summary_refresh(chat_id)
+    _queue_event_summary_refresh(chat_id, delay_seconds=0.2)
     return updated, None
 
 
@@ -3339,7 +3347,7 @@ async def _push_arena_to_group(arena: dict[str, Any]) -> tuple[dict[str, Any], s
         "group_message_id": sent.id,
     }
     _queue_arena_finalize_task(updated)
-    _queue_event_summary_refresh(chat_id)
+    _queue_event_summary_refresh(chat_id, delay_seconds=0.2)
     return updated, None
 
 
