@@ -7,9 +7,11 @@ from typing import Any
 from bot.sql_helper import Session
 from bot.sql_helper.sql_xiuxian import (
     XiuxianBossConfig,
+    XiuxianBossDefeat,
     XiuxianProfile,
+    XiuxianWorldBossDamage,
+    XiuxianWorldBossInstance,
     apply_spiritual_stone_delta,
-    create_journal,
     get_boss_config,
     get_boss_defeat,
     get_active_world_boss,
@@ -19,12 +21,11 @@ from bot.sql_helper.sql_xiuxian import (
     realm_index,
     serialize_boss_config,
     serialize_profile,
-    upsert_boss_defeat,
-    upsert_world_boss_damage,
+    serialize_world_boss_damage,
+    serialize_world_boss_instance,
     create_world_boss_instance,
-    settle_world_boss_instance,
-    update_world_boss_hp,
     utcnow,
+    _queue_user_view_cache_invalidation,
 )
 from bot.plugins.xiuxian_game.probability import roll_probability_percent
 from bot.plugins.xiuxian_game.achievement_service import record_boss_metrics
@@ -35,9 +36,200 @@ def _legacy_service():
     return legacy_service
 
 
-def _grant_item_by_kind(tg: int, kind: str, ref_id: int, quantity: int) -> dict[str, Any]:
-    from bot.plugins.xiuxian_game.world_service import _grant_item_by_kind as _grant
-    return _grant(tg, kind, ref_id, quantity)
+def _grant_item_by_kind_in_session(session: Session, tg: int, kind: str, ref_id: int, quantity: int) -> dict[str, Any]:
+    from bot.plugins.xiuxian_game.world_service import _grant_item_in_session as _grant
+    return _grant(session, tg, kind, ref_id, quantity, source="boss", obtained_note="Boss掉落")
+
+
+def _granted_item_payload(granted: dict[str, Any], kind: str) -> dict[str, Any]:
+    payload = granted.get(kind) or granted.get("artifact") or granted.get("pill") or granted.get("talisman") or granted.get("material") or granted.get("recipe") or granted.get("technique") or {}
+    if isinstance(payload, dict):
+        return payload
+    return {
+        "id": int(getattr(payload, "id", 0) or 0),
+        "name": str(getattr(payload, "name", "") or ""),
+    }
+
+
+def _boss_loot_chance(entry: dict[str, Any]) -> int:
+    raw = entry.get("chance")
+    if raw is None:
+        return 100
+    try:
+        chance = int(raw)
+    except (TypeError, ValueError):
+        chance = 0
+    return max(min(chance, 100), 0)
+
+
+def _grant_boss_loot_items_in_session(
+    session: Session,
+    tg: int,
+    loot_items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    granted_items: list[dict[str, Any]] = []
+    for loot in loot_items:
+        try:
+            granted = _grant_item_by_kind_in_session(
+                session,
+                int(tg),
+                str(loot["kind"]),
+                int(loot["ref_id"]),
+                int(loot["quantity"]),
+            )
+        except ValueError:
+            continue
+        if granted:
+            kind = str(loot["kind"])
+            granted_items.append(
+                {
+                    "kind": kind,
+                    "ref_id": int(loot["ref_id"]),
+                    "quantity": int(loot["quantity"]),
+                    "item": _granted_item_payload(granted, kind),
+                }
+            )
+    return granted_items
+
+
+def _today_key() -> str:
+    return datetime.now().strftime("%Y%m%d")
+
+
+def _remaining_attempts(limit: int, used: int) -> int:
+    limit_value = max(int(limit or 0), 0)
+    if limit_value <= 0:
+        return 999999
+    return max(limit_value - max(int(used or 0), 0), 0)
+
+
+def _apply_boss_cultivation_reward_in_session(
+    session: Session,
+    tg: int,
+    cultivation_gain: int,
+    legacy_service,
+) -> int:
+    gain = max(int(cultivation_gain or 0), 0)
+    if gain <= 0:
+        return 0
+    from bot.plugins.xiuxian_game.core.realm import apply_cultivation_gain
+    profile_obj = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(tg)).with_for_update().first()
+    if profile_obj is None:
+        raise ValueError("你尚未踏入仙途，道基未立")
+    stage = legacy_service.normalize_realm_stage(profile_obj.realm_stage or legacy_service.FIRST_REALM_STAGE)
+    layer = max(int(profile_obj.realm_layer or 1), 1)
+    current_cult = max(int(profile_obj.cultivation or 0), 0)
+    new_layer, new_cult, gained = apply_cultivation_gain(stage, layer, current_cult, gain)
+    profile_obj.realm_layer = new_layer
+    profile_obj.cultivation = new_cult
+    profile_obj.updated_at = utcnow()
+    return int(gained or 0)
+
+
+def _claim_personal_boss_attempt_in_session(
+    session: Session,
+    tg: int,
+    boss_id: int,
+    won: bool,
+    daily_limit: int,
+) -> tuple[int, int]:
+    today = _today_key()
+    record = (
+        session.query(XiuxianBossDefeat)
+        .filter(XiuxianBossDefeat.tg == int(tg), XiuxianBossDefeat.boss_id == int(boss_id))
+        .with_for_update()
+        .first()
+    )
+    if record is None:
+        used_today = 0
+        record = XiuxianBossDefeat(
+            tg=int(tg),
+            boss_id=int(boss_id),
+            defeat_count=0,
+            daily_attempts=0,
+            day_key=today,
+        )
+        session.add(record)
+        session.flush()
+    else:
+        if record.day_key != today:
+            record.day_key = today
+            record.daily_attempts = 0
+        used_today = int(record.daily_attempts or 0)
+
+    limit = max(int(daily_limit or 0), 0)
+    if limit > 0 and used_today >= limit:
+        raise ValueError(f"今日挑战次数已尽（{used_today}/{limit}），明日再来吧。")
+
+    record.daily_attempts = used_today + 1
+    if won:
+        record.defeat_count = max(int(record.defeat_count or 0) + 1, 1)
+        record.last_defeated_at = utcnow()
+    record.updated_at = utcnow()
+    return int(record.daily_attempts or 0), limit
+
+
+def _add_journal_in_session(session: Session, tg: int, action_type: str, title: str, detail: str | None = None) -> None:
+    from bot.sql_helper.sql_xiuxian import XiuxianJournal
+    session.add(
+        XiuxianJournal(
+            tg=int(tg),
+            action_type=(action_type or "system").strip()[:32],
+            title=(title or "未知操作").strip()[:128],
+            detail=(detail or "").strip() or None,
+        )
+    )
+
+
+def _active_world_boss_instance_for_update(session: Session, instance_id: int) -> XiuxianWorldBossInstance | None:
+    return (
+        session.query(XiuxianWorldBossInstance)
+        .filter(XiuxianWorldBossInstance.id == int(instance_id))
+        .with_for_update()
+        .first()
+    )
+
+
+def _world_boss_damage_for_update(session: Session, instance_id: int, tg: int) -> XiuxianWorldBossDamage | None:
+    return (
+        session.query(XiuxianWorldBossDamage)
+        .filter(XiuxianWorldBossDamage.instance_id == int(instance_id), XiuxianWorldBossDamage.tg == int(tg))
+        .with_for_update()
+        .first()
+    )
+
+
+def _last_world_boss_spawned_at() -> datetime | None:
+    with Session() as session:
+        row = (
+            session.query(XiuxianWorldBossInstance)
+            .order_by(XiuxianWorldBossInstance.spawned_at.desc(), XiuxianWorldBossInstance.id.desc())
+            .first()
+        )
+        return row.spawned_at if row is not None else None
+
+
+def settle_expired_world_bosses() -> list[dict[str, Any]]:
+    now = utcnow()
+    with Session() as session:
+        expired_rows = (
+            session.query(XiuxianWorldBossInstance.id)
+            .filter(
+                XiuxianWorldBossInstance.status == "active",
+                XiuxianWorldBossInstance.expires_at <= now,
+            )
+            .order_by(XiuxianWorldBossInstance.id.asc())
+            .all()
+        )
+        defeated_rows = (
+            session.query(XiuxianWorldBossInstance.id)
+            .filter(XiuxianWorldBossInstance.status == "defeated")
+            .order_by(XiuxianWorldBossInstance.id.asc())
+            .all()
+        )
+    results = [settle_world_boss_timeout(int(row.id)) for row in expired_rows]
+    results.extend(_settle_world_boss_kill(int(row.id)) for row in defeated_rows)
+    return results
 
 
 # ── 个人 Boss ──────────────────────────────────────────────────
@@ -68,7 +260,8 @@ def list_personal_bosses_for_user(tg: int) -> dict[str, Any]:
             "unlocked": unlocked,
             "beaten": beaten,
             "daily_attempts_used": daily_used,
-            "daily_attempts_remaining": max(daily_limit - daily_used, 0),
+            "daily_attempts_remaining": _remaining_attempts(daily_limit, daily_used),
+            "daily_attempts_unlimited": daily_limit <= 0,
             "defeat_count": int((defeat_record or {}).get("defeat_count") or 0),
         })
 
@@ -95,15 +288,13 @@ def challenge_personal_boss(tg: int, boss_id: int) -> dict[str, Any]:
     if boss_stage_index > player_stage_index:
         raise ValueError("你境界未至，贸然挑战无异于送死。")
 
-    # 每日次数检查
-    from datetime import date
-    today = date.today().strftime("%Y%m%d")
+    today = _today_key()
     defeat_record = get_boss_defeat(tg, boss_id)
     daily_used = 0
     if defeat_record and defeat_record.get("day_key") == today:
         daily_used = int(defeat_record.get("daily_attempts") or 0)
-    daily_limit = int(boss.get("daily_attempt_limit") or 3)
-    if daily_used >= daily_limit:
+    daily_limit = max(int(boss.get("daily_attempt_limit") or 0), 0)
+    if daily_limit > 0 and daily_used >= daily_limit:
         raise ValueError(f"今日挑战次数已尽（{daily_used}/{daily_limit}），明日再来吧。")
 
     # 门票消耗
@@ -121,7 +312,17 @@ def challenge_personal_boss(tg: int, boss_id: int) -> dict[str, Any]:
     # 构建玩家战斗数据
     bundle = legacy_service.serialize_full_profile(tg)
     player_bundle = legacy_service._battle_bundle(bundle, apply_random=True)
+    talisman_active_effects = player_bundle.get("talisman_active_effects") or {}
+    boss_damage_bonus = max(float(talisman_active_effects.get("boss_damage_bonus") or 0), 0.0)
+    boss_crit_bonus = max(float(talisman_active_effects.get("boss_crit_bonus") or 0), 0.0)
     player_state = player_bundle.copy()
+    if boss_damage_bonus > 0 or boss_crit_bonus > 0:
+        stats = dict(player_state.get("stats") or {})
+        if boss_damage_bonus > 0:
+            stats["attack_power"] = float(stats.get("attack_power") or 0) * (1 + min(boss_damage_bonus, 70.0) / 100.0)
+        if boss_crit_bonus > 0:
+            stats["divine_sense"] = float(stats.get("divine_sense") or 0) + boss_crit_bonus * 2
+        player_state["stats"] = stats
 
     # 构建 Boss 战斗数据
     boss_bundle = _build_boss_battle_bundle(boss)
@@ -132,30 +333,19 @@ def challenge_personal_boss(tg: int, boss_id: int) -> dict[str, Any]:
 
     won = result.get("winner_tg") == tg
 
-    # 扣除门票
+    daily_attempts_used = daily_used + 1
+    rewards: dict[str, Any] = {"items": [], "stone": 0, "cultivation": 0}
+
     with Session() as session:
         if ticket_cost > 0:
             apply_spiritual_stone_delta(session, tg, -ticket_cost, action_text="挑战Boss门票")
 
-        # 更新讨伐记录
-        upsert_boss_defeat(tg, boss_id, won)
+        daily_attempts_used, daily_limit = _claim_personal_boss_attempt_in_session(session, tg, boss_id, won, daily_limit)
 
-        # 胜利后发奖
-        rewards: dict[str, Any] = {"items": [], "stone": 0, "cultivation": 0}
         if won:
-            # 掉落物随机
             loot_items = _roll_boss_loot(boss)
-            for loot in loot_items:
-                granted = _grant_item_by_kind(tg, loot["kind"], loot["ref_id"], loot["quantity"])
-                if granted:
-                    rewards["items"].append({
-                        "kind": loot["kind"],
-                        "ref_id": loot["ref_id"],
-                        "quantity": loot["quantity"],
-                        "item": granted,
-                    })
+            rewards["items"] = _grant_boss_loot_items_in_session(session, tg, loot_items)
 
-            # 灵石奖励
             stone_min = int(boss.get("stone_reward_min") or 0)
             stone_max = int(boss.get("stone_reward_max") or 0)
             if stone_max > 0:
@@ -164,56 +354,61 @@ def challenge_personal_boss(tg: int, boss_id: int) -> dict[str, Any]:
                     apply_spiritual_stone_delta(session, tg, stone_amount, action_text="击败Boss灵石奖励")
                     rewards["stone"] = stone_amount
 
-            # 修为奖励
-            cultivation_gain = int(boss.get("cultivation_reward") or 0)
-            if cultivation_gain > 0:
-                from bot.plugins.xiuxian_game.core.realm import apply_cultivation_gain
-                profile_obj = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
-                if profile_obj is not None:
-                    stage = legacy_service.normalize_realm_stage(profile_obj.realm_stage or legacy_service.FIRST_REALM_STAGE)
-                    layer = max(int(profile_obj.realm_layer or 1), 1)
-                    current_cult = max(int(profile_obj.cultivation or 0), 0)
-                    new_layer, new_cult, gained = apply_cultivation_gain(stage, layer, current_cult, cultivation_gain)
-                    profile_obj.realm_layer = new_layer
-                    profile_obj.cultivation = new_cult
-                    profile_obj.updated_at = utcnow()
-                    rewards["cultivation"] = gained
+            rewards["cultivation"] = _apply_boss_cultivation_reward_in_session(
+                session,
+                tg,
+                int(boss.get("cultivation_reward") or 0),
+                legacy_service,
+            )
 
-            session.commit()
-
-            # 记录击杀成就
-            record_boss_metrics(tg, kill=1)
-
-        # 生成战报
-        battle_log = result.get("battle_log") or []
-        summary = _format_boss_battle_summary(boss, result, won, rewards)
-        challenger_actor = result.get("challenger_actor") or {}
-        defender_actor = result.get("defender_actor") or {}
-
-        # 写入手札
         if won:
-            create_journal(tg, "boss", "Boss讨伐胜利",
-                           f"击败【{boss['name']}】{'，获得灵石 ' + str(rewards['stone']) if rewards['stone'] else ''}"
-                           f"{'，修为 +' + str(rewards['cultivation']) if rewards['cultivation'] else ''}")
+            _add_journal_in_session(
+                session,
+                tg,
+                "boss",
+                "Boss讨伐胜利",
+                f"击败【{boss['name']}】{'，获得灵石 ' + str(rewards['stone']) if rewards['stone'] else ''}"
+                f"{'，修为 +' + str(rewards['cultivation']) if rewards['cultivation'] else ''}",
+            )
         else:
-            create_journal(tg, "boss", "Boss讨伐失败",
-                           f"挑战【{boss['name']}】惜败，损失门票 {ticket_cost} 灵石。")
+            _add_journal_in_session(
+                session,
+                tg,
+                "boss",
+                "Boss讨伐失败",
+                f"挑战【{boss['name']}】惜败，损失门票 {ticket_cost} 灵石。",
+            )
+        _queue_user_view_cache_invalidation(session, tg)
+        session.commit()
 
-        updated_profile = serialize_profile(get_profile(tg, create=False))
+    if won:
+        record_boss_metrics(tg, kill=1)
 
-        return {
-            "boss": boss,
-            "won": won,
-            "summary": summary,
-            "battle_log": battle_log,
-            "round_count": result.get("round_count", 0),
-            "player_hp_remaining": int(challenger_actor.get("hp") or 0),
-            "boss_hp_remaining": int(defender_actor.get("hp") or 0),
-            "rewards": rewards,
-            "profile": updated_profile,
-            "daily_attempts_used": daily_used + 1,
-            "daily_attempts_limit": daily_limit,
-        }
+    battle_log = result.get("battle_log") or []
+    summary = _format_boss_battle_summary(boss, result, won, rewards)
+    challenger_actor = result.get("challenger_actor") or {}
+    defender_actor = result.get("defender_actor") or {}
+
+    if talisman_active_effects:
+        legacy_service.set_active_talisman(tg, None)
+    updated_profile = serialize_profile(get_profile(tg, create=False))
+
+    return {
+        "boss": boss,
+        "won": won,
+        "summary": summary,
+        "battle_log": battle_log,
+        "round_count": result.get("round_count", 0),
+        "player_hp_remaining": int(challenger_actor.get("hp") or 0),
+        "boss_hp_remaining": int(defender_actor.get("hp") or 0),
+        "rewards": rewards,
+        "active_talisman_effects": talisman_active_effects,
+        "profile": updated_profile,
+        "daily_attempts_used": daily_attempts_used,
+        "daily_attempts_limit": daily_limit,
+        "daily_attempts_remaining": _remaining_attempts(daily_limit, daily_attempts_used),
+        "daily_attempts_unlimited": daily_limit <= 0,
+    }
 
 
 def _build_boss_battle_bundle(boss: dict[str, Any]) -> dict[str, Any]:
@@ -338,7 +533,7 @@ def _roll_boss_loot(boss: dict[str, Any]) -> list[dict[str, Any]]:
             ref_id = int(entry.get("ref_id") or 0)
             if ref_id <= 0:
                 continue
-            chance = max(min(int(entry.get("chance") or 100), 100), 0)
+            chance = _boss_loot_chance(entry)
             if not roll_probability_percent(chance)["success"]:
                 continue
             qty_min = max(int(entry.get("quantity_min") or 1), 1)
@@ -388,6 +583,7 @@ def _parse_serialized_datetime(value: Any) -> datetime | None:
 
 
 def get_world_boss_status_for_user(tg: int) -> dict[str, Any]:
+    settle_expired_world_bosses()
     instance = get_active_world_boss()
     if not instance:
         return {"active": False, "instance": None, "boss": None, "player_damage": None, "ranking": []}
@@ -434,6 +630,7 @@ def attack_world_boss(tg: int) -> dict[str, Any]:
     if not profile_data or not profile_data.get("consented"):
         raise ValueError("你尚未踏入仙途，道基未立")
 
+    settle_expired_world_bosses()
     instance = get_active_world_boss()
     if not instance:
         raise ValueError("当下并无世界Boss降临，天地一片安宁。")
@@ -465,6 +662,7 @@ def attack_world_boss(tg: int) -> dict[str, Any]:
     bundle = legacy_service.serialize_full_profile(tg)
     player_bundle = legacy_service._battle_bundle(bundle, apply_random=False)
     stats = player_bundle.get("stats") or {}
+    talisman_active_effects = player_bundle.get("talisman_active_effects") or {}
 
     # 伤害公式（简化版）
     attack_power = float(stats.get("attack_power") or 0)
@@ -479,29 +677,68 @@ def attack_world_boss(tg: int) -> dict[str, Any]:
         + divine_sense * 0.75
         + fortune * 0.45
     )
-    crit_chance = min(8 + divine_sense * 0.15 + fortune * 0.1, 30)
+    crit_chance = min(8 + divine_sense * 0.15 + fortune * 0.1 + max(float(talisman_active_effects.get("boss_crit_bonus") or 0), 0.0), 45)
     crit = roll_probability_percent(int(crit_chance))["success"]
     if crit:
         base_damage *= 1.5
     damage_floor = max(8, int(attack_power * 0.6), int(combat_power * 0.004))
     effective_damage = max(int(base_damage - defense_power * 0.18), damage_floor)
+    boss_damage_bonus = max(float(talisman_active_effects.get("boss_damage_bonus") or 0), 0.0)
+    if boss_damage_bonus > 0:
+        effective_damage = max(int(round(effective_damage * (1 + min(boss_damage_bonus, 80.0) / 100.0))), effective_damage + 1)
 
-    # 应用伤害
-    updated_instance = update_world_boss_hp(int(instance["id"]), -effective_damage)
-    damage_record = upsert_world_boss_damage(int(instance["id"]), tg, effective_damage)
+    with Session() as session:
+        instance_row = _active_world_boss_instance_for_update(session, int(instance["id"]))
+        if instance_row is None or instance_row.status != "active" or instance_row.expires_at <= utcnow():
+            raise ValueError("Boss已消散，等待下次降临吧。")
+        damage_row = _world_boss_damage_for_update(session, int(instance_row.id), tg)
+        now = datetime.now(timezone.utc)
+        if damage_row and damage_row.last_attack_at:
+            last_attack_at = _parse_serialized_datetime(damage_row.last_attack_at)
+            if last_attack_at:
+                elapsed = (now - last_attack_at).total_seconds()
+                if elapsed < _WORLD_BOSS_ATTACK_COOLDOWN_SECONDS:
+                    remaining = int(_WORLD_BOSS_ATTACK_COOLDOWN_SECONDS - elapsed)
+                    raise ValueError(f"气力未复，还需等待 {remaining} 秒方可再次出手。")
 
-    # 判断是否击杀了 Boss
-    boss_defeated = updated_instance and updated_instance.get("status") == "defeated"
+        instance_row.current_hp = max(int(instance_row.current_hp or 0) - effective_damage, 0)
+        boss_defeated = instance_row.current_hp <= 0
+        if boss_defeated:
+            instance_row.status = "defeated"
+            instance_row.defeated_at = utcnow()
+        instance_row.updated_at = utcnow()
+
+        if damage_row is None:
+            damage_row = XiuxianWorldBossDamage(
+                instance_id=int(instance_row.id),
+                tg=int(tg),
+                total_damage=0,
+                attack_count=0,
+            )
+            session.add(damage_row)
+            session.flush()
+        damage_row.total_damage = max(int(damage_row.total_damage or 0) + effective_damage, 0)
+        damage_row.attack_count = max(int(damage_row.attack_count or 0) + 1, 1)
+        damage_row.last_attack_at = utcnow()
+        damage_row.updated_at = utcnow()
+        _add_journal_in_session(
+            session,
+            tg,
+            "boss",
+            "攻击世界Boss",
+            f"对【{boss['name']}】造成 {effective_damage} 点伤害{'（暴击）' if crit else ''}。"
+            f"{' Boss已被击败！' if boss_defeated else ''}",
+        )
+        updated_instance = serialize_world_boss_instance(instance_row)
+        damage_record = serialize_world_boss_damage(damage_row)
+        session.commit()
 
     # 击杀则结算奖励
     settlement = None
     if boss_defeated:
         settlement = _settle_world_boss_kill(int(instance["id"]))
-
-    # 写入手札
-    create_journal(tg, "boss", "攻击世界Boss",
-                   f"对【{boss['name']}】造成 {effective_damage} 点伤害{'（暴击）' if crit else ''}。"
-                   f"{' Boss已被击败！' if boss_defeated else ''}")
+    if talisman_active_effects:
+        legacy_service.set_active_talisman(tg, None)
 
     # 记录世界 Boss 伤害成就
     record_boss_metrics(tg, world_damage=effective_damage)
@@ -514,81 +751,113 @@ def attack_world_boss(tg: int) -> dict[str, Any]:
         "boss_defeated": boss_defeated,
         "player_total_damage": int((damage_record or {}).get("total_damage") or 0),
         "player_attack_count": int((damage_record or {}).get("attack_count") or 0),
+        "active_talisman_effects": talisman_active_effects,
         "settlement": settlement,
     }
 
 
 def _settle_world_boss_kill(instance_id: int) -> dict[str, Any]:
-    damages = list_world_boss_damages(instance_id)
-    if not damages:
-        settle_world_boss_instance(instance_id, "defeated")
-        return {"rankings": [], "mvp": None}
-
     from bot.sql_helper.sql_xiuxian import get_emby_name_map
-    tgs = [int(d["tg"]) for d in damages]
-    name_map = get_emby_name_map(tgs) if tgs else {}
 
-    rankings = []
-    for rank_idx, dmg in enumerate(damages):
-        tg = int(dmg["tg"])
-        rank = rank_idx + 1
-        tier = "participation"
-        loot_multiplier = 1
-        if rank == 1:
-            tier = "mvp"
-            loot_multiplier = 3
-        elif rank <= 3:
-            tier = "top3"
-            loot_multiplier = 2
-        elif rank <= 10:
-            tier = "top10"
+    rankings: list[dict[str, Any]] = []
+    boss: dict[str, Any] | None = None
+    with Session() as session:
+        instance_row = _active_world_boss_instance_for_update(session, instance_id)
+        if instance_row is None:
+            return {"rankings": [], "mvp": None, "already_settled": True}
+        if instance_row.status == "settled":
+            return {"rankings": [], "mvp": None, "already_settled": True}
+        if instance_row.status not in {"active", "defeated"}:
+            return {"rankings": [], "mvp": None, "already_settled": True}
+        boss_id = int(instance_row.boss_id or 0)
+        boss_row = session.query(XiuxianBossConfig).filter(XiuxianBossConfig.id == boss_id).first() if boss_id else None
+        boss = serialize_boss_config(boss_row) if boss_row else None
+        damage_rows = (
+            session.query(XiuxianWorldBossDamage)
+            .filter(XiuxianWorldBossDamage.instance_id == int(instance_id))
+            .order_by(XiuxianWorldBossDamage.total_damage.desc())
+            .all()
+        )
+        damages = [serialize_world_boss_damage(row) for row in damage_rows]
+        if not damages:
+            instance_row.status = "settled"
+            if instance_row.defeated_at is None:
+                instance_row.defeated_at = utcnow()
+            instance_row.updated_at = utcnow()
+            session.commit()
+            return {"rankings": [], "mvp": None}
+
+        tgs = [int(d["tg"]) for d in damages]
+        name_map = get_emby_name_map(tgs) if tgs else {}
+
+        for rank_idx, dmg in enumerate(damages):
+            tg = int(dmg["tg"])
+            rank = rank_idx + 1
+            tier = "participation"
             loot_multiplier = 1
+            if rank == 1:
+                tier = "mvp"
+                loot_multiplier = 3
+            elif rank <= 3:
+                tier = "top3"
+                loot_multiplier = 2
+            elif rank <= 10:
+                tier = "top10"
+                loot_multiplier = 1
 
-        rankings.append({
-            "rank": rank,
-            "tg": tg,
-            "display_name": name_map.get(tg, f"TG {tg}"),
-            "total_damage": int(dmg.get("total_damage") or 0),
-            "tier": tier,
-            "loot_multiplier": loot_multiplier,
-            "rewarded": False,
-        })
+            rankings.append({
+                "rank": rank,
+                "tg": tg,
+                "display_name": name_map.get(tg, f"TG {tg}"),
+                "total_damage": int(dmg.get("total_damage") or 0),
+                "tier": tier,
+                "loot_multiplier": loot_multiplier,
+                "rewarded": False,
+            })
 
-    # 发放排名奖励
-    boss_id = None
-    instance = _get_world_boss_instance_raw(instance_id)
-    if instance:
-        boss_id = int(instance.boss_id)
-    boss = serialize_boss_config(get_boss_config(boss_id)) if boss_id else None
-
-    if boss:
-        with Session() as session:
+        if boss:
+            legacy_service = _legacy_service()
             for entry in rankings:
                 tg = entry["tg"]
                 multiplier = entry["loot_multiplier"]
-                # 灵石奖励
                 stone_min = int(boss.get("stone_reward_min") or 0)
                 stone_max = int(boss.get("stone_reward_max") or 0)
                 stone_amount = random.randint(stone_min, max(stone_max, stone_min)) * multiplier
                 if stone_amount > 0:
                     apply_spiritual_stone_delta(session, tg, stone_amount, action_text="世界Boss排名灵石奖励")
-                # 掉落物（按倍率多轮抽取）
+                cultivation_reward = _apply_boss_cultivation_reward_in_session(
+                    session,
+                    tg,
+                    int(boss.get("cultivation_reward") or 0) * multiplier,
+                    legacy_service,
+                )
+                granted_items: list[dict[str, Any]] = []
                 for _ in range(multiplier):
                     loot_items = _roll_boss_loot(boss)
-                    for loot in loot_items:
-                        _grant_item_by_kind(tg, loot["kind"], loot["ref_id"], loot["quantity"])
+                    granted_items.extend(_grant_boss_loot_items_in_session(session, tg, loot_items))
+                if entry["tier"] == "mvp":
+                    _add_journal_in_session(
+                        session,
+                        tg,
+                        "boss",
+                        "世界Boss MVP",
+                        f"在讨伐【{boss['name']}】中伤害排名第一，获得MVP称号！",
+                    )
                 entry["stone_reward"] = stone_amount
+                entry["cultivation_reward"] = cultivation_reward
+                entry["items"] = granted_items
                 entry["rewarded"] = True
-            session.commit()
+                _queue_user_view_cache_invalidation(session, tg)
+        instance_row.status = "settled"
+        if instance_row.defeated_at is None:
+            instance_row.defeated_at = utcnow()
+        instance_row.updated_at = utcnow()
+        session.commit()
 
-        # 写入 MVP 手札
-        mvp = rankings[0] if rankings else None
-        if mvp:
-            create_journal(mvp["tg"], "boss", "世界Boss MVP",
-                           f"在讨伐【{boss['name']}】中伤害排名第一，获得MVP称号！")
-            record_boss_metrics(mvp["tg"], world_mvp=1)
+    mvp = rankings[0] if rankings else None
+    if boss and mvp:
+        record_boss_metrics(mvp["tg"], world_mvp=1)
 
-    settle_world_boss_instance(instance_id, "defeated")
     return {
         "rankings": rankings,
         "mvp": rankings[0] if rankings else None,
@@ -596,33 +865,49 @@ def _settle_world_boss_kill(instance_id: int) -> dict[str, Any]:
     }
 
 
-def _get_world_boss_instance_raw(instance_id: int) -> XiuxianBossConfig | None:
-    from bot.sql_helper.sql_xiuxian import XiuxianWorldBossInstance as WBInstance
-    with Session() as session:
-        return session.query(WBInstance).filter(WBInstance.id == instance_id).first()
-
-
 def settle_world_boss_timeout(instance_id: int) -> dict[str, Any]:
-    from bot.sql_helper.sql_xiuxian import get_emby_name_map
-    damages = list_world_boss_damages(instance_id)
-    if damages:
-        with Session() as session:
-            for dmg in damages:
-                tg = int(dmg["tg"])
-                consolation_stone = random.randint(20, 80)
-                apply_spiritual_stone_delta(session, tg, consolation_stone, action_text="世界Boss参与奖")
-                create_journal(tg, "boss", "世界Boss参与奖",
-                               f"世界Boss已遁走，获得参与奖 {consolation_stone} 灵石。")
-            session.commit()
+    with Session() as session:
+        instance_row = _active_world_boss_instance_for_update(session, instance_id)
+        if instance_row is None or instance_row.status != "active":
+            return {"rankings": [], "escaped": False, "already_settled": True}
+        damage_rows = (
+            session.query(XiuxianWorldBossDamage)
+            .filter(XiuxianWorldBossDamage.instance_id == int(instance_id))
+            .order_by(XiuxianWorldBossDamage.total_damage.desc())
+            .all()
+        )
+        for damage_row in damage_rows:
+            tg = int(damage_row.tg or 0)
+            consolation_stone = random.randint(20, 80)
+            apply_spiritual_stone_delta(session, tg, consolation_stone, action_text="世界Boss参与奖")
+            _add_journal_in_session(
+                session,
+                tg,
+                "boss",
+                "世界Boss参与奖",
+                f"世界Boss已遁走，获得参与奖 {consolation_stone} 灵石。",
+            )
+            _queue_user_view_cache_invalidation(session, tg)
+        instance_row.status = "escaped"
+        instance_row.updated_at = utcnow()
+        session.commit()
 
-    settle_world_boss_instance(instance_id, "escaped")
     return {"rankings": [], "escaped": True}
 
 
 def spawn_world_boss(boss_id: int | None = None) -> dict[str, Any]:
+    settle_expired_world_bosses()
     existing = get_active_world_boss()
     if existing:
         raise ValueError("当前已有世界Boss降临，请等待其被击败或消散后再手动降临。")
+    if int(boss_id or 0) <= 0:
+        last_spawned_at = _last_world_boss_spawned_at()
+        if last_spawned_at is not None:
+            elapsed = utcnow() - last_spawned_at
+            interval = timedelta(hours=_WORLD_BOSS_SPAWN_INTERVAL_HOURS)
+            if elapsed < interval:
+                remaining_minutes = max(int((interval - elapsed).total_seconds() // 60), 1)
+                raise ValueError(f"距离下次世界Boss降临还需约 {remaining_minutes} 分钟。")
 
     bosses = list_boss_configs(boss_type="world")
     if not bosses:

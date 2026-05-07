@@ -143,7 +143,7 @@
             <div class="setting-panel-head">
               <div>
                 <strong>灵石互兑与交易通告</strong>
-                <p>兑换比例、手续费、商店广播和消息清理。</p>
+                <p>兑换比例、商店广播和消息清理。</p>
               </div>
             </div>
             <div class="setting-panel-grid">
@@ -151,15 +151,7 @@
                 1 片刻碎片可兑换灵石
                 <input id="setting-rate" type="number" min="1" value="100">
               </label>
-              <label>
-                兑换手续费（%）
-                <input id="setting-fee" type="number" min="0" value="1">
-              </label>
-              <label>
-                灵石兑换碎片最低附加门槛
-                <input id="setting-min" type="number" min="1" value="1">
-              </label>
-              <p id="setting-exchange-rate-note" class="muted wide-field">当前比例示例：100 灵石 = 1 片刻碎片；实际最低门槛会取“兑换比例”和“附加门槛”中的较大值。</p>
+              <p id="setting-exchange-rate-note" class="muted wide-field">当前比例示例：1 片刻碎片 = 100 灵石；100 灵石 = 1 片刻碎片。兑换不收手续费，灵石兑换碎片只按整份结算。</p>
               <label class="inline-check">
                 <input id="setting-exchange-enabled" type="checkbox" checked>
                 开启灵石互兑
@@ -793,7 +785,7 @@
           <p class="eyebrow" data-section-key="talismans">符箓</p>
           <h2>符箓管理</h2>
         </div>
-        <span class="summary-tip">斗法一次性增益，支持攻击、防御与胜率</span>
+        <span class="summary-tip">一次性护持增益，覆盖斗法、Boss、探索、垂钓、炼制与吐纳</span>
       </summary>
       <div class="fold-body">
         <form id="talisman-form" class="grid-form">
@@ -1789,13 +1781,13 @@
             <select id="boss-stage"></select>
           </label>
           <label>排序 <input id="boss-sort" type="number" value="0"></label>
-          <label>生命 <input id="boss-hp" type="number" min="1" value="500"></label>
+          <label>世界血量基数 <input id="boss-hp" type="number" min="1" value="500"></label>
           <label>攻击 <input id="boss-attack" type="number" min="0" value="30"></label>
           <label>防御 <input id="boss-defense" type="number" min="0" value="15"></label>
           <label>身法 <input id="boss-body-movement" type="number" min="0" value="10"></label>
           <label>神识 <input id="boss-divine-sense" type="number" min="0" value="10"></label>
           <label>机缘 <input id="boss-fortune" type="number" min="0" value="10"></label>
-          <label>气血 <input id="boss-qi-blood" type="number" min="1" value="500"></label>
+          <label>个人战斗气血 <input id="boss-qi-blood" type="number" min="1" value="500"></label>
           <label>真元 <input id="boss-true-yuan" type="number" min="0" value="200"></label>
           <label>主动技能 <input id="boss-skill-name" type="text" placeholder="例如：毒雾噬体"></label>
           <label>技能倍率 % <input id="boss-skill-ratio" type="number" min="0" value="30"></label>

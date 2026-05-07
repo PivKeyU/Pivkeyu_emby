@@ -202,12 +202,13 @@ def _grant_auction_item_to_inventory(
             )
             session.add(row)
         else:
-            row.source = normalized_source or row.source
-            if obtained_note is not None:
-                row.obtained_note = normalized_note
-            elif not row.obtained_note:
-                row.obtained_note = "拍卖所得"
-            row.updated_at = utcnow()
+            return grant_duplicate_knowledge_compensation_in_session(
+                session,
+                int(target_tg),
+                "technique",
+                technique,
+                action_text="重复功法折算灵石",
+            )
         if auto_equip and not profile.current_technique_id:
             profile.current_technique_id = int(technique_id)
             profile.updated_at = utcnow()
@@ -237,12 +238,13 @@ def _grant_auction_item_to_inventory(
             )
             session.add(row)
         else:
-            row.source = normalized_source or row.source
-            if obtained_note is not None:
-                row.obtained_note = normalized_note
-            elif not row.obtained_note:
-                row.obtained_note = "拍卖所得"
-            row.updated_at = utcnow()
+            return grant_duplicate_knowledge_compensation_in_session(
+                session,
+                int(target_tg),
+                "recipe",
+                recipe,
+                action_text="重复丹谱折算灵石",
+            )
         _queue_user_view_cache_invalidation(session, int(target_tg))
         return serialize_user_recipe(row, serialize_recipe(recipe))
 

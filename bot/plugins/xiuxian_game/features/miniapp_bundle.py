@@ -69,8 +69,10 @@ from bot.plugins.xiuxian_game.service import (
     resolve_title_effects,
     seclusion_cultivation_efficiency_percent,
     serialize_talisman,
+    active_talisman_effect_summary,
     serialize_full_profile,
     get_talisman,
+    resolve_talisman_active_effects,
 )
 from bot.plugins.xiuxian_game.world_service import (
     _get_active_exploration,
@@ -545,11 +547,13 @@ def _build_talisman_rows(bundle: dict[str, Any], tg: int) -> list[dict[str, Any]
         bound_quantity = max(min(int(row.get("bound_quantity") or 0), total_quantity), 0)
         item = row.get("talisman") or {}
         item["resolved_effects"] = resolve_talisman_effects(profile, item)
+        item["active_effects"] = resolve_talisman_active_effects(profile, item)
+        item["active_effect_summary"] = active_talisman_effect_summary(item["active_effects"])
         usable = realm_requirement_met(profile, item.get("min_realm_stage"), item.get("min_realm_layer"))
         reason = "" if usable else f"需要达到 {format_realm_requirement(item.get('min_realm_stage'), item.get('min_realm_layer'))}"
         if profile.get("active_talisman_id") and profile.get("active_talisman_id") != item.get("id"):
             usable = False
-            reason = "你已经预装了一张待生效的符箓"
+            reason = "你已经启用了一张符箓"
         row["bound_quantity"] = bound_quantity
         row["unbound_quantity"] = max(total_quantity - bound_quantity, 0)
         row["consumable_quantity"] = row["unbound_quantity"]

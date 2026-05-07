@@ -129,31 +129,25 @@ def _weighted_choice(rows: list[dict[str, Any]], weight_key: str = "weight") -> 
     return weighted_rows[-1][0]
 
 
-def _grant_item_by_kind(tg: int, kind: str, ref_id: int, quantity: int) -> None:
+def _grant_item_by_kind(tg: int, kind: str, ref_id: int, quantity: int) -> dict[str, Any] | None:
     if kind == "artifact":
-        grant_artifact_to_user(tg, ref_id, quantity)
-        return
+        return grant_artifact_to_user(tg, ref_id, quantity)
     if kind == "pill":
-        grant_pill_to_user(tg, ref_id, quantity)
-        return
+        return grant_pill_to_user(tg, ref_id, quantity)
     if kind == "talisman":
-        grant_talisman_to_user(tg, ref_id, quantity)
-        return
+        return grant_talisman_to_user(tg, ref_id, quantity)
     if kind == "material":
-        grant_material_to_user(tg, ref_id, quantity)
-        return
+        return grant_material_to_user(tg, ref_id, quantity)
     if kind == "recipe":
-        grant_recipe_to_user(tg, ref_id, source="fishing", obtained_note="垂钓所得")
-        return
+        return grant_recipe_to_user(tg, ref_id, source="fishing", obtained_note="垂钓所得")
     if kind == "technique":
-        grant_technique_to_user(
+        return grant_technique_to_user(
             tg,
             ref_id,
             source="fishing",
             obtained_note="垂钓所得",
             auto_equip_if_empty=True,
         )
-        return
     raise ValueError("不支持的钓获物类型")
 
 
@@ -477,9 +471,22 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
         _ensure_daily_limit(profile_obj, "fish_daily_count", "fish_day_key", "fishing_daily_limit", "垂钓")
 
     full_bundle = _legacy_service().serialize_full_profile(tg)
+    active_talisman = full_bundle.get("active_talisman") or None
+    talisman_active_effects = {}
+    if active_talisman:
+        talisman_active_effects = active_talisman.get("active_effects") or _legacy_service().resolve_talisman_active_effects(
+            full_bundle.get("profile") or {},
+            active_talisman,
+        )
     effective_stats = full_bundle.get("effective_stats") or {}
     effective_fortune = max(int(effective_stats.get("fortune") or full_bundle.get("profile", {}).get("fortune") or 0), 0)
+    if active_talisman:
+        effective_fortune += max(int(round(float(talisman_active_effects.get("fishing_luck_bonus") or 0))), 0)
     empty_chance = _fishing_empty_chance(spot, effective_fortune)
+    if active_talisman:
+        empty_reduce = max(float(talisman_active_effects.get("fishing_empty_reduce") or 0), 0.0)
+        if empty_reduce > 0:
+            empty_chance = max(empty_chance * (1 - min(empty_reduce, 85.0) / 100.0), 0.02)
     base_candidates = _base_fishing_candidates(settings)
     candidates = _spot_candidates(spot, base_candidates)
     if not candidates:
@@ -535,6 +542,8 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
             "灵河垂钓",
             f"在{spot['name']}守了半日，灵河无获——本次轮空。",
         )
+        if active_talisman:
+            _legacy_service().set_active_talisman(tg, None)
         return {
             "spot_key": spot["key"],
             "spot_name": spot["name"],
@@ -550,11 +559,21 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
             "message": message,
             "empty_handed": True,
             "empty_chance_percent": round(empty_chance * 100.0, 2),
+            "active_talisman": None if not active_talisman else {
+                "name": active_talisman.get("name"),
+                "effects": talisman_active_effects,
+                "summary": _legacy_service().active_talisman_effect_summary(talisman_active_effects),
+            },
         }
 
     quantity = random.randint(int(chosen.get("quantity_min") or 1), int(chosen.get("quantity_max") or 1))
+    if active_talisman:
+        quantity_bonus = max(float(talisman_active_effects.get("fishing_quantity_bonus") or 0), 0.0)
+        if quantity_bonus > 0:
+            quantity = max(int(round(quantity * (1 + quantity_bonus / 100.0))), 1)
+    granted_reward = None
     try:
-        _grant_item_by_kind(tg, chosen_kind, int(chosen.get("ref_id") or 0), quantity)
+        granted_reward = _grant_item_by_kind(tg, chosen_kind, int(chosen.get("ref_id") or 0), quantity)
     except Exception as exc:
         if cast_cost_stone > 0:
             with Session() as session:
@@ -581,8 +600,14 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
     if quantity > 1:
         message += f" ×{quantity}"
     message += "。"
+    if isinstance(granted_reward, dict) and granted_reward.get("duplicate_converted"):
+        message += f"你早已掌握此物，重复所得已折为 {int(granted_reward.get('stone_compensation') or 0)} 灵石。"
     if luck_note:
         message += luck_note
+    if active_talisman:
+        summary = _legacy_service().active_talisman_effect_summary(talisman_active_effects)
+        if summary:
+            message += f"随身符箓【{active_talisman.get('name') or '符箓'}】微微一亮，{ '、'.join(summary[:2]) }。"
 
     create_journal(
         tg,
@@ -590,6 +615,8 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
         "灵河垂钓",
         f"在 {spot['name']} 钓起【{reward_name}】×{quantity}，品阶 {quality['label']}。",
     )
+    if active_talisman:
+        _legacy_service().set_active_talisman(tg, None)
     return {
         "spot_key": spot["key"],
         "spot_name": spot["name"],
@@ -597,12 +624,19 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
         "fortune_used": effective_fortune,
         "reward_kind": chosen_kind,
         "reward_kind_label": kind_label,
-        "reward_item": chosen.get("item"),
-        "quantity": quantity,
+        "reward_item": granted_reward or chosen.get("item"),
+        "quantity": 0 if isinstance(granted_reward, dict) and granted_reward.get("duplicate_converted") else quantity,
+        "stone_compensation": int((granted_reward or {}).get("stone_compensation") or 0) if isinstance(granted_reward, dict) else 0,
+        "duplicate_converted": bool(isinstance(granted_reward, dict) and granted_reward.get("duplicate_converted")),
         "quality_level": quality_level,
         "quality_label": quality["label"],
         "quality_color": quality["color"],
         "message": message,
         "empty_handed": False,
         "empty_chance_percent": round(empty_chance * 100.0, 2),
+        "active_talisman": None if not active_talisman else {
+            "name": active_talisman.get("name"),
+            "effects": talisman_active_effects,
+            "summary": _legacy_service().active_talisman_effect_summary(talisman_active_effects),
+        },
     }

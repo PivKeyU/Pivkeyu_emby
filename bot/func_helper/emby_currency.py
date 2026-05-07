@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from math import floor
-
 from bot import LOGGER
 from bot.sql_helper import Session
 from bot.sql_helper.sql_emby import Emby, sql_get_emby
@@ -13,8 +11,6 @@ from bot.sql_helper.sql_xiuxian import (
     get_shared_spiritual_stone_total,
     get_xiuxian_settings,
 )
-
-STONE_TO_COIN_FEE_FREE_LIMIT = 500
 
 
 def get_emby_balance(tg: int) -> int:
@@ -39,19 +35,13 @@ def add_emby_balance(tg: int, amount: int) -> int:
 def get_exchange_settings() -> dict:
     settings = get_xiuxian_settings()
     rate = max(int(settings.get("coin_exchange_rate", 100) or 100), 1)
-    min_coin_exchange = max(int(settings.get("min_coin_exchange", 1) or 1), 1)
     return {
         "enabled": bool(settings.get("coin_stone_exchange_enabled", True)),
         "rate": rate,
-        "fee_percent": max(int(settings.get("exchange_fee_percent", 1) or 0), 0),
-        "min_coin_exchange": min_coin_exchange,
-        "stone_to_coin_min_stone": max(rate, min_coin_exchange),
-        "stone_to_coin_fee_free_limit": STONE_TO_COIN_FEE_FREE_LIMIT,
+        "fee_percent": 0,
+        "min_coin_exchange": rate,
+        "stone_to_coin_min_stone": rate,
     }
-
-
-def _fee_amount(gross_amount: int, fee_percent: int) -> int:
-    return floor(max(int(gross_amount or 0), 0) * max(int(fee_percent or 0), 0) / 100)
 
 
 def _remember_exchange_journal(tg: int, title: str, detail: str) -> None:
@@ -64,31 +54,28 @@ def _remember_exchange_journal(tg: int, title: str, detail: str) -> None:
 def preview_coin_to_stone(coin_amount: int) -> dict:
     settings = get_exchange_settings()
     gross_stone = max(int(coin_amount or 0), 0) * settings["rate"]
-    fee = _fee_amount(gross_stone, settings["fee_percent"])
-    net_stone = max(gross_stone - fee, 0)
     return {
         "direction": "coin_to_stone",
         "gross": gross_stone,
-        "fee": fee,
-        "net": net_stone,
+        "fee": 0,
+        "net": gross_stone,
         "settings": settings,
     }
 
 
 def preview_stone_to_coin(stone_amount: int) -> dict:
     settings = get_exchange_settings()
-    gross_coin = floor(max(int(stone_amount or 0), 0) / settings["rate"])
+    requested_stone = max(int(stone_amount or 0), 0)
+    gross_coin = requested_stone // settings["rate"]
     spent_stone = gross_coin * settings["rate"]
-    fee_free_limit = max(int(settings.get("stone_to_coin_fee_free_limit") or 0), 0)
-    fee = 0 if spent_stone <= fee_free_limit else _fee_amount(gross_coin, settings["fee_percent"])
-    net_coin = max(gross_coin - fee, 0)
     return {
         "direction": "stone_to_coin",
         "gross": gross_coin,
         "spent_stone": spent_stone,
-        "fee": fee,
-        "net": net_coin,
-        "fee_free_applied": spent_stone > 0 and spent_stone <= fee_free_limit,
+        "fee": 0,
+        "net": gross_coin,
+        "remainder_stone": requested_stone - spent_stone,
+        "fee_free_applied": False,
         "settings": settings,
     }
 
@@ -102,7 +89,7 @@ def convert_coin_to_stone(tg: int, coin_amount: int) -> dict:
     if not preview["settings"].get("enabled", True):
         raise ValueError("灵石互兑功能当前未开启。")
     if preview["gross"] <= 0 or preview["net"] <= 0:
-        raise ValueError("当前比例和手续费下可兑换的灵石不足 1")
+        raise ValueError("当前比例下可兑换的灵石不足 1")
 
     with Session() as session:
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
@@ -133,8 +120,7 @@ def convert_coin_to_stone(tg: int, coin_amount: int) -> dict:
         tg,
         "碎片兑换灵石",
         (
-            f"消耗 {amount} 片刻碎片，兑换 {int(preview['gross'])} 灵石，"
-            f"手续费 {int(preview['fee'])} 灵石，实得 {int(preview['net'])} 灵石。"
+            f"消耗 {amount} 片刻碎片，获得 {int(preview['net'])} 灵石。"
             f"当前灵石 {shared_stone_balance}，片刻碎片 {new_coin_balance}。"
         ),
     )
@@ -162,7 +148,7 @@ def convert_stone_to_coin(tg: int, stone_amount: int) -> dict:
     if preview["spent_stone"] < minimum_stone:
         raise ValueError(f"最低需要 {minimum_stone} 灵石才能兑换片刻碎片")
     if preview["gross"] <= 0 or preview["net"] <= 0:
-        raise ValueError("当前比例和手续费下可兑换的片刻碎片不足 1")
+        raise ValueError("当前比例下可兑换的片刻碎片不足 1")
 
     with Session() as session:
         profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
@@ -194,9 +180,7 @@ def convert_stone_to_coin(tg: int, stone_amount: int) -> dict:
         tg,
         "灵石兑换碎片",
         (
-            f"消耗 {int(preview['spent_stone'])} 灵石，兑换 {int(preview['gross'])} 片刻碎片，"
-            f"{'本次免手续费，' if preview.get('fee_free_applied') else '手续费 %s 片刻碎片，' % int(preview['fee'])}"
-            f"实得 {int(preview['net'])} 片刻碎片。"
+            f"消耗 {int(preview['spent_stone'])} 灵石，获得 {int(preview['net'])} 片刻碎片。"
             f"当前灵石 {shared_stone_balance}，片刻碎片 {new_coin_balance}。"
         ),
     )

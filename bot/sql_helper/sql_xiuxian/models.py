@@ -546,6 +546,7 @@ class XiuxianTask(Base):
     reward_item_ref_id = Column(Integer, nullable=True)
     reward_item_quantity = Column(Integer, default=0, nullable=False)
     reward_item_escrowed = Column(Boolean, default=False, nullable=False)
+    reward_stone_escrowed = Column(Boolean, default=False, nullable=False)
     reward_scale_mode = Column(String(16), default="fixed", nullable=False)
     requirement_metric_key = Column(String(64), nullable=True)
     requirement_metric_target = Column(Integer, default=0, nullable=False)

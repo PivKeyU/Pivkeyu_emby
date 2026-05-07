@@ -323,14 +323,14 @@ def _scene_quality_level(
 
 def _base_drop_success_rate(quality_level: int) -> int:
     return {
-        1: 44,
-        2: 36,
-        3: 28,
-        4: 20,
-        5: 14,
-        6: 12,
-        7: 8,
-    }.get(max(int(quality_level or 1), 1), 5)
+        1: 50,
+        2: 43,
+        3: 35,
+        4: 28,
+        5: 21,
+        6: 17,
+        7: 13,
+    }.get(max(int(quality_level or 1), 1), 8)
 
 
 def _drop_success_rate(
@@ -348,7 +348,7 @@ def _drop_success_rate(
 ) -> int:
     duration_ratio = max(min(float(duration) / float(max(max_minutes, 1)), 1.0), 0.05)
     rate = _base_drop_success_rate(quality_level)
-    rate += int(round(duration_ratio * 16))
+    rate += int(round(duration_ratio * 18))
     rate += max(fortune - 10, 0) // 6
     rate += max(divine_sense - 10, 0) // 7
     rate += int(sect_explore_drop_rate or 0)
@@ -361,7 +361,7 @@ def _drop_success_rate(
         power_surplus = max(int(combat_power or 0) - max(int(min_combat_power or 0), 0), 0)
         surplus_ratio = power_surplus / max(int(min_combat_power or 0), 1) if int(min_combat_power or 0) > 0 else 1.0
         rate += 6 + min(int(round(surplus_ratio * 10)), 10)
-    return max(min(rate, 88), 3)
+    return max(min(rate, 90), 5)
 
 
 def sync_scene_with_drops_by_name(
@@ -903,6 +903,8 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
     drops = list_scene_drops(scene_id)
     if not drops:
         raise ValueError("该场景尚未配置掉落")
+    active_talisman = bundle.get("active_talisman") or None
+    talisman_active_effects = legacy_service.resolve_talisman_active_effects(profile, active_talisman)
     divine_sense = int(profile.get("divine_sense") or 0)
     fortune = int(profile.get("fortune") or 0)
     karma = int(profile.get("karma") or 0)
@@ -946,6 +948,7 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
     effective_quality = _drop_effective_quality(chosen, chosen_payload, recipe_quality_map)
     from bot.plugins.xiuxian_game.world_service import get_sect_effects
     sect_explore_drop_rate = int((get_sect_effects(profile) or {}).get("explore_drop_rate", 0))
+    talisman_drop_bonus = int(round(float(talisman_active_effects.get("exploration_drop_bonus") or 0)))
     drop_success_rate = _drop_success_rate(
         effective_quality,
         duration=duration,
@@ -956,12 +959,19 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
         combat_power=int(bundle.get("combat_power") or 0),
         min_combat_power=int(requirement_state.get("min_combat_power") or 0),
         requirements_met=bool(requirement_state.get("requirements_met")),
-        sect_explore_drop_rate=sect_explore_drop_rate,
+        sect_explore_drop_rate=sect_explore_drop_rate + talisman_drop_bonus,
     )
     drop_succeeded = roll_probability_percent(drop_success_rate)["success"]
     if not drop_succeeded:
         quantity = 0
-        scaled_stone_reward = int(round(scaled_stone_reward * 0.55))
+        scaled_stone_reward = int(round(scaled_stone_reward * 0.70))
+    elif active_talisman:
+        quantity_bonus = max(float(talisman_active_effects.get("exploration_quantity_bonus") or 0), 0.0)
+        stone_bonus = max(float(talisman_active_effects.get("exploration_stone_bonus") or 0), 0.0)
+        if quantity_bonus > 0:
+            quantity = max(int(round(quantity * (1 + quantity_bonus / 100.0))), 1)
+        if stone_bonus > 0 and scaled_stone_reward > 0:
+            scaled_stone_reward = int(round(scaled_stone_reward * (1 + stone_bonus / 100.0)))
     outcome = _build_exploration_outcome(scene, chosen, fortune, divine_sense, karma, duration, scene_quality=scene_quality)
     outcome["drop_quality_level"] = effective_quality
     outcome["drop_success_rate"] = drop_success_rate
@@ -973,6 +983,10 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
 
     death_chance = int(requirement_state.get("death_chance") or 0)
     death_chance = min(death_chance + max(scene_quality - 3, 0) * 2.5, 95)
+    if active_talisman and death_chance > 0:
+        risk_reduce = max(float(talisman_active_effects.get("exploration_risk_reduce") or 0), 0.0)
+        if risk_reduce > 0:
+            death_chance = max(int(round(death_chance * (1 - min(risk_reduce, 80.0) / 100.0))), 0)
     fatal_outcome = None
     if death_chance > 0:
         death_roll = random.randint(1, 100)
@@ -998,6 +1012,16 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
                 "此番以命相搏闯入凶险之地，虽遍体鳞伤，终究捡回了一条命。",
             )
     outcome["requirement_state"] = requirement_state
+    if active_talisman:
+        summary = legacy_service.active_talisman_effect_summary(talisman_active_effects)
+        outcome["active_talisman"] = {
+            "id": int(active_talisman.get("id") or 0),
+            "name": str(active_talisman.get("name") or ""),
+            "effects": talisman_active_effects,
+            "summary": summary,
+        }
+        if summary:
+            event_text = _join_scene_fragments(event_text, f"随身符箓【{active_talisman.get('name') or '符箓'}】护持，{ '、'.join(summary[:3]) }")
 
     with Session() as session:
         exploration = XiuxianExploration(
@@ -1019,6 +1043,8 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
         scene["requirement_state"] = requirement_state
         from bot.plugins.xiuxian_game.world_service import _bump_daily_counter
         _bump_daily_counter(tg, "explore_daily_count")
+        if active_talisman:
+            legacy_service.set_active_talisman(tg, None)
         return {"scene": scene, "exploration": serialize_exploration(exploration)}
 
 

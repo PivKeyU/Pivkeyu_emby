@@ -75,6 +75,7 @@ from bot.sql_helper.sql_xiuxian import (
     get_talisman,
     get_xiuxian_settings,
     invalidate_xiuxian_user_view_cache,
+    grant_duplicate_knowledge_compensation_in_session,
     grant_artifact_to_user,
     grant_starter_artifact_once,
     grant_material_to_user,
@@ -3162,6 +3163,50 @@ ITEM_STAT_FIELDS = (
     "cultivation_bonus",
 )
 
+TALISMAN_ACTIVE_EFFECT_FIELDS = (
+    "cultivation_bonus",
+    "craft_success_bonus",
+    "exploration_drop_bonus",
+    "exploration_quantity_bonus",
+    "exploration_stone_bonus",
+    "exploration_risk_reduce",
+    "fishing_luck_bonus",
+    "fishing_empty_reduce",
+    "fishing_quantity_bonus",
+    "boss_damage_bonus",
+    "boss_crit_bonus",
+    "practice_stone_bonus",
+)
+TALISMAN_UTILITY_KEYWORDS = (
+    ("化毒", "exploration_risk_reduce"),
+    ("护", "exploration_risk_reduce"),
+    ("镇", "exploration_risk_reduce"),
+    ("金钟", "exploration_risk_reduce"),
+    ("涅槃", "exploration_risk_reduce"),
+    ("风", "fishing_empty_reduce"),
+    ("浪", "fishing_empty_reduce"),
+    ("潮", "fishing_empty_reduce"),
+    ("影", "fishing_empty_reduce"),
+    ("裂空", "fishing_empty_reduce"),
+    ("醒神", "craft_success_bonus"),
+    ("天师", "craft_success_bonus"),
+    ("建木", "cultivation_bonus"),
+    ("鸿蒙", "cultivation_bonus"),
+    ("开天", "cultivation_bonus"),
+    ("冰", "exploration_drop_bonus"),
+    ("寒", "exploration_drop_bonus"),
+    ("魄", "exploration_drop_bonus"),
+    ("摄魂", "exploration_drop_bonus"),
+    ("魂", "exploration_drop_bonus"),
+    ("命", "exploration_drop_bonus"),
+    ("雷", "boss_damage_bonus"),
+    ("火", "boss_damage_bonus"),
+    ("焰", "boss_damage_bonus"),
+    ("破", "boss_damage_bonus"),
+    ("罚", "boss_damage_bonus"),
+    ("白虎", "boss_damage_bonus"),
+)
+
 
 def _repair_profile_realm_state(tg: int) -> XiuxianProfile | None:
     profile = get_profile(tg, create=False)
@@ -3677,6 +3722,181 @@ def _item_quality_multiplier(item: dict[str, Any] | None, item_kind: str) -> flo
     current = rules.get(rarity, fallback)
     value = current.get(field_map[item_kind], 1.0)
     return float(1.0 if value is None else value)
+
+
+def _empty_talisman_active_effects() -> dict[str, float]:
+    return {key: 0.0 for key in TALISMAN_ACTIVE_EFFECT_FIELDS}
+
+
+def _talisman_quality_level(talisman: dict[str, Any] | None) -> int:
+    if not talisman:
+        return 1
+    try:
+        level = int((talisman or {}).get("rarity_level") or 0)
+    except (TypeError, ValueError):
+        level = 0
+    if level <= 0:
+        level = int(get_quality_meta((talisman or {}).get("rarity")).get("level") or 1)
+    return max(min(level, 7), 1)
+
+
+def _clamp_talisman_percent(value: Any, *, cap: float) -> float:
+    try:
+        numeric = float(value or 0)
+    except (TypeError, ValueError):
+        numeric = 0.0
+    return max(min(numeric, cap), 0.0)
+
+
+def _normalize_talisman_active_effects(raw: Any) -> dict[str, float]:
+    source = raw if isinstance(raw, dict) else {}
+    aliases = {
+        "drop_rate_bonus": "exploration_drop_bonus",
+        "explore_drop_bonus": "exploration_drop_bonus",
+        "explore_quantity_bonus": "exploration_quantity_bonus",
+        "explore_stone_bonus": "exploration_stone_bonus",
+        "risk_reduce": "exploration_risk_reduce",
+        "death_risk_reduce": "exploration_risk_reduce",
+        "empty_reduce": "fishing_empty_reduce",
+        "fish_empty_reduce": "fishing_empty_reduce",
+        "fish_luck_bonus": "fishing_luck_bonus",
+        "fish_quantity_bonus": "fishing_quantity_bonus",
+        "craft_bonus": "craft_success_bonus",
+        "craft_success_rate": "craft_success_bonus",
+        "world_boss_damage_bonus": "boss_damage_bonus",
+        "crit_bonus": "boss_crit_bonus",
+        "stone_bonus": "practice_stone_bonus",
+    }
+    caps = {
+        "cultivation_bonus": 28.0,
+        "craft_success_bonus": 24.0,
+        "exploration_drop_bonus": 32.0,
+        "exploration_quantity_bonus": 35.0,
+        "exploration_stone_bonus": 35.0,
+        "exploration_risk_reduce": 45.0,
+        "fishing_luck_bonus": 32.0,
+        "fishing_empty_reduce": 28.0,
+        "fishing_quantity_bonus": 35.0,
+        "boss_damage_bonus": 55.0,
+        "boss_crit_bonus": 18.0,
+        "practice_stone_bonus": 35.0,
+    }
+    effects = _empty_talisman_active_effects()
+    for key, value in source.items():
+        normalized_key = aliases.get(str(key or "").strip(), str(key or "").strip())
+        if normalized_key not in effects:
+            continue
+        effects[normalized_key] = _clamp_talisman_percent(value, cap=caps[normalized_key])
+    return effects
+
+
+def _infer_talisman_active_effects(talisman: dict[str, Any] | None) -> dict[str, float]:
+    if not talisman:
+        return _empty_talisman_active_effects()
+    effects = _empty_talisman_active_effects()
+    level = _talisman_quality_level(talisman)
+    name_text = f"{talisman.get('name') or ''}{talisman.get('description') or ''}"
+    combat_config = talisman.get("combat_config") if isinstance(talisman.get("combat_config"), dict) else {}
+    skill_kinds = {
+        str(item.get("kind") or "").strip()
+        for key in ("skills", "passives")
+        for item in (combat_config.get(key) or [])
+        if isinstance(item, dict)
+    }
+    attack = float(talisman.get("attack_bonus") or 0)
+    defense = float(talisman.get("defense_bonus") or 0)
+    divine_sense = float(talisman.get("divine_sense_bonus") or 0)
+    fortune = float(talisman.get("fortune_bonus") or 0)
+    body_movement = float(talisman.get("body_movement_bonus") or 0)
+    qi_blood = float(talisman.get("qi_blood_bonus") or 0)
+    true_yuan = float(talisman.get("true_yuan_bonus") or 0)
+    comprehension = float(talisman.get("comprehension_bonus") or 0)
+    duel_rate = float(talisman.get("duel_rate_bonus") or 0)
+
+    main_key = ""
+    for keyword, effect_key in TALISMAN_UTILITY_KEYWORDS:
+        if keyword and keyword in name_text:
+            main_key = effect_key
+            break
+    if not main_key:
+        if skill_kinds & {"shield", "guard", "heal"} or defense + qi_blood * 0.18 >= attack + body_movement:
+            main_key = "exploration_risk_reduce"
+        elif skill_kinds & {"dodge"} or body_movement >= max(attack, defense, divine_sense):
+            main_key = "fishing_empty_reduce"
+        elif skill_kinds & {"armor_break", "burn", "bleed", "extra_damage", "attack"} or attack + duel_rate * 2 >= defense + divine_sense:
+            main_key = "boss_damage_bonus"
+        elif divine_sense + fortune >= attack + defense:
+            main_key = "exploration_drop_bonus"
+        elif comprehension + true_yuan * 0.08 >= attack + defense:
+            main_key = "cultivation_bonus"
+        else:
+            main_key = "exploration_drop_bonus"
+
+    if main_key == "boss_damage_bonus":
+        effects["boss_damage_bonus"] = min(7 + level * 3 + attack / 8 + duel_rate, 55)
+        effects["boss_crit_bonus"] = min(1 + level + divine_sense / 14 + fortune / 18, 18)
+    elif main_key == "exploration_risk_reduce":
+        effects["exploration_risk_reduce"] = min(5 + level * 3 + defense / 6 + qi_blood / 55, 45)
+        effects["exploration_stone_bonus"] = min(2 + level + fortune / 8, 35)
+    elif main_key == "fishing_empty_reduce":
+        effects["fishing_empty_reduce"] = min(3 + level * 2 + body_movement / 6, 28)
+        effects["fishing_luck_bonus"] = min(2 + level * 2 + fortune / 4, 32)
+    elif main_key == "craft_success_bonus":
+        effects["craft_success_bonus"] = min(3 + level * 2 + comprehension / 5 + divine_sense / 8, 24)
+    elif main_key == "cultivation_bonus":
+        effects["cultivation_bonus"] = min(2 + level * 2 + comprehension / 5 + true_yuan / 80, 28)
+        effects["practice_stone_bonus"] = min(level + fortune / 5, 35)
+    else:
+        effects["exploration_drop_bonus"] = min(4 + level * 2 + divine_sense / 5 + fortune / 8, 32)
+        effects["exploration_quantity_bonus"] = min(level + fortune / 8, 35)
+
+    effects["exploration_drop_bonus"] = min(effects["exploration_drop_bonus"] + divine_sense / 12 + fortune / 20, 32)
+    effects["fishing_luck_bonus"] = min(effects["fishing_luck_bonus"] + fortune / 8, 32)
+    effects["practice_stone_bonus"] = min(effects["practice_stone_bonus"] + max(level - 2, 0), 35)
+    return {key: round(float(value), 2) for key, value in effects.items()}
+
+
+def resolve_talisman_active_effects(
+    profile: dict[str, Any] | None,
+    talisman: dict[str, Any] | None,
+) -> dict[str, float]:
+    _ = profile
+    if not talisman:
+        return _empty_talisman_active_effects()
+    combat_config = talisman.get("combat_config") if isinstance(talisman.get("combat_config"), dict) else {}
+    explicit = _normalize_talisman_active_effects(
+        combat_config.get("active_effects")
+        if isinstance(combat_config.get("active_effects"), dict)
+        else combat_config.get("utility_effects")
+    )
+    if any(float(value or 0) > 0 for value in explicit.values()):
+        return explicit
+    return _infer_talisman_active_effects(talisman)
+
+
+def active_talisman_effect_summary(effects: dict[str, Any] | None) -> list[str]:
+    source = effects or {}
+    labels = [
+        ("cultivation_bonus", "修炼"),
+        ("craft_success_bonus", "炼制"),
+        ("exploration_drop_bonus", "探索掉落"),
+        ("exploration_quantity_bonus", "探索数量"),
+        ("exploration_stone_bonus", "探索灵石"),
+        ("exploration_risk_reduce", "秘境避险"),
+        ("fishing_luck_bonus", "垂钓机缘"),
+        ("fishing_empty_reduce", "空竿减免"),
+        ("fishing_quantity_bonus", "钓获数量"),
+        ("boss_damage_bonus", "Boss伤害"),
+        ("boss_crit_bonus", "Boss会心"),
+        ("practice_stone_bonus", "吐纳灵石"),
+    ]
+    rows: list[str] = []
+    for key, label in labels:
+        value = float(source.get(key) or 0)
+        if value <= 0:
+            continue
+        rows.append(f"{label}+{value:g}%" if key != "cultivation_bonus" else f"{label}+{value:g}")
+    return rows
 
 
 def _root_quality_payload(name: str | None) -> dict[str, Any]:
@@ -4593,7 +4813,7 @@ def _current_technique_payload(profile_data: dict[str, Any]) -> dict[str, Any] |
     return technique
 
 
-SEED_DATA_VERSION = "2026-04-25-default-content-v7"
+SEED_DATA_VERSION = "2026-05-08-talisman-scope-v1"
 SEED_DATA_READY = False
 SEED_DATA_LOCK = threading.RLock()
 SEED_DATA_DB_LOCK_KEY = 2026041701
@@ -6354,6 +6574,8 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
     active_talisman = serialize_talisman(get_talisman(profile.active_talisman_id)) if profile and profile.active_talisman_id else None
     if active_talisman:
         active_talisman["resolved_effects"] = resolve_talisman_effects(profile_data, active_talisman)
+        active_talisman["active_effects"] = resolve_talisman_active_effects(profile_data, active_talisman)
+        active_talisman["active_effect_summary"] = active_talisman_effect_summary(active_talisman["active_effects"])
     current_technique = _current_technique_payload(profile_data)
     current_title = get_current_title(tg)
     if current_title:
@@ -6402,11 +6624,13 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         bound_quantity = max(min(int(row.get("bound_quantity") or 0), total_quantity), 0)
         item = row["talisman"]
         item["resolved_effects"] = resolve_talisman_effects(profile_data, item)
+        item["active_effects"] = resolve_talisman_active_effects(profile_data, item)
+        item["active_effect_summary"] = active_talisman_effect_summary(item["active_effects"])
         usable = realm_requirement_met(profile_data, item.get("min_realm_stage"), item.get("min_realm_layer"))
         reason = "" if usable else f"需要达到 {format_realm_requirement(item.get('min_realm_stage'), item.get('min_realm_layer'))}"
         if profile_data.get("active_talisman_id") and profile_data.get("active_talisman_id") != item["id"]:
             usable = False
-            reason = "你已经预装了一张待生效的符箓"
+            reason = "你已经启用了一张符箓"
         row["bound_quantity"] = bound_quantity
         row["unbound_quantity"] = max(total_quantity - bound_quantity, 0)
         row["consumable_quantity"] = row["unbound_quantity"]
@@ -9953,7 +10177,11 @@ def open_immortal_stones(tg: int, count: int) -> dict[str, Any]:
 
     summary = _format_gambling_reward_summary(results)
     summary_text = "、".join(
-        f"[{row['quality_label']}] {row['item_name']} x{row['quantity']}"
+        (
+            f"重复[{row['quality_label']}] {row['item_name']}折灵石 +{int(row.get('stone_compensation') or 0)}"
+            if row.get("duplicate_converted")
+            else f"[{row['quality_label']}] {row['item_name']} x{row['quantity']}"
+        )
         for row in summary[:8]
     )
     if len(summary) > 8:
@@ -10425,7 +10653,7 @@ def _reward_pool_default_weight(kind: str, quality_level: int, channel: str) -> 
         "gambling": {
             "material": 1.0,
             "pill": 0.72,
-            "talisman": 0.5,
+            "talisman": 0.32,
             "artifact": 0.28,
             "recipe": 0.15,
             "technique": 0.11,
@@ -10433,7 +10661,7 @@ def _reward_pool_default_weight(kind: str, quality_level: int, channel: str) -> 
         "fishing": {
             "material": 1.0,
             "pill": 0.58,
-            "talisman": 0.34,
+            "talisman": 0.22,
             "artifact": 0.16,
             "recipe": 0.08,
             "technique": 0.06,
@@ -10862,7 +11090,10 @@ def _grant_gambling_reward_after_commit(
 def _format_gambling_reward_summary(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     summary_map: dict[tuple[str, int], dict[str, Any]] = {}
     for row in results:
-        key = (str(row.get("item_kind") or ""), int(row.get("item_ref_id") or 0))
+        reward_payload = row.get("reward") if isinstance(row.get("reward"), dict) else {}
+        duplicate_converted = bool(reward_payload.get("duplicate_converted"))
+        key_kind = f"{row.get('item_kind')}:converted" if duplicate_converted else str(row.get("item_kind") or "")
+        key = (key_kind, int(row.get("item_ref_id") or 0))
         current = summary_map.get(key)
         if current is None:
             current = {
@@ -10874,10 +11105,13 @@ def _format_gambling_reward_summary(results: list[dict[str, Any]]) -> list[dict[
                 "quality_label": row.get("quality_label"),
                 "quality_color": row.get("quality_color"),
                 "quantity": 0,
+                "stone_compensation": 0,
+                "duplicate_converted": duplicate_converted,
                 "broadcasted": False,
             }
             summary_map[key] = current
         current["quantity"] = int(current.get("quantity") or 0) + int(row.get("quantity") or 0)
+        current["stone_compensation"] = int(current.get("stone_compensation") or 0) + int(reward_payload.get("stone_compensation") or 0)
         current["broadcasted"] = bool(current.get("broadcasted")) or bool(row.get("broadcasted"))
     summary = list(summary_map.values())
     summary.sort(
@@ -11291,6 +11525,7 @@ def _battle_bundle(bundle_or_profile: dict[str, Any], opponent_profile: dict[str
     sect_effects = get_sect_effects(profile)
     artifact_effects = merge_artifact_effects(profile, artifacts, opponent_profile)
     talisman_effects = resolve_talisman_effects(profile, talisman, opponent_profile) if talisman else None
+    talisman_active_effects = resolve_talisman_active_effects(profile, talisman) if talisman else {}
     technique_effects = resolve_technique_effects(profile, technique, opponent_profile) if technique else None
     title_effects = resolve_title_effects(profile, title, opponent_profile) if title else None
     stats = _effective_stats(profile, artifact_effects, talisman_effects, sect_effects, technique_effects, title_effects)
@@ -11327,6 +11562,7 @@ def _battle_bundle(bundle_or_profile: dict[str, Any], opponent_profile: dict[str
         "stats": stats,
         "artifact_effects": artifact_effects,
         "talisman_effects": talisman_effects or {},
+        "talisman_active_effects": talisman_active_effects,
         "sect_effects": sect_effects,
         "technique_effects": technique_effects or {},
         "title_effects": title_effects or {},
@@ -11693,6 +11929,7 @@ def practice_for_user(tg: int) -> dict[str, Any]:
     artifact_effects = merge_artifact_effects(profile_data, collect_equipped_artifacts(tg))
     active_talisman = serialize_talisman(get_talisman(profile.active_talisman_id)) if profile.active_talisman_id else None
     talisman_effects = resolve_talisman_effects(profile_data, active_talisman) if active_talisman else None
+    talisman_active_effects = resolve_talisman_active_effects(profile_data, active_talisman) if active_talisman else {}
     current_technique = _current_technique_payload(profile_data)
     technique_effects = resolve_technique_effects(profile_data, current_technique) if current_technique else None
     current_title = get_current_title(tg)
@@ -11706,7 +11943,13 @@ def practice_for_user(tg: int) -> dict[str, Any]:
     base_gain = random.randint(int(stage_rule["practice_gain_min"]), int(stage_rule["practice_gain_max"]))
     gain = int(
         round(
-            (base_gain + stats["bone"] * 0.55 + stats["comprehension"] * 0.75 + stats["cultivation_bonus"])
+            (
+                base_gain
+                + stats["bone"] * 0.55
+                + stats["comprehension"] * 0.75
+                + stats["cultivation_bonus"]
+                + float(talisman_active_effects.get("cultivation_bonus") or 0)
+            )
             * quality["cultivation_rate"]
             * max(0.55, 1 - poison_penalty)
             * DAILY_PRACTICE_CULTIVATION_FACTOR
@@ -11723,6 +11966,7 @@ def practice_for_user(tg: int) -> dict[str, Any]:
                     + int(stats["charisma"] // 10)
                 )
                 * DAILY_PRACTICE_STONE_FACTOR
+                * (1 + max(float(talisman_active_effects.get("practice_stone_bonus") or 0), 0.0) / 100.0)
             )
         ),
         1,
@@ -11762,6 +12006,8 @@ def practice_for_user(tg: int) -> dict[str, Any]:
         activity_growth = _apply_activity_stat_growth_to_profile_row(updated, "practice", stats)
         updated.updated_at = now
         session.commit()
+    if active_talisman and any(float(value or 0) > 0 for value in talisman_active_effects.values()):
+        set_active_talisman(tg, None)
     _apply_profile_growth_floor(tg)
     return {
         "gain": gain,

@@ -4,6 +4,7 @@ import copy
 import random
 import re
 from datetime import datetime, timedelta, timezone
+from math import ceil
 from typing import Any, Iterable
 
 from sqlalchemy import event
@@ -369,6 +370,106 @@ def _recover_user_technique_insert_conflict(session: OrmSession, exc: IntegrityE
     return _sync_sequence_for_primary_key_conflict(exc, "xiuxian_user_techniques")
 
 
+def _knowledge_quality_level(session: OrmSession, item_kind: str, item: Any) -> int:
+    normalized_kind = str(item_kind or "").strip()
+    if normalized_kind == "recipe":
+        result_kind = str(getattr(item, "result_kind", "") or "").strip()
+        result_ref_id = int(getattr(item, "result_ref_id", 0) or 0)
+        if result_kind == "material" and result_ref_id > 0:
+            material = session.query(XiuxianMaterial).filter(XiuxianMaterial.id == result_ref_id).first()
+            return max(int(getattr(material, "quality_level", 1) or 1), 1)
+        model_cls = {
+            "artifact": XiuxianArtifact,
+            "pill": XiuxianPill,
+            "talisman": XiuxianTalisman,
+            "technique": XiuxianTechnique,
+        }.get(result_kind)
+        if model_cls is not None and result_ref_id > 0:
+            result_item = session.query(model_cls).filter(model_cls.id == result_ref_id).first()
+            return max(int(QUALITY_LABEL_LEVELS.get(str(getattr(result_item, "rarity", "") or "").strip(), 1)), 1)
+        return 1
+    if normalized_kind == "technique":
+        return max(int(QUALITY_LABEL_LEVELS.get(str(getattr(item, "rarity", "") or "").strip(), 1)), 1)
+    return 1
+
+
+def _round_knowledge_duplicate_stone(value: float) -> int:
+    return max(int(ceil(max(float(value), 1.0) / 5.0) * 5), 5)
+
+
+def _knowledge_duplicate_stone_amount(session: OrmSession, item_kind: str, item: Any, quantity: int = 1) -> int:
+    normalized_kind = str(item_kind or "").strip()
+    amount = max(int(quantity or 1), 1)
+    quality_level = _knowledge_quality_level(session, normalized_kind, item)
+    if normalized_kind == "recipe":
+        result_quantity = max(int(getattr(item, "result_quantity", 1) or 1), 1)
+        success_rate = min(max(float(getattr(item, "base_success_rate", 60) or 60), 1.0), 100.0)
+        base_value = 42.0 + quality_level * 28.0 + result_quantity * 8.0 + max(100.0 - success_rate, 0.0) * 0.55
+        ratio = min(0.38, 0.18 + (quality_level - 1) * 0.028)
+        return _round_knowledge_duplicate_stone(base_value * ratio) * amount
+    if normalized_kind == "technique":
+        stat_score = sum(
+            max(int(getattr(item, attr, 0) or 0), 0) * weight
+            for attr, weight in {
+                "attack_bonus": 1.2,
+                "defense_bonus": 1.1,
+                "bone_bonus": 2.8,
+                "comprehension_bonus": 2.9,
+                "divine_sense_bonus": 2.7,
+                "fortune_bonus": 2.8,
+                "qi_blood_bonus": 0.18,
+                "true_yuan_bonus": 0.18,
+                "body_movement_bonus": 1.3,
+                "duel_rate_bonus": 4.5,
+                "cultivation_bonus": 4.8,
+                "breakthrough_bonus": 5.0,
+            }.items()
+        )
+        base_value = 68.0 + quality_level * 40.0 + stat_score
+        ratio = min(0.41, 0.20 + (quality_level - 1) * 0.032)
+        return _round_knowledge_duplicate_stone(base_value * ratio) * amount
+    return 0
+
+
+def grant_duplicate_knowledge_compensation_in_session(
+    session: OrmSession,
+    tg: int,
+    item_kind: str,
+    item: Any,
+    *,
+    quantity: int = 1,
+    action_text: str | None = None,
+) -> dict[str, Any]:
+    normalized_kind = str(item_kind or "").strip()
+    if normalized_kind not in {"recipe", "technique"}:
+        raise ValueError("只有重复丹谱或功法可以折算灵石")
+    stone_amount = _knowledge_duplicate_stone_amount(session, normalized_kind, item, quantity=quantity)
+    label = ITEM_KIND_LABELS.get(normalized_kind, normalized_kind)
+    if stone_amount > 0:
+        apply_spiritual_stone_delta(
+            session,
+            int(tg),
+            stone_amount,
+            action_text=action_text or f"重复{label}折算灵石",
+            allow_create=True,
+            allow_dead=True,
+            apply_tribute=False,
+        )
+    _queue_profile_cache_invalidation(session, int(tg))
+    _queue_user_view_cache_invalidation(session, int(tg))
+    item_payload = serialize_recipe(item) if normalized_kind == "recipe" else serialize_technique(item)
+    return {
+        normalized_kind: item_payload,
+        "quantity": 0,
+        "duplicate_converted": True,
+        "stone_compensation": stone_amount,
+        "converted_to_stone": stone_amount,
+        "item_kind": normalized_kind,
+        "item_kind_label": label,
+        "item_name": (item_payload or {}).get("name") or f"{normalized_kind}#{getattr(item, 'id', 0)}",
+    }
+
+
 def _recover_shop_item_insert_conflict(session: OrmSession, exc: IntegrityError) -> bool:
     session.rollback()
     return _sync_sequence_for_primary_key_conflict(exc, "xiuxian_shop_items")
@@ -397,6 +498,7 @@ def grant_technique_to_user(
             row = (
                 session.query(XiuxianUserTechnique)
                 .filter(XiuxianUserTechnique.tg == tg, XiuxianUserTechnique.technique_id == technique_id)
+                .with_for_update()
                 .first()
             )
             if row is None:
@@ -408,10 +510,21 @@ def grant_technique_to_user(
                 )
                 session.add(row)
             else:
-                row.source = normalized_source or row.source
-                if obtained_note is not None:
-                    row.obtained_note = normalized_note
-                row.updated_at = utcnow()
+                result = grant_duplicate_knowledge_compensation_in_session(
+                    session,
+                    tg,
+                    "technique",
+                    technique,
+                    action_text="重复功法折算灵石",
+                )
+                try:
+                    session.commit()
+                except IntegrityError as exc:
+                    last_error = exc
+                    if _recover_user_technique_insert_conflict(session, exc, tg, technique_id):
+                        continue
+                    raise
+                return result
             if auto_equip_if_empty and not profile.current_technique_id:
                 profile.current_technique_id = technique_id
                 profile.updated_at = utcnow()
@@ -2526,6 +2639,7 @@ def grant_recipe_to_user(
             row = (
                 session.query(XiuxianUserRecipe)
                 .filter(XiuxianUserRecipe.tg == tg, XiuxianUserRecipe.recipe_id == recipe_id)
+                .with_for_update()
                 .first()
             )
             if row is None:
@@ -2537,10 +2651,21 @@ def grant_recipe_to_user(
                 )
                 session.add(row)
             else:
-                row.source = normalized_source or row.source
-                if obtained_note is not None:
-                    row.obtained_note = normalized_note
-                row.updated_at = utcnow()
+                result = grant_duplicate_knowledge_compensation_in_session(
+                    session,
+                    tg,
+                    "recipe",
+                    recipe,
+                    action_text="重复丹谱折算灵石",
+                )
+                try:
+                    session.commit()
+                except IntegrityError as exc:
+                    last_error = exc
+                    if _recover_user_recipe_insert_conflict(session, exc, tg, recipe_id):
+                        continue
+                    raise
+                return result
             _queue_user_view_cache_invalidation(session, tg)
             try:
                 session.commit()

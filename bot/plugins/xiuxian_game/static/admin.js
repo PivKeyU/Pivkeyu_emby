@@ -1197,7 +1197,8 @@ function bossRewardSummary(item = {}) {
   if (stoneMax > 0) parts.push(`灵石 ${stoneMin}-${stoneMax}`);
   if (Number(item.cultivation_reward || 0) > 0) parts.push(`修为 ${item.cultivation_reward}`);
   parts.push(`门票 ${Number(item.ticket_cost_stone || 0)}`);
-  parts.push(`每日 ${Number(item.daily_attempt_limit || 0)} 次`);
+  const dailyLimit = Number(item.daily_attempt_limit || 0);
+  parts.push(dailyLimit > 0 ? `每日 ${dailyLimit} 次` : "每日不限次");
   return parts.join(" · ");
 }
 
@@ -1208,7 +1209,7 @@ function bossLootDetailSummary(item = {}) {
     if (!rows.length) continue;
     const detail = rows.slice(0, 3).map((row) => {
       const name = catalogItemName(kind, row.ref_id) || `${kind}#${row.ref_id}`;
-      return `${name} ${row.chance || 0}%`;
+      return `${name} ${row.chance ?? 0}%`;
     }).join("、");
     lines.push(`${label}: ${detail}${rows.length > 3 ? ` 等 ${rows.length} 项` : ""}`);
   }
@@ -1236,8 +1237,8 @@ function collectBossLootPayload() {
     if (refId <= 0) return;
     const quantityMin = Math.max(Number(row.querySelector("[data-boss-loot-min]")?.value || 1), 1);
     const quantityMax = Math.max(Number(row.querySelector("[data-boss-loot-max]")?.value || quantityMin), quantityMin);
-    const chance = Math.min(Math.max(Number(row.querySelector("[data-boss-loot-chance]")?.value || 0), 0), 100);
-    if (chance <= 0) return;
+    const rawChance = Number(row.querySelector("[data-boss-loot-chance]")?.value ?? 0);
+    const chance = Number.isFinite(rawChance) ? Math.min(Math.max(rawChance, 0), 100) : 0;
     payload[bossLootMetaByKind(kind).field].push({
       ref_id: refId,
       chance,
@@ -1353,7 +1354,7 @@ function loadBossForm(item = {}) {
   setAdminInputValue("boss-stone-min", item.stone_reward_min || 0);
   setAdminInputValue("boss-stone-max", item.stone_reward_max || 0);
   setAdminInputValue("boss-cultivation", item.cultivation_reward || 0);
-  setAdminInputValue("boss-daily-limit", item.daily_attempt_limit || 3);
+  setAdminInputValue("boss-daily-limit", item.daily_attempt_limit ?? 3);
   setAdminInputValue("boss-ticket-cost", item.ticket_cost_stone || 0);
   setAdminInputValue("boss-flavor", item.flavor_text || "");
   setAdminInputValue("boss-sort", item.sort_order || 0);
@@ -3469,7 +3470,7 @@ function renderWorld() {
         <strong>${escapeHtml(item.name || "未命名Boss")}</strong>
         <span class="badge badge--normal">${escapeHtml(bossTypeLabel(item.boss_type))} · ${item.enabled ? "启用" : "停用"}</span>
       </div>
-      <p>境界 ${escapeHtml(item.realm_stage || "炼气")} · 生命 ${escapeHtml(item.hp || 0)} · 攻击 ${escapeHtml(item.attack_power || 0)} · 防御 ${escapeHtml(item.defense_power || 0)} · 排序 ${escapeHtml(item.sort_order || 0)}</p>
+      <p>境界 ${escapeHtml(item.realm_stage || "炼气")} · 气血 ${escapeHtml(item.qi_blood || item.hp || 0)} · 世界血量基数 ${escapeHtml(item.hp || 0)} · 攻击 ${escapeHtml(item.attack_power || 0)} · 防御 ${escapeHtml(item.defense_power || 0)} · 排序 ${escapeHtml(item.sort_order || 0)}</p>
       <p>${escapeHtml(bossRewardSummary(item))}</p>
       <p>${escapeHtml(bossLootSummary(item))}；${escapeHtml(bossLootDetailSummary(item))}</p>
       <div class="inline-action-buttons">${worldBossSpawnButton(item)}${editButton("boss", item.id)}${deleteButton("boss", item.id)}</div>
@@ -3542,8 +3543,6 @@ function applySettings(settings = {}) {
   ensureSettingRuleRows();
   $("setting-exchange-enabled").checked = settings.coin_stone_exchange_enabled ?? true;
   $("setting-rate").value = settings.coin_exchange_rate ?? 100;
-  $("setting-fee").value = settings.exchange_fee_percent ?? 1;
-  $("setting-min").value = settings.min_coin_exchange ?? 1;
   updateExchangeSettingNote();
   $("setting-duel-bet-enabled").checked = settings.duel_bet_enabled ?? true;
   $("setting-duel-seconds").value = settings.duel_bet_seconds ?? 120;
@@ -3616,11 +3615,9 @@ function applySettings(settings = {}) {
 
 function updateExchangeSettingNote() {
   const rate = Math.max(Number($("setting-rate")?.value || 100), 1);
-  const min = Math.max(Number($("setting-min")?.value || 1), 1);
-  const effective = Math.max(rate, min);
   const node = $("setting-exchange-rate-note");
   if (!node) return;
-  node.textContent = `当前比例示例：${rate} 灵石 = 1 片刻碎片；实际最低门槛 = max(${rate}, ${min}) = ${effective} 灵石。`;
+  node.textContent = `当前比例示例：1 片刻碎片 = ${rate} 灵石；${rate} 灵石 = 1 片刻碎片。兑换不收手续费，灵石兑换碎片只按整份结算。`;
 }
 
 function renderErrorLogs(rows = []) {
@@ -3877,8 +3874,6 @@ function bindEvents() {
       await submitAndRefresh(() => request("POST", "/plugins/xiuxian/admin-api/settings", {
         coin_stone_exchange_enabled: $("setting-exchange-enabled").checked,
         coin_exchange_rate: Number($("setting-rate").value || 100),
-        exchange_fee_percent: Number($("setting-fee").value || 1),
-        min_coin_exchange: Number($("setting-min").value || 1),
         message_auto_delete_seconds: Number($("setting-message-auto-delete").value || 0),
         shop_broadcast_cost: Number($("setting-broadcast").value || 20),
         shop_notice_group_id: $("setting-shop-notice-group").value.trim(),
@@ -3959,7 +3954,6 @@ function bindEvents() {
     }
   });
   $("setting-rate")?.addEventListener("input", updateExchangeSettingNote);
-  $("setting-min")?.addEventListener("input", updateExchangeSettingNote);
 
   $("duel-settings-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -4949,7 +4943,7 @@ function renderPlayerInventory(detail = {}) {
     const item = row.talisman || {};
     const actions = [
       playerFillInventoryButton("talisman", item.id, row.quantity || 0, row.bound_quantity ?? 0),
-      playerSelectionButton(item.active ? "清除待生效符箓" : "设为待生效符箓", "talisman", item.active ? null : item.id),
+      playerSelectionButton(item.active ? "清除生效符箓" : "设为生效符箓", "talisman", item.active ? null : item.id),
     ];
     return `
       <article class="stack-item">
@@ -4957,7 +4951,7 @@ function renderPlayerInventory(detail = {}) {
           <strong>${escapeHtml(item.name || "未命名符箓")}</strong>
           ${qualityBadgeHtml(item.rarity || "凡品", item.quality_color)}
         </div>
-        <p>总数 ${escapeHtml(row.quantity || 0)} · 绑定 ${escapeHtml(row.bound_quantity || 0)} · 可流通 ${escapeHtml(row.consumable_quantity || 0)} · ${item.active ? "当前待生效" : "未预装"}</p>
+        <p>总数 ${escapeHtml(row.quantity || 0)} · 绑定 ${escapeHtml(row.bound_quantity || 0)} · 可流通 ${escapeHtml(row.consumable_quantity || 0)} · ${item.active ? "当前生效" : "未启用"}</p>
         <p>${escapeHtml(affixSummary(item))}</p>
         <div class="inline-action-buttons player-inline-actions">${actions.join("")}</div>
       </article>

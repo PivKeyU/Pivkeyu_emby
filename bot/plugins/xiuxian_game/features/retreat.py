@@ -25,6 +25,13 @@ def _legacy_service():
 
 
 def is_retreating(profile) -> bool:
+    if isinstance(profile, dict):
+        return bool(
+            profile
+            and profile.get("retreat_started_at")
+            and profile.get("retreat_end_at")
+            and int(profile.get("retreat_minutes_total") or 0) > int(profile.get("retreat_minutes_resolved") or 0)
+        )
     return bool(
         profile
         and profile.retreat_started_at
@@ -47,6 +54,8 @@ def _compute_retreat_plan(profile) -> dict[str, int]:
         profile_data,
         legacy_service._current_technique_payload(profile_data),
     )
+    active_talisman = legacy_service.serialize_talisman(legacy_service.get_talisman(int(profile_data.get("active_talisman_id") or 0))) if profile_data.get("active_talisman_id") else None
+    talisman_active_effects = legacy_service.resolve_talisman_active_effects(profile_data, active_talisman) if active_talisman else {}
     title_effects = legacy_service.resolve_title_effects(
         profile_data,
         get_current_title(profile.tg),
@@ -56,6 +65,7 @@ def _compute_retreat_plan(profile) -> dict[str, int]:
         + int(sect_effects.get("cultivation_bonus", 0))
         + int(technique_effects.get("cultivation_bonus", 0))
         + int(title_effects.get("cultivation_bonus", 0))
+        + int(round(float(talisman_active_effects.get("cultivation_bonus") or 0)))
         + int(profile_data.get("insight_bonus", 0) or 0)
     )
     stage = legacy_service.normalize_realm_stage(profile.realm_stage or legacy_service.FIRST_REALM_STAGE)
@@ -72,8 +82,59 @@ def _compute_retreat_plan(profile) -> dict[str, int]:
     cost_per_hour = max(ceil(gain_per_hour / 10), 12)
     return {
         "gain_per_minute": max(gain_per_hour // 60, 1),
-        "cost_per_minute": max(cost_per_hour // 60, 1),
+        "cost_per_hour": cost_per_hour,
+        # The DB column is legacy-named as per-minute, but new retreats store an hourly rate here.
+        "cost_per_minute": cost_per_hour,
     }
+
+
+def _retreat_cost_for_minutes(cost_per_hour: int, minutes: int) -> int:
+    settled_minutes = max(int(minutes or 0), 0)
+    hourly_cost = max(int(cost_per_hour or 0), 0)
+    if settled_minutes <= 0 or hourly_cost <= 0:
+        return 0
+    return max(int(ceil(hourly_cost * settled_minutes / 60.0)), 1)
+
+
+def _stored_retreat_rate_is_legacy_per_minute(stored_rate: int, gain_per_minute: int) -> bool:
+    rate = max(int(stored_rate or 0), 0)
+    gain_rate = max(int(gain_per_minute or 0), 1)
+    if rate <= 0:
+        return False
+    return rate <= max(int(ceil(gain_rate / 2.0)), 3)
+
+
+def _retreat_cost_from_stored_rate(stored_rate: int, minutes: int, *, gain_per_minute: int = 0) -> int:
+    rate = max(int(stored_rate or 0), 0)
+    settled_minutes = max(int(minutes or 0), 0)
+    if settled_minutes <= 0 or rate <= 0:
+        return 0
+    if _stored_retreat_rate_is_legacy_per_minute(rate, gain_per_minute):
+        return rate * settled_minutes
+    return _retreat_cost_for_minutes(rate, settled_minutes)
+
+
+def _retreat_affordable_minutes(available_stone: int, target_minutes: int, stored_rate: int, *, gain_per_minute: int = 0) -> int:
+    available = max(int(available_stone or 0), 0)
+    target = max(int(target_minutes or 0), 0)
+    rate = max(int(stored_rate or 0), 0)
+    if target <= 0:
+        return 0
+    if rate <= 0:
+        return target
+    if available <= 0:
+        return 0
+    if _retreat_cost_from_stored_rate(rate, target, gain_per_minute=gain_per_minute) <= available:
+        return target
+    low = 0
+    high = target
+    while low < high:
+        mid = (low + high + 1) // 2
+        if _retreat_cost_from_stored_rate(rate, mid, gain_per_minute=gain_per_minute) <= available:
+            low = mid
+        else:
+            high = mid - 1
+    return low
 
 
 def settle_retreat_progress(tg: int) -> dict[str, Any] | None:
@@ -109,12 +170,17 @@ def settle_retreat_progress(tg: int) -> dict[str, Any] | None:
             return None
 
         gain_per_minute = max(int(updated.retreat_gain_per_minute or 0), 0)
-        cost_per_minute = max(int(updated.retreat_cost_per_minute or 0), 0)
+        stored_cost_rate = max(int(updated.retreat_cost_per_minute or 0), 0)
         affordable_minutes = delta_minutes
         insufficient_stone = False
-        if cost_per_minute > 0:
+        if stored_cost_rate > 0:
             available_stone = max(int(get_shared_spiritual_stone_total(tg, session=session, for_update=True) or 0), 0)
-            affordable_minutes = min(delta_minutes, available_stone // cost_per_minute)
+            affordable_minutes = _retreat_affordable_minutes(
+                available_stone,
+                delta_minutes,
+                stored_cost_rate,
+                gain_per_minute=gain_per_minute,
+            )
             insufficient_stone = affordable_minutes < delta_minutes
 
         if affordable_minutes <= 0:
@@ -143,7 +209,7 @@ def settle_retreat_progress(tg: int) -> dict[str, Any] | None:
 
         raw_gain = affordable_minutes * gain_per_minute
         gain, gain_meta = legacy_service.adjust_cultivation_gain_for_social_mode(updated, raw_gain)
-        cost = affordable_minutes * cost_per_minute
+        cost = _retreat_cost_from_stored_rate(stored_cost_rate, affordable_minutes, gain_per_minute=gain_per_minute)
         layer, cultivation, upgraded_layers, remaining = legacy_service.apply_cultivation_gain(
             legacy_service.normalize_realm_stage(updated.realm_stage or legacy_service.FIRST_REALM_STAGE),
             int(updated.realm_layer or 1),
@@ -215,7 +281,7 @@ def start_retreat_for_user(tg: int, hours: int) -> dict[str, Any]:
     total_minutes = retreat_hours * 60
     estimated_gain_raw = plan["gain_per_minute"] * total_minutes
     estimated_gain, gain_meta = legacy_service.adjust_cultivation_gain_for_social_mode(profile, estimated_gain_raw)
-    total_cost = plan["cost_per_minute"] * total_minutes
+    total_cost = _retreat_cost_for_minutes(plan["cost_per_hour"], total_minutes)
     if max(int(get_shared_spiritual_stone_total(tg) or 0), 0) < total_cost:
         raise ValueError(f"灵石不足，闭关 {retreat_hours} 小时预计需要 {total_cost} 灵石。")
 
@@ -229,6 +295,8 @@ def start_retreat_for_user(tg: int, hours: int) -> dict[str, Any]:
         retreat_minutes_total=total_minutes,
         retreat_minutes_resolved=0,
     )
+    if int(getattr(profile, "active_talisman_id", 0) or 0) > 0:
+        legacy_service.set_active_talisman(tg, None)
     return {
         "hours": retreat_hours,
         "estimated_gain": estimated_gain,

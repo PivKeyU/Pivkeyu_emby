@@ -75,6 +75,7 @@ from bot.sql_helper.sql_xiuxian import (
     grant_recipe_to_user,
     grant_talisman_to_user,
     grant_technique_to_user,
+    grant_duplicate_knowledge_compensation_in_session,
     _queue_catalog_cache_invalidation,
     _queue_user_view_cache_invalidation,
     list_achievements,
@@ -1456,6 +1457,8 @@ def create_bounty_task(
         raise ValueError("任务标题至少填写 2 个字")
     if reward_scale_mode_value not in TASK_REWARD_SCALE_MODES:
         raise ValueError("任务奖励缩放模式不支持")
+    if actor_tg is not None and reward_stone_value > 0 and reward_scale_mode_value != "fixed":
+        reward_scale_mode_value = "fixed"
 
     if task_type_value == "quiz":
         if _meaningful_text_length(question_value) < 4:
@@ -1545,7 +1548,9 @@ def create_bounty_task(
                 raise ValueError("你尚未加入宗门")
 
     reward_item_escrowed = False
+    reward_stone_escrowed = False
     escrow_reward_qty = reward_qty * max_claimants_value if reward_kind else 0
+    escrow_reward_stone = reward_stone_value * max_claimants_value if actor_tg is not None and reward_stone_value > 0 else 0
     with Session() as session:
         if actor_tg is not None:
             # 发布时对玩家记录加锁，防止并发发任务导致灵石重复扣减或余额穿透。
@@ -1562,6 +1567,17 @@ def create_bounty_task(
                     allow_dead=False,
                     apply_tribute=False,
                 )
+            if escrow_reward_stone > 0:
+                apply_spiritual_stone_delta(
+                    session,
+                    actor_tg,
+                    -escrow_reward_stone,
+                    action_text="扣押任务灵石奖励",
+                    enforce_currency_lock=False,
+                    allow_dead=False,
+                    apply_tribute=False,
+                )
+                reward_stone_escrowed = True
             reward_item_escrowed = _escrow_reward_item_for_task(
                 session,
                 actor_tg=actor_tg,
@@ -1591,6 +1607,7 @@ def create_bounty_task(
             reward_item_ref_id=reward_ref,
             reward_item_quantity=reward_qty,
             reward_item_escrowed=reward_item_escrowed,
+            reward_stone_escrowed=reward_stone_escrowed,
             reward_scale_mode=reward_scale_mode_value,
             max_claimants=max_claimants_value,
             active_in_group=should_push_group,
@@ -1608,6 +1625,8 @@ def create_bounty_task(
 
     if payload is not None and actor_tg is not None:
         payload["publish_cost"] = publish_cost
+        payload["escrowed_reward_stone"] = escrow_reward_stone
+        payload["total_spiritual_stone_cost"] = publish_cost + escrow_reward_stone
     return payload
 
 
@@ -1635,6 +1654,99 @@ def _escrow_reward_item_for_task(
     return True
 
 
+def _task_completed_claim_count_in_session(session: Session, task_id: int | None) -> int:
+    normalized_task_id = int(task_id or 0)
+    if normalized_task_id <= 0:
+        return 0
+    return int(
+        session.query(func.count(XiuxianTaskClaim.id))
+        .filter(
+            XiuxianTaskClaim.task_id == normalized_task_id,
+            XiuxianTaskClaim.status == "completed",
+        )
+        .scalar()
+        or 0
+    )
+
+
+def _task_reward_stone_amount(task: XiuxianTask) -> int:
+    return max(int(getattr(task, "reward_stone", 0) or 0), 0)
+
+
+def _task_reward_max_claimants(task: XiuxianTask) -> int:
+    return max(int(getattr(task, "max_claimants", 1) or 1), 1)
+
+
+def _is_unescrowed_player_stone_task(task: XiuxianTask | dict[str, Any] | None) -> bool:
+    if task is None:
+        return False
+    if isinstance(task, dict):
+        owner_tg = int(task.get("owner_tg") or 0)
+        reward_stone = max(int(task.get("reward_stone") or 0), 0)
+        reward_stone_escrowed = bool(task.get("reward_stone_escrowed"))
+    else:
+        owner_tg = int(getattr(task, "owner_tg", 0) or 0)
+        reward_stone = _task_reward_stone_amount(task)
+        reward_stone_escrowed = bool(getattr(task, "reward_stone_escrowed", False))
+    return owner_tg > 0 and reward_stone > 0 and not reward_stone_escrowed
+
+
+def _unescrowed_player_stone_task_reason() -> str:
+    return "该玩家任务的灵石奖励未扣押，已暂停领取，请发布者撤销后重新发布。"
+
+
+def _remaining_unpaid_task_reward_slots(session: Session, task: XiuxianTask) -> int:
+    completed_count = _task_completed_claim_count_in_session(session, getattr(task, "id", 0))
+    return max(_task_reward_max_claimants(task) - completed_count, 0)
+
+
+def _refund_task_reward_stone_in_session(session: Session, task: XiuxianTask) -> dict[str, Any] | None:
+    if not bool(getattr(task, "reward_stone_escrowed", False)):
+        return None
+    owner_tg = int(getattr(task, "owner_tg", 0) or 0)
+    reward_stone = _task_reward_stone_amount(task)
+    remaining_claimants = _remaining_unpaid_task_reward_slots(session, task)
+    refund_amount = reward_stone * remaining_claimants
+    if owner_tg <= 0 or reward_stone <= 0 or refund_amount <= 0:
+        task.reward_stone_escrowed = False
+        return None
+    apply_spiritual_stone_delta(
+        session,
+        owner_tg,
+        refund_amount,
+        action_text="退还任务灵石奖励",
+        allow_dead=True,
+        apply_tribute=False,
+    )
+    task.reward_stone_escrowed = False
+    task.updated_at = utcnow()
+    return {"amount": refund_amount, "remaining_claimants": remaining_claimants}
+
+
+def _grant_task_reward_stone_in_session(session: Session, task: XiuxianTask, receiver_tg: int, reward_stone: int) -> int:
+    amount = max(int(reward_stone or 0), 0)
+    if amount <= 0:
+        if bool(getattr(task, "reward_stone_escrowed", False)) and _task_reward_stone_amount(task) <= 0:
+            task.reward_stone_escrowed = False
+        return 0
+    if bool(getattr(task, "reward_stone_escrowed", False)):
+        amount = min(amount, _task_reward_stone_amount(task))
+    if amount <= 0:
+        return 0
+    apply_spiritual_stone_delta(
+        session,
+        int(receiver_tg),
+        amount,
+        action_text="领取任务奖励",
+        allow_dead=False,
+        apply_tribute=True,
+    )
+    if bool(getattr(task, "reward_stone_escrowed", False)) and int(getattr(task, "claimants_count", 0) or 0) >= _task_reward_max_claimants(task):
+        task.reward_stone_escrowed = False
+        task.updated_at = utcnow()
+    return amount
+
+
 def _refund_task_reward_item_in_session(session: Session, task: XiuxianTask) -> dict[str, Any] | None:
     if not bool(getattr(task, "reward_item_escrowed", False)):
         return None
@@ -1642,7 +1754,7 @@ def _refund_task_reward_item_in_session(session: Session, task: XiuxianTask) -> 
     reward_kind = str(getattr(task, "reward_item_kind", "") or "").strip()
     reward_ref = int(getattr(task, "reward_item_ref_id", 0) or 0)
     reward_qty = int(getattr(task, "reward_item_quantity", 0) or 0)
-    remaining_claimants = max(int(getattr(task, "max_claimants", 1) or 1) - int(getattr(task, "claimants_count", 0) or 0), 0)
+    remaining_claimants = _remaining_unpaid_task_reward_slots(session, task)
     if owner_tg <= 0 or not reward_kind or reward_ref <= 0 or reward_qty <= 0:
         task.reward_item_escrowed = False
         return None
@@ -1714,6 +1826,10 @@ def list_tasks_for_user(tg: int) -> list[dict[str, Any]]:
             continue
         if task["task_scope"] == "sect" and int(task.get("sect_id") or 0) != int(profile.get("sect_id") or 0):
             continue
+        if _is_unescrowed_player_stone_task(task):
+            task["claim_block_reason"] = _unescrowed_player_stone_task_reason()
+            if int(task.get("owner_tg") or 0) != int(tg):
+                continue
         task["claimed"] = task["id"] in claims_by_task or int(task.get("winner_tg") or 0) == int(tg)
         task["claim"] = claims_by_task.get(task["id"])
         task.update(_scaled_task_reward_values(task, profile))
@@ -1752,6 +1868,7 @@ def cancel_task_for_user(tg: int, task_id: int) -> dict[str, Any]:
             if claim.status == "completed":
                 raise ValueError("任务已经完成，不能撤销")
             claim.status = "cancelled"
+        refunded_stone = _refund_task_reward_stone_in_session(session, task)
         _refund_task_reward_item_in_session(session, task)
         task.status = "cancelled"
         task.active_in_group = False
@@ -1762,7 +1879,7 @@ def cancel_task_for_user(tg: int, task_id: int) -> dict[str, Any]:
         session.refresh(task)
         serialized = _decorate_task_payload(serialize_task(task))
     create_journal(tg, "task", "撤销委托", f"自行撤回了悬赏委托【{serialized['title']}】")
-    return {"task": serialized}
+    return {"task": serialized, "refunded_reward_stone": int((refunded_stone or {}).get("amount") or 0)}
 
 
 def _decorate_task_payload(task: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -2011,9 +2128,13 @@ def _grant_item_in_session(
             row = XiuxianUserRecipe(tg=int(tg), recipe_id=int(ref_id), source=source, obtained_note=obtained_note)
             session.add(row)
         else:
-            row.source = source or row.source
-            row.obtained_note = obtained_note or row.obtained_note
-            row.updated_at = utcnow()
+            return grant_duplicate_knowledge_compensation_in_session(
+                session,
+                int(tg),
+                "recipe",
+                recipe,
+                action_text="重复丹谱折算灵石",
+            )
         return {"recipe": recipe, "quantity": 1}
     if normalized_kind == "technique":
         technique = get_technique(int(ref_id))
@@ -2033,9 +2154,13 @@ def _grant_item_in_session(
             row = XiuxianUserTechnique(tg=int(tg), technique_id=int(ref_id), source=source, obtained_note=obtained_note)
             session.add(row)
         else:
-            row.source = source or row.source
-            row.obtained_note = obtained_note or row.obtained_note
-            row.updated_at = utcnow()
+            return grant_duplicate_knowledge_compensation_in_session(
+                session,
+                int(tg),
+                "technique",
+                technique,
+                action_text="重复功法折算灵石",
+            )
         if not profile.current_technique_id:
             profile.current_technique_id = int(ref_id)
             profile.updated_at = utcnow()
@@ -2085,17 +2210,22 @@ def _award_task_rewards(tg: int, task: XiuxianTask) -> dict[str, Any]:
     )
     legacy_service = _legacy_service()
     profile = serialize_profile(get_profile(tg, create=False)) or {}
-    scaled_reward = _scaled_task_reward_values(task, profile)
-    reward_stone = int(scaled_reward.get("reward_stone") or 0)
-    cultivation_gain_raw = max(int(scaled_reward.get("reward_cultivation") or 0), 0)
+    scaled_reward: dict[str, Any] = {
+        "reward_stone": 0,
+        "reward_cultivation": 0,
+        "reward_scale_mode": "fixed",
+        "reward_scale_factor": 1.0,
+    }
+    reward_stone = 0
+    cultivation_gain_raw = 0
     cultivation_gain = 0
     cultivation_efficiency_percent = 100
     upgraded_layers: list[int] = []
     remaining = 0
     reward_item = None
-    reward_kind = str(getattr(task, "reward_item_kind", "") or "").strip()
-    reward_ref = int(getattr(task, "reward_item_ref_id", 0) or 0)
-    reward_qty = int(getattr(task, "reward_item_quantity", 0) or 0)
+    reward_kind = ""
+    reward_ref = 0
+    reward_qty = 0
 
     with Session() as session:
         updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
@@ -2104,15 +2234,26 @@ def _award_task_rewards(tg: int, task: XiuxianTask) -> dict[str, Any]:
         task_row = session.query(XiuxianTask).filter(XiuxianTask.id == int(task.id)).with_for_update().first()
         if task_row is None:
             raise ValueError("任务不存在")
+        scaled_reward = _scaled_task_reward_values(task_row, profile)
+        reward_stone = int(scaled_reward.get("reward_stone") or 0)
+        if _is_unescrowed_player_stone_task(task_row):
+            reward_stone = 0
+            scaled_reward = dict(scaled_reward)
+            scaled_reward["reward_stone"] = 0
+            scaled_reward["reward_scale_mode"] = "fixed"
+            scaled_reward["reward_scale_factor"] = 1.0
+        if bool(getattr(task_row, "reward_stone_escrowed", False)):
+            reward_stone = min(reward_stone, _task_reward_stone_amount(task_row))
+            scaled_reward = dict(scaled_reward)
+            scaled_reward["reward_stone"] = reward_stone
+            scaled_reward["reward_scale_mode"] = "fixed"
+            scaled_reward["reward_scale_factor"] = 1.0
+        cultivation_gain_raw = max(int(scaled_reward.get("reward_cultivation") or 0), 0)
+        reward_kind = str(getattr(task_row, "reward_item_kind", "") or "").strip()
+        reward_ref = int(getattr(task_row, "reward_item_ref_id", 0) or 0)
+        reward_qty = int(getattr(task_row, "reward_item_quantity", 0) or 0)
         if reward_stone > 0:
-            apply_spiritual_stone_delta(
-                session,
-                tg,
-                reward_stone,
-                action_text="领取任务奖励",
-                allow_dead=False,
-                apply_tribute=True,
-            )
+            reward_stone = _grant_task_reward_stone_in_session(session, task_row, tg, reward_stone)
         if cultivation_gain_raw > 0:
             cultivation_gain, gain_meta = legacy_service.adjust_cultivation_gain_for_social_mode(
                 updated,
@@ -3026,6 +3167,8 @@ def craft_recipe_for_user(tg: int, recipe_id: int, quantity: int = 1) -> dict[st
     profile = serialize_profile(get_profile(tg, create=False))
     if not profile or not profile.get("consented"):
         raise ValueError("你尚未踏入仙途，道基未立")
+    active_talisman = serialize_talisman(get_talisman(int(profile.get("active_talisman_id") or 0))) if profile.get("active_talisman_id") else None
+    talisman_active_effects = _legacy_service().resolve_talisman_active_effects(profile, active_talisman) if active_talisman else {}
     ingredients = list_recipe_ingredients(recipe_id)
     if not ingredients:
         raise ValueError("该配方还没有配置材料")
@@ -3070,6 +3213,7 @@ def craft_recipe_for_user(tg: int, recipe_id: int, quantity: int = 1) -> dict[st
         ingredients,
         profile,
         result_item,
+        talisman_active_effects=talisman_active_effects,
     )
     result_quality = int(preview["result_quality"])
     fortune = int(preview["fortune"])
@@ -3115,6 +3259,8 @@ def craft_recipe_for_user(tg: int, recipe_id: int, quantity: int = 1) -> dict[st
             )
         else:
             create_journal(tg, "craft", "炼制失利", f"炉中火光大盛，然【{(result_item or {}).get('name', '成品')}】终究未能成形")
+    if active_talisman:
+        _legacy_service().set_active_talisman(tg, None)
     ingredient_names = {str((item.get("material") or {}).get("name") or "") for item in ingredients}
     is_repair_recipe = any("破损" in name or "残片" in name for name in ingredient_names) or "修复" in str(recipe.get("name") or "")
     if requested_quantity == 1:
@@ -3161,6 +3307,11 @@ def craft_recipe_for_user(tg: int, recipe_id: int, quantity: int = 1) -> dict[st
         "should_broadcast": bool(success and recipe.get("broadcast_on_success") and result_quality >= max(int(get_xiuxian_settings().get("high_quality_broadcast_level", DEFAULT_SETTINGS["high_quality_broadcast_level"]) or 6), 6)),
         "profile": serialize_profile(get_profile(tg, create=False)),
         "achievement_unlocks": achievement_unlocks,
+        "active_talisman": None if not active_talisman else {
+            "name": active_talisman.get("name"),
+            "effects": talisman_active_effects,
+            "summary": _legacy_service().active_talisman_effect_summary(talisman_active_effects),
+        },
     }
 
 
@@ -3172,6 +3323,7 @@ def _recipe_success_preview(
     *,
     total_quality: int | None = None,
     total_count: int | None = None,
+    talisman_active_effects: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     result_payload = result_item or _get_item_payload(str(recipe.get("result_kind") or ""), int(recipe.get("result_ref_id") or 0))
     result_quality = _quality_from_item(str(recipe.get("result_kind") or ""), result_payload)
@@ -3198,6 +3350,7 @@ def _recipe_success_preview(
         + attribute_bonus
         + int(sect_effects.get("cultivation_bonus", 0))
         + int(sect_effects.get("craft_success_rate", 0))
+        + int(round(float((talisman_active_effects or {}).get("craft_success_bonus") or 0)))
     )
     if str(profile.get("root_quality") or "") == "天灵根":
         raw_success_rate += 4
@@ -4093,6 +4246,10 @@ def claim_task_for_user(tg: int, task_id: int) -> dict[str, Any]:
         task = session.query(XiuxianTask).filter(XiuxianTask.id == task_id).with_for_update().first()
         if task is None or not task.enabled:
             raise ValueError("任务不存在")
+        if int(task.owner_tg or 0) == int(tg):
+            raise ValueError("不能领取自己发布的任务")
+        if _is_unescrowed_player_stone_task(task):
+            raise ValueError(_unescrowed_player_stone_task_reason())
         if task.task_scope == "sect" and int(task.sect_id or 0) != int(profile.get("sect_id") or 0):
             raise ValueError("只有同宗门成员才能领取该任务")
         if task.task_type == "quiz":
@@ -4266,6 +4423,10 @@ def resolve_quiz_answer(chat_id: int, tg: int, answer_text: str) -> dict[str, An
             .all()
         )
         for task in rows:
+            if int(task.owner_tg or 0) == int(tg):
+                continue
+            if _is_unescrowed_player_stone_task(task):
+                continue
             if normalized != _normalize_quiz_answer_text(task.answer_text):
                 continue
             if task.task_scope == "sect":

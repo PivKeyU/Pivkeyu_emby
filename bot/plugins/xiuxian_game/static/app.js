@@ -112,6 +112,9 @@ function titleColoredNameHtml(label, color) {
 
 function grantedItemName(payload) {
   if (!payload || typeof payload !== "object") return "";
+  if (payload.duplicate_converted) {
+    return `重复${payload.item_kind_label || "物品"}折灵石 +${Number(payload.stone_compensation || 0)}`;
+  }
   return payload.artifact?.name
     || payload.pill?.name
     || payload.talisman?.name
@@ -2150,6 +2153,34 @@ function taskRewardEscrowMultiplier() {
   return Math.max(Number(document.querySelector("#task-max-claimants")?.value || 1), 1);
 }
 
+function taskRewardStoneEscrowAmount() {
+  const rewardStone = Math.max(Number(document.querySelector("#task-reward-stone")?.value || 0), 0);
+  return rewardStone * taskRewardEscrowMultiplier();
+}
+
+function taskPublishStoneCostBreakdown(bundle = state.profileBundle) {
+  const settings = bundle?.settings || {};
+  const publishCost = Math.max(Number(settings.task_publish_cost || 0), 0);
+  const escrowRewardStone = taskRewardStoneEscrowAmount();
+  return {
+    publishCost,
+    escrowRewardStone,
+    totalCost: publishCost + escrowRewardStone
+  };
+}
+
+function taskPublishStoneCostText(breakdown) {
+  const publishCost = Number(breakdown?.publishCost || 0);
+  const escrowRewardStone = Number(breakdown?.escrowRewardStone || 0);
+  const totalCost = Number(breakdown?.totalCost || 0);
+  if (totalCost <= 0) return "发布不额外消耗灵石";
+  if (publishCost > 0 && escrowRewardStone > 0) {
+    return `发布会预扣 ${totalCost} 灵石（发布费 ${publishCost}，奖励押金 ${escrowRewardStone}）`;
+  }
+  if (escrowRewardStone > 0) return `发布会预扣 ${escrowRewardStone} 灵石作为奖励押金`;
+  return `发布一次任务需要消耗 ${publishCost} 灵石`;
+}
+
 function renderTaskRewardSelect() {
   const kind = document.querySelector("#task-reward-kind")?.value || "";
   const select = document.querySelector("#task-reward-ref");
@@ -2276,11 +2307,11 @@ function meaningfulTextLength(value) {
 function taskPublishBlockReason(bundle = state.profileBundle) {
   const settings = bundle?.settings || {};
   const publishAllowed = settings.allow_user_task_publish ?? true;
-  const publishCost = Number(settings.task_publish_cost || 0);
   const dailyLimit = Number(settings.user_task_daily_limit || 0);
   const publishedToday = Number(settings.user_task_published_today || 0);
   const currentStone = Number(bundle?.profile?.spiritual_stone || 0);
   const duelLockReason = currentDuelLockReason(bundle);
+  const costBreakdown = taskPublishStoneCostBreakdown(bundle);
 
   if (!publishAllowed) {
     return "当前未开放玩家发布任务。";
@@ -2291,10 +2322,25 @@ function taskPublishBlockReason(bundle = state.profileBundle) {
   if (dailyLimit > 0 && publishedToday >= dailyLimit) {
     return `今日已发布 ${publishedToday}/${dailyLimit} 次悬赏，已达到上限。`;
   }
-  if (currentStone < publishCost) {
-    return `发布任务需要 ${publishCost} 灵石，当前灵石不足。`;
+  if (currentStone < costBreakdown.totalCost) {
+    return `${taskPublishStoneCostText(costBreakdown)}，当前灵石不足。`;
   }
   return "";
+}
+
+function syncTaskPublishState(bundle = state.profileBundle) {
+  const publishNote = document.querySelector("#task-compose-note");
+  const publishButton = document.querySelector("#task-form button[type='submit']");
+  const settings = bundle?.settings || {};
+  const dailyLimit = Number(settings.user_task_daily_limit || 0);
+  const publishedToday = Number(settings.user_task_published_today || 0);
+  const publishReason = taskPublishBlockReason(bundle);
+  applyInteractiveBlockState(publishButton, Boolean(publishReason), publishReason);
+  if (publishNote) {
+    const limitText = dailyLimit > 0 ? `今日已发布 ${publishedToday}/${dailyLimit} 次。` : "今日发布次数不限。";
+    const costText = taskPublishStoneCostText(taskPublishStoneCostBreakdown(bundle));
+    publishNote.textContent = publishReason || `${costText}，灵石奖励会在发布时全额扣押，撤销未完成任务会退还剩余奖励押金，物品奖励会从背包扣押。${limitText}`;
+  }
 }
 
 function applyInteractiveBlockState(button, blocked, reason = "") {
@@ -2379,7 +2425,7 @@ function renderProfile(bundle) {
     <article class="profile-item"><span>丹毒</span><strong>${escapeHtml(profile.dan_poison)}/100</strong></article>
     <article class="profile-item"><span>已装备法宝</span><strong>${escapeHtml(artifactNames)}</strong></article>
     <article class="profile-item"><span>装备数量</span><strong>${escapeHtml(equippedArtifacts.length)} / ${escapeHtml(equipLimit)}</strong></article>
-    <article class="profile-item"><span>待生效符箓</span><strong>${escapeHtml(talismanName)}</strong></article>
+    <article class="profile-item"><span>生效符箓</span><strong>${escapeHtml(talismanName)}</strong></article>
     <article class="profile-item"><span>闭关状态</span><strong>${escapeHtml(retreatStatus)}</strong></article>
   `;
 
@@ -2480,7 +2526,7 @@ function renderProfile(bundle) {
       <article class="profile-item"><span>丹毒</span><strong>${escapeHtml(profile.dan_poison ?? 0)} / 100</strong></article>
       <article class="profile-item"><span>法宝</span><strong>${escapeHtml(artifactNames)}</strong></article>
       <article class="profile-item"><span>装备数量</span><strong>${escapeHtml(equippedArtifacts.length)} / ${escapeHtml(equipLimit)}</strong></article>
-      <article class="profile-item"><span>待生效符箓</span><strong>${escapeHtml(talismanName)}</strong></article>
+      <article class="profile-item"><span>生效符箓</span><strong>${escapeHtml(talismanName)}</strong></article>
       <article class="profile-item"><span>闭关状态</span><strong>${escapeHtml(retreatStatus)}</strong></article>
       <article class="profile-item"><span>宗门贡献</span><strong>${escapeHtml(profile.sect_contribution ?? 0)}</strong></article>
       <article class="profile-item"><span>魅力</span><strong>${escapeHtml(bundle.effective_stats?.charisma ?? profile.charisma ?? 0)}</strong></article>
@@ -2616,7 +2662,7 @@ function renderTalismanList(items, retreating) {
   const root = document.querySelector("#talisman-list");
   root.innerHTML = "";
   if (!items.length) {
-    root.innerHTML = `<article class="stack-item"><strong>暂无符箓</strong><p>符箓会在下一场斗法中生效，后台发放或商店购买后会出现在这里。</p></article>`;
+    root.innerHTML = `<article class="stack-item"><strong>暂无符箓</strong><p>符箓启用后会护持下一次斗法、Boss、探索、垂钓、炼制或吐纳，后台发放或商店购买后会出现在这里。</p></article>`;
     return;
   }
 
@@ -2625,7 +2671,7 @@ function renderTalismanList(items, retreating) {
     const effects = item.resolved_effects || {};
     const disabled = item.active || !item.usable || retreating;
     const reason = item.active
-      ? "当前已有待生效符箓"
+      ? "当前已有生效中的符箓"
       : fallbackReason(item.unusable_reason, retreating ? "闭关期间无法启用符箓" : "当前条件不满足，暂时无法启用");
 
     const card = document.createElement("article");
@@ -2643,7 +2689,7 @@ function renderTalismanList(items, retreating) {
       </div>
       <p>境界要求：${escapeHtml(item.min_realm_stage ? `${item.min_realm_stage}${item.min_realm_layer}层` : "无限制")}</p>
       ${reason ? `<p class="reason-text">${escapeHtml(reason)}</p>` : ""}
-      <button type="button" data-talisman-id="${item.id}" ${disabled ? "disabled" : ""}>${item.active ? "已待生效" : "激活到下一场斗法"}</button>
+      <button type="button" data-talisman-id="${item.id}" ${disabled ? "disabled" : ""}>${item.active ? "已生效" : "启用符箓"}</button>
     `;
     root.appendChild(card);
   }
@@ -2921,6 +2967,10 @@ function taskResultRewardText(reward, task = {}) {
   if (Number(reward?.reward_stone || 0) > 0) parts.push(`${Number(reward.reward_stone)} 灵石`);
   if (Number(reward?.reward_cultivation || 0) > 0) parts.push(`${Number(reward.reward_cultivation)} 修为`);
   if (reward?.reward_item) {
+    if (reward.reward_item.duplicate_converted) {
+      parts.push(`重复${reward.reward_item.item_kind_label || "物品"}折灵石 ${Number(reward.reward_item.stone_compensation || 0)}`);
+      return parts.join(" · ");
+    }
     const item = reward.reward_item.artifact
       || reward.reward_item.pill
       || reward.reward_item.talisman
@@ -3064,12 +3114,6 @@ function renderTaskArea(bundle) {
   const root = document.querySelector("#task-list");
   if (!root) return;
   root.innerHTML = "";
-  const settings = bundle.settings || {};
-  const publishCost = Number(settings.task_publish_cost || 0);
-  const dailyLimit = Number(settings.user_task_daily_limit || 0);
-  const publishedToday = Number(settings.user_task_published_today || 0);
-  const publishNote = document.querySelector("#task-compose-note");
-  const publishButton = document.querySelector("#task-form button[type='submit']");
   const uploadAllowed = Boolean(bundle.capabilities?.can_upload_images);
   const uploadReason = fallbackReason(bundle.capabilities?.upload_image_reason, "当前无法上传图片");
   const uploadButton = document.querySelector("#task-image-upload");
@@ -3082,14 +3126,7 @@ function renderTaskArea(bundle) {
       ? "如需带图答题，可先上传图片再发布任务。"
       : uploadReason;
   }
-  const publishReason = taskPublishBlockReason(bundle);
-  applyInteractiveBlockState(publishButton, Boolean(publishReason), publishReason);
-  if (publishNote) {
-    const limitText = dailyLimit > 0 ? `今日已发布 ${publishedToday}/${dailyLimit} 次。` : "今日发布次数不限。";
-    publishNote.textContent = publishReason || (publishCost > 0
-      ? `当前发布一次任务需要消耗 ${publishCost} 灵石，物品奖励会从背包扣押。${limitText}`
-      : `发布前请补充清晰信息，物品奖励会从背包扣押。${limitText}`);
-  }
+  syncTaskPublishState(bundle);
   renderUserTaskMetricKeyOptions(bundle);
   renderTaskRequirementSelect();
   renderTaskRewardSelect();
@@ -3105,7 +3142,9 @@ function renderTaskArea(bundle) {
     const isMetric = task.task_type === "metric";
     const metricClaimable = Boolean(task.metric_claimable);
     const requiresItem = Boolean(task.required_item_kind && Number(task.required_item_quantity || 0) > 0);
-    const disabled = alreadyCompleted
+    const claimBlockReason = String(task.claim_block_reason || "").trim();
+    const disabled = Boolean(claimBlockReason)
+      || alreadyCompleted
       || task.task_type === "quiz"
       || (alreadyAccepted && (!isMetric || !metricClaimable));
     const requiredItemName = task.required_item?.name || task.required_item_kind_label || task.required_item_kind || "物品";
@@ -3134,7 +3173,7 @@ function renderTaskArea(bundle) {
       ${isMetric ? `<p>任务要求：${escapeHtml(taskMetricRequirementText(task))} · ${escapeHtml(taskMetricProgressText(task))}</p>` : ""}
       ${task.question_text ? `<p>题目：${escapeHtml(task.question_text)}</p>` : ""}
       <div class="inline-actions">
-        <button type="button" data-task-id="${task.id}" data-task-action="claim" ${disabled ? "disabled" : ""}>${actionLabel}</button>
+        <button type="button" data-task-id="${task.id}" data-task-action="claim" ${disabled ? "disabled" : ""} ${claimBlockReason ? `title="${escapeHtml(claimBlockReason)}"` : ""}>${claimBlockReason ? "已暂停领取" : actionLabel}</button>
         ${canCancel ? `<button type="button" class="ghost" data-task-id="${task.id}" data-task-action="cancel">撤销任务</button>` : ""}
       </div>
     `;
@@ -3921,11 +3960,7 @@ function applyProfileBundle(bundle, { deferSecondary = true } = {}) {
 
 function exchangeHintText(settings = {}) {
   const rate = settings.rate ?? settings.coin_exchange_rate ?? 100;
-  const fee = settings.fee_percent ?? settings.exchange_fee_percent ?? 1;
-  const minExchange = settings.min_coin_exchange ?? 1;
-  const effectiveMin = settings.stone_to_coin_min_stone ?? Math.max(rate, minExchange);
-  const feeFreeLimit = settings.stone_to_coin_fee_free_limit ?? 500;
-  return `当前比例：1 片刻碎片 = ${rate} 灵石，反向即 ${rate} 灵石 = 1 片刻碎片；碎片兑换灵石手续费 ${fee}%，灵石兑换碎片在 ${feeFreeLimit} 灵石及以下免手续费，超过后按 ${fee}% 结算，至少按 ${effectiveMin} 灵石结算，不足 ${rate} 灵石一份的零头会保留。`;
+  return `当前比例：1 片刻碎片 = ${rate} 灵石；${rate} 灵石 = 1 片刻碎片。兑换不收手续费，灵石兑换碎片按整份结算，不足 ${rate} 灵石的零头会保留。`;
 }
 
 function mergeBundleData(baseBundle, patchBundle) {
@@ -4289,12 +4324,7 @@ document.querySelector("#stone-to-coin-form").addEventListener("submit", async (
       direction: "stone_to_coin",
       amount: Number(document.querySelector("#stone-to-coin-amount").value || 0)
     }));
-    const feeText = payload.fee_free_applied
-      ? "，本次免手续费"
-      : Number(payload.fee || 0) > 0
-        ? `，手续费 ${payload.fee} 片刻碎片`
-        : "";
-    const message = `消耗 ${payload.spent_stone} 灵石，获得 ${payload.received_coin} 片刻碎片${feeText}。`;
+    const message = `消耗 ${payload.spent_stone} 灵石，获得 ${payload.received_coin} 片刻碎片。`;
     setStatus(`兑换成功：${message}`, "success");
     syncActionBundle(payload);
     await popup("兑换成功", message);
@@ -4342,7 +4372,7 @@ document.querySelector("#gambling-open-form")?.addEventListener("submit", async 
       lines.push(result.fortune_hint);
     }
     if (rareRows.length) {
-      lines.push(`已触发群播：${rareRows.map((item) => `${item.quality_label || "高品"} ${item.item_name || "未知物品"} x${Number(item.quantity || 0)}`).join("、")}`);
+      lines.push(`已触发群播：${rareRows.map((item) => item.duplicate_converted ? `重复${item.quality_label || "高品"} ${item.item_name || "未知物品"}折灵石 +${Number(item.stone_compensation || 0)}` : `${item.quality_label || "高品"} ${item.item_name || "未知物品"} x${Number(item.quantity || 0)}`).join("、")}`);
     }
     setStatus(`奇石开启完成：${result.summary_text || "奖励已发放。"}。`, "success");
     syncActionBundle(payload);
@@ -4582,7 +4612,7 @@ document.querySelector("#talisman-list").addEventListener("click", async (event)
       payload = await runButtonAction(button, "激活中…", () => postJson("/plugins/xiuxian/api/talisman/activate", {
         talisman_id: Number(button.dataset.talismanId)
       }));
-      message = `已激活 ${payload.talisman.name}，将于下一场斗法生效。`;
+      message = `已启用 ${payload.talisman.name}，将护持下一次斗法、Boss、探索、垂钓、炼制或吐纳。`;
       title = "激活成功";
     }
     setStatus(message, "success");
@@ -5442,6 +5472,15 @@ function itemAffixTags(item, effects = {}) {
   return rows.join("");
 }
 
+function talismanActiveEffectTags(item) {
+  const summary = Array.isArray(item?.active_effect_summary) ? item.active_effect_summary : [];
+  if (!summary.length) return "";
+  return summary
+    .slice(0, 5)
+    .map((text) => `<span class="tag">${escapeHtml(text)}</span>`)
+    .join("");
+}
+
 const _legacyRenderArtifactList = renderArtifactList;
 const _legacyRenderTalismanList = renderTalismanList;
 const _legacyRenderPillList = renderPillList;
@@ -5499,9 +5538,11 @@ renderTalismanList = function renderTalismanList(items, retreating) {
       <div class="item-tags">
         <span class="tag">${escapeHtml(item.rarity || "凡品")}</span>
         ${itemAffixTags(item, effects)}
+        ${talismanActiveEffectTags(item)}
       </div>
+      <p>启用后持续护持下一次斗法、Boss、探索、垂钓、炼制或吐纳。</p>
       ${reason ? `<p class="reason-text">${escapeHtml(reason)}</p>` : ""}
-      <button type="button" data-talisman-id="${item.id}" ${disabled ? "disabled" : ""}>${item.active ? "已待生效" : "激活到下一场斗法"}</button>
+      <button type="button" data-talisman-id="${item.id}" ${disabled ? "disabled" : ""}>${item.active ? "已生效" : "启用符箓"}</button>
     `;
     root.appendChild(card);
   }
@@ -6024,7 +6065,7 @@ renderTalismanList = function renderTalismanList(items, retreating) {
   if (!rows.length) {
     root.innerHTML = (items || []).length
       ? `<article class="stack-item"><strong>未找到匹配符箓</strong><p>可以按名称、效果或境界要求搜索。</p></article>`
-      : `<article class="stack-item"><strong>暂无符箓</strong><p>符箓会在下一场斗法中生效，后续可通过商店、掉落或发放获得。</p></article>`;
+      : `<article class="stack-item"><strong>暂无符箓</strong><p>符箓启用后会护持下一次斗法、Boss、探索、垂钓、炼制或吐纳，后续可通过商店、掉落或发放获得。</p></article>`;
     return;
   }
   const cardsArray = [];
@@ -6039,7 +6080,7 @@ renderTalismanList = function renderTalismanList(items, retreating) {
     const unbindCost = Number(state.profileBundle?.settings?.equipment_unbind_cost || 0);
     const reason = disabledReason(
       disabled,
-      item.active ? "当前已有待生效符箓" : item.unusable_reason,
+      item.active ? "当前已有生效中的符箓" : item.unusable_reason,
       retreating ? "闭关期间无法启用符箓" : "当前不满足启用条件"
     );
     const card = document.createElement("article");
@@ -6055,13 +6096,14 @@ renderTalismanList = function renderTalismanList(items, retreating) {
         ${unbindableQuantity > 0 ? `<span class="tag">已绑定 ${escapeHtml(unbindableQuantity)}</span>` : ""}
         ${bindableQuantity > 0 ? `<span class="tag">未绑定 ${escapeHtml(bindableQuantity)}</span>` : ""}
         ${itemAffixTags(item, effects)}
+        ${talismanActiveEffectTags(item)}
       </div>
-      <p>斗法内最多显化 ${escapeHtml(item.effect_uses || 1)} 次，斗法结束后会自动消散。</p>
+      <p>启用后持续护持下一次斗法、Boss、探索、垂钓、炼制或吐纳，斗法内最多显化 ${escapeHtml(item.effect_uses || 1)} 次。</p>
       <p>境界要求：${escapeHtml(item.min_realm_stage ? `${item.min_realm_stage}${item.min_realm_layer}层` : "无限制")}</p>
       <p>可交易：${escapeHtml(row.tradeable_quantity ?? 0)} ｜ 可提交：${escapeHtml(row.consumable_quantity ?? 0)}</p>
       ${reason ? `<p class="reason-text">${escapeHtml(reason)}</p>` : ""}
       <div class="inline-action-buttons">
-        <button type="button" data-talisman-id="${item.id}" ${disabled ? "disabled" : ""}>${item.active ? "已待生效" : "激活到下一场斗法"}</button>
+        <button type="button" data-talisman-id="${item.id}" ${disabled ? "disabled" : ""}>${item.active ? "已生效" : "启用符箓"}</button>
         <button type="button" class="ghost" data-talisman-bind-id="${item.id}" ${canBind ? "" : "disabled"}>绑定1件</button>
         <button type="button" class="ghost" data-talisman-unbind-id="${item.id}" ${canUnbind ? "" : "disabled"}>解绑1件${unbindCost > 0 ? `（${escapeHtml(unbindCost)}灵石）` : ""}</button>
       </div>
@@ -6171,6 +6213,8 @@ function syncUserTaskComposer() {
   const rewardKind = document.querySelector("#task-reward-kind");
   const rewardRef = document.querySelector("#task-reward-ref");
   const rewardQuantity = document.querySelector("#task-reward-quantity");
+  const rewardStone = document.querySelector("#task-reward-stone");
+  const rewardScaleMode = document.querySelector("#task-reward-scale-mode");
   renderUserTaskMetricKeyOptions();
   if (pushGroup) {
     if (isQuiz) pushGroup.checked = true;
@@ -6207,8 +6251,15 @@ function syncUserTaskComposer() {
     if (rewardRef) rewardRef.value = "";
     if (rewardQuantity) rewardQuantity.value = "0";
   }
+  if (rewardScaleMode) {
+    const hasStoneReward = Math.max(Number(rewardStone?.value || 0), 0) > 0;
+    if (hasStoneReward) rewardScaleMode.value = "fixed";
+    rewardScaleMode.disabled = hasStoneReward;
+    rewardScaleMode.title = hasStoneReward ? "玩家发布灵石奖励任务时必须使用固定奖励，奖励灵石会按领取上限预扣。" : "";
+  }
   renderTaskRequirementSelect();
   renderTaskRewardSelect();
+  syncTaskPublishState();
 }
 
 function validateUserTaskComposer() {
@@ -6231,6 +6282,7 @@ function validateUserTaskComposer() {
   const rewardKind = document.querySelector("#task-reward-kind")?.value || "";
   const rewardRef = Number(document.querySelector("#task-reward-ref")?.value || 0);
   const rewardQuantity = Number(document.querySelector("#task-reward-quantity")?.value || 0);
+  const rewardScaleMode = document.querySelector("#task-reward-scale-mode")?.value || "fixed";
   const metricKey = document.querySelector("#task-metric-key")?.value || "";
   const metricTarget = Number(document.querySelector("#task-metric-target")?.value || 0);
 
@@ -6272,6 +6324,16 @@ function validateUserTaskComposer() {
     }
   }
 
+  if (rewardStone > 0 && rewardScaleMode === "realm") {
+    return { title: "奖励缩放受限", message: "玩家发布含灵石奖励的任务必须使用固定奖励，奖励灵石会按领取上限预先扣押。", tone: "error" };
+  }
+
+  const costBreakdown = taskPublishStoneCostBreakdown();
+  const currentStone = Number(state.profileBundle?.profile?.spiritual_stone || 0);
+  if (currentStone < costBreakdown.totalCost) {
+    return { title: "灵石不足", message: `${taskPublishStoneCostText(costBreakdown)}，当前只有 ${currentStone} 灵石。`, tone: "error" };
+  }
+
   if (rewardKind) {
     if (!rewardRef) {
       const rewardSelect = document.querySelector("#task-reward-ref");
@@ -6302,6 +6364,9 @@ function validateUserTaskComposer() {
 }
 
 document.querySelector("#task-type")?.addEventListener("change", syncUserTaskComposer);
+document.querySelector("#task-max-claimants")?.addEventListener("input", syncUserTaskComposer);
+document.querySelector("#task-reward-stone")?.addEventListener("input", syncUserTaskComposer);
+document.querySelector("#task-reward-scale-mode")?.addEventListener("change", syncUserTaskComposer);
 document.querySelector("#task-required-kind")?.addEventListener("change", renderTaskRequirementSelect);
 document.querySelector("#task-reward-kind")?.addEventListener("change", renderTaskRewardSelect);
 document.querySelector("#task-reward-ref")?.addEventListener("change", renderTaskRewardSelect);
@@ -6355,8 +6420,14 @@ userTaskForm?.addEventListener("submit", async (event) => {
       active_in_group: document.querySelector("#task-push-group").checked
     }));
     const pushWarning = payload.push_warning;
-    const publishCost = Number(state.profileBundle?.settings?.task_publish_cost || 0);
-    const costText = publishCost > 0 ? `，消耗 ${publishCost} 灵石` : "";
+    const publishCost = Number(payload.task?.publish_cost ?? state.profileBundle?.settings?.task_publish_cost ?? 0);
+    const escrowedRewardStone = Number(payload.task?.escrowed_reward_stone || 0);
+    const totalStoneCost = Number(payload.task?.total_spiritual_stone_cost ?? (publishCost + escrowedRewardStone));
+    const costText = totalStoneCost > 0
+      ? (escrowedRewardStone > 0
+        ? `，预扣 ${totalStoneCost} 灵石（发布费 ${publishCost}，奖励押金 ${escrowedRewardStone}）`
+        : `，消耗 ${publishCost} 灵石`)
+      : "";
     const message = pushWarning
       ? `任务《${payload.task.title}》已创建${costText}，但群内推送失败。\n${pushWarning}`
       : `任务《${payload.task.title}》已发布${costText}。`;
@@ -6632,7 +6703,7 @@ renderProfile = function renderProfileRedesigned(bundle) {
       <article class="profile-item"><span>丹毒</span><strong>${escapeHtml(profile.dan_poison ?? 0)} / 100</strong></article>
       <article class="profile-item"><span>法宝位</span><strong>${escapeHtml(equippedArtifacts.length)} / ${escapeHtml(equipLimit)}</strong></article>
       <article class="profile-item"><span>已装法宝</span><strong>${escapeHtml(artifactNames)}</strong></article>
-      <article class="profile-item"><span>待生效符箓</span><strong>${escapeHtml(talismanName)}</strong></article>
+      <article class="profile-item"><span>生效符箓</span><strong>${escapeHtml(talismanName)}</strong></article>
       <article class="profile-item"><span>当前功法</span><strong>${escapeHtml(bundle.current_technique?.name || "暂无")}</strong></article>
       <article class="profile-item"><span>炉鼎关系</span><strong>${escapeHtml(servitudeText)}</strong></article>
       <article class="profile-item"><span>脱离冷却</span><strong>${escapeHtml(servitudeCooldownText)}</strong></article>
@@ -8071,9 +8142,9 @@ document.querySelector("#fishing-spot-list")?.addEventListener("click", async (e
     }));
     applyReturnedBundle(payload);
     const result = payload.result || {};
-    const rewardName = result.reward_item?.name || "未知物品";
+    const rewardName = grantedItemName(result.reward_item) || result.reward_item?.name || "未知物品";
     const lines = [result.message || "你已经顺利完成本次垂钓。"];
-    lines.push(`获得：${rewardName}${Number(result.quantity || 0) > 1 ? ` ×${Number(result.quantity || 0)}` : ""}`);
+    lines.push(`${result.duplicate_converted ? "折算" : "获得"}：${rewardName}${!result.duplicate_converted && Number(result.quantity || 0) > 1 ? ` ×${Number(result.quantity || 0)}` : ""}`);
     lines.push(`类型：${result.reward_kind_label || result.reward_kind || "物品"}`);
     lines.push(`品阶：${result.quality_label || "凡品"}`);
     if (Number(result.cast_cost_stone || 0) > 0) {
@@ -8274,6 +8345,19 @@ function bossRewardText(boss = {}) {
   return parts.join(" · ") || "暂无额外奖励";
 }
 
+function bossAttemptsUnlimited(boss = {}) {
+  return Boolean(boss.daily_attempts_unlimited) || Number(boss.daily_attempt_limit || 0) <= 0;
+}
+
+function bossRemainingAttempts(boss = {}) {
+  return Math.max(Number(boss.daily_attempts_remaining || 0), 0);
+}
+
+function bossAttemptText(boss = {}) {
+  if (bossAttemptsUnlimited(boss)) return "不限";
+  return `${bossRemainingAttempts(boss)}/${Number(boss.daily_attempt_limit || 0)}`;
+}
+
 function renderBossSummary(bossData) {
   const root = document.querySelector("#boss-summary");
   if (!root) return;
@@ -8282,7 +8366,9 @@ function renderBossSummary(bossData) {
   const bosses = Array.isArray(personal.bosses) ? personal.bosses : [];
   const beatenCount = bosses.filter((b) => b.beaten).length;
   const unlockedCount = bosses.filter((b) => b.unlocked).length;
-  const remainingAttempts = bosses.reduce((total, boss) => total + Math.max(Number(boss.daily_attempts_remaining || 0), 0), 0);
+  const hasUnlimitedAttempts = bosses.some((boss) => bossAttemptsUnlimited(boss));
+  const remainingAttempts = bosses.reduce((total, boss) => total + bossRemainingAttempts(boss), 0);
+  const remainingAttemptText = hasUnlimitedAttempts ? "今日不限次数" : `今日剩余 ${remainingAttempts} 次`;
   root.innerHTML = `
     <article class="boss-metric">
       <span>个人进度</span>
@@ -8292,7 +8378,7 @@ function renderBossSummary(bossData) {
     <article class="boss-metric">
       <span>可挑战</span>
       <strong>${escapeHtml(unlockedCount)}</strong>
-      <small>今日剩余 ${escapeHtml(remainingAttempts)} 次</small>
+      <small>${escapeHtml(remainingAttemptText)}</small>
     </article>
     <article class="boss-metric ${world.active ? "is-hot" : ""}">
       <span>世界 Boss</span>
@@ -8315,8 +8401,8 @@ function renderBossPersonalTab(bossData) {
   listRoot.innerHTML = bosses.map((boss) => {
     const statusLabel = !boss.unlocked ? "境界未至" : boss.beaten ? "已击败" : "可挑战";
     const statusClass = !boss.unlocked ? "badge badge--unknown" : boss.beaten ? "badge badge--safe" : "badge badge--warn";
-    const canChallenge = boss.unlocked && boss.daily_attempts_remaining > 0;
-    const disabledReason = !boss.unlocked ? `需达到 ${escapeHtml(boss.realm_stage || "未知境界")}` : boss.daily_attempts_remaining <= 0 ? "今日次数已尽" : "";
+    const canChallenge = boss.unlocked && (bossAttemptsUnlimited(boss) || bossRemainingAttempts(boss) > 0);
+    const disabledReason = !boss.unlocked ? `需达到 ${escapeHtml(boss.realm_stage || "未知境界")}` : !canChallenge ? "今日次数已尽" : "";
     const firstChar = String(boss.name || "Boss").trim().slice(0, 1) || "B";
     return `
       <article class="stack-item boss-personal-card ${canChallenge ? "is-ready" : ""}">
@@ -8330,10 +8416,10 @@ function renderBossPersonalTab(bossData) {
         </div>
         <p class="boss-desc">${escapeHtml(boss.description || "暂无描述")}</p>
         <div class="boss-stat-grid">
-          <span><small>生命</small><strong>${escapeHtml(bossNumber(boss.hp))}</strong></span>
+          <span><small>气血</small><strong>${escapeHtml(bossNumber(boss.qi_blood || boss.hp))}</strong></span>
           <span><small>攻击</small><strong>${escapeHtml(boss.attack_power || 0)}</strong></span>
           <span><small>防御</small><strong>${escapeHtml(boss.defense_power || 0)}</strong></span>
-          <span><small>今日</small><strong>${escapeHtml(boss.daily_attempts_remaining || 0)}/${escapeHtml(boss.daily_attempt_limit || 0)}</strong></span>
+          <span><small>今日</small><strong>${escapeHtml(bossAttemptText(boss))}</strong></span>
         </div>
         <div class="boss-reward-row">
           <span>${escapeHtml(bossRewardText(boss))}</span>
@@ -8366,7 +8452,7 @@ function renderBossWorldTab(bossData) {
   const hpPercent = bossHpPercent(instance.current_hp, instance.max_hp);
   const hpBarColor = hpPercent > 50 ? "var(--success)" : hpPercent > 20 ? "var(--warning)" : "var(--danger)";
   const canAttack = cooldown <= 0 && (instance.status === "active");
-  const statusText = instance.status === "defeated" ? "已击败" : instance.status === "escaped" ? "已遁走" : "活跃中";
+  const statusText = instance.status === "settled" ? "已结算" : instance.status === "defeated" ? "已击败" : instance.status === "escaped" ? "已遁走" : "活跃中";
 
   noteRoot.textContent = `${boss.name || "未知 Boss"} · 状态：${statusText} · 结束时间 ${formatDate(instance.expires_at)}`;
   statusRoot.innerHTML = `
@@ -8472,7 +8558,7 @@ document.querySelector("#boss-world-status")?.addEventListener("click", async (e
       `累计伤害：${result.player_total_damage || 0} · 攻击次数：${result.player_attack_count || 0}`,
     ];
     if (result.boss_defeated) {
-      lines.push("", "Boss已被击败！查看伤害排名获取奖励。");
+      lines.push("", "Boss已被击败！奖励已按伤害排名结算。");
     }
     setStatus(`造成 ${result.damage_dealt || 0} 点伤害`, "success");
     await popup("攻击世界Boss", lines.join("\n"));

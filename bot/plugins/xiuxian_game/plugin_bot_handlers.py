@@ -876,7 +876,7 @@ def _format_profile_text(payload: dict[str, Any]) -> str:
     equipped_artifacts = payload.get("equipped_artifacts") or []
     equip_limit = int(payload.get("settings", {}).get("artifact_equip_limit", 1) or 1)
     artifact_name = "、".join(item["name"] for item in equipped_artifacts) if equipped_artifacts else "暂无已装备法宝"
-    talisman_name = payload["active_talisman"]["name"] if payload.get("active_talisman") else "暂无待生效符箓"
+    talisman_name = payload["active_talisman"]["name"] if payload.get("active_talisman") else "暂无生效符箓"
     technique_name = payload["current_technique"]["name"] if payload.get("current_technique") else "暂无参悟功法"
     title_name = payload["current_title"]["name"] if payload.get("current_title") else "未佩戴称号"
     progress = payload.get("progress", {})
@@ -981,7 +981,7 @@ def _format_group_profile_showcase(payload: dict[str, Any], fallback_name: str |
             f"✨ 机缘向：`机缘 {effective_stats.get('fortune', profile.get('fortune', 0))}` ｜ `魅力 {effective_stats.get('charisma', profile.get('charisma', 0))}`",
             "🛡️ 法宝：",
             *[_md_escape(line) for line in artifact_lines],
-            f"🧿 符箓：{_md_escape(active_talisman.get('name') or '暂无待生效符箓')}",
+            f"🧿 符箓：{_md_escape(active_talisman.get('name') or '暂无生效符箓')}",
             f"📜 功法：{_md_escape(current_technique.get('name') or '暂无参悟功法')}",
             f"🕰️ 状态：{_md_escape(retreat_text)}",
         ],
@@ -4319,7 +4319,9 @@ def register_bot(bot_instance) -> None:
             await asyncio.sleep(30)
             while True:
                 try:
+                    from bot.plugins.xiuxian_game.features.boss import settle_expired_world_bosses as _settle_expired
                     from bot.plugins.xiuxian_game.features.boss import try_spawn_world_boss as _spawn
+                    _settle_expired()
                     result = _spawn()
                     if result:
                         instance = result.get("instance") or {}
@@ -5336,9 +5338,13 @@ def register_bot(bot_instance) -> None:
         if int(reward.get("reward_cultivation") or 0):
             reward_lines.append(f"{reward['reward_cultivation']} 修为")
         if reward.get("reward_item"):
-            reward_lines.append(
-                f"{reward['reward_item'].get('quantity', 1)} 个{(reward['reward_item'].get('artifact') or reward['reward_item'].get('pill') or reward['reward_item'].get('talisman') or reward['reward_item'].get('material') or {}).get('name', '物品')}"
-            )
+            reward_item = reward["reward_item"] or {}
+            if reward_item.get("duplicate_converted"):
+                reward_lines.append(f"重复{reward_item.get('item_kind_label') or '物品'}折灵石 {int(reward_item.get('stone_compensation') or 0)}")
+            else:
+                reward_lines.append(
+                    f"{reward_item.get('quantity', 1)} 个{(reward_item.get('artifact') or reward_item.get('pill') or reward_item.get('talisman') or reward_item.get('material') or reward_item.get('technique') or reward_item.get('recipe') or {}).get('name', '物品')}"
+                )
         reward_text = "、".join(reward_lines) if reward_lines else "任务奖励"
         winner_name = msg.from_user.first_name or f"TG {msg.from_user.id}"
         success_lines = [

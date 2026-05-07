@@ -869,6 +869,7 @@ def serialize_task(task: XiuxianTask | None) -> dict[str, Any] | None:
         "reward_item_ref_id": task.reward_item_ref_id,
         "reward_item_quantity": task.reward_item_quantity,
         "reward_item_escrowed": bool(getattr(task, "reward_item_escrowed", False)),
+        "reward_stone_escrowed": bool(getattr(task, "reward_stone_escrowed", False)),
         "reward_scale_mode": str(task.reward_scale_mode or "fixed"),
         "requirement_metric_key": task.requirement_metric_key,
         "requirement_metric_target": max(int(task.requirement_metric_target or 0), 0),

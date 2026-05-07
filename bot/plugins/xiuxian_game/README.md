@@ -455,22 +455,16 @@ shop_broadcast_cost
 管理员可在修仙后台设置：
 
 - `coin_exchange_rate`
-- `exchange_fee_percent`
-- `min_coin_exchange`
 
 说明：
 
 - `coin_exchange_rate`
-  - 1 片刻碎片可兑换多少灵石
-- `exchange_fee_percent`
-  - 每次互兑的手续费百分比
-- `min_coin_exchange`
-  - 灵石兑换 Emby 货币时，最少要消耗多少灵石
+  - 1 片刻碎片可兑换多少灵石，反向也按同一比例整份兑换
 
 ### 8.3 当前实现规则
 
-- Emby 货币 -> 灵石：按比例扣手续费
-- 灵石 -> Emby 货币：按比例扣手续费，并校验最小兑换值
+- Emby 货币 -> 灵石：按比例直接兑换，不收手续费
+- 灵石 -> Emby 货币：按比例整份兑换，不收手续费；不足一份的灵石留在余额中
 
 相关封装在：
 
@@ -619,8 +613,6 @@ shop_broadcast_cost
 当前主要字段：
 
 - `coin_exchange_rate`
-- `exchange_fee_percent`
-- `min_coin_exchange`
 - `shop_broadcast_cost`
 - `official_shop_name`
 
@@ -735,9 +727,7 @@ shop_broadcast_cost
 
 在修仙管理页的“货币与商店设置”里修改：
 
-- 1 灵石可兑换多少片刻碎片
-- 手续费
-- 最低兑换额
+- 1 片刻碎片可兑换多少灵石
 
 ### 13.6 管理风月阁
 
