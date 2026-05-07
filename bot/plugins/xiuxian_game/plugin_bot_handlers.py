@@ -549,6 +549,28 @@ def _register_command_dispatch(message, command_name: str, *, ttl_seconds: int =
     return True
 
 
+def _command_slow_threshold_seconds() -> float:
+    raw = os.getenv("PIVKEYU_XIUXIAN_COMMAND_SLOW_SECONDS", "2")
+    try:
+        return max(float(raw or 0), 0.5)
+    except (TypeError, ValueError):
+        return 2.0
+
+
+def _log_slow_group_command(command_name: str, message, started_at: float, **segments: float) -> None:
+    elapsed = time.perf_counter() - started_at
+    if elapsed < _command_slow_threshold_seconds():
+        return
+    chat_id = getattr(getattr(message, "chat", None), "id", None)
+    message_id = getattr(message, "id", None)
+    user_id = getattr(getattr(message, "from_user", None), "id", None)
+    segment_text = " ".join(f"{name}={value:.3f}s" for name, value in segments.items())
+    LOGGER.warning(
+        f"xiuxian command slow command={command_name} chat={chat_id} user={user_id} "
+        f"message={message_id} total={elapsed:.3f}s {segment_text}".rstrip()
+    )
+
+
 def _parse_xiuxian_rank_args(command_parts: Iterable[str] | None) -> tuple[str, int]:
     kind = "stone"
     page = 1
@@ -4760,6 +4782,11 @@ def register_bot(bot_instance) -> None:
 
     @bot_instance.on_message(filters.command(["train", "practice"], prefixes) & filters.chat(group))
     async def xiuxian_train_group_command(_, msg):
+        started_at = time.perf_counter()
+        require_elapsed = 0.0
+        settle_elapsed = 0.0
+        reply_elapsed = 0.0
+        delete_elapsed = 0.0
         try:
             if not _register_command_dispatch(msg, "train"):
                 LOGGER.warning(
@@ -4767,10 +4794,14 @@ def register_bot(bot_instance) -> None:
                     f"message={getattr(msg, 'id', None)} command=train"
                 )
                 return
+            segment_started_at = time.perf_counter()
             actor = await _require_message_user(msg, action_text="吐纳修炼")
+            require_elapsed = time.perf_counter() - segment_started_at
             if actor is None:
                 return
+            segment_started_at = time.perf_counter()
             result = await run_in_threadpool(practice_for_user, actor.id)
+            settle_elapsed = time.perf_counter() - segment_started_at
             lines = [
                 f"📈 修为：`+{result['gain']}`",
                 f"💎 灵石：`+{result['stone_gain']}`",
@@ -4781,19 +4812,39 @@ def register_bot(bot_instance) -> None:
             growth_text = _format_attribute_growth_text(result.get("attribute_growth"))
             if growth_text:
                 lines.append(growth_text)
+            segment_started_at = time.perf_counter()
             await _reply_text(
                 msg,
                 _format_notice_card("吐纳完成", emoji="🫧", lines=lines),
                 quote=True,
                 parse_mode=RICH_TEXT_MODE,
             )
+            reply_elapsed = time.perf_counter() - segment_started_at
         except Exception as exc:
+            segment_started_at = time.perf_counter()
             await _reply_text(msg, str(exc) or "吐纳修炼失败，请稍后重试。", quote=True)
+            reply_elapsed = time.perf_counter() - segment_started_at
         finally:
+            segment_started_at = time.perf_counter()
             await _delete_user_command_message(msg)
+            delete_elapsed = time.perf_counter() - segment_started_at
+            _log_slow_group_command(
+                "train",
+                msg,
+                started_at,
+                require=require_elapsed,
+                settle=settle_elapsed,
+                reply=reply_elapsed,
+                delete=delete_elapsed,
+            )
 
     @bot_instance.on_message(filters.command(["work"], prefixes) & filters.chat(group))
     async def xiuxian_work_group_command(_, msg):
+        started_at = time.perf_counter()
+        require_elapsed = 0.0
+        settle_elapsed = 0.0
+        reply_elapsed = 0.0
+        delete_elapsed = 0.0
         try:
             if not _register_command_dispatch(msg, "work"):
                 LOGGER.warning(
@@ -4801,7 +4852,9 @@ def register_bot(bot_instance) -> None:
                     f"message={getattr(msg, 'id', None)} command=work"
                 )
                 return
+            segment_started_at = time.perf_counter()
             actor = await _require_message_user(msg, action_text="承接灵石委托")
+            require_elapsed = time.perf_counter() - segment_started_at
             if actor is None:
                 return
             requested_key = _normalize_commission_command_key(msg.command[1] if len(msg.command or []) > 1 else None)
@@ -4856,22 +4909,41 @@ def register_bot(bot_instance) -> None:
                     lines.append(layer_line)
                 return "\n".join(lines), None
 
+            segment_started_at = time.perf_counter()
             result_text, error_text = await run_in_threadpool(_claim_work)
+            settle_elapsed = time.perf_counter() - segment_started_at
             if error_text:
+                segment_started_at = time.perf_counter()
                 await _reply_text(msg, error_text, quote=True, parse_mode=RICH_TEXT_MODE)
+                reply_elapsed = time.perf_counter() - segment_started_at
                 return
             if result_text is None:
                 return
+            segment_started_at = time.perf_counter()
             await _reply_text(
                 msg,
                 _format_notice_card("灵石委托完成", emoji="💼", lines=result_text.splitlines()),
                 quote=True,
                 parse_mode=RICH_TEXT_MODE,
             )
+            reply_elapsed = time.perf_counter() - segment_started_at
         except Exception as exc:
+            segment_started_at = time.perf_counter()
             await _reply_text(msg, str(exc) or "灵石委托结算失败，请稍后重试。", quote=True)
+            reply_elapsed = time.perf_counter() - segment_started_at
         finally:
+            segment_started_at = time.perf_counter()
             await _delete_user_command_message(msg)
+            delete_elapsed = time.perf_counter() - segment_started_at
+            _log_slow_group_command(
+                "work",
+                msg,
+                started_at,
+                require=require_elapsed,
+                settle=settle_elapsed,
+                reply=reply_elapsed,
+                delete=delete_elapsed,
+            )
 
     @bot_instance.on_message(filters.command(["salary"], prefixes) & filters.chat(group))
     async def xiuxian_salary_group_command(_, msg):

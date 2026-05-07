@@ -494,20 +494,16 @@ function toSameOriginPath(path, fallback = "") {
 function handleBackNavigation() {
   const currentPath = currentRelativePath();
   if (backState.returnTo && backState.returnTo !== currentPath) {
-    window.location.href = backState.returnTo;
+    window.location.replace(backState.returnTo);
     return;
   }
 
   if (backState.referrerPath && backState.referrerPath !== currentPath) {
-    if (window.history.length > 1) {
-      window.history.back();
-      return;
-    }
-    window.location.href = backState.referrerPath;
+    window.location.replace(backState.referrerPath);
     return;
   }
 
-  window.location.href = backState.fallbackPath;
+  window.location.replace(backState.fallbackPath);
 }
 
 function setupBackNavigation(defaultPath = DEFAULT_BACK_PATH) {

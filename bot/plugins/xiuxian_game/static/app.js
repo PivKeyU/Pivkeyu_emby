@@ -37,6 +37,18 @@ const state = {
 
 const WIKI_BUNDLE_CACHE_KEY = "xiuxian_wiki_bundle_v2";
 const BOOTSTRAP_CACHE_KEY_PREFIX = "xiuxian_bootstrap_core_v1";
+const NETWORK_ERROR_MESSAGES = new Set([
+  "Failed to fetch",
+  "Load failed",
+  "NetworkError when attempting to fetch resource.",
+  "The Internet connection appears to be offline.",
+  "The network connection was lost.",
+]);
+const UPSTREAM_UNAVAILABLE_MESSAGES = new Set([
+  "Bad Gateway",
+  "Gateway Timeout",
+  "Service Unavailable",
+]);
 const REALM_ORDER = ["炼气", "筑基", "金丹", "元婴", "化神", "炼虚", "合体", "大乘", "渡劫", "人仙", "地仙", "天仙", "金仙", "大罗金仙", "仙君", "仙王", "仙尊", "仙帝"];
 
 function escapeHtml(value) {
@@ -279,10 +291,44 @@ function defaultMessage(fallback = "操作失败，请稍后再试") {
   return fallback || "操作失败，请稍后再试";
 }
 
+function currentRelativePath() {
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
+}
+
+function toSameOriginPath(path, fallback = "") {
+  if (!path) return fallback;
+  try {
+    const url = new URL(path, window.location.origin);
+    if (url.origin !== window.location.origin) {
+      return fallback;
+    }
+    return `${url.pathname}${url.search}${url.hash}` || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function withReturnTo(path, returnTo = currentRelativePath()) {
+  const safePath = toSameOriginPath(path, "");
+  if (!safePath) return "";
+  const url = new URL(safePath, window.location.origin);
+  const safeReturnTo = toSameOriginPath(returnTo, "");
+  if (safeReturnTo) {
+    url.searchParams.set("return_to", safeReturnTo);
+  }
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
 function normalizeError(error, fallback) {
   const message = String(error?.message || fallback || defaultMessage()).trim();
   if (!message || /^[??\s]+$/.test(message)) {
     return defaultMessage(fallback);
+  }
+  if (NETWORK_ERROR_MESSAGES.has(message)) {
+    return "网络请求失败，请稍后重试。";
+  }
+  if (UPSTREAM_UNAVAILABLE_MESSAGES.has(message)) {
+    return "服务正在重启或暂时不可用，请稍后重试。";
   }
   if (message.startsWith("Unexpected token") || message === "Internal Server Error") {
     return defaultMessage(fallback);
@@ -6376,7 +6422,7 @@ document.querySelector("#open-admin-panel")?.addEventListener("click", () => {
   const button = document.querySelector("#open-admin-panel");
   const adminUrl = button?.dataset.adminUrl || state.profileBundle?.capabilities?.admin_panel_url;
   if (adminUrl) {
-    window.location.href = adminUrl;
+    window.location.href = withReturnTo(adminUrl) || adminUrl;
   }
 });
 
