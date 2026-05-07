@@ -39,7 +39,8 @@ const refs = {
   transferSubmit: document.querySelector("#transfer-submit"),
   listingForm: document.querySelector("#listing-form"),
   listingSubmit: document.querySelector("#listing-submit"),
-  bottomNav: document.querySelector("#bottom-nav")
+  bottomNav: document.querySelector("#bottom-nav"),
+  machineBand: document.querySelector(".machine-band")
 };
 
 function escapeHtml(value) {
@@ -86,14 +87,26 @@ function randomSymbol() {
   return symbols[Math.floor(Math.random() * symbols.length)] || "◇";
 }
 
+function setMachineState(className, enabled) {
+  if (!refs.machineBand) return;
+  refs.machineBand.classList.toggle(className, Boolean(enabled));
+}
+
+function clearReelMotionClasses(reel) {
+  reel.classList.remove("spinning", "is-settled");
+}
+
 function startReels() {
   stopReels();
   state.spinning = true;
+  setMachineState("is-winning", false);
+  setMachineState("is-spinning", true);
   refs.reels.forEach((reel, index) => {
+    clearReelMotionClasses(reel);
     reel.classList.add("spinning");
     state.reelTimers[index] = window.setInterval(() => {
       reel.textContent = randomSymbol();
-    }, 70 + index * 20);
+    }, 58 + index * 18);
   });
 }
 
@@ -101,9 +114,10 @@ function stopReels(finalReels = []) {
   state.reelTimers.forEach((timer) => window.clearInterval(timer));
   state.reelTimers = [];
   refs.reels.forEach((reel, index) => {
-    reel.classList.remove("spinning");
+    clearReelMotionClasses(reel);
     reel.textContent = finalReels[index] || reel.textContent || randomSymbol();
   });
+  setMachineState("is-spinning", false);
   state.spinning = false;
 }
 
@@ -111,11 +125,33 @@ async function settleReels(finalReels) {
   state.reelTimers.forEach((timer) => window.clearInterval(timer));
   state.reelTimers = [];
   for (let index = 0; index < refs.reels.length; index += 1) {
-    await new Promise((resolve) => window.setTimeout(resolve, 180 + index * 80));
-    refs.reels[index].classList.remove("spinning");
-    refs.reels[index].textContent = finalReels[index] || randomSymbol();
+    await new Promise((resolve) => window.setTimeout(resolve, 190 + index * 110));
+    const reel = refs.reels[index];
+    reel.classList.remove("spinning");
+    reel.textContent = finalReels[index] || randomSymbol();
+    reel.classList.remove("is-settled");
+    void reel.offsetWidth;
+    reel.classList.add("is-settled");
   }
+  setMachineState("is-spinning", false);
   state.spinning = false;
+}
+
+function firePrizeBurst(outcome = "blank") {
+  if (!refs.machineBand || outcome !== "win") return;
+  const colors = ["#facc15", "#38bdf8", "#fb7185", "#a78bfa", "#22c55e"];
+  const count = 22;
+  for (let index = 0; index < count; index += 1) {
+    const particle = document.createElement("span");
+    particle.className = "burst-particle";
+    particle.style.setProperty("--x", `${42 + Math.random() * 16}%`);
+    particle.style.setProperty("--y", `${52 + Math.random() * 12}%`);
+    particle.style.setProperty("--dx", `${Math.round((Math.random() - 0.5) * 180)}px`);
+    particle.style.setProperty("--c", colors[index % colors.length]);
+    particle.style.animationDelay = `${index * 22}ms`;
+    refs.machineBand.appendChild(particle);
+    window.setTimeout(() => particle.remove(), 1200);
+  }
 }
 
 function renderBottomNav(items = []) {
@@ -142,8 +178,8 @@ function renderPrizes(prizes = []) {
     refs.prizeList.innerHTML = `<div class="empty">当前奖池为空。</div>`;
     return;
   }
-  refs.prizeList.innerHTML = prizes.map((prize) => `
-    <article class="prize-card">
+  refs.prizeList.innerHTML = prizes.map((prize, index) => `
+    <article class="prize-card" style="--i:${index}">
       <div class="prize-card-head">
         <span class="prize-icon">${escapeHtml(prize.icon || "🎁")}</span>
         <span class="rate-text">${escapeHtml(prize.computed_rate ?? 0)}%</span>
@@ -160,8 +196,8 @@ function renderRecords(records = []) {
     refs.recordList.innerHTML = `<div class="empty">暂无抽取记录。</div>`;
     return;
   }
-  refs.recordList.innerHTML = records.map((record) => `
-    <article class="record-item" data-outcome="${escapeHtml(record.outcome)}">
+  refs.recordList.innerHTML = records.map((record, index) => `
+    <article class="record-item" style="--i:${index}" data-outcome="${escapeHtml(record.outcome)}">
       <div class="record-line">
         <strong>${escapeHtml(record.prize_icon || "◇")} ${escapeHtml(record.prize_name || "轮空")}</strong>
         <span class="status-pill">${record.outcome === "win" ? "中奖" : "未中"}</span>
@@ -177,8 +213,8 @@ function renderBackpack(items = []) {
     refs.backpackList.innerHTML = `<div class="empty">背包为空。</div>`;
     return;
   }
-  refs.backpackList.innerHTML = items.map((item) => `
-    <article class="prize-card">
+  refs.backpackList.innerHTML = items.map((item, index) => `
+    <article class="prize-card" style="--i:${index}">
       <div class="prize-card-head">
         <span class="prize-icon">${escapeHtml(item.icon || "◇")}</span>
         <span class="rate-text">x${escapeHtml(item.quantity ?? 0)}</span>
@@ -196,8 +232,8 @@ function renderMarket(listings = []) {
     return;
   }
   const myId = Number(state.payload?.account?.tg || 0);
-  refs.marketList.innerHTML = listings.map((item) => `
-    <article class="record-item">
+  refs.marketList.innerHTML = listings.map((item, index) => `
+    <article class="record-item" style="--i:${index}">
       <div class="record-line">
         <strong>${escapeHtml(item.item_icon || "◇")} ${escapeHtml(item.item_label || item.item_type)} x${escapeHtml(item.quantity)}</strong>
         <span class="status-pill">${escapeHtml(item.price_iv)} ${escapeHtml(state.payload?.settings?.currency_name || "")}</span>
@@ -235,14 +271,22 @@ function renderResult(result) {
   refs.resultPanel.classList.remove("hidden");
   refs.resultPanel.dataset.outcome = result.outcome || "blank";
   const prize = result.prize || {};
+  const icon = prize.icon || (result.outcome === "win" ? "🎁" : "◇");
   refs.resultPanel.innerHTML = `
-    <div class="record-line">
-      <h3>${escapeHtml(result.title || "结果")}</h3>
-      <span class="status-pill">${result.pity_triggered ? "保底触发" : result.outcome === "win" ? "中奖" : "轮空"}</span>
+    <div class="result-hero">
+      <span class="result-icon">${escapeHtml(icon)}</span>
+      <div>
+        <div class="record-line">
+          <h3>${escapeHtml(result.title || "结果")}</h3>
+          <span class="status-pill">${result.pity_triggered ? "保底触发" : result.outcome === "win" ? "中奖" : "轮空"}</span>
+        </div>
+        <p class="muted">${escapeHtml(result.message || "")}</p>
+      </div>
     </div>
-    <p class="muted">${escapeHtml(result.message || "")}</p>
-    <p class="muted">本次消耗：${escapeHtml(result.payment_label || "-")}</p>
-    ${prize.name ? `<p class="muted">奖品：${escapeHtml(prize.icon || "🎁")} ${escapeHtml(prize.name)}</p>` : ""}
+    <div class="result-detail">
+      <p class="muted">本次消耗：${escapeHtml(result.payment_label || "-")}</p>
+      ${prize.name ? `<p class="muted">奖品：${escapeHtml(prize.name)}</p>` : ""}
+    </div>
   `;
 }
 
@@ -277,12 +321,15 @@ function applyPayload(payload = {}) {
 
   const dailyRemaining = payload.limits?.daily_remaining;
   const waitSeconds = Number(payload.limits?.wait_seconds || 0);
+  refs.limitMeter.dataset.hot = "false";
   if (waitSeconds > 0) {
     refs.limitMeter.textContent = `冷却 ${waitSeconds}s`;
   } else if (dailyRemaining === null || dailyRemaining === undefined) {
     refs.limitMeter.textContent = "次数不限";
+    refs.limitMeter.dataset.hot = "true";
   } else {
     refs.limitMeter.textContent = `剩余 ${dailyRemaining} · ${limits.user_level_text || "未知"}`;
+    refs.limitMeter.dataset.hot = Number(dailyRemaining) > 0 ? "true" : "false";
     if (Number(dailyRemaining) <= 0) refs.spinButton.disabled = true;
   }
 
@@ -342,11 +389,16 @@ async function spin() {
     const delay = Math.max(900 - (Date.now() - startedAt), 0);
     if (delay) await new Promise((resolve) => window.setTimeout(resolve, delay));
     await settleReels(payload.result?.reels || []);
+    const won = payload.result?.outcome === "win";
+    setMachineState("is-winning", won);
+    firePrizeBurst(payload.result?.outcome);
     applyPayload(payload);
     renderResult(payload.result);
-    setStatus(payload.result?.outcome === "win" ? "已中奖。" : "本次轮空。", payload.result?.outcome === "win" ? "success" : "info");
+    setStatus(won ? "已中奖。" : "本次轮空。", won ? "success" : "info");
+    if (won) window.setTimeout(() => setMachineState("is-winning", false), 2400);
   } catch (error) {
     stopReels();
+    setMachineState("is-winning", false);
     setStatus(String(error.message || error), "error");
   } finally {
     refs.refreshButton.disabled = false;
@@ -404,8 +456,8 @@ refs.listingForm?.addEventListener("submit", async (event) => {
   if (tg) {
     tg.ready();
     tg.expand();
-    tg.setHeaderColor("#17120f");
-    tg.setBackgroundColor("#111111");
+    tg.setHeaderColor("#0b1020");
+    tg.setBackgroundColor("#0b1020");
   }
   try {
     await bootstrap();
