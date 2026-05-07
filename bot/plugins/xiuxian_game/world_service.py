@@ -32,6 +32,8 @@ from bot.sql_helper.sql_xiuxian import (
     XiuxianPillInventory,
     XiuxianProfile,
     XiuxianRecipe,
+    XiuxianUserRecipe,
+    XiuxianUserTechnique,
     XiuxianRecipeIngredient,
     XiuxianSect,
     XiuxianSectRole,
@@ -73,6 +75,8 @@ from bot.sql_helper.sql_xiuxian import (
     grant_recipe_to_user,
     grant_talisman_to_user,
     grant_technique_to_user,
+    _queue_catalog_cache_invalidation,
+    _queue_user_view_cache_invalidation,
     list_achievements,
     list_recipe_ingredients,
     list_recipes,
@@ -1439,6 +1443,7 @@ def create_bounty_task(
     reward_stone_value = max(int(reward_stone or 0), 0)
     reward_cultivation_value = max(int(reward_cultivation or 0), 0)
     reward_scale_mode_value = str(reward_scale_mode or "fixed").strip() or "fixed"
+    max_claimants_value = max(int(max_claimants or 1), 1)
     publish_cost = 0
 
     if task_scope_value not in {"official", "sect", "personal"}:
@@ -1464,7 +1469,7 @@ def create_bounty_task(
         if metric_key:
             raise ValueError("答题任务暂不支持计数要求")
         should_push_group = True
-        max_claimants = 1
+        max_claimants_value = 1
     elif task_type_value == "metric":
         if _meaningful_text_length(description_value) < 6:
             raise ValueError("计数任务必须填写至少 6 个字的任务说明")
@@ -1499,8 +1504,10 @@ def create_bounty_task(
             raise ValueError("任务奖励物类型不支持")
         if reward_ref is None:
             raise ValueError("请选择任务奖励物")
-        if reward_kind in {"recipe", "technique"} and reward_qty <= 0:
+        if reward_kind in {"recipe", "technique"}:
             reward_qty = 1
+            if max_claimants_value > 1:
+                raise ValueError("配方和功法奖励只能发布单人委托")
         if reward_qty <= 0:
             raise ValueError("任务奖励物数量必须大于 0")
         if _get_item_payload(reward_kind, reward_ref) is None:
@@ -1537,6 +1544,8 @@ def create_bounty_task(
             if not sect_id:
                 raise ValueError("你尚未加入宗门")
 
+    reward_item_escrowed = False
+    escrow_reward_qty = reward_qty * max_claimants_value if reward_kind else 0
     with Session() as session:
         if actor_tg is not None:
             # 发布时对玩家记录加锁，防止并发发任务导致灵石重复扣减或余额穿透。
@@ -1553,6 +1562,13 @@ def create_bounty_task(
                     allow_dead=False,
                     apply_tribute=False,
                 )
+            reward_item_escrowed = _escrow_reward_item_for_task(
+                session,
+                actor_tg=actor_tg,
+                reward_kind=reward_kind,
+                reward_ref=reward_ref,
+                reward_qty=escrow_reward_qty,
+            )
 
         task_row = XiuxianTask(
             title=title_value,
@@ -1574,14 +1590,18 @@ def create_bounty_task(
             reward_item_kind=reward_kind,
             reward_item_ref_id=reward_ref,
             reward_item_quantity=reward_qty,
+            reward_item_escrowed=reward_item_escrowed,
             reward_scale_mode=reward_scale_mode_value,
-            max_claimants=max(int(max_claimants or 1), 1),
+            max_claimants=max_claimants_value,
             active_in_group=should_push_group,
             group_chat_id=group_chat_id,
             status="open",
             enabled=True,
         )
         session.add(task_row)
+        _queue_catalog_cache_invalidation(session, "tasks")
+        if actor_tg is not None:
+            _queue_user_view_cache_invalidation(session, actor_tg)
         session.commit()
         session.refresh(task_row)
         payload = _decorate_task_payload(serialize_task(task_row))
@@ -1590,6 +1610,78 @@ def create_bounty_task(
         payload["publish_cost"] = publish_cost
     return payload
 
+
+
+def _escrow_reward_item_for_task(
+    session: Session,
+    *,
+    actor_tg: int | None,
+    reward_kind: str | None,
+    reward_ref: int | None,
+    reward_qty: int,
+) -> bool:
+    if actor_tg is None or not reward_kind or not reward_ref or int(reward_qty or 0) <= 0:
+        return False
+    amount = 1 if reward_kind in {"recipe", "technique"} else max(int(reward_qty or 0), 1)
+    _consume_inventory_item_for_task(
+        session,
+        int(actor_tg),
+        str(reward_kind),
+        int(reward_ref),
+        amount,
+        action_label="扣押奖励",
+        allow_recipe_or_technique=True,
+    )
+    return True
+
+
+def _refund_task_reward_item_in_session(session: Session, task: XiuxianTask) -> dict[str, Any] | None:
+    if not bool(getattr(task, "reward_item_escrowed", False)):
+        return None
+    owner_tg = int(getattr(task, "owner_tg", 0) or 0)
+    reward_kind = str(getattr(task, "reward_item_kind", "") or "").strip()
+    reward_ref = int(getattr(task, "reward_item_ref_id", 0) or 0)
+    reward_qty = int(getattr(task, "reward_item_quantity", 0) or 0)
+    remaining_claimants = max(int(getattr(task, "max_claimants", 1) or 1) - int(getattr(task, "claimants_count", 0) or 0), 0)
+    if owner_tg <= 0 or not reward_kind or reward_ref <= 0 or reward_qty <= 0:
+        task.reward_item_escrowed = False
+        return None
+    refund_qty = reward_qty * remaining_claimants
+    if refund_qty <= 0:
+        task.reward_item_escrowed = False
+        return None
+    reward_item = _grant_item_in_session(
+        session,
+        owner_tg,
+        reward_kind,
+        reward_ref,
+        refund_qty,
+        source="task_refund",
+        obtained_note="撤销委托退还",
+    )
+    task.reward_item_escrowed = False
+    return reward_item
+
+
+def _consume_task_reward_escrow_in_session(session: Session, task: XiuxianTask, receiver_tg: int) -> dict[str, Any] | None:
+    reward_kind = str(getattr(task, "reward_item_kind", "") or "").strip()
+    reward_ref = int(getattr(task, "reward_item_ref_id", 0) or 0)
+    reward_qty = int(getattr(task, "reward_item_quantity", 0) or 0)
+    if not reward_kind or reward_ref <= 0 or reward_qty <= 0:
+        return None
+    reward_item = _grant_item_in_session(
+        session,
+        int(receiver_tg),
+        reward_kind,
+        reward_ref,
+        reward_qty,
+        source="task",
+        obtained_note="委托奖励",
+    )
+    if bool(getattr(task, "reward_item_escrowed", False)) and int(getattr(task, "claimants_count", 0) or 0) >= int(getattr(task, "max_claimants", 1) or 1):
+        task.reward_item_escrowed = False
+        task.updated_at = utcnow()
+    return reward_item
 
 def list_task_claims_for_user(tg: int) -> list[dict[str, Any]]:
     with Session() as session:
@@ -1660,9 +1752,12 @@ def cancel_task_for_user(tg: int, task_id: int) -> dict[str, Any]:
             if claim.status == "completed":
                 raise ValueError("任务已经完成，不能撤销")
             claim.status = "cancelled"
+        _refund_task_reward_item_in_session(session, task)
         task.status = "cancelled"
         task.active_in_group = False
         task.updated_at = utcnow()
+        _queue_catalog_cache_invalidation(session, "tasks")
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         session.refresh(task)
         serialized = _decorate_task_payload(serialize_task(task))
@@ -1697,17 +1792,27 @@ def _required_item_name(kind: str, ref_id: int) -> str:
     return f"{kind}#{ref_id}"
 
 
-def _consume_required_item(
+def _inventory_item_label(item_kind: str, item: dict[str, Any] | None) -> str:
+    if item and item.get("name"):
+        return str(item["name"])
+    return str(item_kind or "物品")
+
+
+def _consume_inventory_item_for_task(
     session: Session,
     tg: int,
     item_kind: str,
     item_ref_id: int,
     quantity: int,
+    *,
+    action_label: str,
+    allow_recipe_or_technique: bool = False,
 ) -> dict[str, Any]:
     amount = max(int(quantity or 0), 1)
     item = _get_item_payload(item_kind, int(item_ref_id))
     if item is None:
-        raise ValueError("任务要求的提交物不存在")
+        raise ValueError(f"{action_label}物品不存在")
+    item_name = _inventory_item_label(item_kind, item)
 
     row = None
     if item_kind == "artifact":
@@ -1738,11 +1843,37 @@ def _consume_required_item(
             .with_for_update()
             .first()
         )
+    elif item_kind == "recipe" and allow_recipe_or_technique:
+        row = (
+            session.query(XiuxianUserRecipe)
+            .filter(XiuxianUserRecipe.tg == tg, XiuxianUserRecipe.recipe_id == item_ref_id)
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            raise ValueError(f"{action_label}所需配方不足：{item_name} × 1")
+        session.delete(row)
+        return item
+    elif item_kind == "technique" and allow_recipe_or_technique:
+        row = (
+            session.query(XiuxianUserTechnique)
+            .filter(XiuxianUserTechnique.tg == tg, XiuxianUserTechnique.technique_id == item_ref_id)
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            raise ValueError(f"{action_label}所需功法不足：{item_name} × 1")
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
+        if profile is not None and int(profile.current_technique_id or 0) == int(item_ref_id):
+            profile.current_technique_id = None
+            profile.updated_at = utcnow()
+        session.delete(row)
+        return item
     else:
-        raise ValueError("暂不支持该类型的提交物")
+        raise ValueError(f"暂不支持该类型的{action_label}物品")
 
     if row is None or int(row.quantity or 0) < amount:
-        raise ValueError(f"提交所需物品不足：{item.get('name', '未知物品')} × {amount}")
+        raise ValueError(f"{action_label}所需物品不足：{item_name} × {amount}")
 
     if item_kind == "artifact":
         bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
@@ -1756,18 +1887,160 @@ def _consume_required_item(
         )
         available_quantity = int(row.quantity or 0) - bound_quantity - int(equipped_count or 0)
         if available_quantity < amount:
-            raise ValueError(f"提交所需法宝不足，已绑定或已装备的法宝无法提交：{item.get('name', '未知物品')} × {amount}")
+            raise ValueError(f"{action_label}所需法宝不足，已绑定或已装备的法宝无法使用：{item_name} × {amount}")
     elif item_kind == "talisman":
         bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
         available_quantity = int(row.quantity or 0) - bound_quantity
         if available_quantity < amount:
-            raise ValueError(f"提交所需符箓不足，已绑定的符箓无法提交：{item.get('name', '未知物品')} × {amount}")
+            raise ValueError(f"{action_label}所需符箓不足，已绑定的符箓无法使用：{item_name} × {amount}")
 
-    row.quantity -= amount
+    row.quantity = int(row.quantity or 0) - amount
     row.updated_at = utcnow()
     if row.quantity <= 0:
         session.delete(row)
     return item
+
+
+def _consume_required_item(
+    session: Session,
+    tg: int,
+    item_kind: str,
+    item_ref_id: int,
+    quantity: int,
+) -> dict[str, Any]:
+    return _consume_inventory_item_for_task(
+        session,
+        tg,
+        item_kind,
+        item_ref_id,
+        quantity,
+        action_label="提交",
+        allow_recipe_or_technique=False,
+    )
+
+
+def _grant_item_in_session(
+    session: Session,
+    tg: int,
+    kind: str,
+    ref_id: int,
+    quantity: int,
+    *,
+    source: str = "task",
+    obtained_note: str = "委托奖励",
+) -> dict[str, Any]:
+    amount = max(int(quantity or 0), 1)
+    normalized_kind = str(kind or "").strip()
+    if normalized_kind == "artifact":
+        artifact = get_artifact(int(ref_id))
+        if artifact is None:
+            raise ValueError("任务奖励物不存在")
+        row = (
+            session.query(XiuxianArtifactInventory)
+            .filter(XiuxianArtifactInventory.tg == int(tg), XiuxianArtifactInventory.artifact_id == int(ref_id))
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            row = XiuxianArtifactInventory(tg=int(tg), artifact_id=int(ref_id), quantity=0, bound_quantity=0)
+            session.add(row)
+        row.quantity = int(row.quantity or 0) + amount
+        row.bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
+        row.updated_at = utcnow()
+        return {"artifact": artifact, "quantity": int(row.quantity or 0), "bound_quantity": int(row.bound_quantity or 0)}
+    if normalized_kind == "pill":
+        pill = get_pill(int(ref_id))
+        if pill is None:
+            raise ValueError("任务奖励物不存在")
+        row = (
+            session.query(XiuxianPillInventory)
+            .filter(XiuxianPillInventory.tg == int(tg), XiuxianPillInventory.pill_id == int(ref_id))
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            row = XiuxianPillInventory(tg=int(tg), pill_id=int(ref_id), quantity=0)
+            session.add(row)
+        row.quantity = int(row.quantity or 0) + amount
+        row.updated_at = utcnow()
+        return {"pill": pill, "quantity": int(row.quantity or 0)}
+    if normalized_kind == "talisman":
+        talisman = get_talisman(int(ref_id))
+        if talisman is None:
+            raise ValueError("任务奖励物不存在")
+        row = (
+            session.query(XiuxianTalismanInventory)
+            .filter(XiuxianTalismanInventory.tg == int(tg), XiuxianTalismanInventory.talisman_id == int(ref_id))
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            row = XiuxianTalismanInventory(tg=int(tg), talisman_id=int(ref_id), quantity=0, bound_quantity=0)
+            session.add(row)
+        row.quantity = int(row.quantity or 0) + amount
+        row.bound_quantity = max(min(int(row.bound_quantity or 0), int(row.quantity or 0)), 0)
+        row.updated_at = utcnow()
+        return {"talisman": talisman, "quantity": int(row.quantity or 0), "bound_quantity": int(row.bound_quantity or 0)}
+    if normalized_kind == "material":
+        material = get_material(int(ref_id))
+        if material is None:
+            raise ValueError("任务奖励物不存在")
+        row = (
+            session.query(XiuxianMaterialInventory)
+            .filter(XiuxianMaterialInventory.tg == int(tg), XiuxianMaterialInventory.material_id == int(ref_id))
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            row = XiuxianMaterialInventory(tg=int(tg), material_id=int(ref_id), quantity=0)
+            session.add(row)
+        row.quantity = int(row.quantity or 0) + amount
+        row.updated_at = utcnow()
+        return {"material": material, "quantity": int(row.quantity or 0)}
+    if normalized_kind == "recipe":
+        recipe = get_recipe(int(ref_id))
+        if recipe is None:
+            raise ValueError("任务奖励物不存在")
+        row = (
+            session.query(XiuxianUserRecipe)
+            .filter(XiuxianUserRecipe.tg == int(tg), XiuxianUserRecipe.recipe_id == int(ref_id))
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            row = XiuxianUserRecipe(tg=int(tg), recipe_id=int(ref_id), source=source, obtained_note=obtained_note)
+            session.add(row)
+        else:
+            row.source = source or row.source
+            row.obtained_note = obtained_note or row.obtained_note
+            row.updated_at = utcnow()
+        return {"recipe": recipe, "quantity": 1}
+    if normalized_kind == "technique":
+        technique = get_technique(int(ref_id))
+        if technique is None:
+            raise ValueError("任务奖励物不存在")
+        profile = session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(tg)).with_for_update().first()
+        if profile is None:
+            profile = XiuxianProfile(tg=int(tg))
+            session.add(profile)
+        row = (
+            session.query(XiuxianUserTechnique)
+            .filter(XiuxianUserTechnique.tg == int(tg), XiuxianUserTechnique.technique_id == int(ref_id))
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            row = XiuxianUserTechnique(tg=int(tg), technique_id=int(ref_id), source=source, obtained_note=obtained_note)
+            session.add(row)
+        else:
+            row.source = source or row.source
+            row.obtained_note = obtained_note or row.obtained_note
+            row.updated_at = utcnow()
+        if not profile.current_technique_id:
+            profile.current_technique_id = int(ref_id)
+            profile.updated_at = utcnow()
+        return {"technique": technique, "quantity": 1}
+    raise ValueError("不支持的物品类型")
 
 
 def _grant_item_by_kind(tg: int, kind: str, ref_id: int, quantity: int) -> dict[str, Any]:
@@ -1802,6 +2075,8 @@ def _assert_reward_item_receivable(tg: int, kind: str | None, ref_id: int, quant
 
 
 def _award_task_rewards(tg: int, task: XiuxianTask) -> dict[str, Any]:
+    if task is None:
+        raise ValueError("任务不存在")
     _assert_reward_item_receivable(
         tg,
         getattr(task, "reward_item_kind", None),
@@ -1817,10 +2092,18 @@ def _award_task_rewards(tg: int, task: XiuxianTask) -> dict[str, Any]:
     cultivation_efficiency_percent = 100
     upgraded_layers: list[int] = []
     remaining = 0
+    reward_item = None
+    reward_kind = str(getattr(task, "reward_item_kind", "") or "").strip()
+    reward_ref = int(getattr(task, "reward_item_ref_id", 0) or 0)
+    reward_qty = int(getattr(task, "reward_item_quantity", 0) or 0)
+
     with Session() as session:
         updated = session.query(XiuxianProfile).filter(XiuxianProfile.tg == tg).with_for_update().first()
         if updated is None:
             raise ValueError("用户不存在")
+        task_row = session.query(XiuxianTask).filter(XiuxianTask.id == int(task.id)).with_for_update().first()
+        if task_row is None:
+            raise ValueError("任务不存在")
         if reward_stone > 0:
             apply_spiritual_stone_delta(
                 session,
@@ -1846,13 +2129,30 @@ def _award_task_rewards(tg: int, task: XiuxianTask) -> dict[str, Any]:
             )
             updated.realm_layer = layer
             updated.cultivation = cultivation
+        if reward_kind and reward_ref > 0 and reward_qty > 0:
+            if bool(getattr(task_row, "reward_item_escrowed", False)):
+                reward_item = _consume_task_reward_escrow_in_session(session, task_row, tg)
+            else:
+                reward_item = _grant_item_in_session(
+                    session,
+                    tg,
+                    reward_kind,
+                    reward_ref,
+                    reward_qty,
+                    source="task",
+                    obtained_note="委托奖励",
+                )
         updated.updated_at = utcnow()
+        _queue_catalog_cache_invalidation(session, "tasks")
+        affected_tgs = [tg]
+        owner_tg = int(getattr(task_row, "owner_tg", 0) or 0)
+        if owner_tg > 0:
+            affected_tgs.append(owner_tg)
+        _queue_user_view_cache_invalidation(session, *affected_tgs)
         session.commit()
+
     if cultivation_gain > 0:
         legacy_service._apply_profile_growth_floor(tg)
-    reward_item = None
-    if task.reward_item_kind and task.reward_item_ref_id and int(task.reward_item_quantity or 0) > 0:
-        reward_item = _grant_item_by_kind(tg, task.reward_item_kind, int(task.reward_item_ref_id), int(task.reward_item_quantity))
     return {
         "profile": _full_profile_bundle(tg)["profile"],
         "reward_stone": reward_stone,

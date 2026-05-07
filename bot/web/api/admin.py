@@ -827,9 +827,20 @@ def _normalize_code_create_payload(payload: AdminCodeCreatePayload) -> dict[str,
     }
 
 
-def _parse_generated_items(raw_output: str, method: str) -> list[dict[str, str | None]]:
+def _iter_generated_output_lines(raw_output: Any) -> list[str]:
+    if raw_output is None:
+        return []
+    if isinstance(raw_output, (list, tuple, set)):
+        lines: list[str] = []
+        for item in raw_output:
+            lines.extend(_iter_generated_output_lines(item))
+        return lines
+    return str(raw_output).splitlines()
+
+
+def _parse_generated_items(raw_output: Any, method: str) -> list[dict[str, str | None]]:
     items: list[dict[str, str | None]] = []
-    for line in (raw_output or "").splitlines():
+    for line in _iter_generated_output_lines(raw_output):
         value = line.strip()
         if not value:
             continue

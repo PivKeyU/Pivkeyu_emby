@@ -545,6 +545,7 @@ from .plugin_bot_handlers import (  # noqa: F401
     _full_bundle,
     _bootstrap_core_bundle,
     build_deferred_bundle_once,
+    build_deferred_section_once,
     _bundle_runtime_flags,
     _is_group_admin,
     _main_group_chat_id,
@@ -845,6 +846,18 @@ def register_web(app) -> None:
         return {
             "code": 200,
             "data": await build_deferred_bundle_once(telegram_user["id"]),
+        }
+
+    @user_router.post("/api/bootstrap/section/{section}")
+    async def xiuxian_bootstrap_section(section: str, payload: InitDataPayload):
+        telegram_user = await run_in_threadpool(_verify_user_from_init_data, payload.init_data)
+        try:
+            data = await build_deferred_section_once(telegram_user["id"], section)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "code": 200,
+            "data": data,
         }
 
     @user_router.post("/api/wiki")

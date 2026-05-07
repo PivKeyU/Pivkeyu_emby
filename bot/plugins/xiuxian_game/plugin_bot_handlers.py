@@ -229,6 +229,7 @@ from bot.plugins.xiuxian_game.features.miniapp_bundle import (
     build_bootstrap_core_bundle,
     build_deferred_profile_sections,
     build_full_profile_bundle,
+    build_profile_section_bundle,
 )
 from bot.plugins.xiuxian_game.features.pills import consume_pill_for_user
 from bot.plugins.xiuxian_game.features.retreat import finish_retreat_for_user, start_retreat_for_user
@@ -413,6 +414,7 @@ AUCTION_FINALIZE_TASKS: dict[int, asyncio.Task] = {}
 ARENA_FINALIZE_TASKS: dict[int, asyncio.Task] = {}
 EVENT_SUMMARY_MESSAGES: dict[int, int] = {}
 DEFERRED_BUNDLE_TASKS: dict[tuple[Any, ...], asyncio.Task] = {}
+DEFERRED_SECTION_TASKS: dict[tuple[Any, ...], asyncio.Task] = {}
 EVENT_SUMMARY_LAST_TEXTS: dict[int, str] = {}
 EVENT_SUMMARY_PINNED_MESSAGES: dict[int, int] = {}
 EVENT_SUMMARY_REFRESH_TASK: asyncio.Task | None = None
@@ -1657,6 +1659,44 @@ def _deferred_bundle_sections(tg: int) -> dict[str, Any]:
     )
 
 
+def _deferred_bundle_section(tg: int, section: str) -> dict[str, Any]:
+    from bot.plugins.xiuxian_game.cache import USER_VIEW_TTL, load_multi_versioned_json
+
+    normalized = str(section or "").strip().replace("-", "_")
+    flags = _bundle_runtime_flags(tg)
+    return load_multi_versioned_json(
+        version_part_groups=(
+            ("profile", tg),
+            ("user-view", tg),
+            ("settings",),
+            ("catalog", "achievements"),
+            ("catalog", "artifacts"),
+            ("catalog", "materials"),
+            ("catalog", "pills"),
+            ("catalog", "recipes"),
+            ("catalog", "scenes"),
+            ("catalog", "sects"),
+            ("catalog", "shop-items"),
+            ("catalog", "talismans"),
+            ("catalog", "tasks"),
+            ("catalog", "techniques"),
+            ("catalog", "titles"),
+        ),
+        cache_parts=(
+            "deferred-section",
+            normalized,
+            tg,
+            int(bool(flags.get("can_upload_images"))),
+            str(flags.get("upload_image_reason") or ""),
+            int(bool(flags.get("allow_non_admin_image_upload"))),
+            int(bool(flags.get("is_admin"))),
+            str(flags.get("admin_panel_url") or ""),
+        ),
+        ttl=min(USER_VIEW_TTL, DEFERRED_BUNDLE_TTL),
+        loader=lambda: build_profile_section_bundle(tg, normalized, **flags),
+    )
+
+
 async def build_deferred_bundle_once(tg: int) -> dict[str, Any]:
     flags = _bundle_runtime_flags(tg)
     key = (
@@ -1677,6 +1717,33 @@ async def build_deferred_bundle_once(tg: int) -> dict[str, Any]:
             current = DEFERRED_BUNDLE_TASKS.get(key)
             if current is done_task:
                 DEFERRED_BUNDLE_TASKS.pop(key, None)
+
+        task.add_done_callback(_cleanup)
+    return await task
+
+
+async def build_deferred_section_once(tg: int, section: str) -> dict[str, Any]:
+    normalized = str(section or "").strip().replace("-", "_")
+    flags = _bundle_runtime_flags(tg)
+    key = (
+        "deferred-section",
+        normalized,
+        int(tg),
+        int(bool(flags.get("can_upload_images"))),
+        str(flags.get("upload_image_reason") or ""),
+        int(bool(flags.get("allow_non_admin_image_upload"))),
+        int(bool(flags.get("is_admin"))),
+        str(flags.get("admin_panel_url") or ""),
+    )
+    task = DEFERRED_SECTION_TASKS.get(key)
+    if task is None or task.done():
+        task = asyncio.create_task(run_in_threadpool(_deferred_bundle_section, tg, normalized))
+        DEFERRED_SECTION_TASKS[key] = task
+
+        def _cleanup(done_task: asyncio.Task) -> None:
+            current = DEFERRED_SECTION_TASKS.get(key)
+            if current is done_task:
+                DEFERRED_SECTION_TASKS.pop(key, None)
 
         task.add_done_callback(_cleanup)
     return await task

@@ -13,6 +13,8 @@ const state = {
   deferredBundleLoading: false,
   deferredBundleLoaded: false,
   deferredBundlePromise: null,
+  deferredSectionsLoaded: new Set(),
+  deferredSectionPromises: new Map(),
   deferredBootstrapTimer: null,
   retreatTimingTimer: null,
   wikiFilter: "all",
@@ -961,6 +963,29 @@ const DEFERRED_SECTION_IDS = new Set([
   "gambling-card",
 ]);
 
+const DEFERRED_CARD_SECTIONS = {
+  "inventory-card": "inventory",
+  "technique-card": "technique",
+  "official-shop-card": "official_shop",
+  "official-recycle-card": "official_recycle",
+  "market-card": "market",
+  "auction-card": "auction",
+  "sect-card": "sect",
+  "task-card": "task",
+  "craft-card": "craft",
+  "explore-card": "explore",
+  "journal-card": "journal",
+  "gift-card": "gift",
+  "title-card": "title",
+  "furnace-card": "furnace",
+  "mentorship-card": "mentorship",
+  "commission-card": "commission",
+  "farm-card": "farm",
+  "marriage-card": "marriage",
+  "fishing-card": "fishing",
+  "gambling-card": "gambling",
+};
+
 const LAZY_SECTION_IDS = [
   ...DEFERRED_SECTION_IDS,
   "boss-card",
@@ -1571,12 +1596,15 @@ function renderLazyFoldCard(cardId, { force = false } = {}) {
     ensureLeaderboardLoaded().catch(() => null);
     return true;
   }
-  if (DEFERRED_SECTION_IDS.has(cardId) && !state.deferredBundleLoaded) {
-    setLazyCardLoading(cardId);
-    loadDeferredBundle({ silent: true })
-      .then(() => renderLazyFoldCard(cardId, { force: true }))
-      .catch(() => null);
-    return true;
+  if (DEFERRED_SECTION_IDS.has(cardId)) {
+    const section = DEFERRED_CARD_SECTIONS[cardId];
+    if (section && !state.deferredBundleLoaded && !state.deferredSectionsLoaded.has(section)) {
+      setLazyCardLoading(cardId);
+      loadDeferredSection(section, { silent: true })
+        .then(() => renderLazyFoldCard(cardId, { force: true }))
+        .catch(() => null);
+      return true;
+    }
   }
   const bundle = state.profileBundle;
   if (!bundle) return false;
@@ -2050,6 +2078,124 @@ function renderTaskRequirementSelect() {
   select.disabled = false;
   if (rows.some((row) => String(row.value) === String(previousValue))) {
     select.value = previousValue;
+  }
+}
+
+function taskRewardRows(kind) {
+  const bundle = state.profileBundle || {};
+  if (kind === "artifact") {
+    return (bundle.artifacts || [])
+      .map((row) => ({
+        value: row.artifact?.id,
+        label: `${row.artifact?.name || "未命名法宝"} · 可扣押 ${Number(row.consumable_quantity ?? row.quantity ?? 0)}`,
+        quantity: Number(row.consumable_quantity ?? row.quantity ?? 0),
+      }))
+      .filter((row) => Number(row.value || 0) > 0 && row.quantity > 0);
+  }
+  if (kind === "pill") {
+    return (bundle.pills || [])
+      .map((row) => ({
+        value: row.pill?.id,
+        label: `${row.pill?.name || "未命名丹药"} · 库存 ${Number(row.quantity || 0)}`,
+        quantity: Number(row.quantity || 0),
+      }))
+      .filter((row) => Number(row.value || 0) > 0 && row.quantity > 0);
+  }
+  if (kind === "talisman") {
+    return (bundle.talismans || [])
+      .map((row) => ({
+        value: row.talisman?.id,
+        label: `${row.talisman?.name || "未命名符箓"} · 可扣押 ${Number(row.consumable_quantity ?? row.quantity ?? 0)}`,
+        quantity: Number(row.consumable_quantity ?? row.quantity ?? 0),
+      }))
+      .filter((row) => Number(row.value || 0) > 0 && row.quantity > 0);
+  }
+  if (kind === "material") {
+    return (bundle.materials || [])
+      .map((row) => ({
+        value: row.material?.id,
+        label: `${row.material?.name || "未命名材料"} · 库存 ${Number(row.quantity || 0)}`,
+        quantity: Number(row.quantity || 0),
+      }))
+      .filter((row) => Number(row.value || 0) > 0 && row.quantity > 0);
+  }
+  if (kind === "recipe") {
+    return (bundle.recipes || [])
+      .map((row) => {
+        const recipe = row.recipe || row;
+        return { value: recipe?.id || row.recipe_id, label: `${recipe?.name || "未命名配方"} · 可扣押 1`, quantity: 1, uniqueReward: true };
+      })
+      .filter((row) => Number(row.value || 0) > 0);
+  }
+  if (kind === "technique") {
+    return (bundle.techniques || [])
+      .map((row) => {
+        const technique = row.technique || row;
+        return { value: technique?.id || row.technique_id, label: `${technique?.name || "未命名功法"} · 可扣押 1`, quantity: 1, uniqueReward: true };
+      })
+      .filter((row) => Number(row.value || 0) > 0);
+  }
+  return [];
+}
+
+function selectedTaskRewardRow() {
+  const kind = document.querySelector("#task-reward-kind")?.value || "";
+  const refId = document.querySelector("#task-reward-ref")?.value || "";
+  return taskRewardRows(kind).find((row) => String(row.value) === String(refId)) || null;
+}
+
+function taskRewardEscrowMultiplier() {
+  const taskType = document.querySelector("#task-type")?.value || "custom";
+  if (taskType === "quiz") return 1;
+  return Math.max(Number(document.querySelector("#task-max-claimants")?.value || 1), 1);
+}
+
+function renderTaskRewardSelect() {
+  const kind = document.querySelector("#task-reward-kind")?.value || "";
+  const select = document.querySelector("#task-reward-ref");
+  const quantityInput = document.querySelector("#task-reward-quantity");
+  if (!select) return;
+  const previousValue = select.value;
+  const rows = taskRewardRows(kind);
+  select.innerHTML = "";
+  select.disabled = !kind;
+  if (kind === "recipe" || kind === "technique") {
+    const quantityInput = document.querySelector("#task-reward-quantity");
+    if (quantityInput) quantityInput.value = "1";
+  }
+  if (!rows.length) {
+    select.innerHTML = `<option value="">${kind ? "暂无可作为奖励的物品" : "无"}</option>`;
+    select.value = "";
+    if (quantityInput) {
+      quantityInput.value = "0";
+      quantityInput.max = "0";
+      quantityInput.disabled = !kind;
+      quantityInput.readOnly = kind === "recipe" || kind === "technique";
+    }
+    return;
+  }
+  rows.forEach((row) => {
+    const option = document.createElement("option");
+    option.value = row.value;
+    option.textContent = row.label;
+    select.appendChild(option);
+  });
+  select.disabled = false;
+  if (rows.some((row) => String(row.value) === String(previousValue))) {
+    select.value = previousValue;
+  } else {
+    select.value = String(rows[0].value);
+  }
+  const selected = selectedTaskRewardRow() || rows[0];
+  if (quantityInput) {
+    const maxQuantity = Math.max(Number(selected?.quantity || 1), 1);
+    quantityInput.min = kind ? "1" : "0";
+    quantityInput.max = String(maxQuantity);
+    quantityInput.value = kind === "recipe" || kind === "technique"
+      ? "1"
+      : String(Math.min(Math.max(Number(quantityInput.value || 1), 1), maxQuantity));
+    quantityInput.disabled = !kind;
+    quantityInput.readOnly = kind === "recipe" || kind === "technique";
   }
 }
 
@@ -2941,11 +3087,12 @@ function renderTaskArea(bundle) {
   if (publishNote) {
     const limitText = dailyLimit > 0 ? `今日已发布 ${publishedToday}/${dailyLimit} 次。` : "今日发布次数不限。";
     publishNote.textContent = publishReason || (publishCost > 0
-      ? `当前发布一次任务需要消耗 ${publishCost} 灵石，且必须设置奖励。${limitText}`
-      : `发布前请补充清晰信息，且必须设置奖励。${limitText}`);
+      ? `当前发布一次任务需要消耗 ${publishCost} 灵石，物品奖励会从背包扣押。${limitText}`
+      : `发布前请补充清晰信息，物品奖励会从背包扣押。${limitText}`);
   }
   renderUserTaskMetricKeyOptions(bundle);
   renderTaskRequirementSelect();
+  renderTaskRewardSelect();
   const tasks = bundle.tasks || [];
   if (!tasks.length) {
     root.innerHTML = `<article class="stack-item"><strong>暂无任务</strong><p>主人、宗门或玩家发布悬赏后会出现在这里。</p></article>`;
@@ -3793,6 +3940,38 @@ function mergeBundleData(baseBundle, patchBundle) {
   return merged;
 }
 
+function clearDeferredSectionState() {
+  state.deferredSectionsLoaded?.clear?.();
+  state.deferredSectionPromises?.clear?.();
+}
+
+async function loadDeferredSection(section, { silent = false } = {}) {
+  const normalized = String(section || "").trim();
+  if (!normalized) return state.profileBundle;
+  if (state.deferredBundleLoaded || state.deferredSectionsLoaded.has(normalized)) {
+    return state.profileBundle;
+  }
+  if (state.deferredSectionPromises.has(normalized)) {
+    return state.deferredSectionPromises.get(normalized);
+  }
+  const request = (async () => {
+    const deferred = await postJson(`/plugins/xiuxian/api/bootstrap/section/${encodeURIComponent(normalized)}`);
+    state.profileBundle = mergeBundleData(state.profileBundle, deferred);
+    state.deferredSectionsLoaded.add(normalized);
+    applyProfileBundle(state.profileBundle);
+    return state.profileBundle;
+  })()
+    .catch((error) => {
+      if (!silent) throw error;
+      return state.profileBundle;
+    })
+    .finally(() => {
+      state.deferredSectionPromises.delete(normalized);
+    });
+  state.deferredSectionPromises.set(normalized, request);
+  return request;
+}
+
 async function loadDeferredBundle({ silent = false } = {}) {
   if (state.deferredBundleLoaded) return state.profileBundle;
   if (state.deferredBundlePromise) return state.deferredBundlePromise;
@@ -3805,6 +3984,7 @@ async function loadDeferredBundle({ silent = false } = {}) {
     const deferred = await postJson("/plugins/xiuxian/api/bootstrap/deferred");
     state.profileBundle = mergeBundleData(state.profileBundle, deferred);
     state.deferredBundleLoaded = true;
+    clearDeferredSectionState();
     applyProfileBundle(state.profileBundle);
     return state.profileBundle;
   })()
@@ -3827,6 +4007,7 @@ async function refreshBundle({ background = false } = {}) {
   const pendingBundle = takePendingBundleCandidate();
   if (pendingBundle) {
     state.deferredBundleLoaded = true;
+    clearDeferredSectionState();
     applyProfileBundle(pendingBundle);
     return pendingBundle;
   }
@@ -3837,6 +4018,7 @@ async function refreshBundle({ background = false } = {}) {
     if (!state.profileBundle) {
       state.deferredBundleLoaded = false;
       state.deferredBundlePromise = null;
+      clearDeferredSectionState();
       const payload = await postJson("/plugins/xiuxian/api/bootstrap");
       storeBootstrapCache(payload);
       renderBottomNav(payload.bottom_nav || []);
@@ -3845,6 +4027,7 @@ async function refreshBundle({ background = false } = {}) {
     }
     state.deferredBundleLoaded = false;
     state.deferredBundlePromise = null;
+    clearDeferredSectionState();
     const payload = await postJson("/plugins/xiuxian/api/bootstrap");
     storeBootstrapCache(payload);
     renderBottomNav(payload.bottom_nav || []);
@@ -3874,10 +4057,12 @@ function applyReturnedBundle(payload, { backgroundFallback = true } = {}) {
       const mergedBundle = state.profileBundle ? mergeBundleData(state.profileBundle, bundle) : bundle;
       state.deferredBundleLoaded = false;
       state.deferredBundlePromise = null;
+      clearDeferredSectionState();
       applyProfileBundle(mergedBundle);
       return Promise.resolve(mergedBundle);
     }
     state.deferredBundleLoaded = true;
+    clearDeferredSectionState();
     applyProfileBundle(bundle);
     return Promise.resolve(bundle);
   }
@@ -3917,6 +4102,7 @@ async function bootstrap() {
   renderWikiArea();
   state.deferredBundleLoaded = false;
   state.deferredBundlePromise = null;
+  clearDeferredSectionState();
   const cachedPayload = hydrateBootstrapCache();
   if (cachedPayload?.profile_bundle) {
     renderBottomNav(cachedPayload.bottom_nav || []);
@@ -5982,6 +6168,9 @@ function syncUserTaskComposer() {
   const requiredQuantity = document.querySelector("#task-required-quantity");
   const metricKey = document.querySelector("#task-metric-key");
   const metricTarget = document.querySelector("#task-metric-target");
+  const rewardKind = document.querySelector("#task-reward-kind");
+  const rewardRef = document.querySelector("#task-reward-ref");
+  const rewardQuantity = document.querySelector("#task-reward-quantity");
   renderUserTaskMetricKeyOptions();
   if (pushGroup) {
     if (isQuiz) pushGroup.checked = true;
@@ -6014,7 +6203,12 @@ function syncUserTaskComposer() {
     if (!isMetric) metricTarget.value = "0";
     metricTarget.disabled = !isMetric;
   }
+  if (rewardKind && !rewardKind.value) {
+    if (rewardRef) rewardRef.value = "";
+    if (rewardQuantity) rewardQuantity.value = "0";
+  }
   renderTaskRequirementSelect();
+  renderTaskRewardSelect();
 }
 
 function validateUserTaskComposer() {
@@ -6034,6 +6228,9 @@ function validateUserTaskComposer() {
   const requiredQuantity = Number(document.querySelector("#task-required-quantity")?.value || 0);
   const rewardStone = Number(document.querySelector("#task-reward-stone")?.value || 0);
   const rewardCultivation = Number(document.querySelector("#task-reward-cultivation")?.value || 0);
+  const rewardKind = document.querySelector("#task-reward-kind")?.value || "";
+  const rewardRef = Number(document.querySelector("#task-reward-ref")?.value || 0);
+  const rewardQuantity = Number(document.querySelector("#task-reward-quantity")?.value || 0);
   const metricKey = document.querySelector("#task-metric-key")?.value || "";
   const metricTarget = Number(document.querySelector("#task-metric-target")?.value || 0);
 
@@ -6075,8 +6272,30 @@ function validateUserTaskComposer() {
     }
   }
 
-  if (rewardStone <= 0 && rewardCultivation <= 0) {
-    return { title: "表单未完成", message: "悬赏任务至少需要设置灵石或修为奖励。", tone: "error" };
+  if (rewardKind) {
+    if (!rewardRef) {
+      const rewardSelect = document.querySelector("#task-reward-ref");
+      const message = rewardSelect?.disabled
+        ? "当前没有可作为奖励的物品，请先切换奖励物类型或取消物品奖励。"
+        : "请选择任务完成后要发放的奖励物。";
+      return { title: "表单未完成", message, tone: "error" };
+    }
+    if (rewardQuantity <= 0) {
+      return { title: "表单未完成", message: "奖励物数量必须大于 0。", tone: "error" };
+    }
+    const selectedReward = selectedTaskRewardRow();
+    const escrowMultiplier = taskRewardEscrowMultiplier();
+    if (selectedReward?.uniqueReward && escrowMultiplier > 1) {
+      return { title: "奖励不支持多人", message: "配方和功法奖励只能发布单人委托。", tone: "error" };
+    }
+    const requiredRewardQuantity = rewardQuantity * escrowMultiplier;
+    if (selectedReward && requiredRewardQuantity > Number(selectedReward.quantity || 0)) {
+      return { title: "库存不足", message: `奖励物库存不足，当前需要扣押 ${requiredRewardQuantity} 个，最多可提供 ${Number(selectedReward.quantity || 0)} 个。`, tone: "error" };
+    }
+  }
+
+  if (rewardStone <= 0 && rewardCultivation <= 0 && !rewardKind) {
+    return { title: "表单未完成", message: "悬赏任务至少需要设置灵石、修为或物品奖励。", tone: "error" };
   }
 
   return null;
@@ -6084,6 +6303,8 @@ function validateUserTaskComposer() {
 
 document.querySelector("#task-type")?.addEventListener("change", syncUserTaskComposer);
 document.querySelector("#task-required-kind")?.addEventListener("change", renderTaskRequirementSelect);
+document.querySelector("#task-reward-kind")?.addEventListener("change", renderTaskRewardSelect);
+document.querySelector("#task-reward-ref")?.addEventListener("change", renderTaskRewardSelect);
 document.querySelector("#sect-donate-kind")?.addEventListener("change", () => renderSectDonationSelect(state.profileBundle));
 
 document.querySelector("#open-admin-panel")?.addEventListener("click", () => {
@@ -6124,6 +6345,9 @@ userTaskForm?.addEventListener("submit", async (event) => {
       required_item_quantity: Number(document.querySelector("#task-required-quantity").value || 0),
       reward_stone: Number(document.querySelector("#task-reward-stone").value || 0),
       reward_cultivation: Number(document.querySelector("#task-reward-cultivation").value || 0),
+      reward_item_kind: document.querySelector("#task-reward-kind")?.value || null,
+      reward_item_ref_id: Number(document.querySelector("#task-reward-ref")?.value || 0) || null,
+      reward_item_quantity: Number(document.querySelector("#task-reward-quantity")?.value || 0),
       reward_scale_mode: document.querySelector("#task-reward-scale-mode").value,
       requirement_metric_key: document.querySelector("#task-metric-key").value || null,
       requirement_metric_target: Number(document.querySelector("#task-metric-target").value || 0),
@@ -6142,6 +6366,10 @@ userTaskForm?.addEventListener("submit", async (event) => {
     if (rewardStoneInput) rewardStoneInput.value = "10";
     const rewardCultivationInput = document.querySelector("#task-reward-cultivation");
     if (rewardCultivationInput) rewardCultivationInput.value = "0";
+    const rewardKindInput = document.querySelector("#task-reward-kind");
+    if (rewardKindInput) rewardKindInput.value = "";
+    const rewardQuantityInput = document.querySelector("#task-reward-quantity");
+    if (rewardQuantityInput) rewardQuantityInput.value = "0";
     const rewardScaleMode = document.querySelector("#task-reward-scale-mode");
     if (rewardScaleMode) rewardScaleMode.value = "fixed";
     const metricTargetInput = document.querySelector("#task-metric-target");

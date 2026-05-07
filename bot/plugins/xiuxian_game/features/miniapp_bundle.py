@@ -6,17 +6,31 @@ from bot.func_helper.emby_currency import get_emby_balance, get_exchange_setting
 from bot.sql_helper.sql_xiuxian import (
     DEFAULT_SETTINGS,
     SOCIAL_MODE_LABELS,
+    list_achievements,
+    list_auction_items,
+    list_equipped_artifacts,
     list_recent_journals,
+    list_recipes,
+    list_scenes,
+    list_scene_drops,
+    list_shop_items,
+    list_slave_profiles,
+    list_techniques,
     list_user_artifacts,
     list_user_materials,
     list_user_pills,
     list_user_recipes,
     list_user_talismans,
     list_user_techniques,
+    list_user_titles,
+    serialize_profile,
 )
+from bot.plugins.xiuxian_game.achievement_service import ACHIEVEMENT_METRIC_LABELS, build_user_achievement_overview
 from bot.plugins.xiuxian_game.features.exploration import _scene_requirement_state
+from bot.plugins.xiuxian_game.features.farm import build_farm_bundle
 from bot.plugins.xiuxian_game.features.fishing import build_fishing_bundle
 from bot.plugins.xiuxian_game.features.gambling import build_gambling_bundle
+from bot.plugins.xiuxian_game.features.growth import build_spirit_stone_commissions
 from bot.plugins.xiuxian_game.features.shop import attach_official_recycle_quotes
 from bot.plugins.xiuxian_game.service import (
     _apply_profile_growth_floor,
@@ -31,29 +45,71 @@ from bot.plugins.xiuxian_game.service import (
     _repair_profile_realm_state,
     _root_quality_payload,
     _settle_retreat_progress,
+    _self_profile_snapshot,
+    _build_user_technique_rows,
+    _pill_batch_use_note,
+    _pill_supports_batch_use,
+    _pill_usage_reason,
+    build_user_artifact_rows,
+    is_same_china_day,
+    build_mentorship_overview,
+    build_marriage_overview,
     build_progress,
+    format_realm_requirement,
     format_root,
     get_current_title,
     get_profile,
     get_active_duel_lock,
     get_xiuxian_settings,
-    is_same_china_day,
-    list_equipped_artifacts,
     list_user_techniques,
     profile_social_mode,
+    realm_requirement_met,
+    resolve_pill_effects,
+    resolve_talisman_effects,
+    resolve_title_effects,
     seclusion_cultivation_efficiency_percent,
     serialize_talisman,
     serialize_full_profile,
-    serialize_profile,
     get_talisman,
 )
 from bot.plugins.xiuxian_game.world_service import (
+    _get_active_exploration,
+    _get_item_payload,
+    _scene_exploration_counts,
     _user_task_daily_limit,
     _user_task_publish_count_today,
+    build_recipe_catalog,
     build_recipe_fragment_synthesis_catalog,
     get_current_sect_bundle,
     list_sects_for_user,
+    list_tasks_for_user,
 )
+
+
+VALID_PROFILE_SECTIONS = {
+    "inventory",
+    "technique",
+    "official_shop",
+    "official_recycle",
+    "market",
+    "auction",
+    "sect",
+    "task",
+    "craft",
+    "explore",
+    "journal",
+    "gift",
+    "title",
+    "furnace",
+    "mentorship",
+    "commission",
+    "farm",
+    "marriage",
+    "fishing",
+    "gambling",
+}
+
+INVENTORY_SECTION_KEYS = ("artifacts", "pills", "talismans", "materials", "recipes", "techniques")
 
 
 def build_full_profile_bundle(
@@ -122,6 +178,80 @@ def build_deferred_profile_sections(
         is_admin=is_admin,
         admin_panel_url=admin_panel_url,
     )
+
+
+def build_profile_section_bundle(
+    tg: int,
+    section: str,
+    *,
+    can_upload_images: bool = False,
+    upload_image_reason: str = "",
+    allow_non_admin_image_upload: bool = False,
+    is_admin: bool = False,
+    admin_panel_url: str | None = None,
+) -> dict[str, Any]:
+    normalized = str(section or "").strip().replace("-", "_")
+    if normalized not in VALID_PROFILE_SECTIONS:
+        raise ValueError("未知的延迟加载模块")
+
+    bundle = build_bootstrap_core_bundle(
+        tg,
+        can_upload_images=can_upload_images,
+        upload_image_reason=upload_image_reason,
+        allow_non_admin_image_upload=allow_non_admin_image_upload,
+        is_admin=is_admin,
+        admin_panel_url=admin_panel_url,
+    )
+    if normalized in {"inventory", "gift", "official_recycle", "market", "auction", "task", "craft", "gambling"}:
+        _attach_inventory_section(bundle, tg)
+
+    if normalized == "inventory" or normalized == "gift":
+        attach_official_recycle_quotes(bundle)
+    elif normalized == "technique":
+        bundle["techniques"] = _build_technique_rows(bundle, tg)
+        bundle["technique_owned_count"] = len(bundle["techniques"])
+        bundle["technique_total_count"] = len(list_techniques(enabled_only=True))
+    elif normalized == "official_shop":
+        bundle.update(_build_official_shop_section())
+    elif normalized == "official_recycle":
+        bundle["techniques"] = _build_technique_rows(bundle, tg)
+        bundle["recipes"] = list_user_recipes(tg, enabled_only=False)
+        attach_official_recycle_quotes(bundle)
+    elif normalized == "market":
+        bundle.update(_build_market_section(tg))
+    elif normalized == "auction":
+        bundle.update(_build_auction_section(tg))
+    elif normalized == "sect":
+        bundle.update(_build_core_world_bundle(tg))
+    elif normalized == "task":
+        bundle.update(_build_task_section(tg))
+    elif normalized == "craft":
+        bundle.update(_build_craft_section(tg))
+    elif normalized == "explore":
+        bundle.update(_build_explore_section(tg, bundle))
+    elif normalized == "journal":
+        bundle["journal"] = list_recent_journals(tg)
+    elif normalized == "title":
+        bundle.update(_build_title_section(tg, bundle))
+    elif normalized == "furnace":
+        bundle.update(_build_furnace_section(tg, bundle))
+    elif normalized == "mentorship":
+        bundle["mentorship"] = build_mentorship_overview(tg, bundle=_self_profile_snapshot(bundle))
+    elif normalized == "commission":
+        bundle["commissions"] = build_spirit_stone_commissions(tg)
+    elif normalized == "farm":
+        bundle["farm"] = build_farm_bundle(tg)
+    elif normalized == "marriage":
+        marriage = build_marriage_overview(tg, bundle=_self_profile_snapshot(bundle))
+        bundle["marriage"] = marriage
+        bundle["capabilities"]["shared_inventory_enabled"] = bool(marriage.get("shared_assets_enabled"))
+        bundle["capabilities"]["shared_inventory_note"] = str(marriage.get("shared_assets_hint") or "")
+    elif normalized == "fishing":
+        bundle["fishing"] = build_fishing_bundle(tg)
+    elif normalized == "gambling":
+        bundle["gambling"] = build_gambling_bundle(tg, bundle=bundle)
+    bundle["bundle_section"] = normalized
+    return bundle
 
 
 def build_fishing_cast_bundle_patch(
@@ -351,6 +481,224 @@ def _build_core_profile_bundle(tg: int) -> dict[str, Any]:
         "technique_total_count": 0,
     }
     return bundle
+
+
+def _inventory_context(bundle: dict[str, Any], tg: int) -> dict[str, Any]:
+    profile = bundle.get("profile") or {}
+    settings = bundle.get("settings") or {}
+    retreating = bool(bundle.get("capabilities", {}).get("is_in_retreat"))
+    equipped_rows = list_equipped_artifacts(tg)
+    equipped_ids: set[int] = set()
+    equipped_slot_names: set[str] = set()
+    for row in equipped_rows:
+        artifact = row.get("artifact") or {}
+        if int(artifact.get("id") or 0) > 0:
+            equipped_ids.add(int(artifact["id"]))
+        slot = str(row.get("slot") or artifact.get("equip_slot") or "").strip()
+        if slot:
+            equipped_slot_names.add(slot)
+    equip_limit = max(int(settings.get("artifact_equip_limit") or bundle.get("capabilities", {}).get("artifact_equip_limit") or 1), 1)
+    return {
+        "profile": profile,
+        "retreating": retreating,
+        "equipped_ids": equipped_ids,
+        "equipped_slot_names": equipped_slot_names,
+        "equip_limit": equip_limit,
+    }
+
+
+def _build_artifact_rows(bundle: dict[str, Any], tg: int) -> list[dict[str, Any]]:
+    context = _inventory_context(bundle, tg)
+    return build_user_artifact_rows(
+        context["profile"],
+        tg,
+        bool(context["retreating"]),
+        int(context["equip_limit"]),
+        context["equipped_ids"],
+        context["equipped_slot_names"],
+    )
+
+
+def _build_pill_rows(bundle: dict[str, Any], tg: int) -> list[dict[str, Any]]:
+    profile = bundle.get("profile") or {}
+    rows = []
+    for row in list_user_pills(tg):
+        item = row.get("pill") or {}
+        item["resolved_effects"] = resolve_pill_effects(profile, item)
+        reason = _pill_usage_reason(profile, item)
+        row["pill"]["usable"] = not reason
+        row["pill"]["unusable_reason"] = reason
+        batch_usable = _pill_supports_batch_use(item)
+        row["pill"]["batch_usable"] = batch_usable
+        row["pill"]["batch_use_max"] = max(int(row.get("quantity") or 0), 0) if batch_usable else 1
+        row["pill"]["batch_use_note"] = _pill_batch_use_note(item)
+        rows.append(row)
+    return rows
+
+
+def _build_talisman_rows(bundle: dict[str, Any], tg: int) -> list[dict[str, Any]]:
+    profile = bundle.get("profile") or {}
+    retreating = bool(bundle.get("capabilities", {}).get("is_in_retreat"))
+    rows = []
+    for row in list_user_talismans(tg):
+        total_quantity = max(int(row.get("quantity") or 0), 0)
+        bound_quantity = max(min(int(row.get("bound_quantity") or 0), total_quantity), 0)
+        item = row.get("talisman") or {}
+        item["resolved_effects"] = resolve_talisman_effects(profile, item)
+        usable = realm_requirement_met(profile, item.get("min_realm_stage"), item.get("min_realm_layer"))
+        reason = "" if usable else f"需要达到 {format_realm_requirement(item.get('min_realm_stage'), item.get('min_realm_layer'))}"
+        if profile.get("active_talisman_id") and profile.get("active_talisman_id") != item.get("id"):
+            usable = False
+            reason = "你已经预装了一张待生效的符箓"
+        row["bound_quantity"] = bound_quantity
+        row["unbound_quantity"] = max(total_quantity - bound_quantity, 0)
+        row["consumable_quantity"] = row["unbound_quantity"]
+        row["tradeable_quantity"] = row["unbound_quantity"]
+        item["usable"] = usable and not retreating
+        item["active"] = profile.get("active_talisman_id") == item.get("id")
+        item["unusable_reason"] = "闭关之中，法力内收，不宜引动符箓外力。" if usable and not item["active"] and retreating else reason
+        item["bound"] = bound_quantity > 0
+        item["bound_quantity"] = bound_quantity
+        rows.append(row)
+    return rows
+
+
+def _build_technique_rows(bundle: dict[str, Any], tg: int) -> list[dict[str, Any]]:
+    return _build_user_technique_rows(bundle.get("profile") or {}, tg)
+
+
+def _attach_inventory_section(bundle: dict[str, Any], tg: int) -> None:
+    bundle["artifacts"] = _build_artifact_rows(bundle, tg)
+    bundle["pills"] = _build_pill_rows(bundle, tg)
+    bundle["talismans"] = _build_talisman_rows(bundle, tg)
+    bundle["materials"] = list_user_materials(tg)
+    bundle["recipes"] = list_user_recipes(tg, enabled_only=False)
+    bundle["techniques"] = _build_technique_rows(bundle, tg)
+    bundle["technique_owned_count"] = len(bundle["techniques"])
+    bundle["technique_total_count"] = len(list_techniques(enabled_only=True))
+    bundle["recipe_discovered_count"] = len(bundle["recipes"])
+
+
+def _build_official_shop_section() -> dict[str, Any]:
+    settings = get_xiuxian_settings()
+    return {
+        "official_shop": list_shop_items(official_only=True),
+        "settings": {
+            "official_shop_name": str(
+                settings.get("official_shop_name", DEFAULT_SETTINGS["official_shop_name"])
+                or DEFAULT_SETTINGS["official_shop_name"]
+            ),
+        },
+    }
+
+
+def _build_market_section(tg: int) -> dict[str, Any]:
+    all_personal_shop = list_shop_items(official_only=False)
+    return {
+        "personal_shop": [item for item in all_personal_shop if int(item.get("owner_tg") or 0) == int(tg)],
+        "community_shop": [item for item in all_personal_shop if int(item.get("owner_tg") or 0) not in {0, int(tg)}],
+    }
+
+
+def _build_auction_section(tg: int) -> dict[str, Any]:
+    all_active_auctions = list_auction_items(status="active")
+    settings = get_xiuxian_settings()
+    return {
+        "community_auctions": [item for item in all_active_auctions if int(item.get("owner_tg") or 0) != int(tg)],
+        "personal_auctions": list_auction_items(owner_tg=tg, include_inactive=True, limit=20),
+        "settings": {
+            "auction_fee_percent": max(int(settings.get("auction_fee_percent", DEFAULT_SETTINGS["auction_fee_percent"]) or 0), 0),
+            "auction_duration_minutes": max(int(settings.get("auction_duration_minutes", DEFAULT_SETTINGS["auction_duration_minutes"]) or 0), 1),
+        },
+    }
+
+
+def _build_task_section(tg: int) -> dict[str, Any]:
+    settings = get_xiuxian_settings()
+    return {
+        "tasks": list_tasks_for_user(tg),
+        "achievement_metric_presets": [
+            {"key": key, "label": label}
+            for key, label in sorted(ACHIEVEMENT_METRIC_LABELS.items(), key=lambda item: item[1])
+        ],
+        "settings": {
+            "allow_user_task_publish": bool(settings.get("allow_user_task_publish", DEFAULT_SETTINGS["allow_user_task_publish"])),
+            "task_publish_cost": max(int(settings.get("task_publish_cost", DEFAULT_SETTINGS["task_publish_cost"]) or 0), 0),
+            "user_task_daily_limit": _user_task_daily_limit(),
+            "user_task_published_today": _user_task_publish_count_today(tg),
+        },
+    }
+
+
+def _build_craft_section(tg: int) -> dict[str, Any]:
+    recipes = build_recipe_catalog(tg)
+    return {
+        "recipes": recipes,
+        "recipe_discovered_count": len(recipes),
+        "recipe_total_count": len(list_recipes(enabled_only=True)),
+        "recipe_fragment_syntheses": build_recipe_fragment_synthesis_catalog(tg),
+    }
+
+
+def _build_explore_section(tg: int, bundle: dict[str, Any]) -> dict[str, Any]:
+    scenes = list_scenes(enabled_only=True)
+    exploration_counts = _scene_exploration_counts(tg)
+    for scene in scenes:
+        scene["drops"] = list_scene_drops(scene["id"])
+        for drop in scene["drops"]:
+            item = _get_item_payload(str(drop.get("reward_kind") or ""), int(drop.get("reward_ref_id") or 0))
+            drop["reward_name"] = (item or {}).get("name") or f"{drop.get('reward_kind_label') or drop.get('reward_kind')}"
+        for event in scene.get("event_pool") or []:
+            if int((event or {}).get("bonus_reward_ref_id") or 0) > 0:
+                item = _get_item_payload(str(event.get("bonus_reward_kind") or ""), int(event.get("bonus_reward_ref_id") or 0))
+                event["bonus_reward_name"] = (item or {}).get("name")
+        scene["user_exploration_count"] = exploration_counts.get(int(scene["id"]), 0)
+    result = {
+        "scenes": scenes,
+        "active_exploration": _get_active_exploration(tg),
+    }
+    merged = {**bundle, **result}
+    _apply_scene_requirement_state(merged)
+    result["scenes"] = merged.get("scenes") or scenes
+    return result
+
+
+def _build_title_section(tg: int, bundle: dict[str, Any]) -> dict[str, Any]:
+    profile = bundle.get("profile") or {}
+    current_title_id = int(profile.get("current_title_id") or 0)
+    titles = []
+    for row in list_user_titles(tg):
+        title = row.get("title") or {}
+        title["resolved_effects"] = resolve_title_effects(profile, title)
+        title["equipped"] = int(title.get("id") or 0) == current_title_id
+        title["action_label"] = "卸下称号" if title["equipped"] else "佩戴称号"
+        row["title"] = title
+        titles.append(row)
+    achievement_overview = build_user_achievement_overview(tg)
+    return {
+        "titles": titles,
+        "achievements": achievement_overview.get("achievements") or [],
+        "achievement_metric_progress": achievement_overview.get("metric_progress") or {},
+        "achievement_unlocked_count": int(achievement_overview.get("unlocked_count") or 0),
+        "achievement_total_count": int(achievement_overview.get("total_count") or len(list_achievements(enabled_only=True)) or 0),
+    }
+
+
+def _build_furnace_section(tg: int, bundle: dict[str, Any]) -> dict[str, Any]:
+    from bot.plugins.xiuxian_game.service import _decorate_furnace_profile_for_owner
+
+    profile = bundle.get("profile") or {}
+    profile_obj = get_profile(tg, create=False)
+    master_profile = serialize_profile(get_profile(int(profile.get("master_tg") or 0), create=False)) if profile.get("master_tg") else None
+    slave_profiles = [_decorate_furnace_profile_for_owner(profile, row) for row in list_slave_profiles(tg)]
+    profile["master_name"] = (master_profile or {}).get("display_label")
+    profile["slave_names"] = [item.get("display_label") or f"TG {item.get('tg')}" for item in slave_profiles]
+    profile["furnace_harvested_today"] = is_same_china_day(profile_obj.furnace_harvested_at if profile_obj else None, utcnow_placeholder())
+    return {
+        "profile": profile,
+        "master_profile": master_profile,
+        "slave_profiles": slave_profiles,
+    }
 
 
 def _prepare_profile_state(tg: int) -> None:
