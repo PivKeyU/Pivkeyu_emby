@@ -24,8 +24,9 @@
         </div>
       </div>
       <div class="toolbar">
-        <a id="slot-admin-entry" class="icon-link hidden" href="/plugins/slot-box/admin" aria-label="后台">⚙</a>
-        <a class="icon-link" href="/miniapp" aria-label="主页">⌂</a>
+        <a id="slot-admin-entry" class="icon-link hidden" href="/plugins/slot-box/admin" aria-label="后台" title="后台"><span class="icon-symbol">⚙</span></a>
+        <a class="icon-link" href="/plugins/shop/app" aria-label="Emby 商店" title="Emby 商店"><span class="icon-symbol">🛒</span></a>
+        <a class="icon-link" href="/miniapp" aria-label="主页" title="主页"><span class="icon-symbol">⌂</span></a>
       </div>
     </section>
 
@@ -40,8 +41,8 @@
         <div class="reel" data-reel="2">🎫</div>
       </div>
       <div class="machine-actions">
-        <button id="spin-button" type="button">开始</button>
-        <button id="refresh-button" type="button" class="secondary">刷新</button>
+        <button id="spin-button" type="button"><span class="button-icon">▶</span><span>开始</span></button>
+        <button id="refresh-button" type="button" class="secondary"><span class="button-icon">↻</span><span>刷新</span></button>
       </div>
       <p id="app-status" class="status-line muted">正在加载。</p>
       <div id="result-panel" class="result-panel hidden"></div>
@@ -112,7 +113,7 @@
             <input id="redeem-code" type="text" maxlength="40" placeholder="输入兑换码">
           </label>
           <div class="form-actions wide">
-            <button id="redeem-submit" type="submit" class="secondary">兑换</button>
+            <button id="redeem-submit" type="submit" class="secondary"><span class="button-icon">✦</span><span>兑换</span></button>
           </div>
         </form>
         <form id="transfer-form" class="grid-form compact-form">
@@ -129,42 +130,31 @@
             <input id="transfer-quantity" type="number" min="1" value="1">
           </label>
           <label class="wide">
-            接收方 TGID
-            <input id="transfer-target" type="number" placeholder="例如 123456789">
+            接收方
+            <input id="transfer-target-query" type="search" placeholder="输入 TG 昵称、@username 或 TGID 搜索">
+            <input id="transfer-target" type="hidden">
           </label>
+          <div id="transfer-target-results" class="target-result-list wide hidden"></div>
+          <p id="transfer-target-selected" class="selected-target wide muted">尚未选择接收方。</p>
           <div class="form-actions wide">
-            <button id="transfer-submit" type="submit" class="secondary">转赠</button>
+            <button id="transfer-submit" type="submit" class="secondary"><span class="button-icon">⇄</span><span>转赠</span></button>
           </div>
         </form>
       </div>
 
-      <div class="panel">
+      <div class="panel shop-link-panel">
         <div class="panel-head">
-          <h2>Emby 商店</h2>
-          <span class="status-pill">背包交易</span>
+          <h2>Emby 商店联动</h2>
+          <span class="status-pill">统一交易</span>
         </div>
-        <form id="listing-form" class="grid-form compact-form">
-          <label>
-            物品
-            <select id="listing-type">
-              <option value="free_spin_ticket">抽奖券</option>
-              <option value="group_invite_credit">邀请资格</option>
-              <option value="account_open_credit">开号资格</option>
-            </select>
-          </label>
-          <label>
-            数量
-            <input id="listing-quantity" type="number" min="1" value="1">
-          </label>
-          <label class="wide">
-            价格
-            <input id="listing-price" type="number" min="0" value="10">
-          </label>
-          <div class="form-actions wide">
-            <button id="listing-submit" type="submit" class="secondary">上架</button>
+        <div class="shop-bridge">
+          <div class="bridge-orbit" aria-hidden="true"><span>🛒</span><span>🎰</span><span>💎</span></div>
+          <p class="muted">交易、购买和上架统一进入 Emby 商店插件处理，老虎机只保留抽奖、背包兑换和转赠。</p>
+          <div class="form-actions">
+            <a class="button-link shop-bridge-button" href="/plugins/shop/app"><span class="button-icon">🛒</span><span>进入 Emby 商店</span></a>
+            <a id="shop-admin-link" class="button-link secondary hidden" href="/plugins/shop/admin"><span class="button-icon">◈</span><span>商店后台</span></a>
           </div>
-        </form>
-        <div id="market-list" class="record-list"></div>
+        </div>
       </div>
     </section>
   </main>

@@ -5,7 +5,11 @@ const state = {
   payload: null,
   symbols: ["🎁", "◇", "🎫", "★"],
   spinning: false,
-  reelTimers: []
+  reelTimers: [],
+  transferTarget: null,
+  transferSearchTimer: null,
+  transferSearchSeq: 0,
+  transferSearchResults: []
 };
 
 const refs = {
@@ -32,13 +36,15 @@ const refs = {
   prizeList: document.querySelector("#prize-list"),
   recordList: document.querySelector("#record-list"),
   backpackList: document.querySelector("#backpack-list"),
-  marketList: document.querySelector("#market-list"),
   redeemForm: document.querySelector("#redeem-form"),
   redeemSubmit: document.querySelector("#redeem-submit"),
   transferForm: document.querySelector("#transfer-form"),
   transferSubmit: document.querySelector("#transfer-submit"),
-  listingForm: document.querySelector("#listing-form"),
-  listingSubmit: document.querySelector("#listing-submit"),
+  transferTargetQuery: document.querySelector("#transfer-target-query"),
+  transferTargetInput: document.querySelector("#transfer-target"),
+  transferTargetResults: document.querySelector("#transfer-target-results"),
+  transferTargetSelected: document.querySelector("#transfer-target-selected"),
+  shopAdminLink: document.querySelector("#shop-admin-link"),
   bottomNav: document.querySelector("#bottom-nav"),
   machineBand: document.querySelector(".machine-band")
 };
@@ -220,50 +226,82 @@ function renderBackpack(items = []) {
         <span class="rate-text">x${escapeHtml(item.quantity ?? 0)}</span>
       </div>
       <h3>${escapeHtml(item.label || item.type)}</h3>
-      <p class="muted">可转赠或上架交易。</p>
+      <p class="muted">可转赠；交易请前往 Emby 商店。</p>
     </article>
   `).join("");
 }
 
-function renderMarket(listings = []) {
-  if (!refs.marketList) return;
-  if (!listings.length) {
-    refs.marketList.innerHTML = `<div class="empty">暂无上架物品。</div>`;
+function targetMetaLine(item = {}) {
+  const parts = [];
+  if (item.username) parts.push(`@${item.username}`);
+  if (item.emby_name) parts.push(`Emby ${item.emby_name}`);
+  if (item.embyid) parts.push(item.embyid);
+  parts.push(`TG ${item.tg}`);
+  return parts.filter(Boolean).join(" · ");
+}
+
+function renderTransferTargets(items = []) {
+  state.transferSearchResults = Array.isArray(items) ? items : [];
+  if (!refs.transferTargetResults) return;
+  if (!state.transferSearchResults.length) {
+    refs.transferTargetResults.classList.remove("hidden");
+    refs.transferTargetResults.innerHTML = `<div class="empty compact-empty">没有找到匹配用户。</div>`;
     return;
   }
-  const myId = Number(state.payload?.account?.tg || 0);
-  refs.marketList.innerHTML = listings.map((item, index) => `
-    <article class="record-item" style="--i:${index}">
-      <div class="record-line">
-        <strong>${escapeHtml(item.item_icon || "◇")} ${escapeHtml(item.item_label || item.item_type)} x${escapeHtml(item.quantity)}</strong>
-        <span class="status-pill">${escapeHtml(item.price_iv)} ${escapeHtml(state.payload?.settings?.currency_name || "")}</span>
-      </div>
-      <p class="muted">卖家：${escapeHtml(item.seller_display || item.seller_tg)} · ${escapeHtml(item.created_at || "")}</p>
-      <div class="form-actions">
-        ${Number(item.seller_tg) === myId
-          ? `<button type="button" class="secondary" data-cancel-listing="${escapeHtml(item.id)}">下架</button>`
-          : `<button type="button" class="secondary" data-buy-listing="${escapeHtml(item.id)}">购买</button>`}
-      </div>
-    </article>
+  refs.transferTargetResults.classList.remove("hidden");
+  refs.transferTargetResults.innerHTML = state.transferSearchResults.map((item) => `
+    <button type="button" class="target-result" data-target-tg="${escapeHtml(item.tg)}" ${item.is_self ? "disabled" : ""}>
+      <span class="target-avatar">${escapeHtml((item.display_label || "TG").slice(0, 1).toUpperCase())}</span>
+      <span class="target-main">
+        <strong>${escapeHtml(item.display_label || `TG ${item.tg}`)}</strong>
+        <small>${escapeHtml(targetMetaLine(item))}${item.is_self ? " · 不能转赠给自己" : ""}</small>
+      </span>
+    </button>
   `).join("");
+}
 
-  refs.marketList.querySelectorAll("[data-buy-listing]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      await mutateWithButton(button, "购买中", "/plugins/slot-box/api/listing/purchase", {
-        init_data: state.initData,
-        listing_id: button.dataset.buyListing
-      }, "购买完成。");
-    });
-  });
+function clearTransferTarget() {
+  state.transferTarget = null;
+  if (refs.transferTargetInput) refs.transferTargetInput.value = "";
+  if (refs.transferTargetSelected) refs.transferTargetSelected.textContent = "尚未选择接收方。";
+}
 
-  refs.marketList.querySelectorAll("[data-cancel-listing]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      await mutateWithButton(button, "下架中", "/plugins/slot-box/api/listing/cancel", {
-        init_data: state.initData,
-        listing_id: button.dataset.cancelListing
-      }, "已下架。");
+function selectTransferTarget(item = {}) {
+  state.transferTarget = item;
+  if (refs.transferTargetInput) refs.transferTargetInput.value = String(item.tg || "");
+  if (refs.transferTargetQuery) refs.transferTargetQuery.value = item.display_label || `TG ${item.tg}`;
+  if (refs.transferTargetSelected) {
+    refs.transferTargetSelected.textContent = `已选择：${item.display_label || `TG ${item.tg}`}（TG ${item.tg}）`;
+  }
+  refs.transferTargetResults?.classList.add("hidden");
+}
+
+async function searchTransferTargets(query) {
+  const normalized = String(query || "").trim();
+  clearTransferTarget();
+  if (!normalized || (normalized.length < 2 && !/^@?\d+$/.test(normalized))) {
+    state.transferSearchResults = [];
+    refs.transferTargetResults?.classList.add("hidden");
+    return;
+  }
+  const seq = ++state.transferSearchSeq;
+  refs.transferTargetResults?.classList.remove("hidden");
+  if (refs.transferTargetResults) {
+    refs.transferTargetResults.innerHTML = `<div class="empty compact-empty">正在搜索...</div>`;
+  }
+  try {
+    const payload = await request("/plugins/slot-box/api/transfer-targets", {
+      init_data: state.initData,
+      query: normalized
     });
-  });
+    if (seq !== state.transferSearchSeq) return;
+    renderTransferTargets(payload.items || []);
+  } catch (error) {
+    if (seq !== state.transferSearchSeq) return;
+    if (refs.transferTargetResults) {
+      refs.transferTargetResults.innerHTML = `<div class="empty compact-empty">${escapeHtml(error.message || "搜索失败")}</div>`;
+    }
+  }
 }
 
 function renderResult(result) {
@@ -340,15 +378,18 @@ function applyPayload(payload = {}) {
     refs.adminEntry.classList.add("hidden");
   }
 
+  if (refs.shopAdminLink) {
+    refs.shopAdminLink.classList.toggle("hidden", !payload.permissions?.is_admin);
+  }
+
   renderPrizes(payload.prizes || []);
   renderRecords(payload.records || []);
   renderBackpack(payload.backpack || []);
-  renderMarket(payload.market_listings || []);
   renderBottomNav(payload.meta?.bottom_nav || []);
 }
 
 async function mutateWithButton(button, pendingText, url, payload, successText) {
-  const previous = button.textContent;
+  const previous = button.innerHTML;
   button.disabled = true;
   button.textContent = pendingText;
   try {
@@ -359,7 +400,7 @@ async function mutateWithButton(button, pendingText, url, payload, successText) 
     setStatus(String(error.message || error), "error");
   } finally {
     button.disabled = false;
-    button.textContent = previous;
+    button.innerHTML = previous;
   }
 }
 
@@ -434,22 +475,35 @@ refs.redeemForm?.addEventListener("submit", async (event) => {
 
 refs.transferForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
+  const targetTg = Number(refs.transferTargetInput?.value || 0);
+  if (!targetTg) {
+    setStatus("请先搜索并选择接收方。", "error");
+    refs.transferTargetQuery?.focus();
+    return;
+  }
   await mutateWithButton(refs.transferSubmit, "转赠中", "/plugins/slot-box/api/transfer", {
     init_data: state.initData,
     item_type: document.querySelector("#transfer-type")?.value,
     quantity: Number(document.querySelector("#transfer-quantity")?.value || 1),
-    target_tg: Number(document.querySelector("#transfer-target")?.value || 0)
+    target_tg: targetTg
   }, "转赠完成。");
 });
 
-refs.listingForm?.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  await mutateWithButton(refs.listingSubmit, "上架中", "/plugins/slot-box/api/listing", {
-    init_data: state.initData,
-    item_type: document.querySelector("#listing-type")?.value,
-    quantity: Number(document.querySelector("#listing-quantity")?.value || 1),
-    price_iv: Number(document.querySelector("#listing-price")?.value || 0)
-  }, "上架成功。");
+refs.transferTargetQuery?.addEventListener("input", (event) => {
+  window.clearTimeout(state.transferSearchTimer);
+  const query = event.target.value || "";
+  state.transferSearchTimer = window.setTimeout(() => searchTransferTargets(query), 260);
+});
+
+refs.transferTargetResults?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-target-tg]");
+  if (!button || button.disabled) return;
+  const targetTg = Number(button.dataset.targetTg || 0);
+  const selected = state.transferSearchResults.find((item) => Number(item.tg) === targetTg) || {
+    tg: targetTg,
+    display_label: `TG ${targetTg}`
+  };
+  selectTransferTarget(selected);
 });
 
 (async () => {

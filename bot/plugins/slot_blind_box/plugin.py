@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from pyrogram import enums
+from sqlalchemy import or_
 
 from bot import LOGGER, api as api_config, bot, config, group, owner, pivkeyu
 from bot.plugins import list_miniapp_plugins
@@ -54,6 +55,8 @@ BACKPACK_ITEM_META = {
 STATE_LOCK = RLock()
 RNG = random.SystemRandom()
 STATE_PATH = PROJECT_ROOT / "data" / "plugin_state" / "slot-blind-box" / "state.json"
+TELEGRAM_IDENTITY_CACHE_TTL = 300.0
+TELEGRAM_IDENTITY_CACHE: dict[int, tuple[float, dict[str, str]]] = {}
 
 
 DEFAULT_SETTINGS = {
@@ -141,7 +144,7 @@ DEFAULT_PRIZES = [
         "id": "group-invite-credit",
         "name": "邀请资格",
         "icon": "📨",
-        "description": "可在背包中转赠或上架交易的入群邀请资格。",
+        "description": "可在背包中转赠，交易请前往 Emby 商店处理的入群邀请资格。",
         "delivery_text": "已放入背包：邀请资格 1 个。",
         "reward_type": REWARD_TYPE_GROUP_INVITE,
         "free_spin_quantity": 0,
@@ -156,7 +159,7 @@ DEFAULT_PRIZES = [
         "id": "account-open-credit",
         "name": "开号资格",
         "icon": "🪪",
-        "description": "可在背包中转赠或上架交易的 Emby 开号资格。",
+        "description": "可在背包中转赠，交易请前往 Emby 商店处理的 Emby 开号资格。",
         "delivery_text": "已放入背包：开号资格 1 个。",
         "reward_type": REWARD_TYPE_ACCOUNT_OPEN,
         "free_spin_quantity": 0,
@@ -182,6 +185,10 @@ class TransferItemPayload(InitDataPayload):
     item_type: str
     target_tg: int
     quantity: int = 1
+
+
+class TransferTargetSearchPayload(InitDataPayload):
+    query: str
 
 
 class ListingPayload(InitDataPayload):
@@ -492,6 +499,7 @@ def _fresh_state() -> dict[str, Any]:
         "records": [],
         "redeem_codes": [],
         "market_listings": [],
+        "telegram_identities": {},
         "created_at": timestamp,
         "updated_at": timestamp,
     }
@@ -593,6 +601,21 @@ def _normalize_state(state: dict[str, Any]) -> dict[str, Any]:
         seen_listing_ids.add(listing["id"])
         listings.append(listing)
     normalized["market_listings"] = listings
+    identities: dict[str, dict[str, str]] = {}
+    raw_identities = normalized.get("telegram_identities") if isinstance(normalized.get("telegram_identities"), dict) else {}
+    for raw_tg, raw_identity in raw_identities.items():
+        if not isinstance(raw_identity, dict):
+            continue
+        try:
+            tg = int(raw_tg)
+        except (TypeError, ValueError):
+            continue
+        identity = _clean_stored_telegram_identity(raw_identity)
+        if not identity:
+            continue
+        identities[str(tg)] = identity
+        _store_telegram_identity(tg, identity)
+    normalized["telegram_identities"] = identities
     normalized.setdefault("created_at", _iso_now())
     normalized["updated_at"] = normalized.get("updated_at") or normalized["created_at"]
     return normalized
@@ -619,7 +642,12 @@ def _save_state_unlocked(state: dict[str, Any]) -> None:
 
 def _verify_user_from_init_data(init_data: str) -> dict[str, Any]:
     verified = verify_init_data(init_data)
-    return verified["user"]
+    user = verified["user"]
+    try:
+        _store_telegram_identity(int(user["id"]), _telegram_identity_payload(user))
+    except Exception:
+        pass
+    return user
 
 
 def _verify_admin_credential(token: str | None, init_data: str | None) -> dict[str, Any]:
@@ -645,6 +673,267 @@ def _telegram_user_label(user: dict[str, Any]) -> str:
     if username:
         return f"@{username}"[:80]
     return str(user.get("id") or "未知用户")[:80]
+
+
+def _telegram_identity_payload(user: Any) -> dict[str, str]:
+    if isinstance(user, dict):
+        first_name = str(user.get("first_name", "") or "").strip()
+        last_name = str(user.get("last_name", "") or "").strip()
+        username = str(user.get("username", "") or "").strip().lstrip("@")
+    else:
+        first_name = str(getattr(user, "first_name", "") or "").strip()
+        last_name = str(getattr(user, "last_name", "") or "").strip()
+        username = str(getattr(user, "username", "") or "").strip().lstrip("@")
+    display_name = " ".join(part for part in [first_name, last_name] if part).strip()
+    payload: dict[str, str] = {}
+    if display_name:
+        payload["display_name"] = display_name
+    if username:
+        payload["username"] = username
+    return payload
+
+
+def _telegram_display_label(tg: int, identity: dict[str, str] | None = None) -> str:
+    identity = identity or {}
+    display_name = str(identity.get("display_name") or "").strip()
+    username = str(identity.get("username") or "").strip().lstrip("@")
+    if display_name:
+        return display_name
+    if username:
+        return f"@{username}"
+    return f"TG {int(tg)}"
+
+
+def _cached_telegram_identity(tg: int) -> dict[str, str] | None:
+    cached = TELEGRAM_IDENTITY_CACHE.get(int(tg))
+    if not cached:
+        return None
+    cached_at, payload = cached
+    if time.monotonic() - cached_at > TELEGRAM_IDENTITY_CACHE_TTL:
+        TELEGRAM_IDENTITY_CACHE.pop(int(tg), None)
+        return None
+    return dict(payload)
+
+
+def _store_telegram_identity(tg: int, identity: dict[str, str]) -> None:
+    TELEGRAM_IDENTITY_CACHE[int(tg)] = (time.monotonic(), dict(identity))
+
+
+def _clean_stored_telegram_identity(raw: dict[str, Any]) -> dict[str, str]:
+    display_name = _clean_text(raw.get("display_name"), max_length=80)
+    username = _clean_text(raw.get("username"), max_length=64).lstrip("@")
+    updated_at = _clean_text(raw.get("updated_at"), max_length=40)
+    payload: dict[str, str] = {}
+    if display_name:
+        payload["display_name"] = display_name
+    if username:
+        payload["username"] = username
+    if updated_at:
+        payload["updated_at"] = updated_at
+    return payload
+
+
+def _remember_telegram_identity(user: dict[str, Any]) -> None:
+    try:
+        tg = int(user.get("id"))
+    except (TypeError, ValueError):
+        return
+    identity = _telegram_identity_payload(user)
+    _store_telegram_identity(tg, identity)
+    if not identity:
+        return
+    stored = _clean_stored_telegram_identity({**identity, "updated_at": _iso_now()})
+    with STATE_LOCK:
+        state = _load_state_unlocked()
+        identities = state.setdefault("telegram_identities", {})
+        current = identities.get(str(tg)) if isinstance(identities, dict) else None
+        current_display = "" if not isinstance(current, dict) else str(current.get("display_name") or "")
+        current_username = "" if not isinstance(current, dict) else str(current.get("username") or "")
+        if current_display == stored.get("display_name", "") and current_username == stored.get("username", ""):
+            return
+        identities[str(tg)] = stored
+        _save_state_unlocked(state)
+
+
+def _stored_transfer_target_tgs(query: str, *, limit: int = 120) -> list[int]:
+    matches: list[int] = []
+    with STATE_LOCK:
+        state = _load_state_unlocked()
+        identities = state.get("telegram_identities") if isinstance(state.get("telegram_identities"), dict) else {}
+        for raw_tg, identity in identities.items():
+            try:
+                tg = int(raw_tg)
+            except (TypeError, ValueError):
+                continue
+            if _identity_matches_query(tg, identity, query):
+                _store_telegram_identity(tg, identity)
+                matches.append(tg)
+            if len(matches) >= limit:
+                break
+    return matches
+
+
+def _identity_matches_query(tg: int, identity: dict[str, str] | None, query: str) -> bool:
+    normalized = str(query or "").strip().lower().lstrip("@")
+    if not normalized:
+        return False
+    identity = identity or {}
+    fields = [
+        str(tg),
+        str(identity.get("display_name") or ""),
+        str(identity.get("username") or ""),
+    ]
+    return any(normalized in field.lower().lstrip("@") for field in fields if field)
+
+
+def _cached_transfer_target_tgs(query: str, *, limit: int = 80) -> list[int]:
+    matches: list[int] = []
+    for tg, cached in list(TELEGRAM_IDENTITY_CACHE.items()):
+        cached_at, identity = cached
+        if time.monotonic() - cached_at > TELEGRAM_IDENTITY_CACHE_TTL:
+            TELEGRAM_IDENTITY_CACHE.pop(int(tg), None)
+            continue
+        if _identity_matches_query(int(tg), identity, query):
+            matches.append(int(tg))
+        if len(matches) >= limit:
+            break
+    return matches
+
+
+async def _resolve_transfer_target_username(query: str) -> tuple[int | None, dict[str, str]]:
+    lookup = str(query or "").strip().lstrip("@")
+    if len(lookup) < 5 or lookup.lstrip("-").isdigit():
+        return None, {}
+    if not all(ch.isalnum() or ch == "_" for ch in lookup):
+        return None, {}
+    try:
+        user = await bot.get_users(lookup)
+    except Exception:
+        return None, {}
+    tg = int(user.id)
+    identity = _telegram_identity_payload(user)
+    _store_telegram_identity(tg, identity)
+    return tg, identity
+
+
+async def _fetch_transfer_target_identities(tgs: list[int]) -> dict[int, dict[str, str]]:
+    identities: dict[int, dict[str, str]] = {}
+    missing: list[int] = []
+    for tg in {int(value) for value in tgs if value is not None}:
+        cached = _cached_telegram_identity(tg)
+        if cached is None:
+            missing.append(tg)
+        else:
+            identities[tg] = cached
+    for start in range(0, len(missing), 100):
+        chunk = missing[start:start + 100]
+        try:
+            response = await bot.get_users(chunk if len(chunk) > 1 else chunk[0])
+            users = response if isinstance(response, list) else [response]
+            found: set[int] = set()
+            for user in users:
+                tg = int(user.id)
+                identity = _telegram_identity_payload(user)
+                _store_telegram_identity(tg, identity)
+                identities[tg] = identity
+                found.add(tg)
+            for tg in chunk:
+                if tg not in found:
+                    _store_telegram_identity(tg, {})
+                    identities[tg] = {}
+        except Exception as exc:
+            LOGGER.warning(f"slot box transfer target lookup failed: {exc}")
+            for tg in chunk:
+                identities[tg] = _cached_telegram_identity(tg) or {}
+    return identities
+
+
+async def _search_transfer_targets(query: str, current_tg: int, *, limit: int = 8) -> list[dict[str, Any]]:
+    normalized = str(query or "").strip()
+    if len(normalized) < 2 and not normalized.lstrip("@-").isdigit():
+        return []
+    normalized_text = normalized.lstrip("@").lower()
+    resolved_tg: int | None = None
+    resolved_identity: dict[str, str] = {}
+    if normalized.startswith("@"):
+        resolved_tg, resolved_identity = await _resolve_transfer_target_username(normalized)
+    candidates: dict[int, Emby] = {}
+    identity_tgs: list[int] = []
+    with Session() as session:
+        filters = [Emby.name.ilike(f"%{normalized}%"), Emby.embyid.ilike(f"%{normalized}%")]
+        if normalized.lstrip("-").isdigit():
+            filters.append(Emby.tg == int(normalized))
+        if resolved_tg is not None:
+            filters.append(Emby.tg == int(resolved_tg))
+        for row in session.query(Emby).filter(or_(*filters)).order_by(Emby.tg.desc()).limit(40).all():
+            candidates[int(row.tg)] = row
+        stored_tgs = [tg for tg in _stored_transfer_target_tgs(normalized) if tg not in candidates]
+        cached_tgs = [
+            tg for tg in _cached_transfer_target_tgs(normalized)
+            if tg not in candidates and tg not in stored_tgs
+        ]
+        identity_tgs = (stored_tgs + cached_tgs)[:120]
+        if identity_tgs:
+            for row in session.query(Emby).filter(Emby.tg.in_(identity_tgs)).limit(120).all():
+                candidates.setdefault(int(row.tg), row)
+    extra_tgs: list[int] = []
+    if normalized.lstrip("-").isdigit():
+        direct_tg = int(normalized)
+        if direct_tg > 0:
+            extra_tgs.append(direct_tg)
+    if resolved_tg is not None:
+        extra_tgs.append(int(resolved_tg))
+    extra_tgs.extend(identity_tgs)
+
+    identities = await _fetch_transfer_target_identities(list(candidates) + extra_tgs)
+    if resolved_tg is not None and resolved_identity:
+        identities[int(resolved_tg)] = resolved_identity
+    rows: list[dict[str, Any]] = []
+    for tg, row in candidates.items():
+        identity = identities.get(tg) or {}
+        emby_name = str(getattr(row, "name", "") or "")
+        embyid = str(getattr(row, "embyid", "") or "")
+        matched = (
+            normalized_text in str(tg)
+            or normalized_text in emby_name.lower()
+            or normalized_text in embyid.lower()
+            or _identity_matches_query(tg, identity, normalized)
+        )
+        if not matched:
+            continue
+        rows.append(
+            {
+                "tg": tg,
+                "display_label": _telegram_display_label(tg, identity),
+                "display_name": identity.get("display_name") or "",
+                "username": identity.get("username") or "",
+                "emby_name": emby_name,
+                "embyid": embyid,
+                "is_self": tg == int(current_tg),
+            }
+        )
+    seen_tgs = {int(item["tg"]) for item in rows}
+    for tg in extra_tgs:
+        tg = int(tg)
+        if tg in seen_tgs:
+            continue
+        identity = identities.get(tg) or {}
+        if not _identity_matches_query(tg, identity, normalized) and normalized_text not in str(tg):
+            continue
+        rows.append(
+            {
+                "tg": tg,
+                "display_label": _telegram_display_label(tg, identity),
+                "display_name": identity.get("display_name") or "",
+                "username": identity.get("username") or "",
+                "emby_name": "",
+                "embyid": "",
+                "is_self": tg == int(current_tg),
+            }
+        )
+        seen_tgs.add(tg)
+    rows.sort(key=lambda item: (item["is_self"], item["display_label"].lower(), item["tg"]))
+    return rows[:limit]
 
 
 def _main_group_chat_id() -> int | None:
@@ -1560,6 +1849,7 @@ def register_web(app, context=None) -> None:
     @user_router.post("/api/bootstrap")
     async def slot_bootstrap(payload: InitDataPayload):
         user = await run_in_threadpool(_verify_user_from_init_data, payload.init_data)
+        await run_in_threadpool(_remember_telegram_identity, user)
         bundle = await run_in_threadpool(_bootstrap_user_bundle, int(user["id"]))
         return {"code": 200, "data": bundle}
 
@@ -1604,6 +1894,12 @@ def register_web(app, context=None) -> None:
         except Exception as exc:
             raise _raise_value_error(exc) from exc
         return {"code": 200, "data": bundle}
+
+    @user_router.post("/api/transfer-targets")
+    async def slot_transfer_targets(payload: TransferTargetSearchPayload):
+        user = await run_in_threadpool(_verify_user_from_init_data, payload.init_data)
+        rows = await _search_transfer_targets(payload.query, int(user["id"]))
+        return {"code": 200, "data": {"items": rows}}
 
     @user_router.post("/api/listing")
     async def slot_create_listing(payload: ListingPayload):
