@@ -920,7 +920,6 @@ function rememberBundleCandidate(payload) {
   const candidate = extractBundleCandidate(payload);
   if (candidate) {
     state.pendingBundleCandidate = candidate;
-    state.deferredBundleLoaded = true;
   }
   return candidate;
 }
@@ -1676,10 +1675,7 @@ function queueOpenLazyFoldCards() {
   deferUiWork(renderOpenLazyFoldCards);
 }
 
-function warmDeferredBundleForInteraction() {
-  if (!state.profileBundle || state.deferredBundleLoaded || state.deferredBundleLoading) return;
-  loadDeferredBundle({ silent: true }).catch(() => null);
-}
+function warmDeferredBundleForInteraction() {}
 
 function keepShortcutVisible(shortcuts, button) {
   if (!shortcuts || !button) return;
@@ -1793,17 +1789,6 @@ function setupFoldToolbar() {
   document.querySelectorAll(".fold-card").forEach((card) => {
     if (card.dataset.foldToolbarBound) return;
     card.dataset.foldToolbarBound = "1";
-    const summary = card.querySelector("summary");
-    if (summary && !summary.dataset.deferredPrefetchBound) {
-      summary.dataset.deferredPrefetchBound = "1";
-      const prefetchDeferredBundle = () => {
-        if (DEFERRED_SECTION_IDS.has(card.id)) {
-          warmDeferredBundleForInteraction();
-        }
-      };
-      summary.addEventListener("pointerdown", prefetchDeferredBundle, { passive: true });
-      summary.addEventListener("focus", prefetchDeferredBundle);
-    }
     card.addEventListener("toggle", () => {
       syncFoldToolbar();
       if (card.open) {
@@ -3835,28 +3820,7 @@ async function loadDeferredBundle({ silent = false } = {}) {
 }
 
 function scheduleDeferredBootstrapWork() {
-  if (state.deferredBundleLoaded || state.deferredBundleLoading) return;
-  if (state.deferredBootstrapTimer) {
-    window.clearTimeout(state.deferredBootstrapTimer);
-    state.deferredBootstrapTimer = null;
-  }
-  const runner = () => {
-    state.deferredBootstrapTimer = null;
-    loadDeferredBundle({ silent: true }).catch(() => null);
-  };
-  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-  if (connection?.saveData || /2g/i.test(String(connection?.effectiveType || ""))) {
-    return;
-  }
-  const delay = /3g/i.test(String(connection?.effectiveType || "")) ? 4200 : 2800;
-  state.deferredBootstrapTimer = window.setTimeout(() => {
-    state.deferredBootstrapTimer = null;
-    if (typeof window.requestIdleCallback === "function") {
-      window.requestIdleCallback(runner, { timeout: 3000 });
-      return;
-    }
-    window.setTimeout(runner, 96);
-  }, delay);
+  return;
 }
 
 async function refreshBundle({ background = false } = {}) {
@@ -3877,15 +3841,15 @@ async function refreshBundle({ background = false } = {}) {
       storeBootstrapCache(payload);
       renderBottomNav(payload.bottom_nav || []);
       applyProfileBundle(payload.profile_bundle);
-      scheduleDeferredBootstrapWork();
       return state.profileBundle;
     }
     state.deferredBundleLoaded = false;
     state.deferredBundlePromise = null;
-    const deferred = await postJson("/plugins/xiuxian/api/bootstrap/deferred");
-    state.profileBundle = mergeBundleData(state.profileBundle, deferred);
-    state.deferredBundleLoaded = true;
-    applyProfileBundle(state.profileBundle);
+    const payload = await postJson("/plugins/xiuxian/api/bootstrap");
+    storeBootstrapCache(payload);
+    renderBottomNav(payload.bottom_nav || []);
+    const mergedBundle = mergeBundleData(state.profileBundle, payload.profile_bundle);
+    applyProfileBundle(mergedBundle);
     return state.profileBundle;
   };
   state.bundleRefreshPromise = runner().finally(() => {
@@ -3911,11 +3875,6 @@ function applyReturnedBundle(payload, { backgroundFallback = true } = {}) {
       state.deferredBundleLoaded = false;
       state.deferredBundlePromise = null;
       applyProfileBundle(mergedBundle);
-      if (backgroundFallback) {
-        scheduleDeferredBootstrapWork();
-      } else {
-        return loadDeferredBundle({ silent: false });
-      }
       return Promise.resolve(mergedBundle);
     }
     state.deferredBundleLoaded = true;
@@ -3968,7 +3927,6 @@ async function bootstrap() {
     storeBootstrapCache(payload);
     renderBottomNav(payload.bottom_nav || []);
     applyProfileBundle(payload.profile_bundle);
-    scheduleDeferredBootstrapWork();
     if (payload.initial_leaderboard) {
       renderLeaderboard(payload.initial_leaderboard);
     }

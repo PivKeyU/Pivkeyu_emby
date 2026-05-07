@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import time
 import traceback
@@ -226,6 +227,7 @@ from bot.plugins.xiuxian_game.features.marriage import (
 from bot.plugins.xiuxian_game.features.miniapp_bundle import (
     build_fishing_cast_bundle_patch,
     build_bootstrap_core_bundle,
+    build_deferred_profile_sections,
     build_full_profile_bundle,
 )
 from bot.plugins.xiuxian_game.features.pills import consume_pill_for_user
@@ -401,6 +403,8 @@ ALLOWED_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 ALLOWED_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 MARKDOWN_ESCAPE_PATTERN = re.compile(r"([_*\[`])")
 SHANGHAI_TZ = timezone(timedelta(hours=8))
+FULL_BUNDLE_TTL = max(int(os.getenv("PIVKEYU_XIUXIAN_FULL_BUNDLE_TTL", "45") or 45), 5)
+DEFERRED_BUNDLE_TTL = max(int(os.getenv("PIVKEYU_XIUXIAN_DEFERRED_BUNDLE_TTL", "45") or 45), 5)
 DUEL_MESSAGE_REFRESH_CACHE: dict[int, float] = {}
 DUEL_SETTLEMENT_CACHE: dict[int, dict[str, Any]] = {}
 PENDING_DUEL_INVITES: dict[tuple[int, int], dict[str, Any]] = {}
@@ -408,6 +412,7 @@ MESSAGE_AUTO_DELETE_TASKS: dict[tuple[int, int], asyncio.Task] = {}
 AUCTION_FINALIZE_TASKS: dict[int, asyncio.Task] = {}
 ARENA_FINALIZE_TASKS: dict[int, asyncio.Task] = {}
 EVENT_SUMMARY_MESSAGES: dict[int, int] = {}
+DEFERRED_BUNDLE_TASKS: dict[tuple[Any, ...], asyncio.Task] = {}
 EVENT_SUMMARY_LAST_TEXTS: dict[int, str] = {}
 EVENT_SUMMARY_PINNED_MESSAGES: dict[int, int] = {}
 EVENT_SUMMARY_REFRESH_TASK: asyncio.Task | None = None
@@ -1603,7 +1608,7 @@ def _full_bundle(tg: int) -> dict[str, Any]:
             int(bool(flags.get("is_admin"))),
             str(flags.get("admin_panel_url") or ""),
         ),
-        ttl=min(USER_VIEW_TTL, 5),
+        ttl=min(USER_VIEW_TTL, FULL_BUNDLE_TTL),
         loader=lambda: build_full_profile_bundle(tg, **flags),
     )
 
@@ -1619,7 +1624,62 @@ def _bootstrap_core_bundle(tg: int) -> dict[str, Any]:
 
 
 def _deferred_bundle_sections(tg: int) -> dict[str, Any]:
-    return _full_bundle(tg)
+    from bot.plugins.xiuxian_game.cache import USER_VIEW_TTL, load_multi_versioned_json
+
+    flags = _bundle_runtime_flags(tg)
+    return load_multi_versioned_json(
+        version_part_groups=(
+            ("profile", tg),
+            ("user-view", tg),
+            ("settings",),
+            ("catalog", "artifacts"),
+            ("catalog", "materials"),
+            ("catalog", "pills"),
+            ("catalog", "recipes"),
+            ("catalog", "scenes"),
+            ("catalog", "sects"),
+            ("catalog", "shop-items"),
+            ("catalog", "talismans"),
+            ("catalog", "techniques"),
+            ("catalog", "titles"),
+        ),
+        cache_parts=(
+            "deferred-bundle",
+            tg,
+            int(bool(flags.get("can_upload_images"))),
+            str(flags.get("upload_image_reason") or ""),
+            int(bool(flags.get("allow_non_admin_image_upload"))),
+            int(bool(flags.get("is_admin"))),
+            str(flags.get("admin_panel_url") or ""),
+        ),
+        ttl=min(USER_VIEW_TTL, DEFERRED_BUNDLE_TTL),
+        loader=lambda: build_deferred_profile_sections(tg, **flags),
+    )
+
+
+async def build_deferred_bundle_once(tg: int) -> dict[str, Any]:
+    flags = _bundle_runtime_flags(tg)
+    key = (
+        "deferred-bundle",
+        int(tg),
+        int(bool(flags.get("can_upload_images"))),
+        str(flags.get("upload_image_reason") or ""),
+        int(bool(flags.get("allow_non_admin_image_upload"))),
+        int(bool(flags.get("is_admin"))),
+        str(flags.get("admin_panel_url") or ""),
+    )
+    task = DEFERRED_BUNDLE_TASKS.get(key)
+    if task is None or task.done():
+        task = asyncio.create_task(run_in_threadpool(_deferred_bundle_sections, tg))
+        DEFERRED_BUNDLE_TASKS[key] = task
+
+        def _cleanup(done_task: asyncio.Task) -> None:
+            current = DEFERRED_BUNDLE_TASKS.get(key)
+            if current is done_task:
+                DEFERRED_BUNDLE_TASKS.pop(key, None)
+
+        task.add_done_callback(_cleanup)
+    return await task
 
 
 def _with_full_bundle(tg: int, payload: Any, *, field: str = "result") -> dict[str, Any]:

@@ -544,7 +544,7 @@ from .plugin_bot_handlers import (  # noqa: F401
     _with_result_core_bundle,
     _full_bundle,
     _bootstrap_core_bundle,
-    _deferred_bundle_sections,
+    build_deferred_bundle_once,
     _bundle_runtime_flags,
     _is_group_admin,
     _main_group_chat_id,
@@ -844,7 +844,7 @@ def register_web(app) -> None:
         telegram_user = await run_in_threadpool(_verify_user_from_init_data, payload.init_data)
         return {
             "code": 200,
-            "data": await run_in_threadpool(_deferred_bundle_sections, telegram_user["id"]),
+            "data": await build_deferred_bundle_once(telegram_user["id"]),
         }
 
     @user_router.post("/api/wiki")
