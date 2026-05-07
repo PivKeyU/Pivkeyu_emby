@@ -40,11 +40,13 @@ REWARD_TYPE_MANUAL = "manual"
 REWARD_TYPE_FREE_SPIN_TICKET = "free_spin_ticket"
 REWARD_TYPE_GROUP_INVITE = "group_invite_credit"
 REWARD_TYPE_ACCOUNT_OPEN = "account_open_credit"
+REWARD_TYPE_EMBY_CURRENCY = "emby_currency"
 REWARD_TYPES = {
     REWARD_TYPE_MANUAL,
     REWARD_TYPE_FREE_SPIN_TICKET,
     REWARD_TYPE_GROUP_INVITE,
     REWARD_TYPE_ACCOUNT_OPEN,
+    REWARD_TYPE_EMBY_CURRENCY,
 }
 BACKPACK_ITEM_TYPES = {REWARD_TYPE_FREE_SPIN_TICKET, REWARD_TYPE_GROUP_INVITE, REWARD_TYPE_ACCOUNT_OPEN}
 BACKPACK_ITEM_META = {
@@ -65,7 +67,7 @@ DEFAULT_SETTINGS = {
     "notice": "奖池已开放。",
     "blank_enabled": True,
     "blank_label": "轮空",
-    "blank_icon": "◇",
+    "blank_icon": "🍀",
     "blank_weight": 50,
     "pity_enabled": True,
     "pity_after": 10,
@@ -98,11 +100,11 @@ DEFAULT_PRIZES = [
     {
         "id": "bonus-points",
         "name": "积分礼包",
-        "icon": "💎",
-        "description": "默认示例奖品，可替换为你的真实奖励。",
-        "delivery_text": "请联系管理员领取积分礼包。",
-        "reward_type": REWARD_TYPE_MANUAL,
-        "free_spin_quantity": 0,
+        "icon": "💰",
+        "description": "中奖后自动到账的 Emby 货币奖励。",
+        "delivery_text": "Emby 货币已自动发放到账户。",
+        "reward_type": REWARD_TYPE_EMBY_CURRENCY,
+        "free_spin_quantity": 50,
         "weight": 10,
         "stock": -1,
         "enabled": True,
@@ -444,6 +446,8 @@ def _clean_prize(raw: dict[str, Any], *, existing: dict[str, Any] | None = None)
     existing = existing or {}
     created_at = existing.get("created_at") or raw.get("created_at") or _iso_now()
     reward_type = _normalize_reward_type(raw.get("reward_type", existing.get("reward_type")))
+    quantity_max = MAX_SPIN_COST if reward_type == REWARD_TYPE_EMBY_CURRENCY else 1000
+    quantity_default = 1 if reward_type in {REWARD_TYPE_FREE_SPIN_TICKET, REWARD_TYPE_GROUP_INVITE, REWARD_TYPE_ACCOUNT_OPEN} else 0
     return {
         "id": _clean_prize_id(existing.get("id") or raw.get("id")),
         "name": _clean_text(raw.get("name", existing.get("name")), default="未命名奖品", max_length=80),
@@ -453,10 +457,10 @@ def _clean_prize(raw: dict[str, Any], *, existing: dict[str, Any] | None = None)
         "reward_type": reward_type,
         "free_spin_quantity": _clean_int(
             raw.get("free_spin_quantity", existing.get("free_spin_quantity")),
-            default=1 if reward_type == REWARD_TYPE_FREE_SPIN_TICKET else 0,
+            default=quantity_default,
             minimum=0,
-            maximum=1000,
-            field_name="抽奖券数量",
+            maximum=quantity_max,
+            field_name="奖励数量",
         ),
         "weight": _clean_int(
             raw.get("weight", existing.get("weight")),
@@ -514,7 +518,7 @@ def _normalize_settings(raw: dict[str, Any] | None) -> dict[str, Any]:
     settings["notice"] = _clean_text(settings.get("notice"), max_length=240)
     settings["blank_enabled"] = bool(settings.get("blank_enabled", True))
     settings["blank_label"] = _clean_text(settings.get("blank_label"), default="轮空", max_length=24)
-    settings["blank_icon"] = _clean_text(settings.get("blank_icon"), default="◇", max_length=16)
+    settings["blank_icon"] = _clean_text(settings.get("blank_icon"), default="🍀", max_length=16)
     settings["blank_weight"] = _clean_int(
         settings.get("blank_weight"), default=50, minimum=0, maximum=MAX_WEIGHT, field_name="轮空权重"
     )
@@ -1065,9 +1069,27 @@ def _probability_summary(state: dict[str, Any], *, account_open_receiver_ok: boo
     }
 
 
-def _public_prize(prize: dict[str, Any], probabilities: dict[str, Any]) -> dict[str, Any]:
+def _reward_display_payload(prize: dict[str, Any], settings: dict[str, Any] | None = None) -> dict[str, str | int]:
+    reward_type = _normalize_reward_type(prize.get("reward_type"))
+    quantity = int(prize.get("free_spin_quantity") or 0)
+    currency_name = (settings or {}).get("currency_name") or pivkeyu
+    if reward_type == REWARD_TYPE_FREE_SPIN_TICKET:
+        return {"label": f"抽奖券 x{max(quantity, 1)}", "icon": "🎟️", "quantity": max(quantity, 1)}
+    if reward_type == REWARD_TYPE_GROUP_INVITE:
+        return {"label": f"邀请资格 x{max(quantity, 1)}", "icon": "📨", "quantity": max(quantity, 1)}
+    if reward_type == REWARD_TYPE_ACCOUNT_OPEN:
+        return {"label": f"开号资格 x{max(quantity, 1)}", "icon": "🪪", "quantity": max(quantity, 1)}
+    if reward_type == REWARD_TYPE_EMBY_CURRENCY and quantity > 0:
+        return {"label": f"{currency_name} x{quantity}", "icon": "💰", "quantity": quantity}
+    return {"label": "普通奖品", "icon": str(prize.get("icon") or "🎁"), "quantity": 0}
+
+
+def _public_prize(prize: dict[str, Any], probabilities: dict[str, Any], settings: dict[str, Any] | None = None) -> dict[str, Any]:
     payload = dict(prize)
+    reward_display = _reward_display_payload(prize, settings)
     payload["computed_rate"] = (probabilities.get("prize_rates") or {}).get(prize.get("id"), 0)
+    payload["reward_label"] = reward_display["label"]
+    payload["reward_icon"] = reward_display["icon"]
     return payload
 
 
@@ -1255,11 +1277,28 @@ def _payment_label(payment: dict[str, Any], settings: dict[str, Any]) -> str:
     return f"{int(payment.get('cost_iv') or 0)} {settings.get('currency_name') or pivkeyu}"
 
 
-def _apply_prize_reward(user_stats: dict[str, Any], prize: dict[str, Any]) -> dict[str, Any] | None:
+def _apply_prize_reward(
+    user_stats: dict[str, Any],
+    prize: dict[str, Any],
+    *,
+    account: Emby | None = None,
+    settings: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     reward_type = _normalize_reward_type(prize.get("reward_type"))
+    quantity = max(int(prize.get("free_spin_quantity") or 0), 0)
+    if reward_type == REWARD_TYPE_EMBY_CURRENCY:
+        if account is None or quantity <= 0:
+            return None
+        account.iv = int(account.iv or 0) + quantity
+        return {
+            "type": reward_type,
+            "label": (settings or {}).get("currency_name") or pivkeyu,
+            "quantity": quantity,
+            "balance_after": int(account.iv or 0),
+        }
     if reward_type not in BACKPACK_ITEM_TYPES:
         return None
-    quantity = max(int(prize.get("free_spin_quantity") or 1), 1)
+    quantity = max(quantity, 1)
     grant = _add_backpack_item(user_stats, reward_type, quantity)
     if grant is None:
         return None
@@ -1274,23 +1313,23 @@ def _apply_prize_reward(user_stats: dict[str, Any], prize: dict[str, Any]) -> di
 
 def _symbol_pool(state: dict[str, Any]) -> list[str]:
     symbols = [str(prize.get("icon") or "🎁") for prize in state.get("prizes") or [] if prize.get("enabled")]
-    blank_icon = str((state.get("settings") or {}).get("blank_icon") or "◇")
+    blank_icon = str((state.get("settings") or {}).get("blank_icon") or "🍀")
     symbols.append(blank_icon)
-    symbols.extend(["✦", "◆", "★"])
+    symbols.extend(["🍒", "🍋", "🍊", "🍇", "🔔", "💎", "7️⃣", "⭐", "💰", "🎟️"])
     unique = []
     for symbol in symbols:
         if symbol and symbol not in unique:
             unique.append(symbol[:16])
-    return unique[:24] or ["🎁", "◇", "✦"]
+    return unique[:24] or ["🎁", "🍀", "⭐"]
 
 
 def _blank_reels(state: dict[str, Any]) -> list[str]:
     pool = _symbol_pool(state)
     if len(pool) == 1:
-        return [pool[0], "✦", "◆"]
+        return [pool[0], "🍒", "🔔"]
     reels = [RNG.choice(pool) for _ in range(3)]
     if reels[0] == reels[1] == reels[2]:
-        alternatives = [symbol for symbol in pool if symbol != reels[0]] or ["✦"]
+        alternatives = [symbol for symbol in pool if symbol != reels[0]] or ["🍋"]
         reels[2] = RNG.choice(alternatives)
     return reels
 
@@ -1349,9 +1388,9 @@ def _serialize_bundle(
     include_admin: bool = False,
     account: Emby | None = None,
 ) -> dict[str, Any]:
-    probabilities = _probability_summary(state)
-    prizes = [_public_prize(prize, probabilities) for prize in state.get("prizes") or []]
     settings = dict(state.get("settings") or {})
+    probabilities = _probability_summary(state)
+    prizes = [_public_prize(prize, probabilities, settings) for prize in state.get("prizes") or []]
     bundle = {
         "meta": {
             "plugin_name": PLUGIN_MANIFEST.get("name"),
@@ -1366,7 +1405,7 @@ def _serialize_bundle(
         "records": _public_records(
             state.get("records") or [],
             user_id=None if include_admin else user_id,
-            limit=80 if include_admin else 20,
+            limit=min(int(settings.get("record_limit") or 300), 500 if include_admin else 200),
         ),
         "market_listings": _active_market_listings(state),
         "redeem_codes": _public_redeem_codes(state) if include_admin else [],
@@ -1717,16 +1756,22 @@ def _spin_for_user(user: dict[str, Any], *, account_open_receiver_ok: bool = Tru
                 if int(prize.get("stock") or 0) > 0:
                     prize["stock"] = int(prize.get("stock") or 0) - 1
                     prize["updated_at"] = _iso_now()
-                reward_grant = _apply_prize_reward(user_stats, prize)
+                reward_grant = _apply_prize_reward(user_stats, prize, account=account, settings=settings)
                 user_stats["win_count"] = int(user_stats.get("win_count") or 0) + 1
                 user_stats["miss_streak"] = 0
                 reels = [str(prize.get("icon") or "🎁") for _ in range(3)]
                 message = prize.get("delivery_text") or prize.get("description") or "请联系管理员处理奖励发放。"
                 if reward_grant:
-                    message = (
-                        f"{message}\n已放入背包：{reward_grant.get('label')} "
-                        f"x{int(reward_grant.get('quantity') or 0)}。"
-                    )
+                    if reward_grant.get("type") == REWARD_TYPE_EMBY_CURRENCY:
+                        message = (
+                            f"{message}\n已到账：{int(reward_grant.get('quantity') or 0)} "
+                            f"{reward_grant.get('label')}，当前余额 {int(reward_grant.get('balance_after') or 0)}。"
+                        )
+                    else:
+                        message = (
+                            f"{message}\n已放入背包：{reward_grant.get('label')} "
+                            f"x{int(reward_grant.get('quantity') or 0)}。"
+                        )
                 result = {
                     "outcome": "win",
                     "title": f"抽中 {prize.get('name')}",
@@ -1750,6 +1795,7 @@ def _spin_for_user(user: dict[str, Any], *, account_open_receiver_ok: bool = Tru
                     "cost_iv": payment.get("cost_iv", 0),
                     "reward_type": prize.get("reward_type"),
                     "reward_quantity": 0 if not reward_grant else reward_grant.get("quantity", 0),
+                    "reward_label": "" if not reward_grant else reward_grant.get("label", ""),
                     "pity_triggered": pity_triggered,
                     "created_at": _iso_now(),
                 }
@@ -1784,9 +1830,12 @@ def _spin_for_user(user: dict[str, Any], *, account_open_receiver_ok: bool = Tru
                     "outcome": "blank",
                     "prize_id": None,
                     "prize_name": settings.get("blank_label") or "轮空",
-                    "prize_icon": settings.get("blank_icon") or "◇",
+                    "prize_icon": settings.get("blank_icon") or "🍀",
                     "payment_method": payment.get("method"),
                     "cost_iv": payment.get("cost_iv", 0),
+                    "reward_type": "blank",
+                    "reward_quantity": 0,
+                    "reward_label": "",
                     "pity_triggered": False,
                     "created_at": _iso_now(),
                 }

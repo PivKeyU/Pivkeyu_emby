@@ -1203,7 +1203,7 @@ def _store_notice_group_chat_id(cache_key: str | None, raw_value: Any, chat_id: 
     if not cache_key:
         return
     resolved_chat_id = int(chat_id or 0)
-    if resolved_chat_id <= 0:
+    if resolved_chat_id == 0:
         NOTICE_GROUP_RESOLUTION_CACHE.pop(cache_key, None)
         return
     NOTICE_GROUP_RESOLUTION_CACHE[cache_key] = {
@@ -2015,8 +2015,8 @@ def _event_summary_snapshot(
     for row in list_shop_items(official_only=False, include_disabled=False):
         row_chat_id = int(row.get("notice_group_chat_id") or 0)
         row_message_id = int(row.get("notice_group_message_id") or 0)
-        chat_id = row_chat_id or (shop_notice_chat_id if row_message_id > 0 else 0)
-        if chat_id <= 0:
+        chat_id = row_chat_id or shop_notice_chat_id
+        if chat_id == 0:
             continue
         chat_ids.add(chat_id)
         shop_rows_by_chat[chat_id].append(row)
@@ -2026,8 +2026,8 @@ def _event_summary_snapshot(
     for row in list_auction_items(status="active"):
         row_chat_id = int(row.get("group_chat_id") or 0)
         row_message_id = int(row.get("group_message_id") or 0)
-        chat_id = row_chat_id or (auction_notice_chat_id if row_message_id > 0 else 0)
-        if chat_id <= 0:
+        chat_id = row_chat_id or auction_notice_chat_id
+        if chat_id == 0:
             continue
         chat_ids.add(chat_id)
         auction_rows_by_chat[chat_id].append(row)
@@ -2037,8 +2037,8 @@ def _event_summary_snapshot(
     for row in list_group_arenas(status="active"):
         row_chat_id = int(row.get("group_chat_id") or 0)
         row_message_id = int(row.get("group_message_id") or 0)
-        chat_id = row_chat_id or (arena_notice_chat_id if row_message_id > 0 else 0)
-        if chat_id <= 0:
+        chat_id = row_chat_id or arena_notice_chat_id
+        if chat_id == 0:
             continue
         chat_ids.add(chat_id)
         arena_rows_by_chat[chat_id].append(row)

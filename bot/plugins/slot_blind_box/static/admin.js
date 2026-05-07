@@ -25,7 +25,11 @@ const state = {
   token: readLocalStorage(storageKey),
   initData: tg?.initData || "",
   authMode: null,
-  payload: null
+  payload: null,
+  recordPage: 1,
+  recordPageSize: 10,
+  recordFilter: "all",
+  records: []
 };
 
 const refs = {
@@ -43,6 +47,10 @@ const refs = {
   prizeList: document.querySelector("#admin-prize-list"),
   redeemCodeList: document.querySelector("#admin-redeem-code-list"),
   recordList: document.querySelector("#admin-record-list"),
+  recordFilter: document.querySelector("#admin-record-filter"),
+  recordPrev: document.querySelector("#admin-record-prev"),
+  recordNext: document.querySelector("#admin-record-next"),
+  recordPageInfo: document.querySelector("#admin-record-page-info"),
   prizeCount: document.querySelector("#admin-prize-count"),
   activeCount: document.querySelector("#admin-active-count"),
   spinCount: document.querySelector("#admin-spin-count"),
@@ -129,7 +137,8 @@ function levelMap(prefix) {
 function rewardTypeLabel(type, quantity = 0) {
   if (type === "free_spin_ticket") return `抽奖券 ${quantity || 1} 张`;
   if (type === "group_invite_credit") return "邀请资格";
-  if (type === "account_open_credit") return "开号资格";
+  if (type === "account_open_credit") return `开号资格 x${quantity || 1}`;
+  if (type === "emby_currency") return `Emby 货币 ${quantity || 0}`;
   return "普通奖品";
 }
 
@@ -149,20 +158,51 @@ function grantsLabel(grants = {}) {
   return parts.join(" · ") || "无发放内容";
 }
 
-function renderRecords(records = []) {
-  if (!records.length) {
-    refs.recordList.innerHTML = `<div class="empty">暂无抽取记录。</div>`;
-    return;
+function normalizedRecordType(record = {}) {
+  const type = String(record.reward_type || "").trim();
+  if (type) return type;
+  return record.outcome === "blank" ? "blank" : "manual";
+}
+
+function recordTypeLabel(record = {}) {
+  const type = normalizedRecordType(record);
+  if (type === "emby_currency") return `💰 ${record.reward_quantity || 0} ${record.reward_label || "货币"}`;
+  if (type === "free_spin_ticket") return `🎟️ 抽奖券 x${record.reward_quantity || 1}`;
+  if (type === "group_invite_credit") return `📨 邀请资格 x${record.reward_quantity || 1}`;
+  if (type === "account_open_credit") return `🪪 开号资格 x${record.reward_quantity || 1}`;
+  if (type === "blank" || record.outcome === "blank") return "🍀 轮空";
+  return "🎁 普通奖品";
+}
+
+function recordMatchesFilter(record = {}, filter = "all") {
+  if (filter === "all") return true;
+  if (filter === "win") return record.outcome === "win";
+  return normalizedRecordType(record) === filter;
+}
+
+function renderRecords(records = state.records) {
+  state.records = Array.isArray(records) ? records : [];
+  const filtered = state.records.filter((record) => recordMatchesFilter(record, state.recordFilter));
+  const totalPages = Math.max(Math.ceil(filtered.length / state.recordPageSize), 1);
+  state.recordPage = Math.min(Math.max(state.recordPage, 1), totalPages);
+  const start = (state.recordPage - 1) * state.recordPageSize;
+  const pageItems = filtered.slice(start, start + state.recordPageSize);
+  if (!pageItems.length) {
+    refs.recordList.innerHTML = `<div class="empty">暂无匹配记录。</div>`;
+  } else {
+    refs.recordList.innerHTML = pageItems.map((record) => `
+      <article class="record-item" data-outcome="${escapeHtml(record.outcome)}">
+        <div class="record-line">
+          <strong>${escapeHtml(record.prize_icon || "🍀")} ${escapeHtml(record.prize_name || "轮空")}</strong>
+          <span class="status-pill">${escapeHtml(recordTypeLabel(record))}</span>
+        </div>
+        <p class="muted">${escapeHtml(record.user_display || record.user_id || "未知用户")} · ${escapeHtml(record.created_at || "")}${record.pity_triggered ? " · 保底" : ""}</p>
+      </article>
+    `).join("");
   }
-  refs.recordList.innerHTML = records.map((record) => `
-    <article class="record-item" data-outcome="${escapeHtml(record.outcome)}">
-      <div class="record-line">
-        <strong>${escapeHtml(record.prize_icon || "◇")} ${escapeHtml(record.prize_name || "轮空")}</strong>
-        <span class="status-pill">${record.outcome === "win" ? "中奖" : "轮空"}</span>
-      </div>
-      <p class="muted">${escapeHtml(record.user_display || record.user_id || "未知用户")} · ${escapeHtml(record.created_at || "")}${record.pity_triggered ? " · 保底" : ""}</p>
-    </article>
-  `).join("");
+  if (refs.recordPageInfo) refs.recordPageInfo.textContent = `${state.recordPage}/${totalPages} · ${filtered.length} 条`;
+  if (refs.recordPrev) refs.recordPrev.disabled = state.recordPage <= 1;
+  if (refs.recordNext) refs.recordNext.disabled = state.recordPage >= totalPages;
 }
 
 function renderPrizes(prizes = []) {
@@ -183,7 +223,7 @@ function renderPrizes(prizes = []) {
         <span class="status-pill">概率 ${escapeHtml(prize.computed_rate ?? 0)}%</span>
         <span class="status-pill">权重 ${escapeHtml(prize.weight)}</span>
         <span class="status-pill">库存 ${Number(prize.stock) < 0 ? "不限" : escapeHtml(prize.stock)}</span>
-        <span class="status-pill">${escapeHtml(rewardTypeLabel(prize.reward_type, prize.free_spin_quantity))}</span>
+        <span class="status-pill">${escapeHtml(prize.reward_label || rewardTypeLabel(prize.reward_type, prize.free_spin_quantity))}</span>
         <span class="status-pill">${prize.guarantee_eligible ? "参与保底" : "不参与保底"}</span>
         <span class="status-pill">${prize.broadcast_enabled ? "中奖播报" : "不播报"}</span>
         ${prize.broadcast_image_url ? `<span class="status-pill">有播报图</span>` : ""}
@@ -342,9 +382,9 @@ function promptPrizePatch(prize) {
   if (weight === null) return null;
   const stock = window.prompt("库存（-1 表示不限）：", prize.stock ?? -1);
   if (stock === null) return null;
-  const rewardType = window.prompt("奖品类型（manual / free_spin_ticket）：", prize.reward_type || "manual");
+  const rewardType = window.prompt("奖品类型（manual / free_spin_ticket / group_invite_credit / account_open_credit / emby_currency）：", prize.reward_type || "manual");
   if (rewardType === null) return null;
-  const freeSpinQuantity = window.prompt("抽奖券数量：", prize.free_spin_quantity ?? 0);
+  const freeSpinQuantity = window.prompt("奖励数量（货币类型为到账数量）：", prize.free_spin_quantity ?? 0);
   if (freeSpinQuantity === null) return null;
   const description = window.prompt("奖品描述：", prize.description || "");
   if (description === null) return null;
@@ -436,6 +476,7 @@ function applyPayload(payload = {}) {
 
   renderPrizes(payload.prizes || []);
   renderRedeemCodes(payload.redeem_codes || []);
+  state.recordPage = 1;
   renderRecords(payload.records || []);
 }
 
@@ -552,6 +593,23 @@ refs.prizeForm?.addEventListener("submit", async (event) => {
     refs.prizeSubmit.disabled = false;
     refs.prizeSubmit.textContent = previous;
   }
+});
+
+
+refs.recordFilter?.addEventListener("change", (event) => {
+  state.recordFilter = event.target.value || "all";
+  state.recordPage = 1;
+  renderRecords();
+});
+
+refs.recordPrev?.addEventListener("click", () => {
+  state.recordPage -= 1;
+  renderRecords();
+});
+
+refs.recordNext?.addEventListener("click", () => {
+  state.recordPage += 1;
+  renderRecords();
 });
 
 refs.redeemCodeForm?.addEventListener("submit", async (event) => {

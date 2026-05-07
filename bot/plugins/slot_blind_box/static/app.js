@@ -3,9 +3,13 @@ const tg = window.Telegram?.WebApp || null;
 const state = {
   initData: tg?.initData || "",
   payload: null,
-  symbols: ["🎁", "◇", "🎫", "★"],
+  symbols: ["🎁", "🍒", "🍋", "🔔", "7️⃣", "💰", "🎟️", "⭐"],
   spinning: false,
   reelTimers: [],
+  recordPage: 1,
+  recordPageSize: 10,
+  recordFilter: "all",
+  records: [],
   transferTarget: null,
   transferSearchTimer: null,
   transferSearchSeq: 0,
@@ -35,6 +39,10 @@ const refs = {
   myStreak: document.querySelector("#my-streak"),
   prizeList: document.querySelector("#prize-list"),
   recordList: document.querySelector("#record-list"),
+  recordFilter: document.querySelector("#record-filter"),
+  recordPrev: document.querySelector("#record-prev"),
+  recordNext: document.querySelector("#record-next"),
+  recordPageInfo: document.querySelector("#record-page-info"),
   backpackList: document.querySelector("#backpack-list"),
   redeemForm: document.querySelector("#redeem-form"),
   redeemSubmit: document.querySelector("#redeem-submit"),
@@ -89,8 +97,17 @@ async function request(url, payload) {
 }
 
 function randomSymbol() {
-  const symbols = state.symbols.length ? state.symbols : ["🎁", "◇", "★"];
-  return symbols[Math.floor(Math.random() * symbols.length)] || "◇";
+  const symbols = state.symbols.length ? state.symbols : ["🎁", "🍒", "🔔", "7️⃣", "⭐"];
+  return symbols[Math.floor(Math.random() * symbols.length)] || "🍒";
+}
+
+function reelStripHtml(centerSymbol) {
+  const symbols = [randomSymbol(), randomSymbol(), centerSymbol || randomSymbol(), randomSymbol(), randomSymbol()];
+  return `<span class="reel-strip">${symbols.map((symbol) => `<span>${escapeHtml(symbol)}</span>`).join("")}</span>`;
+}
+
+function setReelSymbol(reel, symbol) {
+  reel.innerHTML = reelStripHtml(symbol);
 }
 
 function setMachineState(className, enabled) {
@@ -111,7 +128,7 @@ function startReels() {
     clearReelMotionClasses(reel);
     reel.classList.add("spinning");
     state.reelTimers[index] = window.setInterval(() => {
-      reel.textContent = randomSymbol();
+      reel.innerHTML = reelStripHtml(randomSymbol());
     }, 58 + index * 18);
   });
 }
@@ -121,7 +138,7 @@ function stopReels(finalReels = []) {
   state.reelTimers = [];
   refs.reels.forEach((reel, index) => {
     clearReelMotionClasses(reel);
-    reel.textContent = finalReels[index] || reel.textContent || randomSymbol();
+    setReelSymbol(reel, finalReels[index] || randomSymbol());
   });
   setMachineState("is-spinning", false);
   state.spinning = false;
@@ -134,7 +151,7 @@ async function settleReels(finalReels) {
     await new Promise((resolve) => window.setTimeout(resolve, 190 + index * 110));
     const reel = refs.reels[index];
     reel.classList.remove("spinning");
-    reel.textContent = finalReels[index] || randomSymbol();
+    setReelSymbol(reel, finalReels[index] || randomSymbol());
     reel.classList.remove("is-settled");
     void reel.offsetWidth;
     reel.classList.add("is-settled");
@@ -192,25 +209,57 @@ function renderPrizes(prizes = []) {
       </div>
       <h3>${escapeHtml(prize.name)}</h3>
       <p class="muted">${escapeHtml(prize.description || "")}</p>
+      <p class="muted">${escapeHtml(prize.reward_label || "普通奖品")}</p>
       <p class="muted">库存 ${Number(prize.stock) < 0 ? "不限" : escapeHtml(prize.stock)}</p>
     </article>
   `).join("");
 }
 
-function renderRecords(records = []) {
-  if (!records.length) {
-    refs.recordList.innerHTML = `<div class="empty">暂无抽取记录。</div>`;
-    return;
+function normalizedRecordType(record = {}) {
+  const type = String(record.reward_type || "").trim();
+  if (type) return type;
+  return record.outcome === "blank" ? "blank" : "manual";
+}
+
+function recordTypeLabel(record = {}) {
+  const type = normalizedRecordType(record);
+  if (type === "emby_currency") return `💰 ${record.reward_quantity || 0} ${record.reward_label || "货币"}`;
+  if (type === "free_spin_ticket") return `🎟️ 抽奖券 x${record.reward_quantity || 1}`;
+  if (type === "group_invite_credit") return `📨 邀请资格 x${record.reward_quantity || 1}`;
+  if (type === "account_open_credit") return `🪪 开号资格 x${record.reward_quantity || 1}`;
+  if (type === "blank" || record.outcome === "blank") return "🍀 轮空";
+  return "🎁 普通奖品";
+}
+
+function recordMatchesFilter(record = {}, filter = "all") {
+  if (filter === "all") return true;
+  if (filter === "win") return record.outcome === "win";
+  return normalizedRecordType(record) === filter;
+}
+
+function renderRecords(records = state.records) {
+  state.records = Array.isArray(records) ? records : [];
+  const filtered = state.records.filter((record) => recordMatchesFilter(record, state.recordFilter));
+  const totalPages = Math.max(Math.ceil(filtered.length / state.recordPageSize), 1);
+  state.recordPage = Math.min(Math.max(state.recordPage, 1), totalPages);
+  const start = (state.recordPage - 1) * state.recordPageSize;
+  const pageItems = filtered.slice(start, start + state.recordPageSize);
+  if (!pageItems.length) {
+    refs.recordList.innerHTML = `<div class="empty">暂无匹配记录。</div>`;
+  } else {
+    refs.recordList.innerHTML = pageItems.map((record, index) => `
+      <article class="record-item" style="--i:${index}" data-outcome="${escapeHtml(record.outcome)}">
+        <div class="record-line">
+          <strong>${escapeHtml(record.prize_icon || "🍀")} ${escapeHtml(record.prize_name || "轮空")}</strong>
+          <span class="status-pill">${escapeHtml(recordTypeLabel(record))}</span>
+        </div>
+        <p class="muted">${escapeHtml(record.created_at || "")}${record.pity_triggered ? " · 保底" : ""}</p>
+      </article>
+    `).join("");
   }
-  refs.recordList.innerHTML = records.map((record, index) => `
-    <article class="record-item" style="--i:${index}" data-outcome="${escapeHtml(record.outcome)}">
-      <div class="record-line">
-        <strong>${escapeHtml(record.prize_icon || "◇")} ${escapeHtml(record.prize_name || "轮空")}</strong>
-        <span class="status-pill">${record.outcome === "win" ? "中奖" : "未中"}</span>
-      </div>
-      <p class="muted">${escapeHtml(record.created_at || "")}${record.pity_triggered ? " · 保底" : ""}</p>
-    </article>
-  `).join("");
+  if (refs.recordPageInfo) refs.recordPageInfo.textContent = `${state.recordPage}/${totalPages} · ${filtered.length} 条`;
+  if (refs.recordPrev) refs.recordPrev.disabled = state.recordPage <= 1;
+  if (refs.recordNext) refs.recordNext.disabled = state.recordPage >= totalPages;
 }
 
 function renderBackpack(items = []) {
@@ -309,7 +358,7 @@ function renderResult(result) {
   refs.resultPanel.classList.remove("hidden");
   refs.resultPanel.dataset.outcome = result.outcome || "blank";
   const prize = result.prize || {};
-  const icon = prize.icon || (result.outcome === "win" ? "🎁" : "◇");
+  const icon = prize.icon || (result.outcome === "win" ? "🎁" : "🍀");
   refs.resultPanel.innerHTML = `
     <div class="result-hero">
       <span class="result-icon">${escapeHtml(icon)}</span>
@@ -383,6 +432,7 @@ function applyPayload(payload = {}) {
   }
 
   renderPrizes(payload.prizes || []);
+  state.recordPage = 1;
   renderRecords(payload.records || []);
   renderBackpack(payload.backpack || []);
   renderBottomNav(payload.meta?.bottom_nav || []);
@@ -449,6 +499,22 @@ async function spin() {
     refs.spinButton.disabled = !state.payload?.settings?.enabled || waitSeconds > 0 || dailyLimitReached;
   }
 }
+
+refs.recordFilter?.addEventListener("change", (event) => {
+  state.recordFilter = event.target.value || "all";
+  state.recordPage = 1;
+  renderRecords();
+});
+
+refs.recordPrev?.addEventListener("click", () => {
+  state.recordPage -= 1;
+  renderRecords();
+});
+
+refs.recordNext?.addEventListener("click", () => {
+  state.recordPage += 1;
+  renderRecords();
+});
 
 refs.spinButton?.addEventListener("click", spin);
 refs.refreshButton?.addEventListener("click", async () => {

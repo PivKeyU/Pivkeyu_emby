@@ -36,9 +36,9 @@
         <span id="limit-meter" class="status-pill">次数 -</span>
       </div>
       <div class="slot-machine" aria-live="polite">
-        <div class="reel" data-reel="0">🎁</div>
-        <div class="reel" data-reel="1">◇</div>
-        <div class="reel" data-reel="2">🎫</div>
+        <div class="reel" data-reel="0"><span class="reel-strip"><span>🍒</span><span>🍋</span><span>🎁</span><span>🔔</span><span>7️⃣</span></span></div>
+        <div class="reel" data-reel="1"><span class="reel-strip"><span>🍋</span><span>💰</span><span>🍒</span><span>⭐</span><span>🎟️</span></span></div>
+        <div class="reel" data-reel="2"><span class="reel-strip"><span>🔔</span><span>🍇</span><span>🎟️</span><span>💎</span><span>🍊</span></span></div>
       </div>
       <div class="machine-actions">
         <button id="spin-button" type="button"><span class="button-icon">▶</span><span>开始</span></button>
@@ -91,13 +91,33 @@
         </div>
         <div id="prize-list" class="prize-grid"></div>
       </div>
-      <div class="panel">
-        <div class="panel-head">
+      <details class="panel collapsible-panel" id="record-panel">
+        <summary class="panel-head collapsible-head">
           <h2>记录</h2>
           <span id="my-streak" class="status-pill">连续未中 -</span>
+        </summary>
+        <div class="record-tools">
+          <label>
+            类型
+            <select id="record-filter">
+              <option value="all">全部</option>
+              <option value="win">中奖</option>
+              <option value="blank">轮空</option>
+              <option value="emby_currency">Emby 货币</option>
+              <option value="free_spin_ticket">抽奖券</option>
+              <option value="group_invite_credit">邀请资格</option>
+              <option value="account_open_credit">开号资格</option>
+              <option value="manual">普通奖品</option>
+            </select>
+          </label>
         </div>
         <div id="record-list" class="record-list"></div>
-      </div>
+        <div class="pager" id="record-pager">
+          <button id="record-prev" type="button" class="secondary"><span class="button-icon">‹</span><span>上一页</span></button>
+          <span id="record-page-info" class="status-pill">1/1</span>
+          <button id="record-next" type="button" class="secondary"><span class="button-icon">›</span><span>下一页</span></button>
+        </div>
+      </details>
     </section>
 
     <section class="content-grid">

@@ -191,11 +191,12 @@
             <option value="free_spin_ticket">抽奖券</option>
             <option value="group_invite_credit">邀请资格</option>
             <option value="account_open_credit">开号资格</option>
+            <option value="emby_currency">Emby 货币</option>
           </select>
         </label>
         <label>
-          物品数量
-          <input id="prize-free-spin-quantity" type="number" min="0" max="1000" value="0">
+          奖励数量
+          <input id="prize-free-spin-quantity" type="number" min="0" max="9007199254740991" value="0">
         </label>
         <label class="wide">
           奖品描述
@@ -280,12 +281,33 @@
       <div id="admin-redeem-code-list" class="admin-list"></div>
     </section>
 
-    <section class="panel section-panel">
-      <div class="panel-head">
+    <details class="panel section-panel collapsible-panel" id="admin-record-panel">
+      <summary class="panel-head collapsible-head">
         <h2>最近记录</h2>
+        <span class="status-pill">可筛选</span>
+      </summary>
+      <div class="record-tools">
+        <label>
+          类型
+          <select id="admin-record-filter">
+            <option value="all">全部</option>
+            <option value="win">中奖</option>
+            <option value="blank">轮空</option>
+            <option value="emby_currency">Emby 货币</option>
+            <option value="free_spin_ticket">抽奖券</option>
+            <option value="group_invite_credit">邀请资格</option>
+            <option value="account_open_credit">开号资格</option>
+            <option value="manual">普通奖品</option>
+          </select>
+        </label>
       </div>
       <div id="admin-record-list" class="record-list"></div>
-    </section>
+      <div class="pager" id="admin-record-pager">
+        <button id="admin-record-prev" type="button" class="secondary"><span class="button-icon">‹</span><span>上一页</span></button>
+        <span id="admin-record-page-info" class="status-pill">1/1</span>
+        <button id="admin-record-next" type="button" class="secondary"><span class="button-icon">›</span><span>下一页</span></button>
+      </div>
+    </details>
   </main>
 
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
