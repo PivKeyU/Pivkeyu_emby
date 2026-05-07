@@ -3424,7 +3424,7 @@ def build_spirit_stone_commissions(tg: int) -> list[dict[str, Any]]:
     return rows
 
 
-def claim_spirit_stone_commission(tg: int, commission_key: str) -> dict[str, Any]:
+def claim_spirit_stone_commission(tg: int, commission_key: str, *, include_profile: bool = True) -> dict[str, Any]:
     config = SPIRIT_STONE_COMMISSIONS.get(str(commission_key or "").strip())
     if config is None:
         raise ValueError("未寻得此委托，或已被他人先行接下。")
@@ -3516,7 +3516,7 @@ def claim_spirit_stone_commission(tg: int, commission_key: str) -> dict[str, Any
             + f"。{growth_text}"
         ),
     )
-    return {
+    result = {
         "commission": {
             "key": config["key"],
             "name": config["name"],
@@ -3529,8 +3529,10 @@ def claim_spirit_stone_commission(tg: int, commission_key: str) -> dict[str, Any
         },
         "upgraded_layers": upgraded_layers,
         "remaining": remaining,
-        "profile": serialize_full_profile(tg),
     }
+    if include_profile:
+        result["profile"] = serialize_full_profile(tg)
+    return result
 
 
 def _coerce_float(value: Any, default: float, minimum: float | None = None) -> float:

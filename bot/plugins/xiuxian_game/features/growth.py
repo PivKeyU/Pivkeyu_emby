@@ -45,8 +45,17 @@ def build_spirit_stone_commissions(tg: int) -> list[dict[str, Any]]:
     return _legacy_service().build_spirit_stone_commissions(tg)
 
 
-def claim_spirit_stone_commission(tg: int, commission_key: str) -> dict[str, Any]:
-    return _legacy_service().claim_spirit_stone_commission(tg, commission_key)
+def claim_spirit_stone_commission(
+    tg: int,
+    commission_key: str,
+    *,
+    include_profile: bool = True,
+) -> dict[str, Any]:
+    return _legacy_service().claim_spirit_stone_commission(
+        tg,
+        commission_key,
+        include_profile=include_profile,
+    )
 
 
 def serialize_full_profile(tg: int) -> dict[str, Any]:

@@ -19,6 +19,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Index,
     or_,
 )
 from sqlalchemy.exc import IntegrityError
@@ -129,6 +130,9 @@ class XiuxianProfile(Base):
 
 class XiuxianJournal(Base):
     __tablename__ = "xiuxian_journals"
+    __table_args__ = (
+        Index("ix_xiuxian_journals_tg_action_title_created_id", "tg", "action_type", "title", "created_at", "id"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     tg = Column(BigInteger, nullable=False)

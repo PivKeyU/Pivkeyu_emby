@@ -189,6 +189,7 @@ from bot.plugins.xiuxian_game.features.gambling import (
     open_immortal_stones,
 )
 from bot.plugins.xiuxian_game.features.growth import (
+    build_spirit_stone_commissions,
     claim_spirit_stone_commission,
     breakthrough_for_user,
     create_foundation_pill_for_user_if_missing,
@@ -4859,10 +4860,11 @@ def register_bot(bot_instance) -> None:
                 return
             requested_key = _normalize_commission_command_key(msg.command[1] if len(msg.command or []) > 1 else None)
             def _claim_work():
-                bundle = _full_bundle(actor.id)
-                selected_rows, _ = _select_group_commissions(bundle, requested_key=requested_key)
+                commission_rows = build_spirit_stone_commissions(actor.id)
+                commission_bundle = {"commissions": commission_rows}
+                selected_rows, _ = _select_group_commissions(commission_bundle, requested_key=requested_key)
                 if not selected_rows:
-                    return None, _commission_selection_error(bundle, requested_key=requested_key)
+                    return None, _commission_selection_error(commission_bundle, requested_key=requested_key)
 
                 total_stone = 0
                 total_cultivation = 0
@@ -4870,7 +4872,7 @@ def register_bot(bot_instance) -> None:
                 growth_rows: list[str] = []
                 upgraded_layers: list[int] = []
                 for selected in selected_rows:
-                    result = claim_spirit_stone_commission(actor.id, str(selected.get("key") or ""))
+                    result = claim_spirit_stone_commission(actor.id, str(selected.get("key") or ""), include_profile=False)
                     commission = result.get("commission") or {}
                     stone_gain = int(commission.get("stone_gain") or 0)
                     cultivation_gain = int(commission.get("cultivation_gain") or 0)
