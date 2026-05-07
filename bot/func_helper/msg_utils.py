@@ -1,9 +1,8 @@
 #! /usr/bin/python3
 # -*- coding: utf-8 -*-
 
-from asyncio import sleep
-
 import asyncio
+from asyncio import sleep
 
 from pyrogram import filters, enums
 from pyrogram.errors import FloodWait, Forbidden, BadRequest
@@ -11,6 +10,40 @@ from pyrogram.types import CallbackQuery
 from pyromod.exceptions import ListenerTimeout
 from bot import LOGGER, group, bot
 from typing import Optional
+
+
+_AUTO_DELETE_TASKS: set[asyncio.Task] = set()
+
+
+def _track_background_task(task: asyncio.Task) -> None:
+    _AUTO_DELETE_TASKS.add(task)
+
+    def _cleanup(done_task: asyncio.Task) -> None:
+        _AUTO_DELETE_TASKS.discard(done_task)
+        try:
+            done_task.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            LOGGER.warning(f"后台删除消息任务失败: {exc}")
+
+    task.add_done_callback(_cleanup)
+
+
+def _schedule_delete_message(message, timer) -> None:
+    try:
+        delay = max(float(timer), 0)
+    except (TypeError, ValueError):
+        delay = 0
+    target = message.message if isinstance(message, CallbackQuery) else message
+    task = asyncio.create_task(_delete_message_later(target, delay))
+    _track_background_task(task)
+
+
+async def _delete_message_later(message, delay: float) -> None:
+    if delay > 0:
+        await asyncio.sleep(delay)
+    await deleteMessage(message)
 
 
 # 将来自己要是重写，希望不要把/cancel当关键词，用call.data，省代码还好看，切记。
@@ -35,7 +68,7 @@ async def sendMessage(message, text: str, buttons=None, timer=None, send=False, 
         # 禁用通知 disable_notification=True,
         send = await message.reply(text=text, quote=True, disable_web_page_preview=True, reply_markup=buttons)
         if timer is not None:
-            return await deleteMessage(send, timer)
+            _schedule_delete_message(send, timer)
         return True
     except FloodWait as f:
         LOGGER.warning(str(f))
@@ -59,7 +92,7 @@ async def editMessage(message, text: str, buttons=None, timer=None, parse_mode: 
     try:
         edt = await message.edit(text=text, disable_web_page_preview=True, reply_markup=buttons, parse_mode=parse_mode)
         if timer is not None:
-            return await deleteMessage(edt, timer)
+            _schedule_delete_message(edt, timer)
         return True
     except FloodWait as f:
         LOGGER.warning(str(f))
@@ -128,7 +161,7 @@ async def sendPhoto(message, photo, caption=None, buttons=None, timer=None, send
         send = await message.reply_photo(photo=photo, caption=caption, disable_notification=True,
                                          reply_markup=buttons)
         if timer is not None:
-            return await deleteMessage(send, timer)
+            _schedule_delete_message(send, timer)
         return True
     except FloodWait as f:
         LOGGER.warning(str(f))
@@ -147,7 +180,8 @@ async def deleteMessage(message, timer=None):
     :return:
     """
     if timer is not None:
-        await asyncio.sleep(timer)
+        _schedule_delete_message(message, timer)
+        return True
     if isinstance(message, CallbackQuery):
         try:
             await message.message.delete()
@@ -220,6 +254,5 @@ async def ask_return(update, text, timer: int = 120, button=None):
     except ListenerTimeout:
         await sendMessage(update, '💦 __没有获取到您的输入__ **会话状态自动取消！**', buttons=button)
         return None
-
 
 

@@ -4717,9 +4717,12 @@ def register_bot(bot_instance) -> None:
                 layer_line = _format_layer_upgrade_line(upgraded_layers)
                 if layer_line:
                     lines.append(layer_line)
-                return "\n".join(lines)
+                return "\n".join(lines), None
 
-            result_text = await run_in_threadpool(_claim_work)
+            result_text, error_text = await run_in_threadpool(_claim_work)
+            if error_text:
+                await _reply_text(msg, error_text, quote=True, parse_mode=RICH_TEXT_MODE)
+                return
             if result_text is None:
                 return
             await _reply_text(
@@ -4897,9 +4900,9 @@ def register_bot(bot_instance) -> None:
                         invite_timeout_seconds,
                         {**bet_settings, "seconds": bet_seconds},
                     )
-                    return preview, stake, bet_seconds
+                    return preview, stake, bet_seconds, invite_timeout_seconds
 
-                preview, stake, bet_seconds = await run_in_threadpool(_prepare_duel_preview)
+                preview, stake, bet_seconds, invite_timeout_seconds = await run_in_threadpool(_prepare_duel_preview)
                 sent = await _reply_text(
                     msg,
                     preview,

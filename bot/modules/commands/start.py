@@ -9,7 +9,12 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot import LOGGER, bot, bot_photo, group, prefixes, ranks, sakura_b
 from bot.func_helper.emby import Embyservice
-from bot.func_helper.filters import user_in_group_filter, user_in_group_on_filter
+from bot.func_helper.filters import (
+    check_initial_access,
+    initial_access_denied_text,
+    user_in_group_filter,
+    user_in_group_on_filter,
+)
 from bot.func_helper.fix_bottons import cr_kk_ikb, group_f, judge_group_ikb, judge_start_ikb
 from bot.func_helper.msg_utils import callAnswer, deleteMessage, editMessage, sendMessage, sendPhoto
 from bot.func_helper.utils import judge_admins, members_info, open_check
@@ -53,14 +58,17 @@ async def p_start(_, msg):
     LOGGER.info(f"[/start] received private start from user={user_id}")
 
     try:
-        in_group = await user_in_group_filter(_, msg)
-        LOGGER.info(f"[/start] group check user={user_id} in_group={in_group}")
-        if not in_group:
+        access = await check_initial_access(_, msg)
+        LOGGER.info(
+            f"[/start] initial access user={user_id} ok={access.get('ok')} "
+            f"group={access.get('group_ok')} channel={access.get('channel_ok')} missing={access.get('missing')}"
+        )
+        if not access.get("ok"):
             return await asyncio.gather(
                 deleteMessage(msg),
                 sendMessage(
                     msg,
-                    "🚫 哼，还没加入群组和频道呢...先加完再来找本女仆啦。",
+                    initial_access_denied_text(access),
                     buttons=judge_group_ikb,
                 ),
             )
@@ -146,9 +154,9 @@ async def p_start(_, msg):
 @bot.on_callback_query(filters.regex("back_start"))
 async def b_start(_, call):
     try:
-        in_group = await user_in_group_filter(_, call)
+        access = await check_initial_access(_, call)
         await callAnswer(call, "返回 start")
-        if in_group:
+        if access.get("ok"):
             is_admin = judge_admins(call.from_user.id)
             await editMessage(
                 call,
@@ -158,7 +166,7 @@ async def b_start(_, call):
         else:
             await editMessage(
                 call,
-                text="🚫 哼，还没加入群组和频道呢...先加完再来找本女仆啦。",
+                text=initial_access_denied_text(access),
                 buttons=judge_group_ikb,
             )
     except Exception as exc:
@@ -169,15 +177,15 @@ async def b_start(_, call):
 @bot.on_callback_query(filters.regex("store_all"))
 async def store_alls(_, call):
     try:
-        in_group = await user_in_group_filter(_, call)
-        if not in_group:
+        access = await check_initial_access(_, call)
+        if not access.get("ok"):
             await asyncio.gather(
                 callAnswer(call, "返回 start"),
                 deleteMessage(call),
                 sendPhoto(
                     call,
                     bot_photo,
-                    "🚫 哼，还没加入群组和频道呢...先加完再来找本女仆啦。",
+                    initial_access_denied_text(access),
                     judge_group_ikb,
                 ),
             )

@@ -178,14 +178,28 @@ def _normalize_invite_chat_reference(raw_target: Any) -> int | str | None:
     if raw_target is None:
         return None
     text = str(raw_target).strip()
-    if not text or text in {"0", "None", "null"}:
-        return None
-    if text.startswith("https://t.me/"):
+    if text.startswith("https://t.me/") or text.startswith("http://t.me/"):
         text = text.rsplit("/", 1)[-1].strip()
+    normalized = text.lstrip("@").lower()
+    if (
+        not text
+        or normalized in {"0", "none", "null", "your_channel_username", "your_main_group_username"}
+        or "replace_with" in normalized
+    ):
+        return None
     try:
         return int(text)
     except (TypeError, ValueError):
         return text if text.startswith("@") else f"@{text}"
+
+
+def _telegram_member_is_active(member) -> bool:
+    status = str(getattr(getattr(member, "status", None), "value", getattr(member, "status", "")) or "").lower()
+    if status in {"creator", "owner", "administrator", "member"}:
+        return True
+    if status == "restricted":
+        return bool(getattr(member, "is_member", True))
+    return False
 
 
 async def _ensure_target_user_in_group(invitee_tg: int, settings: dict) -> None:
@@ -206,8 +220,7 @@ async def _ensure_target_user_in_group(invitee_tg: int, settings: dict) -> None:
                 f"check invite target {label.lower()} member failed chat={normalized_chat_id} tg={invitee_tg}: {exc}"
             )
             raise HTTPException(status_code=400, detail=f"被申请人不在目标{label}里呢，不能提交开通申请啦~") from exc
-        status = str(getattr(member, "status", "") or "").lower()
-        if "left" in status or "ban" in status or "kick" in status:
+        if not _telegram_member_is_active(member):
             raise HTTPException(status_code=400, detail=f"被申请人不在目标{label}里呢，不能提交开通申请啦~")
 
 

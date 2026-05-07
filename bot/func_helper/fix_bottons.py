@@ -22,6 +22,51 @@ from bot.sql_helper.sql_emby import sql_get_emby
 
 cache = Cache()
 
+
+def _is_placeholder_telegram_ref(value) -> bool:
+    normalized = str(value or "").strip()
+    if normalized.startswith("https://t.me/") or normalized.startswith("http://t.me/"):
+        normalized = normalized.rsplit("/", 1)[-1]
+    normalized = normalized.strip().lstrip("@").lower()
+    return not normalized or normalized in {
+        "0",
+        "none",
+        "null",
+        "your_main_group_username",
+        "your_channel_username",
+    } or "replace_with" in normalized
+
+
+def _telegram_entry_url(value) -> str | None:
+    if _is_placeholder_telegram_ref(value):
+        return None
+    text = str(value).strip()
+    if text.startswith("http://") or text.startswith("https://"):
+        return text
+    if text.startswith("t.me/") or text.startswith("telegram.me/"):
+        return f"https://{text}"
+    if text.lstrip("-").isdigit():
+        return None
+    if text.startswith("+"):
+        return f"https://t.me/{text}"
+    return f"https://t.me/{text.lstrip('@')}"
+
+
+def _build_join_verify_keyboard() -> InlineKeyboardMarkup:
+    first_row = []
+    channel_url = _telegram_entry_url(chanel)
+    group_url = _telegram_entry_url(main_group)
+    if channel_url:
+        first_row.append(('🌟 频道入口', channel_url, 'url'))
+    if group_url:
+        first_row.append(('💫 群组入口', group_url, 'url'))
+    lines = []
+    if first_row:
+        lines.append(first_row)
+    lines.append([('🔄 我已加入，重新验证', 'back_start')])
+    lines.append([('❌ 关闭消息', 'closeit')])
+    return ikb(lines)
+
 """start面板 ↓"""
 
 
@@ -55,9 +100,7 @@ def judge_start_ikb(is_admin: bool, account: bool, user_id: int | None = None) -
 # un_group_answer
 group_f = ikb([[('点击我(●ˇ∀ˇ●)', f't.me/{bot_name}', 'url')]])
 # un in group
-judge_group_ikb = ikb([[('🌟 频道入口 ', f't.me/{chanel}', 'url'),
-                        ('💫 群组入口', f't.me/{main_group}', 'url')],
-                       [('❌ 关闭消息', 'closeit')]])
+judge_group_ikb = _build_join_verify_keyboard()
 
 """members ↓"""
 
