@@ -48,6 +48,7 @@ from bot.plugins.xiuxian_game.service import (
     _self_profile_snapshot,
     _build_user_technique_rows,
     _pill_batch_use_note,
+    _pill_batch_use_max,
     _pill_supports_batch_use,
     _pill_usage_reason,
     build_user_artifact_rows,
@@ -532,7 +533,7 @@ def _build_pill_rows(bundle: dict[str, Any], tg: int) -> list[dict[str, Any]]:
         row["pill"]["unusable_reason"] = reason
         batch_usable = _pill_supports_batch_use(item)
         row["pill"]["batch_usable"] = batch_usable
-        row["pill"]["batch_use_max"] = max(int(row.get("quantity") or 0), 0) if batch_usable else 1
+        row["pill"]["batch_use_max"] = _pill_batch_use_max(profile, item, row.get("quantity"))
         row["pill"]["batch_use_note"] = _pill_batch_use_note(item)
         rows.append(row)
     return rows

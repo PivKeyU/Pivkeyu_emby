@@ -139,6 +139,9 @@ def pill_usage_reason(profile_data: dict[str, Any], pill: dict[str, Any]) -> str
         return "灵石收益类丹药已删除，当前无法服用。"
     if pill_type == "foundation":
         return "破境丹只能在对应的大境界突破时配合使用。"
+    fortune_reason = legacy_service._fortune_pill_usage_reason(profile_data, pill)
+    if fortune_reason:
+        return fortune_reason
     if pill_type == "root_refine":
         effects = resolve_pill_effects(profile_data, pill)
         steps = max(int(round(float(effects.get("root_quality_gain", 0) or 0))), 0)

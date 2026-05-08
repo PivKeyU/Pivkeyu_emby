@@ -249,6 +249,83 @@ PILL_BATCH_USE_TYPES = {
     "true_yuan",
     "willpower",
 }
+FORTUNE_PILL_CAP_BASE = 60
+FORTUNE_PILL_CAP_STEP = 20
+FORTUNE_PILL_CAP_MAX = 240
+
+
+def _profile_field(profile: XiuxianProfile | dict[str, Any] | None, field: str, default: Any = None) -> Any:
+    if profile is None:
+        return default
+    if isinstance(profile, dict):
+        return profile.get(field, default)
+    return getattr(profile, field, default)
+
+
+def _fortune_pill_cap_for_profile(profile: XiuxianProfile | dict[str, Any] | None) -> int:
+    stage = normalize_realm_stage(_profile_field(profile, "realm_stage", FIRST_REALM_STAGE) or FIRST_REALM_STAGE)
+    stage_index = max(realm_index(stage), 0)
+    return min(FORTUNE_PILL_CAP_BASE + stage_index * FORTUNE_PILL_CAP_STEP, FORTUNE_PILL_CAP_MAX)
+
+
+def _fortune_pill_current_value(profile: XiuxianProfile | dict[str, Any] | None) -> int:
+    try:
+        return max(int(_profile_field(profile, "fortune", 0) or 0), 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _fortune_pill_gain_per_use(profile_data: dict[str, Any], pill: dict[str, Any] | None) -> int:
+    if str((pill or {}).get("pill_type") or "").strip() != "fortune":
+        return 0
+    effects = resolve_pill_effects(profile_data, pill)
+    return max(int(round(float(effects.get("fortune_bonus", 0) or 0))), 0)
+
+
+def _fortune_pill_remaining_uses(
+    profile_data: dict[str, Any],
+    pill: dict[str, Any] | None,
+    owned_quantity: int | None = None,
+) -> int:
+    if str((pill or {}).get("pill_type") or "").strip() != "fortune":
+        return 0
+    cap = _fortune_pill_cap_for_profile(profile_data)
+    current = _fortune_pill_current_value(profile_data)
+    if current >= cap:
+        return 0
+    gain = _fortune_pill_gain_per_use(profile_data, pill)
+    if gain <= 0:
+        return 0
+    remaining = int(ceil((cap - current) / gain))
+    if owned_quantity is not None:
+        remaining = min(remaining, max(int(owned_quantity or 0), 0))
+    return max(remaining, 0)
+
+
+def _fortune_pill_usage_reason(profile_data: dict[str, Any], pill: dict[str, Any] | None) -> str:
+    if str((pill or {}).get("pill_type") or "").strip() != "fortune":
+        return ""
+    cap = _fortune_pill_cap_for_profile(profile_data)
+    current = _fortune_pill_current_value(profile_data)
+    if current >= cap:
+        return f"机缘已达当前境界丹药可提升上限（{current}/{cap}），继续服用不会生效。"
+    if _fortune_pill_gain_per_use(profile_data, pill) <= 0:
+        return "这枚机缘丹没有可生效的机缘。"
+    return ""
+
+
+def _pill_batch_use_max(profile_data: dict[str, Any], pill: dict[str, Any] | None, quantity: int | None) -> int:
+    if not _pill_supports_batch_use(pill):
+        return 1
+    try:
+        owned_quantity = max(int(quantity or 0), 0)
+    except (TypeError, ValueError):
+        owned_quantity = 0
+    if str((pill or {}).get("pill_type") or "").strip() == "fortune":
+        return _fortune_pill_remaining_uses(profile_data, pill, owned_quantity)
+    return owned_quantity
+
+
 # clear_poison 刻意不加入批量使用，防止丹毒循环叠加：
 # 1. 批量服用属性丹药 → 丹毒 >= 100
 # 2. 批量服用清毒丹 → 丹毒归零
@@ -4491,6 +4568,9 @@ def _pill_usage_reason(profile_data: dict[str, Any], pill: dict[str, Any]) -> st
         return "灵石收益类丹药已删除，当前无法服用。"
     if pill_type == "foundation":
         return "破境丹只能在对应的大境界突破时配合使用。"
+    fortune_reason = _fortune_pill_usage_reason(profile_data, pill)
+    if fortune_reason:
+        return fortune_reason
     if pill_type == "root_refine":
         effects = resolve_pill_effects(profile_data, pill)
         steps = max(int(round(float(effects.get("root_quality_gain", 0) or 0))), 0)
@@ -4514,6 +4594,8 @@ def _pill_supports_batch_use(pill: dict[str, Any] | None) -> bool:
 
 def _pill_batch_use_note(pill: dict[str, Any] | None) -> str:
     pill_type = str((pill or {}).get("pill_type") or "").strip()
+    if pill_type == "fortune":
+        return "这类丹药支持按数量连续服用，但机缘只提升到当前境界丹药上限。"
     if pill_type in PILL_BATCH_USE_TYPES:
         return "这类丹药支持按数量连续服用。"
     if pill_type == "foundation":
@@ -6616,7 +6698,7 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         row["pill"]["usable"] = usable
         row["pill"]["unusable_reason"] = reason
         row["pill"]["batch_usable"] = batch_usable
-        row["pill"]["batch_use_max"] = max(int(row.get("quantity") or 0), 0) if batch_usable else 1
+        row["pill"]["batch_use_max"] = _pill_batch_use_max(profile_data, item, row.get("quantity"))
         row["pill"]["batch_use_note"] = _pill_batch_use_note(item)
         pills.append(row)
 
@@ -12161,7 +12243,10 @@ def _apply_pill_effect_once(
     bone = min(int(profile.bone or 0) + int(round(effects.get("bone_bonus", 0))), stat_cap)
     comprehension = min(int(profile.comprehension or 0) + int(round(effects.get("comprehension_bonus", 0))), stat_cap)
     divine_sense = min(int(profile.divine_sense or 0) + int(round(effects.get("divine_sense_bonus", 0))), stat_cap)
-    fortune = min(int(profile.fortune or 0) + int(round(effects.get("fortune_bonus", 0))), stat_cap)
+    fortune_cap = stat_cap
+    if pill.pill_type == "fortune":
+        fortune_cap = min(fortune_cap, _fortune_pill_cap_for_profile(profile))
+    fortune = min(int(profile.fortune or 0) + int(round(effects.get("fortune_bonus", 0))), fortune_cap)
     willpower = min(int(profile.willpower or 0) + int(round(effects.get("willpower_bonus", 0))), stat_cap)
     charisma = min(int(profile.charisma or 0) + int(round(effects.get("charisma_bonus", 0))), stat_cap)
     karma = min(int(profile.karma or 0) + int(round(effects.get("karma_bonus", 0))), stat_cap)
@@ -12237,13 +12322,18 @@ def consume_pill_for_user(tg: int, pill_id: int, quantity: int = 1) -> dict[str,
         total_quantity = sum(max(int(row.quantity or 0), 0) for row in rows)
         if total_quantity < 1:
             raise ValueError("你的背包里没有这枚丹药。")
-        if total_quantity < requested_quantity:
-            raise ValueError("背包里的丹药数量不足。")
         if requested_quantity > 1 and not batch_usable:
             raise ValueError("这枚丹药当前仅支持单次服用。")
+        effective_quantity = requested_quantity
+        if pill.pill_type == "fortune":
+            effective_quantity = min(requested_quantity, _fortune_pill_remaining_uses(profile_data, pill_data, total_quantity))
+            if effective_quantity <= 0:
+                raise ValueError(_fortune_pill_usage_reason(profile_data, pill_data) or "机缘已达当前境界丹药可提升上限。")
+        if total_quantity < effective_quantity:
+            raise ValueError("背包里的丹药数量不足。")
 
         now = utcnow()
-        remaining = requested_quantity
+        remaining = effective_quantity
         for row in rows:
             if remaining <= 0:
                 break
@@ -12257,7 +12347,7 @@ def consume_pill_for_user(tg: int, pill_id: int, quantity: int = 1) -> dict[str,
             if row.quantity <= 0:
                 session.delete(row)
 
-        for _ in range(requested_quantity):
+        for _ in range(effective_quantity):
             effects = _apply_pill_effect_once(session, tg, profile, pill, pill_data)
         profile.updated_at = now
         _queue_profile_cache_invalidation(session, tg)
@@ -12273,8 +12363,8 @@ def consume_pill_for_user(tg: int, pill_id: int, quantity: int = 1) -> dict[str,
         },
         "profile": profile_after,
         "summary": _pill_effect_summary(profile_data, profile_after),
-        "used_quantity": requested_quantity,
-        "batch_used": requested_quantity > 1,
+        "used_quantity": effective_quantity,
+        "batch_used": effective_quantity > 1,
     }
 
 
