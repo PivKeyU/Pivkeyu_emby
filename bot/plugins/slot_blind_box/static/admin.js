@@ -554,7 +554,7 @@ function renderPrizes(prizes = []) {
             <label>
               单独保底次数
               <input name="guarantee_after" type="number" min="0" max="10000" value="${escapeHtml(prize.guarantee_after ?? 0)}">
-              <small class="field-hint">0 表示跟随全局保底；大于 0 时该奖品按自己的次数触发。</small>
+              <small class="field-hint">0 表示跟随全局保底；大于 0 时按连续轮空次数触发该奖品。</small>
             </label>
             <label class="wide">
               奖品描述

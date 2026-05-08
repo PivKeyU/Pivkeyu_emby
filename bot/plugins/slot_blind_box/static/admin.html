@@ -88,6 +88,7 @@
         <label>
           保底次数
           <input id="setting-pity-after" type="number" min="1" max="10000">
+          <small class="field-hint">按连续轮空次数触发，任意中奖都会清零保底累计。</small>
         </label>
         <label>
           每日次数上限
@@ -228,7 +229,7 @@
         <label>
           单独保底次数
           <input id="prize-guarantee-after" type="number" min="0" max="10000" value="0">
-          <small class="field-hint">0 表示跟随全局保底；大于 0 时该奖品按自己的次数触发。</small>
+          <small class="field-hint">0 表示跟随全局保底；大于 0 时按连续轮空次数触发该奖品。</small>
         </label>
         <label class="wide">
           奖品描述

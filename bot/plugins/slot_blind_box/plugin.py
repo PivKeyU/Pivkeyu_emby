@@ -1158,10 +1158,11 @@ def _guarantee_ready_prizes(
     settings: dict[str, Any],
     user_stats: dict[str, Any],
 ) -> list[dict[str, Any]]:
+    miss_streak = _global_miss_streak(user_stats)
     ready = []
     for prize in prizes:
         threshold = _prize_guarantee_after(prize, settings)
-        if threshold > 0 and _prize_miss_streak(user_stats, prize.get("id")) + 1 >= threshold:
+        if threshold > 0 and miss_streak + 1 >= threshold:
             ready.append(prize)
     return ready
 
@@ -1293,35 +1294,11 @@ def _prize_pity_map(user_stats: dict[str, Any]) -> dict[str, int]:
     return cleaned
 
 
-def _prize_miss_streak(user_stats: dict[str, Any], prize_id: Any) -> int:
-    pity_map = _prize_pity_map(user_stats)
-    normalized_id = str(prize_id or "").strip()
-    if normalized_id in pity_map:
-        return int(pity_map.get(normalized_id) or 0)
-    return int(user_stats.get("miss_streak") or 0)
-
-
-def _update_prize_pity_counters(
-    user_stats: dict[str, Any],
-    prizes: list[dict[str, Any]],
-    *,
-    won_prize_id: Any | None = None,
-) -> None:
-    pity_map = _prize_pity_map(user_stats)
-    active_ids: set[str] = set()
-    won_id = str(won_prize_id or "").strip()
-    for prize in prizes:
-        if not prize.get("guarantee_eligible"):
-            continue
-        prize_id = str(prize.get("id") or "").strip()
-        if not prize_id:
-            continue
-        active_ids.add(prize_id)
-        current = _prize_miss_streak(user_stats, prize_id)
-        pity_map[prize_id] = 0 if prize_id == won_id else min(current + 1, 1_000_000)
-    for prize_id in list(pity_map):
-        if prize_id not in active_ids:
-            pity_map.pop(prize_id, None)
+def _global_miss_streak(user_stats: dict[str, Any]) -> int:
+    try:
+        return max(int(user_stats.get("miss_streak") or 0), 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _backpack(user_stats: dict[str, Any]) -> dict[str, int]:
@@ -1533,7 +1510,7 @@ def _next_guarantee_status(state: dict[str, Any], user_stats: dict[str, Any]) ->
         threshold = _prize_guarantee_after(prize, settings)
         if threshold <= 0:
             continue
-        current = _prize_miss_streak(user_stats, prize.get("id"))
+        current = _global_miss_streak(user_stats)
         candidates.append(
             {
                 "prize_id": prize.get("id"),
@@ -2194,8 +2171,8 @@ def _spin_for_user(user: dict[str, Any], *, account_open_receiver_ok: bool = Tru
                     prize["updated_at"] = _iso_now()
                 reward_grant = _apply_prize_reward(user_stats, prize, account=account, settings=settings)
                 user_stats["win_count"] = int(user_stats.get("win_count") or 0) + 1
-                _update_prize_pity_counters(user_stats, prize_pool, won_prize_id=prize.get("id"))
                 user_stats["miss_streak"] = 0
+                user_stats["prize_miss_streaks"] = {}
                 reels = _winning_reels(prize.get("icon"))
                 message = prize.get("delivery_text") or prize.get("description") or "请联系管理员处理奖励发放。"
                 if reward_grant:
@@ -2249,7 +2226,6 @@ def _spin_for_user(user: dict[str, Any], *, account_open_receiver_ok: bool = Tru
                     }
             else:
                 user_stats["blank_count"] = int(user_stats.get("blank_count") or 0) + 1
-                _update_prize_pity_counters(user_stats, prize_pool)
                 user_stats["miss_streak"] = int(user_stats.get("miss_streak") or 0) + 1
                 reels = _blank_reels(state)
                 result = {
