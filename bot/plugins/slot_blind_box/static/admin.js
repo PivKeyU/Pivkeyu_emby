@@ -29,8 +29,11 @@ const state = {
   recordPage: 1,
   recordPageSize: 10,
   recordFilter: "all",
-  records: []
+  records: [],
+  pityUsers: []
 };
+
+const limitedRewardTypes = new Set(["group_invite_credit", "account_open_credit"]);
 
 const refs = {
   status: document.querySelector("#admin-status"),
@@ -44,6 +47,10 @@ const refs = {
   prizeSubmit: document.querySelector("#prize-submit"),
   redeemCodeForm: document.querySelector("#redeem-code-form"),
   redeemCodeSubmit: document.querySelector("#redeem-code-submit"),
+  userPitySearchForm: document.querySelector("#user-pity-search-form"),
+  userPitySearchSubmit: document.querySelector("#user-pity-search-submit"),
+  userPityQuery: document.querySelector("#user-pity-query"),
+  userPityList: document.querySelector("#user-pity-list"),
   prizeList: document.querySelector("#admin-prize-list"),
   redeemCodeList: document.querySelector("#admin-redeem-code-list"),
   recordList: document.querySelector("#admin-record-list"),
@@ -142,6 +149,12 @@ function rewardTypeLabel(type, quantity = 0) {
   return "普通奖品";
 }
 
+function prizeGuaranteeLabel(prize = {}) {
+  if (!prize.guarantee_eligible) return "不参与保底";
+  const after = coerceNumber(prize.guarantee_after, 0);
+  return after > 0 ? `单独保底 ${after} 次` : "跟随全局保底";
+}
+
 function grantsPayload(prefix = "redeem-grant") {
   return {
     free_spin_ticket: numberValue(`#${prefix}-ticket`, 0),
@@ -171,6 +184,12 @@ function formatRate(value) {
   return number.toFixed(digits).replace(/\.?0+$/, "");
 }
 
+function formatWeight(value) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number)) return "0";
+  return number.toFixed(6).replace(/\.?0+$/, "");
+}
+
 function selectedAttribute(value, current) {
   return value === current ? "selected" : "";
 }
@@ -181,6 +200,12 @@ function checkedAttribute(value) {
 
 function disabledAttribute(value) {
   return value ? "disabled" : "";
+}
+
+function reelStripText(reels = []) {
+  const symbols = Array.isArray(reels) ? reels.slice(0, 3) : [];
+  while (symbols.length < 3) symbols.push("◇");
+  return symbols.join(" ");
 }
 
 function isUnlimitedStock(stock) {
@@ -215,6 +240,25 @@ function syncCreatePrizeStockUnlimited() {
   syncStockUnlimitedControl(refs.prizeForm);
 }
 
+function syncGuaranteeControl(form) {
+  const rewardInput = form?.elements?.reward_type || form?.querySelector("#prize-reward-type");
+  const guaranteeInput = form?.elements?.guarantee_eligible || form?.querySelector("#prize-guarantee");
+  const guaranteeAfterInput = form?.elements?.guarantee_after || form?.querySelector("#prize-guarantee-after");
+  if (!rewardInput || !guaranteeInput) return;
+  const limited = limitedRewardTypes.has(String(rewardInput.value || "").trim());
+  guaranteeInput.checked = limited ? false : Boolean(guaranteeInput.checked);
+  guaranteeInput.disabled = limited;
+  if (guaranteeAfterInput) {
+    guaranteeAfterInput.disabled = limited;
+    if (limited) guaranteeAfterInput.value = 0;
+  }
+}
+
+function syncCreatePrizeControls() {
+  syncCreatePrizeStockUnlimited();
+  syncGuaranteeControl(refs.prizeForm);
+}
+
 function stockLabel(stock) {
   const value = coerceNumber(stock, -1);
   if (value < 0) return "不限";
@@ -239,24 +283,71 @@ function prizeProbabilityPreview(prize = {}, overrides = {}) {
   return { rate, totalWeight: nextTotal, activeWeight: nextWeight };
 }
 
+function limitedRewardTypeRatePreview(prize = {}, overrides = {}, preview = null) {
+  const type = String(overrides.reward_type ?? prize.reward_type ?? "").trim();
+  if (!limitedRewardTypes.has(type)) return 0;
+  const nextPreview = preview || prizeProbabilityPreview(prize, overrides);
+  const total = coerceNumber(nextPreview.totalWeight, 0);
+  if (total <= 0) return 0;
+  const currentPrizeId = String(prize.id || "");
+  const sameTypeWeight = (state.payload?.prizes || [])
+    .filter((item) => String(item.id || "") !== currentPrizeId)
+    .filter((item) => String(item.reward_type || "").trim() === type)
+    .reduce((sum, item) => sum + activePrizeWeight(item), 0);
+  return ((sameTypeWeight + coerceNumber(nextPreview.activeWeight, 0)) / total) * 100;
+}
+
 function rateFormulaText(preview = {}) {
   const weight = coerceNumber(preview.activeWeight, 0);
   const total = coerceNumber(preview.totalWeight, 0);
   if (weight <= 0) return "未参与抽奖池";
   if (total <= 0) return "奖池总权重 0";
-  return `权重 ${weight} / 奖池总权重 ${total}`;
+  return `权重 ${formatWeight(weight)} / 奖池总权重 ${formatWeight(total)}`;
+}
+
+function limitedRewardTypeRate(type) {
+  const rates = state.payload?.probabilities?.reward_type_rates || {};
+  return coerceNumber(rates[type], 0);
+}
+
+function limitedRewardRateWarning(prize = {}, rate = 0) {
+  const type = String(prize.reward_type || "").trim();
+  if (!limitedRewardTypes.has(type)) return "";
+  return Number(rate || 0) >= 1 ? " · 同类型必须低于 1%，请降低小数权重" : " · 同类型低于 1%";
+}
+
+function limitedRewardTypeRateText(type, rate = null) {
+  if (!limitedRewardTypes.has(String(type || "").trim())) return "";
+  const nextRate = rate === null ? limitedRewardTypeRate(type) : coerceNumber(rate, 0);
+  return `同类型总概率 ${formatRate(nextRate)}%`;
+}
+
+function limitedRewardStatusText(rate = 0) {
+  return coerceNumber(rate, 0) >= 1 ? "超过 1%，需降低" : "低于 1%";
+}
+
+function limitedRewardTypeSummary() {
+  const groupRate = limitedRewardTypeRate("group_invite_credit");
+  const accountRate = limitedRewardTypeRate("account_open_credit");
+  return `邀请资格 ${formatRate(groupRate)}% · 开号资格 ${formatRate(accountRate)}%`;
 }
 
 function updatePrizeRatePreview(form, prize) {
+  const patch = prizePatchFromForm(form);
   const preview = prizeProbabilityPreview(prize, {
-    weight: coerceNumber(form.elements.weight?.value, prize.weight || 0),
-    stock: stockValueFromForm(form),
-    enabled: Boolean(form.elements.enabled?.checked)
+    weight: patch.weight,
+    stock: patch.stock,
+    enabled: patch.enabled
   });
+  const typeRate = limitedRewardTypeRatePreview(prize, patch, preview);
   const previewNode = form.querySelector("[data-rate-preview]");
   const formulaNode = form.querySelector("[data-rate-formula]");
   if (previewNode) previewNode.textContent = `${formatRate(preview.rate)}%`;
-  if (formulaNode) formulaNode.textContent = rateFormulaText(preview);
+  if (formulaNode) {
+    const typeText = limitedRewardTypeRateText(patch.reward_type, typeRate);
+    const warning = limitedRewardRateWarning(patch, typeRate);
+    formulaNode.textContent = `${rateFormulaText(preview)}${typeText ? ` · ${typeText}` : ""}${warning}`;
+  }
 }
 
 function prizePatchFromForm(form) {
@@ -272,6 +363,7 @@ function prizePatchFromForm(form) {
     broadcast_image_url: String(form.elements.broadcast_image_url?.value || "").trim(),
     enabled: Boolean(form.elements.enabled?.checked),
     guarantee_eligible: Boolean(form.elements.guarantee_eligible?.checked),
+    guarantee_after: coerceNumber(form.elements.guarantee_after?.value, 0),
     broadcast_enabled: Boolean(form.elements.broadcast_enabled?.checked)
   };
 }
@@ -314,6 +406,7 @@ function renderRecords(records = state.records) {
           <strong>${escapeHtml(record.prize_icon || "🍀")} ${escapeHtml(record.prize_name || "轮空")}</strong>
           <span class="status-pill">${escapeHtml(recordTypeLabel(record))}</span>
         </div>
+        <div class="record-reels" aria-label="转轮结果">${escapeHtml(reelStripText(record.reels))}</div>
         <p class="muted">${escapeHtml(record.user_display || record.user_id || "未知用户")} · ${escapeHtml(record.created_at || "")}${record.pity_triggered ? " · 保底" : ""}</p>
       </article>
     `).join("");
@@ -321,6 +414,63 @@ function renderRecords(records = state.records) {
   if (refs.recordPageInfo) refs.recordPageInfo.textContent = `${state.recordPage}/${totalPages} · ${filtered.length} 条`;
   if (refs.recordPrev) refs.recordPrev.disabled = state.recordPage <= 1;
   if (refs.recordNext) refs.recordNext.disabled = state.recordPage >= totalPages;
+}
+
+function userMetaLine(user = {}) {
+  const parts = [];
+  if (user.username) parts.push(`@${user.username}`);
+  if (user.emby_name) parts.push(`Emby ${user.emby_name}`);
+  if (user.embyid) parts.push(user.embyid);
+  if (user.level) parts.push(`等级 ${user.level}`);
+  parts.push(`TG ${user.tg}`);
+  return parts.filter(Boolean).join(" · ");
+}
+
+function renderUserPityList(users = state.pityUsers) {
+  state.pityUsers = Array.isArray(users) ? users : [];
+  if (!refs.userPityList) return;
+  if (!state.pityUsers.length) {
+    refs.userPityList.innerHTML = `<div class="empty">搜索用户后可管理保底次数。</div>`;
+    return;
+  }
+  refs.userPityList.innerHTML = state.pityUsers.map((user) => `
+    <article class="admin-prize user-pity-card" data-user-tg="${escapeHtml(user.tg)}">
+      <div class="admin-prize-head">
+        <div class="admin-prize-title">
+          <h3>${escapeHtml(user.display_label || `TG ${user.tg}`)}</h3>
+          <p class="muted">${escapeHtml(userMetaLine(user))}</p>
+        </div>
+        <div class="admin-prize-rate">
+          <strong>${escapeHtml(user.miss_streak ?? 0)}</strong>
+          <span>当前保底次数</span>
+        </div>
+      </div>
+      <div class="admin-prize-meta">
+        <span class="status-pill">总抽 ${escapeHtml(user.total_spins ?? 0)}</span>
+        <span class="status-pill">中奖 ${escapeHtml(user.win_count ?? 0)}</span>
+        <span class="status-pill">轮空 ${escapeHtml(user.blank_count ?? 0)}</span>
+      </div>
+      <div class="admin-prize-actions user-pity-actions">
+        <input type="number" min="0" max="1000000" value="${escapeHtml(user.miss_streak ?? 0)}" data-pity-input="${escapeHtml(user.tg)}" aria-label="保底次数">
+        <button type="button" data-pity-save="${escapeHtml(user.tg)}">保存</button>
+        <button type="button" class="secondary" data-pity-clear="${escapeHtml(user.tg)}">清零</button>
+      </div>
+    </article>
+  `).join("");
+
+  refs.userPityList.querySelectorAll("[data-pity-save]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const tg = Number(button.dataset.pitySave || 0);
+      const input = button.closest("[data-user-tg]")?.querySelector("[data-pity-input]");
+      await updateUserPity(tg, Number(input?.value || 0), button);
+    });
+  });
+  refs.userPityList.querySelectorAll("[data-pity-clear]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const tg = Number(button.dataset.pityClear || 0);
+      await updateUserPity(tg, 0, button);
+    });
+  });
 }
 
 function renderPrizes(prizes = []) {
@@ -331,7 +481,9 @@ function renderPrizes(prizes = []) {
   refs.prizeList.innerHTML = prizes.map((prize) => {
     const currentPreview = prizeProbabilityPreview(prize);
     const currentRate = formatRate(prize.computed_rate ?? currentPreview.rate);
-    const currentFormula = rateFormulaText(currentPreview);
+    const currentTypeRate = limitedRewardTypeRate(prize.reward_type);
+    const currentTypeText = limitedRewardTypeRateText(prize.reward_type, currentTypeRate);
+    const currentFormula = `${rateFormulaText(currentPreview)}${currentTypeText ? ` · ${currentTypeText}` : ""}`;
     const rewardType = prize.reward_type || "manual";
     return `
       <article class="admin-prize" data-prize-id="${escapeHtml(prize.id)}">
@@ -347,11 +499,12 @@ function renderPrizes(prizes = []) {
         </div>
         <div class="admin-prize-meta">
           <span class="status-pill">${prize.enabled ? "启用" : "停用"}</span>
-          <span class="status-pill">权重 ${escapeHtml(prize.weight)}</span>
+          <span class="status-pill">权重 ${escapeHtml(formatWeight(prize.weight))}</span>
+          ${limitedRewardTypes.has(rewardType) ? `<span class="status-pill">同类型 ${escapeHtml(formatRate(currentTypeRate))}% / ${escapeHtml(limitedRewardStatusText(currentTypeRate))}</span>` : ""}
           <span class="status-pill">库存 ${escapeHtml(stockLabel(prize.stock))}</span>
           <span class="status-pill">${escapeHtml(currentFormula)}</span>
           <span class="status-pill">${escapeHtml(prize.reward_label || rewardTypeLabel(prize.reward_type, prize.free_spin_quantity))}</span>
-          <span class="status-pill">${prize.guarantee_eligible ? "参与保底" : "不参与保底"}</span>
+          <span class="status-pill">${escapeHtml(prizeGuaranteeLabel(prize))}</span>
           <span class="status-pill">${prize.broadcast_enabled ? "中奖播报" : "不播报"}</span>
           ${prize.broadcast_image_url ? `<span class="status-pill">有播报图</span>` : ""}
         </div>
@@ -372,7 +525,8 @@ function renderPrizes(prizes = []) {
             </label>
             <label>
               中奖权重（决定概率）
-              <input name="weight" type="number" min="0" max="1000000" value="${escapeHtml(prize.weight ?? 0)}" data-rate-affects>
+              <input name="weight" type="number" min="0" max="1000000" step="0.000001" value="${escapeHtml(formatWeight(prize.weight ?? 0))}" data-rate-affects>
+              <small class="field-hint">资格类可填 0.1、0.01 等小数；同类型总概率必须低于 1%。</small>
             </label>
             <label>
               库存
@@ -396,6 +550,11 @@ function renderPrizes(prizes = []) {
               奖励数量
               <input name="free_spin_quantity" type="number" min="0" max="9007199254740991" value="${escapeHtml(prize.free_spin_quantity ?? 0)}">
             </label>
+            <label>
+              单独保底次数
+              <input name="guarantee_after" type="number" min="0" max="10000" value="${escapeHtml(prize.guarantee_after ?? 0)}">
+              <small class="field-hint">0 表示跟随全局保底；大于 0 时该奖品按自己的次数触发。</small>
+            </label>
             <label class="wide">
               奖品描述
               <textarea name="description" maxlength="500">${escapeHtml(prize.description || "")}</textarea>
@@ -415,6 +574,7 @@ function renderPrizes(prizes = []) {
             <label>
               <input name="guarantee_eligible" type="checkbox" ${checkedAttribute(prize.guarantee_eligible)}>
               参与保底
+              <small class="field-hint">资格类固定不参与保底，避免实际概率被保底放大。</small>
             </label>
             <label>
               <input name="broadcast_enabled" type="checkbox" ${checkedAttribute(prize.broadcast_enabled)}>
@@ -439,9 +599,11 @@ function renderPrizes(prizes = []) {
     const prize = prizes.find((item) => item.id === form.dataset.prizeEditForm);
     if (!prize) return;
     syncStockUnlimitedControl(form);
+    syncGuaranteeControl(form);
     form.addEventListener("input", () => updatePrizeRatePreview(form, prize));
     form.addEventListener("change", (event) => {
       if (event.target?.name === "stock_unlimited") syncStockUnlimitedControl(form);
+      if (event.target?.name === "reward_type") syncGuaranteeControl(form);
       updatePrizeRatePreview(form, prize);
     });
     form.addEventListener("submit", async (event) => {
@@ -488,6 +650,7 @@ function renderPrizes(prizes = []) {
       if (!form) return;
       form.reset();
       syncStockUnlimitedControl(form);
+      syncGuaranteeControl(form);
       const prize = prizes.find((item) => item.id === form.dataset.prizeEditForm);
       if (prize) updatePrizeRatePreview(form, prize);
       form.classList.add("hidden");
@@ -601,6 +764,47 @@ function renderRedeemCodes(codes = []) {
   });
 }
 
+async function searchUserPity() {
+  const query = refs.userPityQuery?.value.trim() || "";
+  const payload = await request("POST", "/plugins/slot-box/admin-api/users/search", {
+    query,
+    limit: 40
+  });
+  renderUserPityList(payload.items || []);
+  setStatus(`已找到 ${(payload.items || []).length} 个用户。`, "success");
+}
+
+async function updateUserPity(tg, missStreak, button) {
+  if (!tg) {
+    setStatus("用户 TGID 不正确。", "error");
+    return;
+  }
+  const previous = button?.innerHTML || "";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "保存中";
+  }
+  try {
+    const payload = await request("PATCH", `/plugins/slot-box/admin-api/users/${encodeURIComponent(tg)}/pity`, {
+      miss_streak: Math.max(coerceNumber(missStreak, 0), 0)
+    });
+    applyPayload(payload);
+    const nextUser = payload.user;
+    state.pityUsers = state.pityUsers.map((user) => Number(user.tg) === Number(tg) ? nextUser : user);
+    if (!state.pityUsers.some((user) => Number(user.tg) === Number(tg))) {
+      state.pityUsers.unshift(nextUser);
+    }
+    renderUserPityList(state.pityUsers);
+    setStatus("用户保底次数已更新。", "success");
+  } catch (error) {
+    setStatus(String(error.message || error), "error");
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = previous;
+    }
+  }
+}
+
 function parseBooleanPrompt(message, currentValue) {
   const raw = window.prompt(message, currentValue ? "true" : "false");
   if (raw === null) return null;
@@ -670,12 +874,13 @@ function applyPayload(payload = {}) {
   refs.spinCount.textContent = String(stats.spin_count ?? 0);
   refs.userCount.textContent = String(stats.user_count ?? 0);
   refs.blankRate.textContent = `轮空 ${probabilities.blank_rate ?? 0}%`;
-  refs.totalWeight.textContent = `奖池总权重 ${probabilities.total_weight ?? 0} · 轮空 ${formatRate(probabilities.blank_rate ?? 0)}%`;
+  refs.totalWeight.textContent = `奖池总权重 ${formatWeight(probabilities.total_weight ?? 0)} · 轮空 ${formatRate(probabilities.blank_rate ?? 0)}% · ${limitedRewardTypeSummary()}`;
 
   renderPrizes(payload.prizes || []);
   renderRedeemCodes(payload.redeem_codes || []);
   state.recordPage = 1;
   renderRecords(payload.records || []);
+  renderUserPityList(state.pityUsers);
 }
 
 async function bootstrap(forceToken = false) {
@@ -754,8 +959,28 @@ refs.settingsForm?.addEventListener("submit", async (event) => {
   }
 });
 
-field("#prize-stock-unlimited")?.addEventListener("change", syncCreatePrizeStockUnlimited);
-syncCreatePrizeStockUnlimited();
+refs.userPitySearchForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const previous = refs.userPitySearchSubmit?.innerHTML || "搜索用户";
+  if (refs.userPitySearchSubmit) {
+    refs.userPitySearchSubmit.disabled = true;
+    refs.userPitySearchSubmit.textContent = "搜索中";
+  }
+  try {
+    await searchUserPity();
+  } catch (error) {
+    setStatus(String(error.message || error), "error");
+  } finally {
+    if (refs.userPitySearchSubmit) {
+      refs.userPitySearchSubmit.disabled = false;
+      refs.userPitySearchSubmit.innerHTML = previous;
+    }
+  }
+});
+
+field("#prize-stock-unlimited")?.addEventListener("change", syncCreatePrizeControls);
+field("#prize-reward-type")?.addEventListener("change", syncCreatePrizeControls);
+syncCreatePrizeControls();
 
 refs.prizeForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -775,6 +1000,7 @@ refs.prizeForm?.addEventListener("submit", async (event) => {
       stock: checked("#prize-stock-unlimited") ? -1 : Math.max(numberValue("#prize-stock", 0), 0),
       enabled: checked("#prize-enabled"),
       guarantee_eligible: checked("#prize-guarantee"),
+      guarantee_after: numberValue("#prize-guarantee-after", 0),
       broadcast_enabled: checked("#prize-broadcast")
     });
     applyPayload(payload);
@@ -783,12 +1009,13 @@ refs.prizeForm?.addEventListener("submit", async (event) => {
     field("#prize-weight").value = 10;
     field("#prize-stock").value = -1;
     field("#prize-stock-unlimited").checked = true;
-    syncCreatePrizeStockUnlimited();
     field("#prize-reward-type").value = "manual";
     field("#prize-free-spin-quantity").value = 0;
+    field("#prize-guarantee-after").value = 0;
     field("#prize-enabled").checked = true;
     field("#prize-guarantee").checked = true;
     field("#prize-broadcast").checked = false;
+    syncCreatePrizeControls();
     setStatus("奖品已创建。", "success");
   } catch (error) {
     setStatus(String(error.message || error), "error");

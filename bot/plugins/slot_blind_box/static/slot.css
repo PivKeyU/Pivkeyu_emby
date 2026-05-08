@@ -999,6 +999,22 @@ button span {
   opacity: 0.84;
 }
 
+.record-reels {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  gap: 7px;
+  width: fit-content;
+  border: 1px solid rgba(250, 204, 21, 0.24);
+  border-radius: var(--radius-md);
+  background: rgba(3, 7, 18, 0.44);
+  color: var(--gold);
+  padding: 6px 9px;
+  font-size: 18px;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
 .empty {
   position: relative;
   z-index: 1;
@@ -1159,12 +1175,33 @@ button span {
   min-width: 168px;
 }
 
+.user-pity-list {
+  margin-top: 12px;
+}
+
+.user-pity-actions {
+  align-items: stretch;
+}
+
+.user-pity-actions input {
+  width: min(180px, 100%);
+}
+
 .grid-form {
   position: relative;
   z-index: 1;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
 }
 
 .compact-form {
@@ -1272,9 +1309,7 @@ button span {
 
 .admin-rate-preview small {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .bottom-nav {

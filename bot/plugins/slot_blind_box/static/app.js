@@ -210,6 +210,7 @@ function renderPrizes(prizes = []) {
       <h3>${escapeHtml(prize.name)}</h3>
       <p class="muted">${escapeHtml(prize.description || "")}</p>
       <p class="muted">${escapeHtml(prize.reward_label || "普通奖品")}</p>
+      <p class="muted">${prize.guarantee_eligible ? `保底 ${Number(prize.guarantee_after || 0) > 0 ? `${escapeHtml(prize.guarantee_after)} 次` : "跟随全局"}` : "不参与保底"}</p>
       <p class="muted">库存 ${Number(prize.stock) < 0 ? "不限" : escapeHtml(prize.stock)}</p>
     </article>
   `).join("");
@@ -237,6 +238,12 @@ function recordMatchesFilter(record = {}, filter = "all") {
   return normalizedRecordType(record) === filter;
 }
 
+function reelStripText(reels = []) {
+  const symbols = Array.isArray(reels) ? reels.slice(0, 3) : [];
+  while (symbols.length < 3) symbols.push("◇");
+  return symbols.join(" ");
+}
+
 function renderRecords(records = state.records) {
   state.records = Array.isArray(records) ? records : [];
   const filtered = state.records.filter((record) => recordMatchesFilter(record, state.recordFilter));
@@ -253,6 +260,7 @@ function renderRecords(records = state.records) {
           <strong>${escapeHtml(record.prize_icon || "🍀")} ${escapeHtml(record.prize_name || "轮空")}</strong>
           <span class="status-pill">${escapeHtml(recordTypeLabel(record))}</span>
         </div>
+        <div class="record-reels" aria-label="转轮结果">${escapeHtml(reelStripText(record.reels))}</div>
         <p class="muted">${escapeHtml(record.created_at || "")}${record.pity_triggered ? " · 保底" : ""}</p>
       </article>
     `).join("");
@@ -419,7 +427,12 @@ function applyPayload(payload = {}) {
   refs.myStreak.textContent = `连续未中 ${userStats.miss_streak ?? 0}`;
 
   if (settings.pity_enabled) {
-    refs.pityMeter.textContent = `保底 ${userStats.miss_streak ?? 0}/${settings.pity_after || 1}`;
+    const nextGuarantee = limits.next_guarantee || null;
+    if (nextGuarantee) {
+      refs.pityMeter.textContent = `${nextGuarantee.prize_name || "保底"} ${nextGuarantee.current}/${nextGuarantee.threshold}`;
+    } else {
+      refs.pityMeter.textContent = "无保底奖品";
+    }
   } else {
     refs.pityMeter.textContent = "保底关闭";
   }

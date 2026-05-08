@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import random
 import time
@@ -33,7 +34,7 @@ STATIC_DIR = PLUGIN_ROOT / "static"
 PROJECT_ROOT = PLUGIN_ROOT.parents[2]
 PLUGIN_MANIFEST = json.loads((PLUGIN_ROOT / "plugin.json").read_text(encoding="utf-8"))
 SHANGHAI_TZ = timezone(timedelta(hours=8))
-MAX_WEIGHT = 1_000_000
+MAX_WEIGHT = 1_000_000.0
 MAX_STOCK = 2_147_483_647
 MAX_SPIN_COST = 9_007_199_254_740_991
 LEVEL_CODES = ("a", "b", "c", "d")
@@ -48,6 +49,16 @@ REWARD_TYPES = {
     REWARD_TYPE_GROUP_INVITE,
     REWARD_TYPE_ACCOUNT_OPEN,
     REWARD_TYPE_EMBY_CURRENCY,
+}
+LIMITED_REWARD_TYPES = (REWARD_TYPE_GROUP_INVITE, REWARD_TYPE_ACCOUNT_OPEN)
+LIMITED_REWARD_MAX_RATE = 1.0
+LIMITED_REWARD_DEFAULT_WEIGHTS = {
+    REWARD_TYPE_GROUP_INVITE: 0.2,
+    REWARD_TYPE_ACCOUNT_OPEN: 0.1,
+}
+LEGACY_DEFAULT_LIMITED_PRIZES = {
+    "group-invite-credit": (REWARD_TYPE_GROUP_INVITE, 2.0),
+    "account-open-credit": (REWARD_TYPE_ACCOUNT_OPEN, 1.0),
 }
 BACKPACK_ITEM_TYPES = {REWARD_TYPE_FREE_SPIN_TICKET, REWARD_TYPE_GROUP_INVITE, REWARD_TYPE_ACCOUNT_OPEN}
 BACKPACK_ITEM_META = {
@@ -95,6 +106,7 @@ DEFAULT_PRIZES = [
         "stock": -1,
         "enabled": True,
         "guarantee_eligible": True,
+        "guarantee_after": 0,
         "broadcast_enabled": False,
         "broadcast_image_url": "",
     },
@@ -110,6 +122,7 @@ DEFAULT_PRIZES = [
         "stock": -1,
         "enabled": True,
         "guarantee_eligible": True,
+        "guarantee_after": 0,
         "broadcast_enabled": False,
         "broadcast_image_url": "",
     },
@@ -125,6 +138,7 @@ DEFAULT_PRIZES = [
         "stock": 20,
         "enabled": True,
         "guarantee_eligible": True,
+        "guarantee_after": 0,
         "broadcast_enabled": True,
         "broadcast_image_url": "",
     },
@@ -140,6 +154,7 @@ DEFAULT_PRIZES = [
         "stock": -1,
         "enabled": True,
         "guarantee_eligible": True,
+        "guarantee_after": 0,
         "broadcast_enabled": False,
         "broadcast_image_url": "",
     },
@@ -151,10 +166,11 @@ DEFAULT_PRIZES = [
         "delivery_text": "已放入背包：邀请资格 1 个。",
         "reward_type": REWARD_TYPE_GROUP_INVITE,
         "free_spin_quantity": 0,
-        "weight": 2,
+        "weight": 0.2,
         "stock": -1,
         "enabled": True,
         "guarantee_eligible": False,
+        "guarantee_after": 0,
         "broadcast_enabled": True,
         "broadcast_image_url": "",
     },
@@ -166,10 +182,11 @@ DEFAULT_PRIZES = [
         "delivery_text": "已放入背包：开号资格 1 个。",
         "reward_type": REWARD_TYPE_ACCOUNT_OPEN,
         "free_spin_quantity": 0,
-        "weight": 1,
+        "weight": 0.1,
         "stock": -1,
         "enabled": True,
         "guarantee_eligible": False,
+        "guarantee_after": 0,
         "broadcast_enabled": True,
         "broadcast_image_url": "",
     },
@@ -217,6 +234,15 @@ class AdminBootstrapPayload(BaseModel):
     init_data: str | None = None
 
 
+class AdminUserSearchPayload(BaseModel):
+    query: str = ""
+    limit: int = 20
+
+
+class AdminUserPityPayload(BaseModel):
+    miss_streak: int = 0
+
+
 class RedeemCodeAdminPayload(BaseModel):
     code: str | None = None
     title: str = ""
@@ -241,7 +267,7 @@ class SettingsPatchPayload(BaseModel):
     blank_enabled: bool | None = None
     blank_label: str | None = None
     blank_icon: str | None = None
-    blank_weight: int | None = None
+    blank_weight: float | None = None
     pity_enabled: bool | None = None
     pity_after: int | None = None
     daily_limit: int | None = None
@@ -260,10 +286,11 @@ class PrizePayload(BaseModel):
     delivery_text: str = ""
     reward_type: str = REWARD_TYPE_MANUAL
     free_spin_quantity: int = 0
-    weight: int = 10
+    weight: float = 10
     stock: int = -1
     enabled: bool = True
     guarantee_eligible: bool = True
+    guarantee_after: int = 0
     broadcast_enabled: bool = False
     broadcast_image_url: str = ""
 
@@ -275,10 +302,11 @@ class PrizePatchPayload(BaseModel):
     delivery_text: str | None = None
     reward_type: str | None = None
     free_spin_quantity: int | None = None
-    weight: int | None = None
+    weight: float | None = None
     stock: int | None = None
     enabled: bool | None = None
     guarantee_eligible: bool | None = None
+    guarantee_after: int | None = None
     broadcast_enabled: bool | None = None
     broadcast_image_url: str | None = None
 
@@ -325,6 +353,30 @@ def _clean_int(value: Any, *, default: int, minimum: int, maximum: int, field_na
     if normalized > maximum:
         raise ValueError(f"{field_name}不能超过 {maximum}")
     return normalized
+
+
+def _clean_float(value: Any, *, default: float, minimum: float, maximum: float, field_name: str) -> float:
+    if value is None or value == "":
+        return float(default)
+    try:
+        normalized = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{field_name}必须是数字") from None
+    if not math.isfinite(normalized):
+        raise ValueError(f"{field_name}必须是有效数字")
+    if normalized < minimum:
+        raise ValueError(f"{field_name}不能小于 {minimum:g}")
+    if normalized > maximum:
+        raise ValueError(f"{field_name}不能超过 {maximum:g}")
+    return round(normalized, 6)
+
+
+def _weight_value(value: Any) -> float:
+    try:
+        weight = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return weight if math.isfinite(weight) and weight > 0 else 0.0
 
 
 def _clean_level_int_map(value: Any, *, default: dict[str, int], field_name: str, maximum: int = 100_000) -> dict[str, int]:
@@ -453,6 +505,7 @@ def _clean_prize(raw: dict[str, Any], *, existing: dict[str, Any] | None = None)
     reward_type = _normalize_reward_type(raw.get("reward_type", existing.get("reward_type")))
     quantity_max = MAX_SPIN_COST if reward_type == REWARD_TYPE_EMBY_CURRENCY else 1000
     quantity_default = 1 if reward_type in {REWARD_TYPE_FREE_SPIN_TICKET, REWARD_TYPE_GROUP_INVITE, REWARD_TYPE_ACCOUNT_OPEN} else 0
+    guarantee_default = reward_type not in LIMITED_REWARD_TYPES
     return {
         "id": _clean_prize_id(existing.get("id") or raw.get("id")),
         "name": _clean_text(raw.get("name", existing.get("name")), default="未命名奖品", max_length=80),
@@ -467,10 +520,10 @@ def _clean_prize(raw: dict[str, Any], *, existing: dict[str, Any] | None = None)
             maximum=quantity_max,
             field_name="奖励数量",
         ),
-        "weight": _clean_int(
+        "weight": _clean_float(
             raw.get("weight", existing.get("weight")),
-            default=10,
-            minimum=0,
+            default=10.0,
+            minimum=0.0,
             maximum=MAX_WEIGHT,
             field_name="中奖率权重",
         ),
@@ -482,8 +535,17 @@ def _clean_prize(raw: dict[str, Any], *, existing: dict[str, Any] | None = None)
             field_name="库存",
         ),
         "enabled": _clean_bool(raw.get("enabled", existing.get("enabled", True))),
-        "guarantee_eligible": _clean_bool(
-            raw.get("guarantee_eligible", existing.get("guarantee_eligible", True))
+        "guarantee_eligible": False
+        if reward_type in LIMITED_REWARD_TYPES
+        else _clean_bool(raw.get("guarantee_eligible", existing.get("guarantee_eligible", guarantee_default))),
+        "guarantee_after": 0
+        if reward_type in LIMITED_REWARD_TYPES
+        else _clean_int(
+            raw.get("guarantee_after", existing.get("guarantee_after")),
+            default=0,
+            minimum=0,
+            maximum=10_000,
+            field_name="奖品单独保底次数",
         ),
         "broadcast_enabled": _clean_bool(raw.get("broadcast_enabled", existing.get("broadcast_enabled", False))),
         "broadcast_image_url": _clean_text(
@@ -492,6 +554,22 @@ def _clean_prize(raw: dict[str, Any], *, existing: dict[str, Any] | None = None)
         "created_at": created_at,
         "updated_at": _iso_now() if existing else raw.get("updated_at") or created_at,
     }
+
+
+def _migrate_legacy_limited_prize(prize: dict[str, Any], raw_prize: dict[str, Any]) -> dict[str, Any]:
+    legacy = LEGACY_DEFAULT_LIMITED_PRIZES.get(str(prize.get("id") or ""))
+    reward_type = _normalize_reward_type(prize.get("reward_type"))
+    if not legacy or legacy[0] != reward_type:
+        return prize
+    try:
+        raw_weight = float(raw_prize.get("weight"))
+    except (TypeError, ValueError):
+        return prize
+    if not math.isfinite(raw_weight) or round(raw_weight, 6) != legacy[1]:
+        return prize
+    prize["weight"] = LIMITED_REWARD_DEFAULT_WEIGHTS[reward_type]
+    prize["updated_at"] = _iso_now()
+    return prize
 
 
 def _fresh_state() -> dict[str, Any]:
@@ -524,8 +602,8 @@ def _normalize_settings(raw: dict[str, Any] | None) -> dict[str, Any]:
     settings["blank_enabled"] = bool(settings.get("blank_enabled", True))
     settings["blank_label"] = _clean_text(settings.get("blank_label"), default="轮空", max_length=24)
     settings["blank_icon"] = _clean_text(settings.get("blank_icon"), default="🍀", max_length=16)
-    settings["blank_weight"] = _clean_int(
-        settings.get("blank_weight"), default=50, minimum=0, maximum=MAX_WEIGHT, field_name="轮空权重"
+    settings["blank_weight"] = _clean_float(
+        settings.get("blank_weight"), default=50.0, minimum=0.0, maximum=MAX_WEIGHT, field_name="轮空权重"
     )
     settings["pity_enabled"] = bool(settings.get("pity_enabled", True))
     settings["pity_after"] = _clean_int(
@@ -569,6 +647,7 @@ def _normalize_state(state: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(raw_prize, dict):
             continue
         prize = _clean_prize(raw_prize)
+        prize = _migrate_legacy_limited_prize(prize, raw_prize)
         original_id = prize["id"]
         while prize["id"] in seen_ids:
             prize["id"] = _clean_prize_id(f"{original_id}-{uuid4().hex[:4]}")
@@ -1036,7 +1115,7 @@ def _available_prizes(
 ) -> list[dict[str, Any]]:
     prizes = []
     for prize in state.get("prizes") or []:
-        if not prize.get("enabled") or int(prize.get("weight") or 0) <= 0:
+        if not prize.get("enabled") or _weight_value(prize.get("weight")) <= 0:
             continue
         if int(prize.get("stock") or 0) == 0:
             continue
@@ -1048,35 +1127,59 @@ def _available_prizes(
     return prizes
 
 
-def _pick_weighted(entries: list[tuple[str, dict[str, Any] | None, int]]) -> tuple[str, dict[str, Any] | None]:
-    total = sum(max(int(weight or 0), 0) for _, _, weight in entries)
+def _pick_weighted(entries: list[tuple[str, dict[str, Any] | None, float]]) -> tuple[str, dict[str, Any] | None]:
+    total = sum(_weight_value(weight) for _, _, weight in entries)
     if total <= 0:
         raise ValueError("抽奖池为空")
-    ticket = RNG.randrange(total)
-    cursor = 0
+    ticket = RNG.random() * total
+    cursor = 0.0
     for kind, prize, weight in entries:
-        cursor += max(int(weight or 0), 0)
-        if ticket < cursor:
+        cursor += _weight_value(weight)
+        if ticket <= cursor:
             return kind, prize
     kind, prize, _ = entries[-1]
     return kind, prize
 
 
+def _prize_guarantee_after(prize: dict[str, Any], settings: dict[str, Any]) -> int:
+    value = int(prize.get("guarantee_after") or 0)
+    if value > 0:
+        return value
+    return int(settings.get("pity_after") or 0)
+
+
+def _guarantee_ready_prizes(
+    prizes: list[dict[str, Any]],
+    settings: dict[str, Any],
+    user_stats: dict[str, Any],
+) -> list[dict[str, Any]]:
+    ready = []
+    for prize in prizes:
+        threshold = _prize_guarantee_after(prize, settings)
+        if threshold > 0 and _prize_miss_streak(user_stats, prize.get("id")) + 1 >= threshold:
+            ready.append(prize)
+    return ready
+
+
 def _probability_summary(state: dict[str, Any], *, account_open_receiver_ok: bool = True) -> dict[str, Any]:
     settings = state.get("settings") or {}
     prizes = _available_prizes(state, account_open_receiver_ok=account_open_receiver_ok)
-    blank_weight = int(settings.get("blank_weight") or 0) if settings.get("blank_enabled") else 0
-    total_weight = sum(int(prize.get("weight") or 0) for prize in prizes) + blank_weight
+    blank_weight = _weight_value(settings.get("blank_weight")) if settings.get("blank_enabled") else 0.0
+    total_weight = sum(_weight_value(prize.get("weight")) for prize in prizes) + blank_weight
     prize_rates: dict[str, float] = {}
+    reward_type_rates = {reward_type: 0.0 for reward_type in REWARD_TYPES}
     for prize in state.get("prizes") or []:
         active = prize in prizes
-        rate = (int(prize.get("weight") or 0) / total_weight * 100) if active and total_weight else 0
+        rate = (_weight_value(prize.get("weight")) / total_weight * 100) if active and total_weight else 0
         prize_rates[prize["id"]] = round(rate, 4)
+        reward_type = _normalize_reward_type(prize.get("reward_type"))
+        reward_type_rates[reward_type] = reward_type_rates.get(reward_type, 0.0) + rate
     blank_rate = (blank_weight / total_weight * 100) if total_weight else 0
     return {
         "total_weight": total_weight,
         "blank_rate": round(blank_rate, 4),
         "prize_rates": prize_rates,
+        "reward_type_rates": {key: round(value, 4) for key, value in reward_type_rates.items()},
     }
 
 
@@ -1149,6 +1252,7 @@ def _get_user_stats(state: dict[str, Any], user_id: int) -> dict[str, Any]:
     user_stats.setdefault("win_count", 0)
     user_stats.setdefault("blank_count", 0)
     user_stats.setdefault("miss_streak", 0)
+    _prize_pity_map(user_stats)
     user_stats.setdefault("last_spin_at", 0)
     user_stats.setdefault("free_spin_tickets", 0)
     user_stats.setdefault("daily_free_used", 0)
@@ -1164,6 +1268,55 @@ def _get_user_stats(state: dict[str, Any], user_id: int) -> dict[str, Any]:
     )
     user_stats["free_spin_tickets"] = int(backpack.get(REWARD_TYPE_FREE_SPIN_TICKET) or 0)
     return user_stats
+
+
+def _prize_pity_map(user_stats: dict[str, Any]) -> dict[str, int]:
+    raw = user_stats.get("prize_miss_streaks")
+    if not isinstance(raw, dict):
+        raw = {}
+    cleaned: dict[str, int] = {}
+    for raw_prize_id, raw_count in raw.items():
+        prize_id = str(raw_prize_id or "").strip()
+        if not prize_id:
+            continue
+        try:
+            count = int(raw_count or 0)
+        except (TypeError, ValueError):
+            count = 0
+        cleaned[prize_id[:48]] = max(min(count, 1_000_000), 0)
+    user_stats["prize_miss_streaks"] = cleaned
+    return cleaned
+
+
+def _prize_miss_streak(user_stats: dict[str, Any], prize_id: Any) -> int:
+    pity_map = _prize_pity_map(user_stats)
+    normalized_id = str(prize_id or "").strip()
+    if normalized_id in pity_map:
+        return int(pity_map.get(normalized_id) or 0)
+    return int(user_stats.get("miss_streak") or 0)
+
+
+def _update_prize_pity_counters(
+    user_stats: dict[str, Any],
+    prizes: list[dict[str, Any]],
+    *,
+    won_prize_id: Any | None = None,
+) -> None:
+    pity_map = _prize_pity_map(user_stats)
+    active_ids: set[str] = set()
+    won_id = str(won_prize_id or "").strip()
+    for prize in prizes:
+        if not prize.get("guarantee_eligible"):
+            continue
+        prize_id = str(prize.get("id") or "").strip()
+        if not prize_id:
+            continue
+        active_ids.add(prize_id)
+        current = _prize_miss_streak(user_stats, prize_id)
+        pity_map[prize_id] = 0 if prize_id == won_id else min(current + 1, 1_000_000)
+    for prize_id in list(pity_map):
+        if prize_id not in active_ids:
+            pity_map.pop(prize_id, None)
 
 
 def _backpack(user_stats: dict[str, Any]) -> dict[str, int]:
@@ -1345,11 +1498,63 @@ def _blank_reels(state: dict[str, Any]) -> list[str]:
     return reels
 
 
+def _winning_reels(icon: Any) -> list[str]:
+    symbol = str(icon or "🎁")[:16] or "🎁"
+    return [symbol, symbol, symbol]
+
+
+def _record_reels(record: dict[str, Any]) -> list[str]:
+    raw_reels = record.get("reels")
+    if isinstance(raw_reels, list) and len(raw_reels) >= 3:
+        reels = [str(item or "")[:16] or "◇" for item in raw_reels[:3]]
+    elif record.get("outcome") == "win":
+        reels = _winning_reels(record.get("prize_icon"))
+    else:
+        icon = str(record.get("prize_icon") or "🍀")[:16] or "🍀"
+        reels = [icon, "🍒", "🔔"]
+    if record.get("outcome") == "win":
+        return _winning_reels(record.get("prize_icon") or reels[0])
+    if reels[0] == reels[1] == reels[2]:
+        reels[2] = "🔔" if reels[0] != "🔔" else "🍒"
+    return reels
+
+
+def _next_guarantee_status(state: dict[str, Any], user_stats: dict[str, Any]) -> dict[str, Any] | None:
+    settings = state.get("settings") or {}
+    if not settings.get("pity_enabled"):
+        return None
+    candidates: list[dict[str, Any]] = []
+    for prize in _available_prizes(state, guarantee_only=True):
+        threshold = _prize_guarantee_after(prize, settings)
+        if threshold <= 0:
+            continue
+        current = _prize_miss_streak(user_stats, prize.get("id"))
+        candidates.append(
+            {
+                "prize_id": prize.get("id"),
+                "prize_name": prize.get("name"),
+                "prize_icon": prize.get("icon"),
+                "current": min(current, threshold),
+                "threshold": threshold,
+                "remaining": max(threshold - current, 1),
+            }
+        )
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (int(item.get("remaining") or 0), int(item.get("threshold") or 0)))
+    return candidates[0]
+
+
 def _public_records(records: list[dict[str, Any]], *, user_id: int | None = None, limit: int = 20) -> list[dict[str, Any]]:
     filtered = records
     if user_id is not None:
         filtered = [record for record in records if int(record.get("user_id") or 0) == int(user_id)]
-    return [dict(record) for record in filtered[: max(int(limit or 20), 1)]]
+    rows = []
+    for record in filtered[: max(int(limit or 20), 1)]:
+        payload = dict(record)
+        payload["reels"] = _record_reels(payload)
+        rows.append(payload)
+    return rows
 
 
 def _active_market_listings(state: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1370,6 +1575,33 @@ def _public_redeem_codes(state: dict[str, Any]) -> list[dict[str, Any]]:
         rows.append(payload)
     rows.sort(key=lambda item: item.get("created_at") or "", reverse=True)
     return rows[:200]
+
+
+def _public_slot_user(
+    state: dict[str, Any],
+    user_id: int,
+    *,
+    account: Emby | None = None,
+    identity: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    stats = _get_user_stats(state, int(user_id))
+    if account is None:
+        account = sql_get_emby(int(user_id))
+    identity = identity if identity is not None else _cached_telegram_identity(int(user_id))
+    return {
+        "tg": int(user_id),
+        "display_label": _telegram_display_label(int(user_id), identity),
+        "display_name": (identity or {}).get("display_name") or "",
+        "username": (identity or {}).get("username") or "",
+        "emby_name": str(getattr(account, "name", "") or ""),
+        "embyid": str(getattr(account, "embyid", "") or ""),
+        "level": str(getattr(account, "lv", "") or ""),
+        "miss_streak": int(stats.get("miss_streak") or 0),
+        "total_spins": int(stats.get("total_spins") or 0),
+        "win_count": int(stats.get("win_count") or 0),
+        "blank_count": int(stats.get("blank_count") or 0),
+        "last_spin_at": int(stats.get("last_spin_at") or 0),
+    }
 
 
 def _build_bottom_nav() -> list[dict[str, str]]:
@@ -1443,6 +1675,7 @@ def _serialize_bundle(
         daily_limit = _effective_daily_limit(settings, level)
         daily_gift_total = _daily_gift_total(settings, level)
         daily_free_used = int(user_stats.get("daily_free_used") or 0)
+        next_guarantee = _next_guarantee_status(state, user_stats)
         bundle["user_stats"] = user_stats
         bundle["backpack"] = _backpack_summary(user_stats)
         bundle["limits"] = {
@@ -1457,6 +1690,8 @@ def _serialize_bundle(
             "free_spin_tickets": int(user_stats.get("free_spin_tickets") or 0),
             "user_level": level,
             "user_level_text": get_level_meta(level)["short_text"],
+            "next_guarantee_after": None if next_guarantee is None else next_guarantee.get("threshold"),
+            "next_guarantee": next_guarantee,
         }
     return bundle
 
@@ -1469,6 +1704,7 @@ def _update_settings(patch: dict[str, Any]) -> dict[str, Any]:
         settings = dict(state.get("settings") or {})
         settings.update(sanitized)
         state["settings"] = _normalize_settings(settings)
+        _validate_limited_reward_rates(state)
         _save_state_unlocked(state)
         return _serialize_bundle(state, include_admin=True)
 
@@ -1482,6 +1718,7 @@ def _create_prize(payload: dict[str, Any]) -> dict[str, Any]:
         while prize["id"] in existing_ids:
             prize["id"] = _clean_prize_id(f"{original_id}-{uuid4().hex[:4]}")
         state.setdefault("prizes", []).append(prize)
+        _validate_limited_reward_rates(state)
         _save_state_unlocked(state)
         return _serialize_bundle(state, include_admin=True)
 
@@ -1495,6 +1732,7 @@ def _patch_prize(prize_id: str, patch: dict[str, Any]) -> dict[str, Any]:
             merged = dict(prize)
             merged.update({key: value for key, value in patch.items() if value is not None})
             state["prizes"][index] = _clean_prize(merged, existing=prize)
+            _validate_limited_reward_rates(state)
             _save_state_unlocked(state)
             return _serialize_bundle(state, include_admin=True)
     raise HTTPException(status_code=404, detail="奖品不存在")
@@ -1507,8 +1745,20 @@ def _delete_prize(prize_id: str) -> dict[str, Any]:
         state["prizes"] = [prize for prize in state.get("prizes") or [] if prize.get("id") != prize_id]
         if len(state["prizes"]) == before_count:
             raise HTTPException(status_code=404, detail="奖品不存在")
+        _validate_limited_reward_rates(state)
         _save_state_unlocked(state)
         return _serialize_bundle(state, include_admin=True)
+
+
+def _validate_limited_reward_rates(state: dict[str, Any]) -> None:
+    probabilities = _probability_summary(state)
+    reward_type_rates = probabilities.get("reward_type_rates") or {}
+    for reward_type in LIMITED_REWARD_TYPES:
+        rate = float(reward_type_rates.get(reward_type, 0) or 0)
+        if rate < LIMITED_REWARD_MAX_RATE:
+            continue
+        label = "邀请资格" if reward_type == REWARD_TYPE_GROUP_INVITE else "开号资格"
+        raise ValueError(f"{label}总中奖概率必须低于 1%，当前约 {round(rate, 4)}%，请降低小数权重")
 
 
 def _create_redeem_code(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1551,6 +1801,86 @@ def _delete_redeem_code(code_value: str) -> dict[str, Any]:
             raise HTTPException(status_code=404, detail="兑换码不存在")
         _save_state_unlocked(state)
         return _serialize_bundle(state, include_admin=True)
+
+
+def _admin_search_users(query: str, limit: int = 20) -> dict[str, Any]:
+    normalized = str(query or "").strip()
+    normalized_text = normalized.lower().lstrip("@")
+    max_rows = min(max(int(limit or 20), 1), 80)
+    with STATE_LOCK:
+        state = _load_state_unlocked()
+        user_ids = {
+            int(raw_tg)
+            for raw_tg in (state.get("users") or {})
+            if str(raw_tg).lstrip("-").isdigit()
+        }
+        if normalized.lstrip("-").isdigit():
+            direct_tg = int(normalized)
+            if direct_tg > 0:
+                user_ids.add(direct_tg)
+        identities = state.get("telegram_identities") if isinstance(state.get("telegram_identities"), dict) else {}
+        for raw_tg, identity in identities.items():
+            try:
+                tg = int(raw_tg)
+            except (TypeError, ValueError):
+                continue
+            if not normalized or _identity_matches_query(tg, identity, normalized):
+                user_ids.add(tg)
+        with Session() as session:
+            filters = []
+            if normalized:
+                filters.extend([Emby.name.ilike(f"%{normalized}%"), Emby.embyid.ilike(f"%{normalized}%")])
+                if normalized.lstrip("-").isdigit():
+                    filters.append(Emby.tg == int(normalized))
+            query_obj = session.query(Emby)
+            if filters:
+                query_obj = query_obj.filter(or_(*filters))
+            else:
+                query_obj = query_obj.filter(Emby.tg.in_(list(user_ids) or [0]))
+            accounts = {int(row.tg): row for row in query_obj.order_by(Emby.tg.desc()).limit(120).all()}
+            user_ids.update(accounts.keys())
+
+            rows = []
+            for tg in sorted(user_ids, reverse=True):
+                identity = identities.get(str(tg)) if isinstance(identities.get(str(tg)), dict) else _cached_telegram_identity(tg)
+                account = accounts.get(tg)
+                if account is None:
+                    account = session.query(Emby).filter(Emby.tg == tg).first()
+                if normalized:
+                    fields = [
+                        str(tg),
+                        str((identity or {}).get("display_name") or ""),
+                        str((identity or {}).get("username") or ""),
+                        str(getattr(account, "name", "") or ""),
+                        str(getattr(account, "embyid", "") or ""),
+                    ]
+                    if not any(normalized_text in field.lower().lstrip("@") for field in fields if field):
+                        continue
+                rows.append(_public_slot_user(state, tg, account=account, identity=identity or {}))
+                if len(rows) >= max_rows:
+                    break
+    return {"items": rows}
+
+
+def _admin_set_user_pity(user_id: int, miss_streak: int) -> dict[str, Any]:
+    value = _clean_int(
+        miss_streak,
+        default=0,
+        minimum=0,
+        maximum=1_000_000,
+        field_name="保底次数",
+    )
+    with STATE_LOCK:
+        state = _load_state_unlocked()
+        user_stats = _get_user_stats(state, int(user_id))
+        user_stats["miss_streak"] = value
+        pity_map = _prize_pity_map(user_stats)
+        for prize in _available_prizes(state, guarantee_only=True):
+            prize_id = str(prize.get("id") or "").strip()
+            if prize_id:
+                pity_map[prize_id] = value
+        _save_state_unlocked(state)
+        return {"user": _public_slot_user(state, int(user_id)), **_serialize_bundle(state, include_admin=True)}
 
 
 def _redeem_code_for_user(user_id: int, code_value: str) -> dict[str, Any]:
@@ -1763,6 +2093,7 @@ def _spin_for_user(user: dict[str, Any], *, account_open_receiver_ok: bool = Tru
         settings = state.get("settings") or {}
         if not settings.get("enabled", True):
             raise HTTPException(status_code=403, detail="盲盒当前未开放")
+        _validate_limited_reward_rates(state)
 
         with Session() as session:
             account = session.query(Emby).filter(Emby.tg == user_id).with_for_update().first()
@@ -1788,26 +2119,25 @@ def _spin_for_user(user: dict[str, Any], *, account_open_receiver_ok: bool = Tru
                 guarantee_only=True,
                 account_open_receiver_ok=account_open_receiver_ok,
             )
-            blank_weight = int(settings.get("blank_weight") or 0) if settings.get("blank_enabled") else 0
+            blank_weight = _weight_value(settings.get("blank_weight")) if settings.get("blank_enabled") else 0.0
             if not prize_pool and blank_weight <= 0:
                 raise HTTPException(status_code=400, detail="抽奖池为空，请先在后台配置奖品或轮空权重")
 
             payment = _consume_spin_payment(user_stats, settings, account)
             payment_label = _payment_label(payment, settings)
 
-            pity_after = int(settings.get("pity_after") or 0)
-            pity_triggered = bool(
-                settings.get("pity_enabled")
-                and pity_after > 0
-                and guarantee_pool
-                and int(user_stats.get("miss_streak") or 0) + 1 >= pity_after
+            ready_guarantee_pool = (
+                _guarantee_ready_prizes(guarantee_pool, settings, user_stats)
+                if settings.get("pity_enabled")
+                else []
             )
+            pity_triggered = bool(ready_guarantee_pool)
 
             if pity_triggered:
-                entries = [("prize", prize, int(prize.get("weight") or 0)) for prize in guarantee_pool]
+                entries = [("prize", prize, _weight_value(prize.get("weight"))) for prize in ready_guarantee_pool]
                 outcome, prize = _pick_weighted(entries)
             else:
-                entries = [("prize", prize, int(prize.get("weight") or 0)) for prize in prize_pool]
+                entries = [("prize", prize, _weight_value(prize.get("weight"))) for prize in prize_pool]
                 if blank_weight > 0:
                     entries.append(("blank", None, blank_weight))
                 outcome, prize = _pick_weighted(entries)
@@ -1827,8 +2157,9 @@ def _spin_for_user(user: dict[str, Any], *, account_open_receiver_ok: bool = Tru
                     prize["updated_at"] = _iso_now()
                 reward_grant = _apply_prize_reward(user_stats, prize, account=account, settings=settings)
                 user_stats["win_count"] = int(user_stats.get("win_count") or 0) + 1
+                _update_prize_pity_counters(user_stats, prize_pool, won_prize_id=prize.get("id"))
                 user_stats["miss_streak"] = 0
-                reels = [str(prize.get("icon") or "🎁") for _ in range(3)]
+                reels = _winning_reels(prize.get("icon"))
                 message = prize.get("delivery_text") or prize.get("description") or "请联系管理员处理奖励发放。"
                 if reward_grant:
                     if reward_grant.get("type") == REWARD_TYPE_EMBY_CURRENCY:
@@ -1865,6 +2196,7 @@ def _spin_for_user(user: dict[str, Any], *, account_open_receiver_ok: bool = Tru
                     "reward_type": prize.get("reward_type"),
                     "reward_quantity": 0 if not reward_grant else reward_grant.get("quantity", 0),
                     "reward_label": "" if not reward_grant else reward_grant.get("label", ""),
+                    "reels": reels,
                     "pity_triggered": pity_triggered,
                     "created_at": _iso_now(),
                 }
@@ -1880,13 +2212,15 @@ def _spin_for_user(user: dict[str, Any], *, account_open_receiver_ok: bool = Tru
                     }
             else:
                 user_stats["blank_count"] = int(user_stats.get("blank_count") or 0) + 1
+                _update_prize_pity_counters(user_stats, prize_pool)
                 user_stats["miss_streak"] = int(user_stats.get("miss_streak") or 0) + 1
+                reels = _blank_reels(state)
                 result = {
                     "outcome": "blank",
                     "title": settings.get("blank_label") or "轮空",
                     "message": "本次没有抽中奖品。",
                     "prize": None,
-                    "reels": _blank_reels(state),
+                    "reels": reels,
                     "pity_triggered": False,
                     "payment": payment,
                     "payment_label": payment_label,
@@ -1905,6 +2239,7 @@ def _spin_for_user(user: dict[str, Any], *, account_open_receiver_ok: bool = Tru
                     "reward_type": "blank",
                     "reward_quantity": 0,
                     "reward_label": "",
+                    "reels": reels,
                     "pity_triggered": False,
                     "created_at": _iso_now(),
                 }
@@ -2094,6 +2429,28 @@ def register_web(app, context=None) -> None:
         await run_in_threadpool(_verify_admin_credential, token, init_data)
         try:
             bundle = await run_in_threadpool(_update_settings, payload.model_dump(exclude_unset=True))
+        except Exception as exc:
+            raise _raise_value_error(exc) from exc
+        return {"code": 200, "data": bundle}
+
+    @admin_router.post("/users/search")
+    async def slot_admin_user_search_api(payload: AdminUserSearchPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        await run_in_threadpool(_verify_admin_credential, token, init_data)
+        try:
+            bundle = await run_in_threadpool(_admin_search_users, payload.query, payload.limit)
+        except Exception as exc:
+            raise _raise_value_error(exc) from exc
+        return {"code": 200, "data": bundle}
+
+    @admin_router.patch("/users/{user_id}/pity")
+    async def slot_admin_user_pity_api(user_id: int, payload: AdminUserPityPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        await run_in_threadpool(_verify_admin_credential, token, init_data)
+        try:
+            bundle = await run_in_threadpool(_admin_set_user_pity, int(user_id), payload.miss_streak)
         except Exception as exc:
             raise _raise_value_error(exc) from exc
         return {"code": 200, "data": bundle}

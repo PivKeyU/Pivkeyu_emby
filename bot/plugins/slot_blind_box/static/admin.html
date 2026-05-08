@@ -83,7 +83,7 @@
         </label>
         <label>
           轮空权重
-          <input id="setting-blank-weight" type="number" min="0" max="1000000">
+          <input id="setting-blank-weight" type="number" min="0" max="1000000" step="0.000001">
         </label>
         <label>
           保底次数
@@ -165,6 +165,25 @@
 
     <section class="panel section-panel">
       <div class="panel-head">
+        <h2>用户保底管理</h2>
+        <span class="status-pill">可搜索任意用户</span>
+      </div>
+      <form id="user-pity-search-form" class="grid-form compact-form">
+        <label class="wide">
+          用户检索
+          <input id="user-pity-query" type="search" placeholder="输入 TGID、TG 昵称、@username 或 Emby 名称">
+        </label>
+        <div class="form-actions wide">
+          <button id="user-pity-search-submit" type="submit" class="secondary">
+            <span class="button-icon">⌕</span><span>搜索用户</span>
+          </button>
+        </div>
+      </form>
+      <div id="user-pity-list" class="admin-list user-pity-list"></div>
+    </section>
+
+    <section class="panel section-panel">
+      <div class="panel-head">
         <h2>新增奖品</h2>
       </div>
       <form id="prize-form" class="grid-form">
@@ -178,7 +197,8 @@
         </label>
         <label>
           中奖权重（决定概率）
-          <input id="prize-weight" type="number" min="0" max="1000000" value="10">
+          <input id="prize-weight" type="number" min="0" max="1000000" step="0.000001" value="10">
+          <small class="field-hint">邀请资格、开号资格支持 0.1 这类小数权重，且同类型总概率必须低于 1%。</small>
         </label>
         <label>
           库存
@@ -202,6 +222,11 @@
           奖励数量
           <input id="prize-free-spin-quantity" type="number" min="0" max="9007199254740991" value="0">
         </label>
+        <label>
+          单独保底次数
+          <input id="prize-guarantee-after" type="number" min="0" max="10000" value="0">
+          <small class="field-hint">0 表示跟随全局保底；大于 0 时该奖品按自己的次数触发。</small>
+        </label>
         <label class="wide">
           奖品描述
           <textarea id="prize-description" maxlength="500"></textarea>
@@ -221,6 +246,7 @@
         <label>
           <input id="prize-guarantee" type="checkbox" checked>
           参与保底
+          <small class="field-hint">邀请资格、开号资格固定不参与保底，避免实际概率被保底放大。</small>
         </label>
         <label>
           <input id="prize-broadcast" type="checkbox">
