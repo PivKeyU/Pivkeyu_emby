@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700;900&display=swap');
-
 :root {
   /* 主题变量 */
   --bg-top: #fefce8; /* 古卷米色 */
@@ -30,7 +28,7 @@
   --admin-border: 1px solid rgba(217, 119, 6, 0.5);
   --admin-shadow: 0 0 25px rgba(217, 119, 6, 0.3);
   
-  font-family: "Noto Serif SC", "STSong", "SimSun", serif;
+  font-family: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", "Noto Sans CJK SC", "STHeiti", "WenQuanYi Micro Hei", system-ui, sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {

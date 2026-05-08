@@ -53,6 +53,11 @@ class XiuxianImageUploadPermission(Base):
 
 class XiuxianProfile(Base):
     __tablename__ = "xiuxian_profiles"
+    __table_args__ = (
+        Index("ix_xiuxian_profiles_consented", "consented"),
+        Index("ix_xiuxian_profiles_master_tg", "master_tg"),
+        Index("ix_xiuxian_profiles_sect_id", "sect_id"),
+    )
 
     tg = Column(BigInteger, primary_key=True, autoincrement=False)
     display_name = Column(String(128), nullable=True)

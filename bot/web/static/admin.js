@@ -2029,7 +2029,14 @@ async function saveUser(event) {
       body: JSON.stringify(payload)
     }));
     fillEditor(result.data);
-    await Promise.all([loadSummary(), loadUsers()]);
+    if (Array.isArray(state.visibleUsers) && result.data) {
+      const savedTg = Number(result.data.tg ?? state.selectedTg);
+      state.visibleUsers = state.visibleUsers.map((item) =>
+        Number(item.tg) === savedTg ? { ...item, ...result.data } : item
+      );
+      renderUsers(state.visibleUsers);
+    }
+    loadSummary().catch(() => null);
     refs.editorStatus.textContent = `账号 ${state.selectedTg} 的资料已保存。`;
     setAdminStatus(`账号 ${state.selectedTg} 的资料已更新。`, "success");
     showToast(`账号 ${state.selectedTg} 已保存。`, "success");

@@ -51,6 +51,7 @@ const refs = {
   userPitySearchSubmit: document.querySelector("#user-pity-search-submit"),
   userPityQuery: document.querySelector("#user-pity-query"),
   userPityList: document.querySelector("#user-pity-list"),
+  userStatsResetAll: document.querySelector("#user-stats-reset-all"),
   prizeList: document.querySelector("#admin-prize-list"),
   redeemCodeList: document.querySelector("#admin-redeem-code-list"),
   recordList: document.querySelector("#admin-record-list"),
@@ -430,7 +431,7 @@ function renderUserPityList(users = state.pityUsers) {
   state.pityUsers = Array.isArray(users) ? users : [];
   if (!refs.userPityList) return;
   if (!state.pityUsers.length) {
-    refs.userPityList.innerHTML = `<div class="empty">搜索用户后可管理保底次数。</div>`;
+    refs.userPityList.innerHTML = `<div class="empty">搜索用户后可管理总抽奖次数，并可清零测试统计。</div>`;
     return;
   }
   refs.userPityList.innerHTML = state.pityUsers.map((user) => `
@@ -441,34 +442,34 @@ function renderUserPityList(users = state.pityUsers) {
           <p class="muted">${escapeHtml(userMetaLine(user))}</p>
         </div>
         <div class="admin-prize-rate">
-          <strong>${escapeHtml(user.miss_streak ?? 0)}</strong>
-          <span>当前保底次数</span>
+          <strong>${escapeHtml(user.total_spins ?? 0)}</strong>
+          <span>总抽奖次数</span>
         </div>
       </div>
       <div class="admin-prize-meta">
-        <span class="status-pill">总抽 ${escapeHtml(user.total_spins ?? 0)}</span>
         <span class="status-pill">中奖 ${escapeHtml(user.win_count ?? 0)}</span>
         <span class="status-pill">轮空 ${escapeHtml(user.blank_count ?? 0)}</span>
+        <span class="status-pill">保底累计 ${escapeHtml(user.miss_streak ?? 0)}</span>
       </div>
       <div class="admin-prize-actions user-pity-actions">
-        <input type="number" min="0" max="1000000" value="${escapeHtml(user.miss_streak ?? 0)}" data-pity-input="${escapeHtml(user.tg)}" aria-label="保底次数">
-        <button type="button" data-pity-save="${escapeHtml(user.tg)}">保存</button>
-        <button type="button" class="secondary" data-pity-clear="${escapeHtml(user.tg)}">清零</button>
+        <input type="number" min="0" max="1000000" value="${escapeHtml(user.total_spins ?? 0)}" data-spin-input="${escapeHtml(user.tg)}" aria-label="总抽奖次数">
+        <button type="button" data-spin-save="${escapeHtml(user.tg)}">保存总抽</button>
+        <button type="button" class="secondary" data-spin-clear="${escapeHtml(user.tg)}">清零统计</button>
       </div>
     </article>
   `).join("");
 
-  refs.userPityList.querySelectorAll("[data-pity-save]").forEach((button) => {
+  refs.userPityList.querySelectorAll("[data-spin-save]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const tg = Number(button.dataset.pitySave || 0);
-      const input = button.closest("[data-user-tg]")?.querySelector("[data-pity-input]");
-      await updateUserPity(tg, Number(input?.value || 0), button);
+      const tg = Number(button.dataset.spinSave || 0);
+      const input = button.closest("[data-user-tg]")?.querySelector("[data-spin-input]");
+      await updateUserStats(tg, Number(input?.value || 0), false, button);
     });
   });
-  refs.userPityList.querySelectorAll("[data-pity-clear]").forEach((button) => {
+  refs.userPityList.querySelectorAll("[data-spin-clear]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const tg = Number(button.dataset.pityClear || 0);
-      await updateUserPity(tg, 0, button);
+      const tg = Number(button.dataset.spinClear || 0);
+      await updateUserStats(tg, 0, true, button);
     });
   });
 }
@@ -774,7 +775,7 @@ async function searchUserPity() {
   setStatus(`已找到 ${(payload.items || []).length} 个用户。`, "success");
 }
 
-async function updateUserPity(tg, missStreak, button) {
+async function updateUserStats(tg, totalSpins, resetStats, button) {
   if (!tg) {
     setStatus("用户 TGID 不正确。", "error");
     return;
@@ -782,11 +783,12 @@ async function updateUserPity(tg, missStreak, button) {
   const previous = button?.innerHTML || "";
   if (button) {
     button.disabled = true;
-    button.textContent = "保存中";
+    button.textContent = resetStats ? "清零中" : "保存中";
   }
   try {
-    const payload = await request("PATCH", `/plugins/slot-box/admin-api/users/${encodeURIComponent(tg)}/pity`, {
-      miss_streak: Math.max(coerceNumber(missStreak, 0), 0)
+    const payload = await request("PATCH", `/plugins/slot-box/admin-api/users/${encodeURIComponent(tg)}/stats`, {
+      total_spins: Math.max(coerceNumber(totalSpins, 0), 0),
+      reset_spin_stats: Boolean(resetStats)
     });
     applyPayload(payload);
     const nextUser = payload.user;
@@ -795,7 +797,7 @@ async function updateUserPity(tg, missStreak, button) {
       state.pityUsers.unshift(nextUser);
     }
     renderUserPityList(state.pityUsers);
-    setStatus("用户保底次数已更新。", "success");
+    setStatus(resetStats ? "用户抽奖统计已清零。" : "用户总抽奖次数已更新。", "success");
   } catch (error) {
     setStatus(String(error.message || error), "error");
     if (button) {
@@ -975,6 +977,38 @@ refs.userPitySearchForm?.addEventListener("submit", async (event) => {
       refs.userPitySearchSubmit.disabled = false;
       refs.userPitySearchSubmit.innerHTML = previous;
     }
+  }
+});
+
+refs.userStatsResetAll?.addEventListener("click", async () => {
+  const confirmed = window.confirm("确认清零所有用户的抽奖统计与抽奖记录？此操作不可撤销。");
+  if (!confirmed) return;
+  const button = refs.userStatsResetAll;
+  const previous = button.innerHTML;
+  button.disabled = true;
+  button.textContent = "清零中";
+  try {
+    const payload = await request("POST", "/plugins/slot-box/admin-api/users/reset-all", {
+      clear_records: true
+    });
+    applyPayload(payload);
+    if (state.pityUsers.length) {
+      try {
+        await searchUserPity();
+      } catch (error) {
+        state.pityUsers = [];
+        renderUserPityList(state.pityUsers);
+      }
+    } else {
+      renderUserPityList(state.pityUsers);
+    }
+    const affected = Number(payload.reset_user_count || 0);
+    setStatus(`已清零 ${affected} 名用户的抽奖统计。`, "success");
+  } catch (error) {
+    setStatus(String(error.message || error), "error");
+  } finally {
+    button.disabled = false;
+    button.innerHTML = previous;
   }
 });
 

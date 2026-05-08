@@ -11,9 +11,10 @@ from sys import argv, executable
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
 from starlette.background import BackgroundTask
 
 from bot import LOGGER, bot, chanel, config, save_config
@@ -1044,23 +1045,29 @@ async def _delete_user_batch_emby_accounts(rows: list[Emby]) -> dict[str, int]:
 
 @router.get("/summary")
 async def summary():
-    with Session() as session:
-        total_users = session.query(func.count(Emby.tg)).scalar() or 0
-        active_accounts = (
-            session.query(func.count(Emby.tg)).filter(Emby.embyid.isnot(None)).scalar() or 0
-        )
-        whitelist_users = session.query(func.count(Emby.tg)).filter(Emby.lv == "a").scalar() or 0
-        banned_users = session.query(func.count(Emby.tg)).filter(Emby.lv == "c").scalar() or 0
-        total_currency = session.query(func.coalesce(func.sum(Emby.iv), 0)).scalar() or 0
+    def _collect_summary():
+        with Session() as session:
+            row = session.query(
+                func.count(Emby.tg),
+                func.sum(case((Emby.embyid.isnot(None), 1), else_=0)),
+                func.sum(case((Emby.lv == "a", 1), else_=0)),
+                func.sum(case((Emby.lv == "c", 1), else_=0)),
+                func.coalesce(func.sum(Emby.iv), 0),
+            ).one()
+            total_users, active_accounts, whitelist_users, banned_users, total_currency = row
+            return {
+                "total_users": int(total_users or 0),
+                "active_accounts": int(active_accounts or 0),
+                "whitelist_users": int(whitelist_users or 0),
+                "banned_users": int(banned_users or 0),
+                "total_currency": int(total_currency or 0),
+            }
 
+    counts = await run_in_threadpool(_collect_summary)
     return {
         "code": 200,
         "data": {
-            "total_users": total_users,
-            "active_accounts": active_accounts,
-            "whitelist_users": whitelist_users,
-            "banned_users": banned_users,
-            "total_currency": int(total_currency),
+            **counts,
             "auto_update": serialize_auto_update_state(),
             "emby_service_suspended": bool(config.emby_service_suspended),
         },
@@ -1128,27 +1135,31 @@ async def list_users(
     keyword = (q or "").strip()
     start = (page - 1) * page_size
 
-    with Session() as session:
-        query = session.query(Emby)
-        if keyword:
-            filtered_query = _apply_admin_user_keyword_filter(query, keyword)
-            total = int(filtered_query.count() or 0)
-            page_users = (
-                filtered_query
-                .order_by(Emby.tg.desc())
-                .offset(start)
-                .limit(page_size)
-                .all()
-            )
-        else:
-            total = int(query.count() or 0)
-            page_users = (
-                query
-                .order_by(Emby.tg.desc())
-                .offset(start)
-                .limit(page_size)
-                .all()
-            )
+    def _load_user_page():
+        with Session() as session:
+            query = session.query(Emby)
+            if keyword:
+                filtered_query = _apply_admin_user_keyword_filter(query, keyword)
+                local_total = int(filtered_query.count() or 0)
+                local_page_users = (
+                    filtered_query
+                    .order_by(Emby.tg.desc())
+                    .offset(start)
+                    .limit(page_size)
+                    .all()
+                )
+            else:
+                local_total = int(query.count() or 0)
+                local_page_users = (
+                    query
+                    .order_by(Emby.tg.desc())
+                    .offset(start)
+                    .limit(page_size)
+                    .all()
+                )
+            return local_page_users, local_total
+
+    page_users, total = await run_in_threadpool(_load_user_page)
 
     if keyword and total == 0:
         page_users, total = await _search_admin_users_by_telegram_identity(keyword, page, page_size)

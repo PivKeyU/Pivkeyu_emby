@@ -101,13 +101,28 @@ function randomSymbol() {
   return symbols[Math.floor(Math.random() * symbols.length)] || "🍒";
 }
 
-function reelStripHtml(centerSymbol) {
-  const symbols = [randomSymbol(), randomSymbol(), centerSymbol || randomSymbol(), randomSymbol(), randomSymbol()];
+function reelStripHtml(centerSymbol, { locked = false } = {}) {
+  const center = centerSymbol || randomSymbol();
+  const symbols = locked
+    ? [center, center, center, center, center]
+    : [randomSymbol(), randomSymbol(), center, randomSymbol(), randomSymbol()];
   return `<span class="reel-strip">${symbols.map((symbol) => `<span>${escapeHtml(symbol)}</span>`).join("")}</span>`;
 }
 
 function setReelSymbol(reel, symbol) {
-  reel.innerHTML = reelStripHtml(symbol);
+  reel.innerHTML = reelStripHtml(symbol, { locked: true });
+}
+
+function normalizeFinalReels(result = {}) {
+  const raw = Array.isArray(result.reels)
+    ? result.reels.slice(0, 3).map((symbol) => String(symbol || "").trim()).filter(Boolean)
+    : [];
+  if (result.outcome === "win") {
+    const symbol = String(result.prize?.icon || raw[0] || "🎁").trim() || "🎁";
+    return [symbol, symbol, symbol];
+  }
+  while (raw.length < 3) raw.push(randomSymbol());
+  return raw.slice(0, 3);
 }
 
 function setMachineState(className, enabled) {
@@ -531,7 +546,9 @@ async function spin() {
     const payload = await request("/plugins/slot-box/api/spin", { init_data: state.initData });
     const delay = Math.max(900 - (Date.now() - startedAt), 0);
     if (delay) await new Promise((resolve) => window.setTimeout(resolve, delay));
-    await settleReels(payload.result?.reels || []);
+    const finalReels = normalizeFinalReels(payload.result || {});
+    if (payload.result) payload.result.reels = finalReels;
+    await settleReels(finalReels);
     const won = payload.result?.outcome === "win";
     setMachineState("is-winning", won);
     firePrizeBurst(payload.result?.outcome);

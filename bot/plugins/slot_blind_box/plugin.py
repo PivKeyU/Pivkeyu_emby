@@ -239,8 +239,13 @@ class AdminUserSearchPayload(BaseModel):
     limit: int = 20
 
 
-class AdminUserPityPayload(BaseModel):
-    miss_streak: int = 0
+class AdminUserStatsPayload(BaseModel):
+    total_spins: int = 0
+    reset_spin_stats: bool = False
+
+
+class AdminResetAllStatsPayload(BaseModel):
+    clear_records: bool = True
 
 
 class RedeemCodeAdminPayload(BaseModel):
@@ -1862,25 +1867,57 @@ def _admin_search_users(query: str, limit: int = 20) -> dict[str, Any]:
     return {"items": rows}
 
 
-def _admin_set_user_pity(user_id: int, miss_streak: int) -> dict[str, Any]:
+def _reset_user_stats_dict(stats: dict[str, Any]) -> None:
+    stats["total_spins"] = 0
+    stats["win_count"] = 0
+    stats["blank_count"] = 0
+    stats["miss_streak"] = 0
+    stats["daily_count"] = 0
+    stats["daily_free_used"] = 0
+    stats["last_spin_at"] = 0
+    stats["prize_miss_streaks"] = {}
+
+
+def _admin_set_user_stats(user_id: int, total_spins: int, *, reset_spin_stats: bool = False) -> dict[str, Any]:
     value = _clean_int(
-        miss_streak,
+        total_spins,
         default=0,
         minimum=0,
         maximum=1_000_000,
-        field_name="保底次数",
+        field_name="总抽奖次数",
     )
     with STATE_LOCK:
         state = _load_state_unlocked()
         user_stats = _get_user_stats(state, int(user_id))
-        user_stats["miss_streak"] = value
-        pity_map = _prize_pity_map(user_stats)
-        for prize in _available_prizes(state, guarantee_only=True):
-            prize_id = str(prize.get("id") or "").strip()
-            if prize_id:
-                pity_map[prize_id] = value
+        if reset_spin_stats:
+            _reset_user_stats_dict(user_stats)
+            state["records"] = [
+                record
+                for record in state.get("records") or []
+                if int(record.get("user_id") or 0) != int(user_id)
+            ]
+        else:
+            user_stats["total_spins"] = value
         _save_state_unlocked(state)
         return {"user": _public_slot_user(state, int(user_id)), **_serialize_bundle(state, include_admin=True)}
+
+
+def _admin_reset_all_user_stats(*, clear_records: bool = True) -> dict[str, Any]:
+    with STATE_LOCK:
+        state = _load_state_unlocked()
+        users = state.get("users") or {}
+        affected = 0
+        for stats in users.values():
+            if not isinstance(stats, dict):
+                continue
+            _reset_user_stats_dict(stats)
+            affected += 1
+        if clear_records:
+            state["records"] = []
+        _save_state_unlocked(state)
+        bundle = _serialize_bundle(state, include_admin=True)
+        bundle["reset_user_count"] = affected
+        return bundle
 
 
 def _redeem_code_for_user(user_id: int, code_value: str) -> dict[str, Any]:
@@ -2444,13 +2481,32 @@ def register_web(app, context=None) -> None:
             raise _raise_value_error(exc) from exc
         return {"code": 200, "data": bundle}
 
-    @admin_router.patch("/users/{user_id}/pity")
-    async def slot_admin_user_pity_api(user_id: int, payload: AdminUserPityPayload, request: Request):
+    @admin_router.patch("/users/{user_id}/stats")
+    async def slot_admin_user_stats_api(user_id: int, payload: AdminUserStatsPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
         await run_in_threadpool(_verify_admin_credential, token, init_data)
         try:
-            bundle = await run_in_threadpool(_admin_set_user_pity, int(user_id), payload.miss_streak)
+            bundle = await run_in_threadpool(
+                _admin_set_user_stats,
+                int(user_id),
+                payload.total_spins,
+                reset_spin_stats=payload.reset_spin_stats,
+            )
+        except Exception as exc:
+            raise _raise_value_error(exc) from exc
+        return {"code": 200, "data": bundle}
+
+    @admin_router.post("/users/reset-all")
+    async def slot_admin_user_reset_all_api(payload: AdminResetAllStatsPayload, request: Request):
+        token = request.headers.get("x-admin-token")
+        init_data = request.headers.get("x-telegram-init-data")
+        await run_in_threadpool(_verify_admin_credential, token, init_data)
+        try:
+            bundle = await run_in_threadpool(
+                _admin_reset_all_user_stats,
+                clear_records=payload.clear_records,
+            )
         except Exception as exc:
             raise _raise_value_error(exc) from exc
         return {"code": 200, "data": bundle}
