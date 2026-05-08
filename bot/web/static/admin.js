@@ -422,8 +422,7 @@ function setupBackNavigation(defaultPath = DEFAULT_BACK_PATH) {
 
   if (tgBackButton) {
     tgBackButton.offClick?.(handleBackNavigation);
-    tgBackButton.onClick(handleBackNavigation);
-    tgBackButton.show();
+    tgBackButton.hide?.();
   }
 }
 

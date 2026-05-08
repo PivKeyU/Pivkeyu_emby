@@ -661,6 +661,7 @@ refs.transferTargetResults?.addEventListener("click", (event) => {
     tg.expand();
     tg.setHeaderColor("#0b1020");
     tg.setBackgroundColor("#0b1020");
+    tg.BackButton?.hide?.();
   }
   try {
     await bootstrap();

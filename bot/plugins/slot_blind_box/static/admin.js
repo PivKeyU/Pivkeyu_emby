@@ -1111,6 +1111,7 @@ refs.redeemCodeForm?.addEventListener("submit", async (event) => {
     tg.expand();
     tg.setHeaderColor("#17120f");
     tg.setBackgroundColor("#111111");
+    tg.BackButton?.hide?.();
   }
   try {
     await bootstrap();

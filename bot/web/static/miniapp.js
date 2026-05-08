@@ -512,6 +512,7 @@ async function bootstrapMiniApp() {
 
   tg.ready();
   tg.expand();
+  tg.BackButton?.hide?.();
   bindPluginGridNavigation();
   const userId = tg.initDataUnsafe?.user?.id || "default";
   currentMiniAppUserId = userId;
