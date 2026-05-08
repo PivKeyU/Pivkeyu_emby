@@ -101,12 +101,20 @@ function randomSymbol() {
   return symbols[Math.floor(Math.random() * symbols.length)] || "🍒";
 }
 
+function randomSymbolExcept(excludedSymbols = []) {
+  const excluded = new Set(excludedSymbols.map((symbol) => String(symbol || "").trim()).filter(Boolean));
+  const candidates = (state.symbols.length ? state.symbols : ["🎁", "🍒", "🔔", "7️⃣", "⭐"])
+    .map((symbol) => String(symbol || "").trim())
+    .filter((symbol) => symbol && !excluded.has(symbol));
+  const symbols = candidates.length ? candidates : ["🍒", "🍋", "🔔", "⭐"].filter((symbol) => !excluded.has(symbol));
+  return symbols[Math.floor(Math.random() * symbols.length)] || "🍒";
+}
+
 function reelStripHtml(centerSymbol, { locked = false } = {}) {
   const center = centerSymbol || randomSymbol();
-  const symbols = locked
-    ? [center, center, center, center, center]
-    : [randomSymbol(), randomSymbol(), center, randomSymbol(), randomSymbol()];
-  return `<span class="reel-strip">${symbols.map((symbol) => `<span>${escapeHtml(symbol)}</span>`).join("")}</span>`;
+  const top = locked ? randomSymbolExcept([center]) : randomSymbol();
+  const bottom = locked ? randomSymbolExcept([center, top]) : randomSymbol();
+  return `<span class="reel-strip"><span>${escapeHtml(top)}</span><span class="payline-symbol">${escapeHtml(center)}</span><span>${escapeHtml(bottom)}</span></span>`;
 }
 
 function setReelSymbol(reel, symbol) {
