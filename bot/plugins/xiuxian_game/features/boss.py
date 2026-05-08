@@ -119,11 +119,11 @@ def _apply_boss_cultivation_reward_in_session(
     stage = legacy_service.normalize_realm_stage(profile_obj.realm_stage or legacy_service.FIRST_REALM_STAGE)
     layer = max(int(profile_obj.realm_layer or 1), 1)
     current_cult = max(int(profile_obj.cultivation or 0), 0)
-    new_layer, new_cult, gained = apply_cultivation_gain(stage, layer, current_cult, gain)
+    new_layer, new_cult, _upgraded_layers, _remaining = apply_cultivation_gain(stage, layer, current_cult, gain)
     profile_obj.realm_layer = new_layer
     profile_obj.cultivation = new_cult
     profile_obj.updated_at = utcnow()
-    return int(gained or 0)
+    return gain
 
 
 def _claim_personal_boss_attempt_in_session(

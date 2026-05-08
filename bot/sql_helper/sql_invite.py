@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Index, Integer, JSON, String, Text, func
+from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Index, Integer, JSON, String, Text
 
 from bot import group
 from bot.sql_helper import Base, Session
@@ -32,6 +32,7 @@ INVITE_CREDIT_TYPE_TEXT = {
     INVITE_CREDIT_TYPE_ACCOUNT_OPEN: "注册资格",
 }
 INVITE_CREDIT_SOURCE_QUALIFICATION_REVOKE = "qualification_revoke"
+INVITE_CREDIT_SOURCE_SLOT_BOX = "slot_box"
 INVITE_RECORD_ACTIVE_STATUSES = {"pending"}
 INVITE_RECORD_FINAL_STATUSES = {"approved", "declined", "revoked", "expired", "granted"}
 GROUP_INVITE_CONSUMING_STATUSES = {"pending", "approved", "expired"}
@@ -374,6 +375,27 @@ def validate_invite_credit_grant(
                 raise ValueError("该用户已经拥有或使用过注册资格，每个观影用户只能提交一次开通申请")
 
 
+def _available_invite_credit_query(session, owner_tg: int, credit_type: str):
+    return session.query(InviteCredit).filter(
+        InviteCredit.owner_tg == int(owner_tg),
+        InviteCredit.credit_type == normalize_invite_credit_type(credit_type),
+        InviteCredit.source != INVITE_CREDIT_SOURCE_QUALIFICATION_REVOKE,
+        InviteCredit.consumed_at.is_(None),
+        InviteCredit.revoked_at.is_(None),
+    )
+
+
+def _available_invite_credit_count_in_session(session, owner_tg: int, credit_type: str) -> int:
+    return int(_available_invite_credit_query(session, owner_tg, credit_type).count() or 0)
+
+
+def _available_invite_credit_row(session, owner_tg: int, credit_type: str, *, for_update: bool = False) -> InviteCredit | None:
+    query = _available_invite_credit_query(session, owner_tg, credit_type).order_by(InviteCredit.id.asc())
+    if for_update:
+        query = query.with_for_update()
+    return query.first()
+
+
 def invite_credit_summary(owner_tg: int | None = None, *, credit_type: str | None = None) -> dict[str, int]:
     normalized_type = normalize_invite_credit_type(credit_type) if credit_type else None
     with Session() as session:
@@ -478,17 +500,9 @@ def available_invite_credit_count(owner_tg: int, *, credit_type: str = INVITE_CR
     if normalized_type == INVITE_CREDIT_TYPE_GROUP:
         return available_group_invite_credit_count(owner_tg)
     with Session() as session:
-        return int(
-            session.query(func.count(InviteCredit.id))
-            .filter(
-                InviteCredit.owner_tg == int(owner_tg),
-                InviteCredit.credit_type == normalized_type,
-                InviteCredit.consumed_at.is_(None),
-                InviteCredit.revoked_at.is_(None),
-            )
-            .scalar()
-            or 0
-        )
+        if _qualification_revoked(session, int(owner_tg), normalized_type) is not None:
+            return 0
+        return _available_invite_credit_count_in_session(session, int(owner_tg), normalized_type)
 
 
 def user_has_group_invite_history(owner_tg: int) -> bool:
@@ -498,6 +512,7 @@ def user_has_group_invite_history(owner_tg: int) -> bool:
             .filter(
                 InviteRecord.inviter_tg == int(owner_tg),
                 InviteRecord.record_type == INVITE_CREDIT_TYPE_GROUP,
+                InviteRecord.credit_id.is_(None),
                 InviteRecord.status.in_(list(GROUP_INVITE_CONSUMING_STATUSES)),
             )
             .first()
@@ -527,6 +542,31 @@ def qualification_revoked(owner_tg: int, *, credit_type: str) -> bool:
     normalized_type = normalize_invite_credit_type(credit_type)
     with Session() as session:
         return _qualification_revoked(session, int(owner_tg), normalized_type) is not None
+
+
+def grant_slot_group_invite_credit(
+    *,
+    owner_tg: int,
+    granted_by_tg: int | None = None,
+    source_ref: str | None = None,
+    note: str = "",
+) -> dict[str, Any]:
+    with Session() as session:
+        if _qualification_revoked(session, int(owner_tg), INVITE_CREDIT_TYPE_GROUP) is not None:
+            raise ValueError("你的入群邀请资格已被后台撤销")
+        row = InviteCredit(
+            credit_type=INVITE_CREDIT_TYPE_GROUP,
+            owner_tg=int(owner_tg),
+            invite_days=0,
+            granted_by_tg=int(granted_by_tg) if granted_by_tg is not None else None,
+            source=INVITE_CREDIT_SOURCE_SLOT_BOX,
+            source_ref=str(source_ref or "").strip()[:128] or None,
+            note=str(note or "老虎机背包使用邀请资格").strip()[:255] or None,
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return serialize_invite_credit(row)
 
 
 def set_invite_qualification(
@@ -567,24 +607,31 @@ def invite_qualification_status(owner_tg: int) -> dict[str, Any]:
         viewing_access = has_viewing_access(account)
         group_revoked = _qualification_revoked(session, int(owner_tg), INVITE_CREDIT_TYPE_GROUP) is not None
         account_revoked = _qualification_revoked(session, int(owner_tg), INVITE_CREDIT_TYPE_ACCOUNT_OPEN) is not None
+        manual_group_count = 0 if group_revoked else _available_invite_credit_count_in_session(
+            session, int(owner_tg), INVITE_CREDIT_TYPE_GROUP
+        )
         group_history = (
             session.query(InviteRecord.id)
             .filter(
                 InviteRecord.inviter_tg == int(owner_tg),
                 InviteRecord.record_type == INVITE_CREDIT_TYPE_GROUP,
+                InviteRecord.credit_id.is_(None),
                 InviteRecord.status.in_(list(GROUP_INVITE_CONSUMING_STATUSES)),
             )
             .first()
             is not None
         )
         account_history = _owner_has_account_open_history(session, int(owner_tg))
+        automatic_group_available = bool(viewing_access and not group_revoked and not group_history)
+    group_available_credits = int(manual_group_count or 0) + (1 if automatic_group_available else 0)
     return {
         "owner_tg": int(owner_tg),
         "has_viewing_access": bool(viewing_access),
         "group_join": {
             "revoked": bool(group_revoked),
             "used": bool(group_history),
-            "available": bool(viewing_access and not group_revoked and not group_history),
+            "available": group_available_credits > 0,
+            "available_credits": group_available_credits,
         },
         "account_open": {
             "revoked": bool(account_revoked),
@@ -596,22 +643,25 @@ def invite_qualification_status(owner_tg: int) -> dict[str, Any]:
 
 def available_group_invite_credit_count(owner_tg: int) -> int:
     with Session() as session:
-        user = session.query(Emby).filter(Emby.tg == int(owner_tg)).first()
-        if not has_viewing_access(user):
-            return 0
         if _qualification_revoked(session, int(owner_tg), INVITE_CREDIT_TYPE_GROUP) is not None:
             return 0
-        consumed = (
-            session.query(InviteRecord.id)
-            .filter(
-                InviteRecord.inviter_tg == int(owner_tg),
-                InviteRecord.record_type == INVITE_CREDIT_TYPE_GROUP,
-                InviteRecord.status.in_(list(GROUP_INVITE_CONSUMING_STATUSES)),
+        manual_count = _available_invite_credit_count_in_session(session, int(owner_tg), INVITE_CREDIT_TYPE_GROUP)
+        user = session.query(Emby).filter(Emby.tg == int(owner_tg)).first()
+        automatic_count = 0
+        if has_viewing_access(user):
+            consumed = (
+                session.query(InviteRecord.id)
+                .filter(
+                    InviteRecord.inviter_tg == int(owner_tg),
+                    InviteRecord.record_type == INVITE_CREDIT_TYPE_GROUP,
+                    InviteRecord.credit_id.is_(None),
+                    InviteRecord.status.in_(list(GROUP_INVITE_CONSUMING_STATUSES)),
+                )
+                .first()
+                is not None
             )
-            .first()
-            is not None
-        )
-        return 0 if consumed else 1
+            automatic_count = 0 if consumed else 1
+        return int(manual_count or 0) + automatic_count
 
 
 def revoke_invite_credit(credit_id: int, *, revoked_by_tg: int | None = None, reason: str = "") -> dict[str, Any] | None:
@@ -649,9 +699,11 @@ def create_invite_record(
 
     now = utcnow()
     with Session() as session:
-        _require_invite_owner(session, inviter, normalized_type, for_update=True)
         if _qualification_revoked(session, inviter, normalized_type) is not None:
             raise ValueError("你的入群邀请资格已被后台撤销")
+        manual_credit = _available_invite_credit_row(session, inviter, normalized_type, for_update=True)
+        if manual_credit is None:
+            _require_invite_owner(session, inviter, normalized_type, for_update=True)
         existing = (
             session.query(InviteRecord)
             .filter(
@@ -665,21 +717,23 @@ def create_invite_record(
         if existing is not None and (existing.expires_at is None or existing.expires_at > now):
             raise ValueError("该用户已经有一条待使用的邀请码")
 
-        existing_by_inviter = (
-            session.query(InviteRecord)
-            .filter(
-                InviteRecord.inviter_tg == inviter,
-                InviteRecord.record_type == normalized_type,
-                InviteRecord.status.in_(list(GROUP_INVITE_CONSUMING_STATUSES)),
+        if manual_credit is None:
+            existing_by_inviter = (
+                session.query(InviteRecord)
+                .filter(
+                    InviteRecord.inviter_tg == inviter,
+                    InviteRecord.record_type == normalized_type,
+                    InviteRecord.credit_id.is_(None),
+                    InviteRecord.status.in_(list(GROUP_INVITE_CONSUMING_STATUSES)),
+                )
+                .with_for_update()
+                .first()
             )
-            .with_for_update()
-            .first()
-        )
-        if existing_by_inviter is not None:
-            raise ValueError("你已经使用过本次入群邀请资格")
+            if existing_by_inviter is not None:
+                raise ValueError("你已经使用过本次入群邀请资格")
 
         record = InviteRecord(
-            credit_id=None,
+            credit_id=int(manual_credit.id) if manual_credit is not None else None,
             record_type=normalized_type,
             inviter_tg=inviter,
             invitee_tg=invitee,
@@ -694,6 +748,9 @@ def create_invite_record(
         )
         session.add(record)
         session.flush()
+        if manual_credit is not None:
+            manual_credit.consumed_at = now
+            manual_credit.consumed_record_id = int(record.id)
         session.commit()
         session.refresh(record)
         return serialize_invite_record(record)

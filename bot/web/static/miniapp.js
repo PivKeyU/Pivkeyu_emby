@@ -276,7 +276,7 @@ function renderInviteBundle(invite = {}) {
   document.querySelector("#invite-credit-count").textContent = String(count);
   document.querySelector("#invite-expire-hours").textContent = `${settings.expire_hours || 24} 小时`;
   if (status) {
-    if (!permissions.has_viewing_access) {
+    if (!permissions.has_viewing_access && count <= 0) {
       status.textContent = "当前账号没有 Emby 观影资格，暂时不能获取入群资格。";
     } else if (permissions.group_invite_revoked) {
       status.textContent = "你的入群邀请资格已被撤销。";

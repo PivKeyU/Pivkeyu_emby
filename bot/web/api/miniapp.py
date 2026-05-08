@@ -57,7 +57,7 @@ def _public_invite_bundle(user_id: int, account=None) -> dict:
     account = account if account is not None else sql_get_emby(user_id)
     settings = get_invite_settings()
     has_access = has_viewing_access(account)
-    group_count = available_invite_credit_count(user_id, credit_type=INVITE_CREDIT_TYPE_GROUP) if has_access else 0
+    group_count = available_invite_credit_count(user_id, credit_type=INVITE_CREDIT_TYPE_GROUP)
     group_records = [
         _public_invite_record(item)
         for item in list_invite_records(inviter_tg=user_id, credit_type=INVITE_CREDIT_TYPE_GROUP, limit=20)
@@ -81,14 +81,14 @@ def _public_invite_bundle(user_id: int, account=None) -> dict:
         },
         "permissions": {
             "has_viewing_access": bool(has_access),
-            "can_create": bool(settings.get("enabled") and has_access),
-            "has_invite_qualification": bool(settings.get("enabled") and has_access and group_count > 0),
+            "can_create": bool(settings.get("enabled") and (has_access or group_count > 0)),
+            "has_invite_qualification": bool(settings.get("enabled") and group_count > 0),
             "has_account_open_application_qualification": bool(
                 settings.get("enabled") and qualification.get("account_open", {}).get("available")
             ),
             "group_verification_enabled": bool(settings.get("group_verification_enabled", settings.get("strict_target", True))),
             "channel_verification_enabled": bool(settings.get("channel_verification_enabled", False)),
-            "group_invite_used": bool(user_has_group_invite_history(user_id)) if has_access else False,
+            "group_invite_used": bool(user_has_group_invite_history(user_id)) if has_access or group_count > 0 else False,
             "account_open_application_used": bool(account_open_history),
             "group_invite_revoked": bool(qualification.get("group_join", {}).get("revoked")),
             "account_open_application_revoked": bool(qualification.get("account_open", {}).get("revoked")),
@@ -338,9 +338,10 @@ async def create_user_invite(payload: MiniAppInviteCreateRequest):
         settings = get_invite_settings()
         if not settings.get("enabled"):
             raise HTTPException(status_code=403, detail="主人还没开启邀请功能呢~")
-        if not has_viewing_access(account):
-            raise HTTPException(status_code=403, detail="哼，只有拥有 Emby 观影资格的人才能获取入群资格啦~")
-        if available_invite_credit_count(user_id, credit_type=INVITE_CREDIT_TYPE_GROUP) <= 0:
+        group_count = available_invite_credit_count(user_id, credit_type=INVITE_CREDIT_TYPE_GROUP)
+        if not has_viewing_access(account) and group_count <= 0:
+            raise HTTPException(status_code=403, detail="哼，只有拥有 Emby 观影资格或可用入群资格的人才能发送邀请啦~")
+        if group_count <= 0:
             raise HTTPException(status_code=400, detail="你当前没有可用的入群资格呢...想邀请别人？先看看自己够不够格啦~")
         target_chat_id = settings.get("target_chat_id")
         if not target_chat_id:

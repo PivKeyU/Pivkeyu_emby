@@ -22,7 +22,8 @@ from sqlalchemy import or_
 from bot import LOGGER, api as api_config, bot, config, group, owner, pivkeyu
 from bot.plugins import list_miniapp_plugins
 from bot.sql_helper import Session
-from bot.sql_helper.sql_emby import Emby, _invalidate_emby_payload, _serialize_emby_row, sql_get_emby
+from bot.sql_helper.sql_emby import Emby, _invalidate_emby_payload, _serialize_emby_row, sql_get_emby, sql_invalidate_emby_cache
+from bot.sql_helper.sql_invite import grant_slot_group_invite_credit, normalize_invite_days
 from bot.web.api.miniapp import is_admin_user_id, verify_init_data
 from bot.web.presenters import get_level_meta, serialize_emby_user
 
@@ -181,6 +182,10 @@ class InitDataPayload(BaseModel):
 
 class RedeemCodePayload(InitDataPayload):
     code: str
+
+
+class UseBackpackItemPayload(InitDataPayload):
+    item_type: str
 
 
 class TransferItemPayload(InitDataPayload):
@@ -994,19 +999,25 @@ def _telegram_member_is_active(member: Any) -> bool:
     return False
 
 
-async def _ensure_account_open_receiver_in_group(target_tg: int, item_type: str) -> None:
+async def _ensure_account_open_receiver_in_group(
+    target_tg: int,
+    item_type: str,
+    *,
+    missing_group_detail: str = "主群未配置，无法接收开号资格",
+    inactive_detail: str = "接收方不在主群内，不能接收开号资格",
+) -> None:
     if _normalize_backpack_item_type(item_type) != REWARD_TYPE_ACCOUNT_OPEN:
         return
     chat_id = _main_group_chat_id()
     if not chat_id:
-        raise HTTPException(status_code=400, detail="主群未配置，无法接收开号资格")
+        raise HTTPException(status_code=400, detail=missing_group_detail)
     try:
         member = await bot.get_chat_member(chat_id=chat_id, user_id=int(target_tg))
     except Exception as exc:
         LOGGER.warning(f"slot box account open receiver group check failed chat={chat_id} tg={target_tg}: {exc}")
-        raise HTTPException(status_code=400, detail="接收方不在主群内，不能接收开号资格") from exc
+        raise HTTPException(status_code=400, detail=inactive_detail) from exc
     if not _telegram_member_is_active(member):
-        raise HTTPException(status_code=400, detail="接收方不在主群内，不能接收开号资格")
+        raise HTTPException(status_code=400, detail=inactive_detail)
 
 
 async def _account_open_receiver_in_group(target_tg: int) -> bool:
@@ -1578,6 +1589,64 @@ def _redeem_code_for_user(user_id: int, code_value: str) -> dict[str, Any]:
     raise HTTPException(status_code=404, detail="兑换码不存在")
 
 
+def _grant_slot_registration_credit(user_id: int) -> dict[str, Any]:
+    days = normalize_invite_days(30)
+    with Session() as session:
+        account = session.query(Emby).filter(Emby.tg == int(user_id)).with_for_update().first()
+        if account is None:
+            account = Emby(tg=int(user_id), lv="d", us=0, iv=0)
+            session.add(account)
+            session.flush()
+        if account.embyid:
+            raise ValueError("你当前已经有 Emby 账号，这里只能使用注册资格")
+        if int(account.us or 0) > 0:
+            raise ValueError("你已经有注册资格，请先使用“创建账号”")
+        account_before = _serialize_emby_row(account)
+        account.us = int(account.us or 0) + int(days)
+        session.commit()
+        session.refresh(account)
+        account_after = _serialize_emby_row(account)
+    _invalidate_emby_payload(account_before)
+    _invalidate_emby_payload(account_after)
+    sql_invalidate_emby_cache(user_id)
+    return {"days": int(days), "account": account_after}
+
+
+def _use_backpack_item(user_id: int, item_type: str) -> dict[str, Any]:
+    normalized_type = _normalize_backpack_item_type(item_type)
+    if normalized_type == REWARD_TYPE_FREE_SPIN_TICKET:
+        raise ValueError("抽奖券会在抽奖时自动抵扣，不需要手动使用")
+
+    with STATE_LOCK:
+        state = _load_state_unlocked()
+        user_stats = _get_user_stats(state, int(user_id))
+        backpack = _backpack(user_stats)
+        if int(backpack.get(normalized_type) or 0) <= 0:
+            raise ValueError(f"{BACKPACK_ITEM_META[normalized_type]['label']}数量不足")
+
+        grant: dict[str, Any]
+        if normalized_type == REWARD_TYPE_GROUP_INVITE:
+            grant = grant_slot_group_invite_credit(
+                owner_tg=int(user_id),
+                granted_by_tg=int(user_id),
+                source_ref=f"slot-backpack:{int(user_id)}:{int(time.time())}",
+                note="老虎机背包使用邀请资格",
+            )
+            message = "已拥有邀请资格，可前往 MiniApp 主页的入群资格邀请模块发送邀请链接。"
+        elif normalized_type == REWARD_TYPE_ACCOUNT_OPEN:
+            grant = _grant_slot_registration_credit(int(user_id))
+            days = int(grant.get("days") or 30)
+            message = f"已获得 {days} 天 Emby 注册资格，请回到 Bot 用户面板继续创建账号。"
+        else:
+            raise ValueError("该背包物品暂不支持手动使用")
+
+        used_item = _remove_backpack_item(user_stats, normalized_type, 1)
+        _save_state_unlocked(state)
+        account = sql_get_emby(user_id)
+        bundle = _serialize_bundle(state, user_id=int(user_id), account=account)
+        return {"used_item": used_item, "grant": grant, "message": message, **bundle}
+
+
 def _transfer_item(sender_tg: int, target_tg: int, item_type: str, quantity: int) -> dict[str, Any]:
     normalized_type = _normalize_backpack_item_type(item_type)
     qty = max(int(quantity or 1), 1)
@@ -1924,6 +1993,26 @@ def register_web(app, context=None) -> None:
             await _ensure_account_open_receiver_in_group(int(user["id"]), REWARD_TYPE_ACCOUNT_OPEN)
         try:
             bundle = await run_in_threadpool(_redeem_code_for_user, int(user["id"]), payload.code)
+        except Exception as exc:
+            raise _raise_value_error(exc) from exc
+        return {"code": 200, "data": bundle}
+
+    @user_router.post("/api/backpack/use")
+    async def slot_use_backpack_item(payload: UseBackpackItemPayload):
+        user = await run_in_threadpool(_verify_user_from_init_data, payload.init_data)
+        try:
+            normalized_type = _normalize_backpack_item_type(payload.item_type)
+        except Exception as exc:
+            raise _raise_value_error(exc) from exc
+        if normalized_type == REWARD_TYPE_ACCOUNT_OPEN:
+            await _ensure_account_open_receiver_in_group(
+                int(user["id"]),
+                normalized_type,
+                missing_group_detail="主群未配置，无法使用开号资格",
+                inactive_detail="你不在主群内，不能使用开号资格",
+            )
+        try:
+            bundle = await run_in_threadpool(_use_backpack_item, int(user["id"]), normalized_type)
         except Exception as exc:
             raise _raise_value_error(exc) from exc
         return {"code": 200, "data": bundle}

@@ -262,6 +262,17 @@ function renderRecords(records = state.records) {
   if (refs.recordNext) refs.recordNext.disabled = state.recordPage >= totalPages;
 }
 
+function backpackItemHint(type) {
+  if (type === "group_invite_credit") return "使用后会添加到账号下，可在 MiniApp 主页发送入群邀请。";
+  if (type === "account_open_credit") return "使用前会校验你是否在主群内，通过后获得 30 天注册资格。";
+  if (type === "free_spin_ticket") return "抽奖时自动抵扣，无需手动使用。";
+  return "可转赠；交易请前往 Emby 商店。";
+}
+
+function canUseBackpackItem(item = {}) {
+  return ["group_invite_credit", "account_open_credit"].includes(item.type) && Number(item.quantity || 0) > 0;
+}
+
 function renderBackpack(items = []) {
   if (!refs.backpackList) return;
   if (!items.length) {
@@ -269,13 +280,20 @@ function renderBackpack(items = []) {
     return;
   }
   refs.backpackList.innerHTML = items.map((item, index) => `
-    <article class="prize-card" style="--i:${index}">
+    <article class="prize-card backpack-card" style="--i:${index}">
       <div class="prize-card-head">
         <span class="prize-icon">${escapeHtml(item.icon || "◇")}</span>
         <span class="rate-text">x${escapeHtml(item.quantity ?? 0)}</span>
       </div>
       <h3>${escapeHtml(item.label || item.type)}</h3>
-      <p class="muted">可转赠；交易请前往 Emby 商店。</p>
+      <p class="muted">${escapeHtml(backpackItemHint(item.type))}</p>
+      ${canUseBackpackItem(item) ? `
+        <div class="backpack-actions">
+          <button type="button" class="secondary use-backpack-item" data-item-type="${escapeHtml(item.type)}">
+            <span class="button-icon">${item.type === "account_open_credit" ? "🪪" : "📨"}</span><span>使用</span>
+          </button>
+        </div>
+      ` : ""}
     </article>
   `).join("");
 }
@@ -454,6 +472,27 @@ async function mutateWithButton(button, pendingText, url, payload, successText) 
   }
 }
 
+async function useBackpackItem(button) {
+  const itemType = button?.dataset?.itemType || "";
+  if (!itemType) return;
+  const previous = button.innerHTML;
+  button.disabled = true;
+  button.textContent = "使用中";
+  try {
+    const nextPayload = await request("/plugins/slot-box/api/backpack/use", {
+      init_data: state.initData,
+      item_type: itemType
+    });
+    applyPayload(nextPayload);
+    setStatus(nextPayload.message || "已使用。", "success");
+  } catch (error) {
+    setStatus(String(error.message || error), "error");
+  } finally {
+    button.disabled = false;
+    button.innerHTML = previous;
+  }
+}
+
 async function bootstrap() {
   if (!state.initData) {
     throw new Error("请从 Telegram 小程序入口打开。");
@@ -537,6 +576,12 @@ refs.redeemForm?.addEventListener("submit", async (event) => {
     init_data: state.initData,
     code
   }, "兑换成功。");
+});
+
+refs.backpackList?.addEventListener("click", async (event) => {
+  const button = event.target.closest(".use-backpack-item");
+  if (!button) return;
+  await useBackpackItem(button);
 });
 
 refs.transferForm?.addEventListener("submit", async (event) => {

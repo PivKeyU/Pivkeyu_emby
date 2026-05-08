@@ -177,12 +177,16 @@
           <input id="prize-icon" type="text" maxlength="16" value="🎁">
         </label>
         <label>
-          中奖权重
+          中奖权重（决定概率）
           <input id="prize-weight" type="number" min="0" max="1000000" value="10">
         </label>
         <label>
           库存
-          <input id="prize-stock" type="number" min="-1" max="2147483647" value="-1">
+          <input id="prize-stock" name="stock" type="number" min="0" max="2147483647" value="-1">
+        </label>
+        <label class="stock-unlimited-toggle">
+          <input id="prize-stock-unlimited" name="stock_unlimited" type="checkbox" checked>
+          无限库存
         </label>
         <label>
           奖品类型

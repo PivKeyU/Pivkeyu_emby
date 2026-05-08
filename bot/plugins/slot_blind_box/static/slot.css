@@ -273,6 +273,18 @@ input[type="checkbox"] {
   accent-color: var(--gold);
 }
 
+.stock-unlimited-toggle {
+  align-content: end;
+  grid-template-columns: auto 1fr;
+  min-height: 72px;
+  color: var(--text);
+  font-weight: 800;
+}
+
+.stock-unlimited-toggle input {
+  align-self: center;
+}
+
 textarea {
   min-height: 96px;
   resize: vertical;
@@ -903,6 +915,23 @@ button span {
   font-weight: 900;
 }
 
+.backpack-card {
+  display: grid;
+  gap: 10px;
+}
+
+.backpack-actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.backpack-actions button {
+  min-height: 38px;
+  padding: 9px 12px;
+}
+
 .record-tools {
   position: relative;
   z-index: 1;
@@ -1155,6 +1184,40 @@ button span {
   gap: 12px;
 }
 
+.admin-prize-title {
+  min-width: 0;
+}
+
+.admin-prize-title h3,
+.admin-prize-title p {
+  overflow-wrap: anywhere;
+}
+
+.admin-prize-rate {
+  display: grid;
+  flex: 0 0 auto;
+  min-width: 112px;
+  place-items: center;
+  border: 1px solid rgba(250, 204, 21, 0.36);
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, rgba(250, 204, 21, 0.14), rgba(56, 189, 248, 0.08));
+  padding: 9px 12px;
+  text-align: center;
+}
+
+.admin-prize-rate strong {
+  color: var(--gold);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.admin-prize-rate span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .admin-prize-meta {
   display: flex;
   flex-wrap: wrap;
@@ -1165,6 +1228,53 @@ button span {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.prize-edit-form {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  border-radius: var(--radius-lg);
+  background: rgba(3, 7, 18, 0.42);
+  padding: 14px;
+  animation: result-pop 0.24s ease both;
+}
+
+.admin-prize-edit-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.admin-rate-preview {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(250, 204, 21, 0.24);
+  border-radius: var(--radius-md);
+  background: rgba(250, 204, 21, 0.08);
+  padding: 10px 12px;
+}
+
+.admin-rate-preview span,
+.admin-rate-preview small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-rate-preview strong {
+  color: var(--gold);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.admin-rate-preview small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .bottom-nav {
@@ -1304,8 +1414,18 @@ button span {
   }
 
   .content-grid,
-  .grid-form {
+  .grid-form,
+  .admin-prize-edit-grid {
     grid-template-columns: 1fr;
+  }
+
+  .admin-rate-preview {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .admin-rate-preview small {
+    white-space: normal;
   }
 
   .shop-bridge {
@@ -1326,9 +1446,14 @@ button span {
 
 @media (max-width: 420px) {
   .machine-head,
-  .panel-head {
+  .panel-head,
+  .admin-prize-head {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .admin-prize-rate {
+    justify-items: start;
   }
 
   .toolbar {

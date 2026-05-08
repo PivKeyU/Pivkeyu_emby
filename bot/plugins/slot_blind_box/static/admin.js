@@ -158,6 +158,124 @@ function grantsLabel(grants = {}) {
   return parts.join(" · ") || "无发放内容";
 }
 
+function coerceNumber(value, fallback = 0) {
+  const number = Number(value ?? fallback);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function formatRate(value) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number) || number <= 0) return "0";
+  if (number < 0.0001) return "<0.0001";
+  const digits = number < 1 ? 4 : number < 10 ? 3 : 2;
+  return number.toFixed(digits).replace(/\.?0+$/, "");
+}
+
+function selectedAttribute(value, current) {
+  return value === current ? "selected" : "";
+}
+
+function checkedAttribute(value) {
+  return value ? "checked" : "";
+}
+
+function disabledAttribute(value) {
+  return value ? "disabled" : "";
+}
+
+function isUnlimitedStock(stock) {
+  return coerceNumber(stock, -1) < 0;
+}
+
+function stockInputValue(stock) {
+  return isUnlimitedStock(stock) ? -1 : Math.max(coerceNumber(stock, 0), 0);
+}
+
+function stockValueFromForm(form) {
+  if (form.elements.stock_unlimited?.checked) return -1;
+  return Math.max(coerceNumber(form.elements.stock?.value, 0), 0);
+}
+
+function syncStockUnlimitedControl(form) {
+  const stockInput = form?.elements?.stock || form?.querySelector("[data-stock-input], #prize-stock");
+  const unlimitedInput = form?.elements?.stock_unlimited || form?.querySelector("[data-stock-unlimited], #prize-stock-unlimited");
+  if (!stockInput || !unlimitedInput) return;
+  const unlimited = Boolean(unlimitedInput.checked);
+  stockInput.disabled = unlimited;
+  if (unlimited) {
+    stockInput.value = -1;
+    return;
+  }
+  if (!stockInput.value || coerceNumber(stockInput.value, 0) < 0) {
+    stockInput.value = 0;
+  }
+}
+
+function syncCreatePrizeStockUnlimited() {
+  syncStockUnlimitedControl(refs.prizeForm);
+}
+
+function stockLabel(stock) {
+  const value = coerceNumber(stock, -1);
+  if (value < 0) return "不限";
+  if (value === 0) return "已售罄";
+  return String(value);
+}
+
+function activePrizeWeight(prize = {}, overrides = {}) {
+  const weight = Math.max(coerceNumber(overrides.weight ?? prize.weight, 0), 0);
+  const stock = coerceNumber(overrides.stock ?? prize.stock, -1);
+  const enabled = overrides.enabled ?? Boolean(prize.enabled);
+  return enabled && stock !== 0 && weight > 0 ? weight : 0;
+}
+
+function prizeProbabilityPreview(prize = {}, overrides = {}) {
+  const probabilities = state.payload?.probabilities || {};
+  const currentTotal = Math.max(coerceNumber(probabilities.total_weight, 0), 0);
+  const currentWeight = activePrizeWeight(prize);
+  const nextWeight = activePrizeWeight(prize, overrides);
+  const nextTotal = Math.max(currentTotal - currentWeight + nextWeight, 0);
+  const rate = nextTotal > 0 && nextWeight > 0 ? (nextWeight / nextTotal) * 100 : 0;
+  return { rate, totalWeight: nextTotal, activeWeight: nextWeight };
+}
+
+function rateFormulaText(preview = {}) {
+  const weight = coerceNumber(preview.activeWeight, 0);
+  const total = coerceNumber(preview.totalWeight, 0);
+  if (weight <= 0) return "未参与抽奖池";
+  if (total <= 0) return "奖池总权重 0";
+  return `权重 ${weight} / 奖池总权重 ${total}`;
+}
+
+function updatePrizeRatePreview(form, prize) {
+  const preview = prizeProbabilityPreview(prize, {
+    weight: coerceNumber(form.elements.weight?.value, prize.weight || 0),
+    stock: stockValueFromForm(form),
+    enabled: Boolean(form.elements.enabled?.checked)
+  });
+  const previewNode = form.querySelector("[data-rate-preview]");
+  const formulaNode = form.querySelector("[data-rate-formula]");
+  if (previewNode) previewNode.textContent = `${formatRate(preview.rate)}%`;
+  if (formulaNode) formulaNode.textContent = rateFormulaText(preview);
+}
+
+function prizePatchFromForm(form) {
+  return {
+    name: String(form.elements.name?.value || "").trim(),
+    icon: String(form.elements.icon?.value || "🎁").trim(),
+    weight: coerceNumber(form.elements.weight?.value, 0),
+    stock: stockValueFromForm(form),
+    reward_type: String(form.elements.reward_type?.value || "manual").trim(),
+    free_spin_quantity: coerceNumber(form.elements.free_spin_quantity?.value, 0),
+    description: String(form.elements.description?.value || "").trim(),
+    delivery_text: String(form.elements.delivery_text?.value || "").trim(),
+    broadcast_image_url: String(form.elements.broadcast_image_url?.value || "").trim(),
+    enabled: Boolean(form.elements.enabled?.checked),
+    guarantee_eligible: Boolean(form.elements.guarantee_eligible?.checked),
+    broadcast_enabled: Boolean(form.elements.broadcast_enabled?.checked)
+  };
+}
+
 function normalizedRecordType(record = {}) {
   const type = String(record.reward_type || "").trim();
   if (type) return type;
@@ -210,31 +328,172 @@ function renderPrizes(prizes = []) {
     refs.prizeList.innerHTML = `<div class="empty">当前还没有奖品。</div>`;
     return;
   }
-  refs.prizeList.innerHTML = prizes.map((prize) => `
-    <article class="admin-prize">
-      <div class="admin-prize-head">
-        <div>
-          <h3>${escapeHtml(prize.icon || "🎁")} ${escapeHtml(prize.name)}</h3>
-          <p class="muted">${escapeHtml(prize.description || "")}</p>
+  refs.prizeList.innerHTML = prizes.map((prize) => {
+    const currentPreview = prizeProbabilityPreview(prize);
+    const currentRate = formatRate(prize.computed_rate ?? currentPreview.rate);
+    const currentFormula = rateFormulaText(currentPreview);
+    const rewardType = prize.reward_type || "manual";
+    return `
+      <article class="admin-prize" data-prize-id="${escapeHtml(prize.id)}">
+        <div class="admin-prize-head">
+          <div class="admin-prize-title">
+            <h3>${escapeHtml(prize.icon || "🎁")} ${escapeHtml(prize.name)}</h3>
+            <p class="muted">${escapeHtml(prize.description || "")}</p>
+          </div>
+          <div class="admin-prize-rate">
+            <strong>${escapeHtml(currentRate)}%</strong>
+            <span>实际中奖概率</span>
+          </div>
         </div>
-        <span class="status-pill">${prize.enabled ? "启用" : "停用"}</span>
-      </div>
-      <div class="admin-prize-meta">
-        <span class="status-pill">概率 ${escapeHtml(prize.computed_rate ?? 0)}%</span>
-        <span class="status-pill">权重 ${escapeHtml(prize.weight)}</span>
-        <span class="status-pill">库存 ${Number(prize.stock) < 0 ? "不限" : escapeHtml(prize.stock)}</span>
-        <span class="status-pill">${escapeHtml(prize.reward_label || rewardTypeLabel(prize.reward_type, prize.free_spin_quantity))}</span>
-        <span class="status-pill">${prize.guarantee_eligible ? "参与保底" : "不参与保底"}</span>
-        <span class="status-pill">${prize.broadcast_enabled ? "中奖播报" : "不播报"}</span>
-        ${prize.broadcast_image_url ? `<span class="status-pill">有播报图</span>` : ""}
-      </div>
-      <div class="admin-prize-actions">
-        <button type="button" class="secondary" data-edit="${escapeHtml(prize.id)}">编辑</button>
-        <button type="button" class="secondary" data-toggle="${escapeHtml(prize.id)}">${prize.enabled ? "停用" : "启用"}</button>
-        <button type="button" class="secondary" data-delete="${escapeHtml(prize.id)}">删除</button>
-      </div>
-    </article>
-  `).join("");
+        <div class="admin-prize-meta">
+          <span class="status-pill">${prize.enabled ? "启用" : "停用"}</span>
+          <span class="status-pill">权重 ${escapeHtml(prize.weight)}</span>
+          <span class="status-pill">库存 ${escapeHtml(stockLabel(prize.stock))}</span>
+          <span class="status-pill">${escapeHtml(currentFormula)}</span>
+          <span class="status-pill">${escapeHtml(prize.reward_label || rewardTypeLabel(prize.reward_type, prize.free_spin_quantity))}</span>
+          <span class="status-pill">${prize.guarantee_eligible ? "参与保底" : "不参与保底"}</span>
+          <span class="status-pill">${prize.broadcast_enabled ? "中奖播报" : "不播报"}</span>
+          ${prize.broadcast_image_url ? `<span class="status-pill">有播报图</span>` : ""}
+        </div>
+        <div class="admin-prize-actions">
+          <button type="button" class="secondary" data-edit="${escapeHtml(prize.id)}">编辑参数</button>
+          <button type="button" class="secondary" data-toggle="${escapeHtml(prize.id)}">${prize.enabled ? "停用" : "启用"}</button>
+          <button type="button" class="secondary" data-delete="${escapeHtml(prize.id)}">删除</button>
+        </div>
+        <form class="prize-edit-form hidden" data-prize-edit-form="${escapeHtml(prize.id)}">
+          <div class="grid-form compact-form admin-prize-edit-grid">
+            <label>
+              奖品名称
+              <input name="name" type="text" maxlength="80" value="${escapeHtml(prize.name || "")}" required>
+            </label>
+            <label>
+              图标
+              <input name="icon" type="text" maxlength="16" value="${escapeHtml(prize.icon || "🎁")}">
+            </label>
+            <label>
+              中奖权重（决定概率）
+              <input name="weight" type="number" min="0" max="1000000" value="${escapeHtml(prize.weight ?? 0)}" data-rate-affects>
+            </label>
+            <label>
+              库存
+              <input name="stock" type="number" min="0" max="2147483647" value="${escapeHtml(stockInputValue(prize.stock))}" ${disabledAttribute(isUnlimitedStock(prize.stock))} data-stock-input data-rate-affects>
+            </label>
+            <label class="stock-unlimited-toggle">
+              <input name="stock_unlimited" type="checkbox" ${checkedAttribute(isUnlimitedStock(prize.stock))} data-stock-unlimited data-rate-affects>
+              无限库存
+            </label>
+            <label>
+              奖品类型
+              <select name="reward_type">
+                <option value="manual" ${selectedAttribute("manual", rewardType)}>普通奖品</option>
+                <option value="free_spin_ticket" ${selectedAttribute("free_spin_ticket", rewardType)}>抽奖券</option>
+                <option value="group_invite_credit" ${selectedAttribute("group_invite_credit", rewardType)}>邀请资格</option>
+                <option value="account_open_credit" ${selectedAttribute("account_open_credit", rewardType)}>开号资格</option>
+                <option value="emby_currency" ${selectedAttribute("emby_currency", rewardType)}>Emby 货币</option>
+              </select>
+            </label>
+            <label>
+              奖励数量
+              <input name="free_spin_quantity" type="number" min="0" max="9007199254740991" value="${escapeHtml(prize.free_spin_quantity ?? 0)}">
+            </label>
+            <label class="wide">
+              奖品描述
+              <textarea name="description" maxlength="500">${escapeHtml(prize.description || "")}</textarea>
+            </label>
+            <label class="wide">
+              发奖说明
+              <textarea name="delivery_text" maxlength="1000">${escapeHtml(prize.delivery_text || "")}</textarea>
+            </label>
+            <label class="wide">
+              播报图片地址
+              <input name="broadcast_image_url" type="text" maxlength="1000" value="${escapeHtml(prize.broadcast_image_url || "")}" placeholder="https://... 可留空">
+            </label>
+            <label>
+              <input name="enabled" type="checkbox" ${checkedAttribute(prize.enabled)} data-rate-affects>
+              启用奖品
+            </label>
+            <label>
+              <input name="guarantee_eligible" type="checkbox" ${checkedAttribute(prize.guarantee_eligible)}>
+              参与保底
+            </label>
+            <label>
+              <input name="broadcast_enabled" type="checkbox" ${checkedAttribute(prize.broadcast_enabled)}>
+              中奖群播报
+            </label>
+          </div>
+          <div class="admin-rate-preview">
+            <span>保存后预估概率</span>
+            <strong data-rate-preview>${escapeHtml(currentRate)}%</strong>
+            <small data-rate-formula>${escapeHtml(currentFormula)}</small>
+          </div>
+          <div class="admin-prize-actions">
+            <button type="submit" data-save-prize>保存修改</button>
+            <button type="button" class="secondary" data-cancel-edit>收起</button>
+          </div>
+        </form>
+      </article>
+    `;
+  }).join("");
+
+  refs.prizeList.querySelectorAll("[data-prize-edit-form]").forEach((form) => {
+    const prize = prizes.find((item) => item.id === form.dataset.prizeEditForm);
+    if (!prize) return;
+    syncStockUnlimitedControl(form);
+    form.addEventListener("input", () => updatePrizeRatePreview(form, prize));
+    form.addEventListener("change", (event) => {
+      if (event.target?.name === "stock_unlimited") syncStockUnlimitedControl(form);
+      updatePrizeRatePreview(form, prize);
+    });
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const submitButton = form.querySelector("[data-save-prize]");
+      const previous = submitButton?.innerHTML || "保存修改";
+      if (submitButton) {
+        submitButton.disabled = true;
+        submitButton.textContent = "保存中";
+      }
+      try {
+        const payload = await request("PATCH", `/plugins/slot-box/admin-api/prize/${encodeURIComponent(prize.id)}`, prizePatchFromForm(form));
+        applyPayload(payload);
+        setStatus("奖品参数已更新。", "success");
+      } catch (error) {
+        setStatus(String(error.message || error), "error");
+        if (submitButton) {
+          submitButton.disabled = false;
+          submitButton.innerHTML = previous;
+        }
+      }
+    });
+    updatePrizeRatePreview(form, prize);
+  });
+
+  refs.prizeList.querySelectorAll("[data-edit]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const card = button.closest(".admin-prize");
+      const form = card?.querySelector("[data-prize-edit-form]");
+      if (!form) return;
+      const willOpen = form.classList.contains("hidden");
+      form.classList.toggle("hidden", !willOpen);
+      button.textContent = willOpen ? "收起编辑" : "编辑参数";
+      const prize = prizes.find((item) => item.id === button.dataset.edit);
+      if (willOpen && prize) updatePrizeRatePreview(form, prize);
+    });
+  });
+
+  refs.prizeList.querySelectorAll("[data-cancel-edit]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const card = button.closest(".admin-prize");
+      const form = card?.querySelector("[data-prize-edit-form]");
+      const editButton = card?.querySelector("[data-edit]");
+      if (!form) return;
+      form.reset();
+      syncStockUnlimitedControl(form);
+      const prize = prizes.find((item) => item.id === form.dataset.prizeEditForm);
+      if (prize) updatePrizeRatePreview(form, prize);
+      form.classList.add("hidden");
+      if (editButton) editButton.textContent = "编辑参数";
+    });
+  });
 
   refs.prizeList.querySelectorAll("[data-toggle]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -248,27 +507,6 @@ function renderPrizes(prizes = []) {
         setStatus("奖品状态已更新。", "success");
       } catch (error) {
         setStatus(String(error.message || error), "error");
-      }
-    });
-  });
-
-  refs.prizeList.querySelectorAll("[data-edit]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const prize = prizes.find((item) => item.id === button.dataset.edit);
-      if (!prize) return;
-      const patch = promptPrizePatch(prize);
-      if (!patch) return;
-      try {
-        button.disabled = true;
-        button.textContent = "保存中";
-        const payload = await request("PATCH", `/plugins/slot-box/admin-api/prize/${encodeURIComponent(prize.id)}`, patch);
-        applyPayload(payload);
-        setStatus("奖品信息已更新。", "success");
-      } catch (error) {
-        setStatus(String(error.message || error), "error");
-      } finally {
-        button.disabled = false;
-        button.textContent = "编辑";
       }
     });
   });
@@ -373,46 +611,6 @@ function parseBooleanPrompt(message, currentValue) {
   return parseBooleanPrompt(message, currentValue);
 }
 
-function promptPrizePatch(prize) {
-  const name = window.prompt("奖品名称：", prize.name || "");
-  if (name === null) return null;
-  const icon = window.prompt("图标：", prize.icon || "🎁");
-  if (icon === null) return null;
-  const weight = window.prompt("中奖权重：", prize.weight ?? 0);
-  if (weight === null) return null;
-  const stock = window.prompt("库存（-1 表示不限）：", prize.stock ?? -1);
-  if (stock === null) return null;
-  const rewardType = window.prompt("奖品类型（manual / free_spin_ticket / group_invite_credit / account_open_credit / emby_currency）：", prize.reward_type || "manual");
-  if (rewardType === null) return null;
-  const freeSpinQuantity = window.prompt("奖励数量（货币类型为到账数量）：", prize.free_spin_quantity ?? 0);
-  if (freeSpinQuantity === null) return null;
-  const description = window.prompt("奖品描述：", prize.description || "");
-  if (description === null) return null;
-  const deliveryText = window.prompt("发奖说明：", prize.delivery_text || "");
-  if (deliveryText === null) return null;
-  const broadcastImageUrl = window.prompt("播报图片地址（可留空）：", prize.broadcast_image_url || "");
-  if (broadcastImageUrl === null) return null;
-  const enabled = parseBooleanPrompt("是否启用（true/false）：", prize.enabled);
-  if (enabled === null) return null;
-  const guaranteeEligible = parseBooleanPrompt("是否参与保底（true/false）：", prize.guarantee_eligible);
-  if (guaranteeEligible === null) return null;
-  const broadcastEnabled = parseBooleanPrompt("中奖后是否群播报（true/false）：", prize.broadcast_enabled);
-  if (broadcastEnabled === null) return null;
-  return {
-    name: name.trim(),
-    icon: icon.trim(),
-    weight: Number(weight || 0),
-    stock: Number(stock || 0),
-    reward_type: rewardType.trim(),
-    free_spin_quantity: Number(freeSpinQuantity || 0),
-    description: description.trim(),
-    delivery_text: deliveryText.trim(),
-    broadcast_image_url: broadcastImageUrl.trim(),
-    enabled,
-    guarantee_eligible: guaranteeEligible,
-    broadcast_enabled: broadcastEnabled
-  };
-}
 
 function promptRedeemCodePatch(code) {
   const title = window.prompt("兑换码名称：", code.title || "兑换码");
@@ -472,7 +670,7 @@ function applyPayload(payload = {}) {
   refs.spinCount.textContent = String(stats.spin_count ?? 0);
   refs.userCount.textContent = String(stats.user_count ?? 0);
   refs.blankRate.textContent = `轮空 ${probabilities.blank_rate ?? 0}%`;
-  refs.totalWeight.textContent = `总权重 ${probabilities.total_weight ?? 0}`;
+  refs.totalWeight.textContent = `奖池总权重 ${probabilities.total_weight ?? 0} · 轮空 ${formatRate(probabilities.blank_rate ?? 0)}%`;
 
   renderPrizes(payload.prizes || []);
   renderRedeemCodes(payload.redeem_codes || []);
@@ -556,6 +754,9 @@ refs.settingsForm?.addEventListener("submit", async (event) => {
   }
 });
 
+field("#prize-stock-unlimited")?.addEventListener("change", syncCreatePrizeStockUnlimited);
+syncCreatePrizeStockUnlimited();
+
 refs.prizeForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const previous = refs.prizeSubmit.textContent;
@@ -571,7 +772,7 @@ refs.prizeForm?.addEventListener("submit", async (event) => {
       free_spin_quantity: numberValue("#prize-free-spin-quantity", 0),
       broadcast_image_url: field("#prize-broadcast-image").value.trim(),
       weight: numberValue("#prize-weight", 10),
-      stock: numberValue("#prize-stock", -1),
+      stock: checked("#prize-stock-unlimited") ? -1 : Math.max(numberValue("#prize-stock", 0), 0),
       enabled: checked("#prize-enabled"),
       guarantee_eligible: checked("#prize-guarantee"),
       broadcast_enabled: checked("#prize-broadcast")
@@ -581,6 +782,8 @@ refs.prizeForm?.addEventListener("submit", async (event) => {
     field("#prize-icon").value = "🎁";
     field("#prize-weight").value = 10;
     field("#prize-stock").value = -1;
+    field("#prize-stock-unlimited").checked = true;
+    syncCreatePrizeStockUnlimited();
     field("#prize-reward-type").value = "manual";
     field("#prize-free-spin-quantity").value = 0;
     field("#prize-enabled").checked = true;
