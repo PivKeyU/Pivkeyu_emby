@@ -58,6 +58,7 @@ from bot.sql_helper.sql_xiuxian import (
     cancel_personal_shop_item as sql_cancel_personal_shop_item,
     create_journal,
     create_auction_item,
+    create_boss_config,
     create_artifact,
     create_duel_record,
     create_pill,
@@ -87,6 +88,7 @@ from bot.sql_helper.sql_xiuxian import (
     list_artifacts,
     list_artifact_sets,
     list_auction_items,
+    list_boss_configs,
     list_slave_profiles,
     list_equipped_artifacts,
     list_materials,
@@ -116,6 +118,7 @@ from bot.sql_helper.sql_xiuxian import (
     normalize_social_mode,
     finalize_auction_item as sql_finalize_auction_item,
     place_auction_bid as sql_place_auction_bid,
+    patch_boss_config,
     purchase_shop_item as sql_purchase_shop_item,
     plunder_random_artifact_to_user,
     realm_index,
@@ -147,7 +150,6 @@ from bot.sql_helper.sql_xiuxian import (
     sync_official_shop_name,
     sync_artifact_by_name,
     sync_artifact_set_by_name,
-    sync_boss_config_by_name,
     sync_encounter_template_by_name,
     sync_material_by_name,
     sync_pill_by_name,
@@ -184,6 +186,7 @@ from bot.sql_helper.sql_xiuxian import (
     XiuxianSetting,
     XiuxianUserRecipe,
     XiuxianUserTechnique,
+    _queue_catalog_cache_invalidation,
     _queue_profile_cache_invalidation,
     _queue_user_view_cache_invalidation,
     use_user_artifact_listing_stock,
@@ -2116,11 +2119,18 @@ DEFAULT_BOSS_CONFIGS = [
         "passive_effect_kind": "guard",
         "passive_ratio_percent": 16,
         "passive_chance": 24,
-        "loot_pills_json": [{"name": "培元丹", "chance": 60, "quantity_min": 1, "quantity_max": 3},
-                            {"name": "金丹", "chance": 20, "quantity_min": 1, "quantity_max": 1}],
-        "loot_materials_json": [{"name": "魔鲲鳞甲", "chance": 75, "quantity_min": 1, "quantity_max": 3},
-                                {"name": "北冥冰晶", "chance": 50, "quantity_min": 1, "quantity_max": 2}],
-        "loot_artifacts_json": [{"name": "鲲骨法杖", "chance": 15, "quantity_min": 1, "quantity_max": 1}],
+        "loot_pills_json": [{"name": "聚气丹", "chance": 82, "quantity_min": 1, "quantity_max": 3},
+                            {"name": "凝元丹", "chance": 48, "quantity_min": 1, "quantity_max": 2},
+                            {"name": "筑基丹", "chance": 12, "quantity_min": 1, "quantity_max": 1}],
+        "loot_materials_json": [{"name": "寒水露", "chance": 86, "quantity_min": 1, "quantity_max": 3},
+                                {"name": "沧浪冰魄", "chance": 58, "quantity_min": 1, "quantity_max": 2},
+                                {"name": "星河砂", "chance": 36, "quantity_min": 1, "quantity_max": 2},
+                                {"name": "太虚陨铁", "chance": 18, "quantity_min": 1, "quantity_max": 1}],
+        "loot_artifacts_json": [{"name": "玄岳镇心佩", "chance": 4, "quantity_min": 1, "quantity_max": 1}],
+        "loot_talismans_json": [{"name": "护心符", "chance": 18, "quantity_min": 1, "quantity_max": 1},
+                                {"name": "御风符", "chance": 24, "quantity_min": 1, "quantity_max": 2}],
+        "loot_recipes_json": [{"name": "玄岳镇海枪炼制图", "chance": 5, "quantity_min": 1, "quantity_max": 1}],
+        "loot_techniques_json": [{"name": "玄岳不动经", "chance": 3, "quantity_min": 1, "quantity_max": 1}],
         "stone_reward_min": 100,
         "stone_reward_max": 300,
         "cultivation_reward": 150,
@@ -2148,12 +2158,22 @@ DEFAULT_BOSS_CONFIGS = [
         "passive_effect_kind": "guard",
         "passive_ratio_percent": 20,
         "passive_chance": 30,
-        "loot_pills_json": [{"name": "培元丹", "chance": 50, "quantity_min": 2, "quantity_max": 5},
-                            {"name": "化神丹", "chance": 18, "quantity_min": 1, "quantity_max": 1}],
-        "loot_materials_json": [{"name": "不朽魔晶", "chance": 70, "quantity_min": 1, "quantity_max": 3},
-                                {"name": "真魔残甲", "chance": 40, "quantity_min": 1, "quantity_max": 2}],
-        "loot_artifacts_json": [{"name": "灭世战戟", "chance": 12, "quantity_min": 1, "quantity_max": 1}],
-        "loot_recipes_json": [{"name": "九转还魂丹方", "chance": 12, "quantity_min": 1, "quantity_max": 1}],
+        "loot_pills_json": [{"name": "九霄御气丹", "chance": 58, "quantity_min": 1, "quantity_max": 2},
+                            {"name": "长生回命丹", "chance": 32, "quantity_min": 1, "quantity_max": 1},
+                            {"name": "福缘问心丹", "chance": 10, "quantity_min": 1, "quantity_max": 1}],
+        "loot_materials_json": [{"name": "玄天乌金", "chance": 76, "quantity_min": 1, "quantity_max": 3},
+                                {"name": "幽冥墨玉", "chance": 54, "quantity_min": 1, "quantity_max": 2},
+                                {"name": "仙凰真羽", "chance": 28, "quantity_min": 1, "quantity_max": 1},
+                                {"name": "太初紫气晶", "chance": 7, "quantity_min": 1, "quantity_max": 1}],
+        "loot_artifacts_json": [{"name": "夜魇夺命刃", "chance": 5, "quantity_min": 1, "quantity_max": 1},
+                                {"name": "紫宸天刀", "chance": 2, "quantity_min": 1, "quantity_max": 1}],
+        "loot_talismans_json": [{"name": "摄魂符", "chance": 20, "quantity_min": 1, "quantity_max": 1},
+                                {"name": "裂空符", "chance": 8, "quantity_min": 1, "quantity_max": 1},
+                                {"name": "太初神雷符", "chance": 2, "quantity_min": 1, "quantity_max": 1}],
+        "loot_recipes_json": [{"name": "紫宸天刀炼制图", "chance": 4, "quantity_min": 1, "quantity_max": 1},
+                              {"name": "太初神雷符符谱", "chance": 2, "quantity_min": 1, "quantity_max": 1}],
+        "loot_techniques_json": [{"name": "星罗潮生诀", "chance": 5, "quantity_min": 1, "quantity_max": 1},
+                                 {"name": "紫宸裂空经", "chance": 2, "quantity_min": 1, "quantity_max": 1}],
         "stone_reward_min": 250,
         "stone_reward_max": 600,
         "cultivation_reward": 300,
@@ -2163,6 +2183,26 @@ DEFAULT_BOSS_CONFIGS = [
         "sort_order": 101,
     },
 ]
+
+LEGACY_WORLD_BOSS_LOOT_CONFIGS = {
+    "噬日魔鲲": {
+        "name": "噬日魔鲲",
+        "loot_pills_json": [{"name": "培元丹", "chance": 60, "quantity_min": 1, "quantity_max": 3},
+                            {"name": "金丹", "chance": 20, "quantity_min": 1, "quantity_max": 1}],
+        "loot_materials_json": [{"name": "魔鲲鳞甲", "chance": 75, "quantity_min": 1, "quantity_max": 3},
+                                {"name": "北冥冰晶", "chance": 50, "quantity_min": 1, "quantity_max": 2}],
+        "loot_artifacts_json": [{"name": "鲲骨法杖", "chance": 15, "quantity_min": 1, "quantity_max": 1}],
+    },
+    "万劫不朽真魔": {
+        "name": "万劫不朽真魔",
+        "loot_pills_json": [{"name": "培元丹", "chance": 50, "quantity_min": 2, "quantity_max": 5},
+                            {"name": "化神丹", "chance": 18, "quantity_min": 1, "quantity_max": 1}],
+        "loot_materials_json": [{"name": "不朽魔晶", "chance": 70, "quantity_min": 1, "quantity_max": 3},
+                                {"name": "真魔残甲", "chance": 40, "quantity_min": 1, "quantity_max": 2}],
+        "loot_artifacts_json": [{"name": "灭世战戟", "chance": 12, "quantity_min": 1, "quantity_max": 1}],
+        "loot_recipes_json": [{"name": "九转还魂丹方", "chance": 12, "quantity_min": 1, "quantity_max": 1}],
+    },
+}
 
 TECHNIQUE_BLUEPRINTS = [
     {"name": "青霄御风诀", "rarity": "下品", "technique_type": "movement", "description": "正道轻灵身法，讲究剑步合一。", "body_movement_bonus": 16, "duel_rate_bonus": 4, "combat_config": {"skills": [{"name": "御风借势", "kind": "dodge", "chance": 24, "dodge_bonus": 18, "duration": 1, "cost_true_yuan": 10, "text": "青霄御风诀顺势带起一阵清风，整个人贴着灵压边缘滑开。"}]}, "min_realm_stage": "炼气", "min_realm_layer": 7},
@@ -3433,6 +3473,7 @@ def _commission_reward_bonus(
 
 
 def build_spirit_stone_commissions(tg: int) -> list[dict[str, Any]]:
+    _settle_retreat_progress(tg)
     profile = _repair_profile_realm_state(tg)
     if profile is None or not profile.consented:
         return []
@@ -3506,6 +3547,7 @@ def claim_spirit_stone_commission(tg: int, commission_key: str, *, include_profi
     if config is None:
         raise ValueError("未寻得此委托，或已被他人先行接下。")
 
+    _settle_retreat_progress(tg)
     profile = _require_alive_profile_obj(tg, f"处理{config['name']}")
     if _is_retreating(profile):
         raise ValueError("闭关之中，无暇承接凡尘委托，待出关后再议。")
@@ -4898,6 +4940,10 @@ def _current_technique_payload(profile_data: dict[str, Any]) -> dict[str, Any] |
 
 
 SEED_DATA_VERSION = "2026-05-08-talisman-scope-v1"
+DEFAULT_ARTIFACT_SET_SYNC_SETTING = "default_artifact_set_sync_version"
+DEFAULT_ARTIFACT_SET_SYNC_VERSION = "2026-05-10-default-artifact-set-links-v1"
+DEFAULT_BOSS_SYNC_SETTING = "default_boss_sync_version"
+DEFAULT_BOSS_SYNC_VERSION = "2026-05-09-editable-default-bosses-v1"
 SEED_DATA_READY = False
 SEED_DATA_LOCK = threading.RLock()
 SEED_DATA_DB_LOCK_KEY = 2026041701
@@ -4945,6 +4991,17 @@ DEFAULT_OFFICIAL_SHOP_ITEMS = (
 def _get_seed_data_version() -> str:
     with Session() as session:
         row = session.query(XiuxianSetting).filter(XiuxianSetting.setting_key == "seed_data_version").first()
+        if row is None or row.setting_value is None:
+            return ""
+        return str(row.setting_value).strip()
+
+
+def _setting_value(setting_key: str) -> str:
+    key = str(setting_key or "").strip()
+    if not key:
+        return ""
+    with Session() as session:
+        row = session.query(XiuxianSetting).filter(XiuxianSetting.setting_key == key).first()
         if row is None or row.setting_value is None:
             return ""
         return str(row.setting_value).strip()
@@ -5033,6 +5090,247 @@ def _raise_on_missing_seed_refs(context: str, refs: list[str]) -> None:
     preview = ", ".join(unique_refs[:12])
     suffix = "" if len(unique_refs) <= 12 else f" 等 {len(unique_refs)} 项"
     raise ValueError(f"{context}存在未解析引用：{preview}{suffix}")
+
+
+def _default_artifact_set_links() -> dict[str, str]:
+    links: dict[str, str] = {}
+    for blueprint in ARTIFACT_SET_BLUEPRINTS:
+        set_name = str(blueprint.get("name") or "").strip()
+        if not set_name:
+            continue
+        for item in blueprint.get("items") or []:
+            artifact_name = str((item or {}).get("name") or "").strip()
+            if artifact_name:
+                links[artifact_name] = set_name
+    return links
+
+
+def _sync_default_artifact_set_links(force: bool = False) -> None:
+    if _setting_value(DEFAULT_ARTIFACT_SET_SYNC_SETTING) == DEFAULT_ARTIFACT_SET_SYNC_VERSION and not force:
+        return
+
+    default_set_map: dict[str, dict[str, Any]] = {
+        str(item.get("name") or ""): item
+        for item in list_artifact_sets(enabled_only=False)
+    }
+    for payload in DEFAULT_ARTIFACT_SETS:
+        set_name = str(payload.get("name") or "").strip()
+        if not set_name or set_name in default_set_map:
+            continue
+        artifact_set = sync_artifact_set_by_name(**payload, enabled=True)
+        default_set_map[str(artifact_set.get("name") or "")] = artifact_set
+
+    link_map = _default_artifact_set_links()
+    if not link_map:
+        set_xiuxian_settings({DEFAULT_ARTIFACT_SET_SYNC_SETTING: DEFAULT_ARTIFACT_SET_SYNC_VERSION})
+        return
+
+    changed = False
+    with Session() as session:
+        rows = (
+            session.query(XiuxianArtifact)
+            .filter(XiuxianArtifact.name.in_(list(link_map.keys())))
+            .with_for_update()
+            .all()
+        )
+        for row in rows:
+            if int(row.artifact_set_id or 0) > 0 and not force:
+                continue
+            set_name = link_map.get(str(row.name or ""))
+            artifact_set = default_set_map.get(str(set_name or ""))
+            set_id = int((artifact_set or {}).get("id") or 0)
+            if set_id <= 0 or int(row.artifact_set_id or 0) == set_id:
+                continue
+            row.artifact_set_id = set_id
+            row.updated_at = utcnow()
+            changed = True
+        if changed:
+            _queue_catalog_cache_invalidation(session, "artifacts", "artifact-sets")
+            session.commit()
+        else:
+            session.rollback()
+
+    set_xiuxian_settings({DEFAULT_ARTIFACT_SET_SYNC_SETTING: DEFAULT_ARTIFACT_SET_SYNC_VERSION})
+
+
+_DEFAULT_BOSS_LOOT_MAPS = (
+    ("loot_pills_json", "pill"),
+    ("loot_materials_json", "material"),
+    ("loot_artifacts_json", "artifact"),
+    ("loot_talismans_json", "talisman"),
+    ("loot_recipes_json", "recipe"),
+    ("loot_techniques_json", "technique"),
+)
+
+
+def _resolve_default_boss_payload(
+    payload: dict[str, Any],
+    *,
+    artifact_map: dict[str, dict[str, Any]],
+    pill_map: dict[str, dict[str, Any]],
+    talisman_map: dict[str, dict[str, Any]],
+    material_map: dict[str, dict[str, Any]],
+    technique_map: dict[str, dict[str, Any]],
+    recipe_map: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    boss_payload = dict(payload)
+    lookup_map = {
+        "artifact": artifact_map,
+        "pill": pill_map,
+        "talisman": talisman_map,
+        "material": material_map,
+        "technique": technique_map,
+        "recipe": recipe_map,
+    }
+    for loot_field, kind in _DEFAULT_BOSS_LOOT_MAPS:
+        raw_rows = boss_payload.pop(loot_field, None) or []
+        resolved_rows = []
+        for entry in raw_rows:
+            entry_name = str(entry.get("name") or "").strip()
+            ref_payload = lookup_map.get(kind, {}).get(entry_name)
+            if not ref_payload:
+                continue
+            resolved_rows.append(
+                {
+                    "ref_id": int(ref_payload["id"]),
+                    "chance": int(entry.get("chance") or 0),
+                    "quantity_min": int(entry.get("quantity_min") or 1),
+                    "quantity_max": int(entry.get("quantity_max") or 1),
+                }
+            )
+        boss_payload[loot_field] = resolved_rows
+    return boss_payload
+
+
+def _boss_has_configured_loot(boss: dict[str, Any] | None) -> bool:
+    if not boss:
+        return False
+    return any(bool(boss.get(loot_field)) for loot_field, _kind in _DEFAULT_BOSS_LOOT_MAPS)
+
+
+def _normalized_boss_loot_signature(boss: dict[str, Any] | None) -> tuple[tuple[str, tuple[tuple[int, int, int, int], ...]], ...]:
+    if not boss:
+        return ()
+    signature = []
+    for loot_field, _kind in _DEFAULT_BOSS_LOOT_MAPS:
+        rows = []
+        for row in boss.get(loot_field) or []:
+            if not isinstance(row, dict):
+                continue
+            rows.append(
+                (
+                    int(row.get("ref_id") or 0),
+                    int(row.get("chance") or 0),
+                    int(row.get("quantity_min") or 1),
+                    int(row.get("quantity_max") or row.get("quantity_min") or 1),
+                )
+            )
+        signature.append((loot_field, tuple(sorted(rows))))
+    return tuple(signature)
+
+
+def _boss_has_legacy_default_loot(
+    boss: dict[str, Any] | None,
+    legacy_payload: dict[str, Any] | None,
+    *,
+    artifact_map: dict[str, dict[str, Any]],
+    pill_map: dict[str, dict[str, Any]],
+    talisman_map: dict[str, dict[str, Any]],
+    material_map: dict[str, dict[str, Any]],
+    technique_map: dict[str, dict[str, Any]],
+    recipe_map: dict[str, dict[str, Any]],
+) -> bool:
+    if not boss or not legacy_payload:
+        return False
+    resolved_legacy = _resolve_default_boss_payload(
+        legacy_payload,
+        artifact_map=artifact_map,
+        pill_map=pill_map,
+        talisman_map=talisman_map,
+        material_map=material_map,
+        technique_map=technique_map,
+        recipe_map=recipe_map,
+    )
+    return _normalized_boss_loot_signature(boss) == _normalized_boss_loot_signature(resolved_legacy)
+
+
+def _sync_default_boss_configs(
+    *,
+    artifact_map: dict[str, dict[str, Any]],
+    pill_map: dict[str, dict[str, Any]],
+    talisman_map: dict[str, dict[str, Any]],
+    material_map: dict[str, dict[str, Any]],
+    technique_map: dict[str, dict[str, Any]],
+    recipe_map: dict[str, dict[str, Any]],
+    patch_empty_world_loot: bool = True,
+) -> None:
+    existing_by_name = {
+        str(item.get("name") or ""): item
+        for item in list_boss_configs(enabled_only=False)
+        if str(item.get("name") or "").strip()
+    }
+    for payload in DEFAULT_BOSS_CONFIGS:
+        boss_payload = _resolve_default_boss_payload(
+            payload,
+            artifact_map=artifact_map,
+            pill_map=pill_map,
+            talisman_map=talisman_map,
+            material_map=material_map,
+            technique_map=technique_map,
+            recipe_map=recipe_map,
+        )
+        existing = existing_by_name.get(str(boss_payload.get("name") or ""))
+        if not existing:
+            created = create_boss_config(**boss_payload)
+            existing_by_name[str(created.get("name") or "")] = created
+            continue
+
+        is_world_boss = str(existing.get("boss_type") or boss_payload.get("boss_type") or "") == "world"
+        legacy_payload = LEGACY_WORLD_BOSS_LOOT_CONFIGS.get(str(existing.get("name") or ""))
+        should_patch_loot = (
+            patch_empty_world_loot
+            and is_world_boss
+            and (
+                not _boss_has_configured_loot(existing)
+                or _boss_has_legacy_default_loot(
+                    existing,
+                    legacy_payload,
+                    artifact_map=artifact_map,
+                    pill_map=pill_map,
+                    talisman_map=talisman_map,
+                    material_map=material_map,
+                    technique_map=technique_map,
+                    recipe_map=recipe_map,
+                )
+            )
+        )
+        if should_patch_loot:
+            patch = {loot_field: boss_payload.get(loot_field) or [] for loot_field, _kind in _DEFAULT_BOSS_LOOT_MAPS}
+            updated = patch_boss_config(int(existing.get("id") or 0), **patch)
+            if updated:
+                existing_by_name[str(updated.get("name") or "")] = updated
+
+
+def _ensure_default_boss_configs_synced(force: bool = False) -> None:
+    settings = get_xiuxian_settings()
+    if settings.get(DEFAULT_BOSS_SYNC_SETTING) == DEFAULT_BOSS_SYNC_VERSION and not force:
+        return
+    artifact_map = {item["name"]: item for item in list_artifacts()}
+    pill_map = {item["name"]: item for item in list_pills()}
+    talisman_map = {item["name"]: item for item in list_talismans()}
+    material_map = {item["name"]: item for item in list_materials()}
+    technique_map = {item["name"]: item for item in list_techniques()}
+    recipe_map = {item["name"]: item for item in list_recipes()}
+    _sync_default_boss_configs(
+        artifact_map=artifact_map,
+        pill_map=pill_map,
+        talisman_map=talisman_map,
+        material_map=material_map,
+        technique_map=technique_map,
+        recipe_map=recipe_map,
+        patch_empty_world_loot=True,
+    )
+    set_xiuxian_settings({DEFAULT_BOSS_SYNC_SETTING: DEFAULT_BOSS_SYNC_VERSION})
 
 
 def _seed_listing_realm_markup(payload: dict[str, Any]) -> int:
@@ -5961,16 +6259,22 @@ def _ensure_default_official_shop_listings(
 def ensure_seed_data(force: bool = False) -> None:
     global SEED_DATA_READY
     if SEED_DATA_READY and not force:
+        _sync_default_artifact_set_links()
+        _ensure_default_boss_configs_synced()
         return
     with SEED_DATA_LOCK:
         persisted_version = _get_seed_data_version()
         if persisted_version == SEED_DATA_VERSION and not force:
+            _sync_default_artifact_set_links()
+            _ensure_default_boss_configs_synced()
             SEED_DATA_READY = True
             return
 
         with _seed_data_db_lock():
             persisted_version = _get_seed_data_version()
             if persisted_version == SEED_DATA_VERSION and not force:
+                _sync_default_artifact_set_links()
+                _ensure_default_boss_configs_synced()
                 SEED_DATA_READY = True
                 return
 
@@ -5991,6 +6295,7 @@ def ensure_seed_data(force: bool = False) -> None:
                     artifact_payload["artifact_set_id"] = int(artifact_set_map[artifact_set_name]["id"])
                 sync_artifact_by_name(**artifact_payload)
             artifact_map = {item["name"]: item for item in list_artifacts()}
+            _sync_default_artifact_set_links()
 
             for payload in DEFAULT_PILLS:
                 sync_pill_by_name(**payload)
@@ -6194,32 +6499,21 @@ def ensure_seed_data(force: bool = False) -> None:
                 achievement_payload["reward_config"] = reward_config
                 sync_achievement_by_key(**achievement_payload)
 
-            for payload in DEFAULT_BOSS_CONFIGS:
-                boss_payload = dict(payload)
-                for loot_field, name_map in [
-                    ("loot_pills_json", pill_map),
-                    ("loot_materials_json", material_map),
-                    ("loot_artifacts_json", artifact_map),
-                    ("loot_talismans_json", talisman_map),
-                    ("loot_recipes_json", recipe_map),
-                    ("loot_techniques_json", technique_map),
-                ]:
-                    raw = boss_payload.pop(loot_field, None) or []
-                    resolved = []
-                    for entry in raw:
-                        entry_name = str(entry.get("name") or "").strip()
-                        if entry_name and entry_name in name_map:
-                            resolved.append({
-                                "ref_id": int(name_map[entry_name]["id"]),
-                                "chance": int(entry.get("chance") or 0),
-                                "quantity_min": int(entry.get("quantity_min") or 1),
-                                "quantity_max": int(entry.get("quantity_max") or 1),
-                            })
-                    boss_payload[loot_field] = resolved
-                sync_boss_config_by_name(**boss_payload)
+            _sync_default_boss_configs(
+                artifact_map=artifact_map,
+                pill_map=pill_map,
+                talisman_map=talisman_map,
+                material_map=material_map,
+                technique_map=technique_map,
+                recipe_map=recipe_map,
+                patch_empty_world_loot=True,
+            )
 
             purge_removed_pill_types()
-            set_xiuxian_settings({"seed_data_version": SEED_DATA_VERSION})
+            set_xiuxian_settings({
+                "seed_data_version": SEED_DATA_VERSION,
+                DEFAULT_BOSS_SYNC_SETTING: DEFAULT_BOSS_SYNC_VERSION,
+            })
             SEED_DATA_READY = True
 
 
@@ -6712,9 +7006,6 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         item["active_effect_summary"] = active_talisman_effect_summary(item["active_effects"])
         usable = realm_requirement_met(profile_data, item.get("min_realm_stage"), item.get("min_realm_layer"))
         reason = "" if usable else f"需要达到 {format_realm_requirement(item.get('min_realm_stage'), item.get('min_realm_layer'))}"
-        if profile_data.get("active_talisman_id") and profile_data.get("active_talisman_id") != item["id"]:
-            usable = False
-            reason = "你已经启用了一张符箓"
         row["bound_quantity"] = bound_quantity
         row["unbound_quantity"] = max(total_quantity - bound_quantity, 0)
         row["consumable_quantity"] = row["unbound_quantity"]
@@ -8859,8 +9150,15 @@ def unbind_artifact_for_user(tg: int, artifact_id: int) -> dict[str, Any]:
 def activate_talisman_for_user(tg: int, talisman_id: int) -> dict[str, Any]:
     ensure_not_in_retreat(tg)
     profile_obj = _require_alive_profile_obj(tg, "启用符箓")
-    if profile_obj.active_talisman_id:
-        raise ValueError("你已经准备了一张符箓，需先消耗后才能再启用。")
+    if int(profile_obj.active_talisman_id or 0) == int(talisman_id):
+        talisman = get_talisman(talisman_id)
+        if talisman is None or not talisman.enabled:
+            raise ValueError("符匣空空，未觅得可启之符。")
+        return {
+            "talisman": serialize_talisman(talisman),
+            "profile": serialize_full_profile(tg),
+            "replaced_talisman_id": None,
+        }
 
     owned = {row["talisman"]["id"] for row in list_user_talismans(tg)}
     if talisman_id not in owned:
@@ -8874,10 +9172,12 @@ def activate_talisman_for_user(tg: int, talisman_id: int) -> dict[str, Any]:
     if not consume_user_talisman(tg, talisman_id, 1):
         raise ValueError("你的背包里没有足够的符箓。")
 
+    replaced_talisman_id = int(profile_obj.active_talisman_id or 0) or None
     set_active_talisman(tg, talisman_id)
     return {
         "talisman": serialize_talisman(talisman),
         "profile": serialize_full_profile(tg),
+        "replaced_talisman_id": replaced_talisman_id,
     }
 
 

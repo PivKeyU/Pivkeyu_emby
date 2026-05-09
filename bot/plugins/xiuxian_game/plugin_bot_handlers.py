@@ -1613,6 +1613,7 @@ def _full_bundle(tg: int) -> dict[str, Any]:
             ("profile", tg),
             ("user-view", tg),
             ("settings",),
+            ("catalog", "artifact-sets"),
             ("catalog", "artifacts"),
             ("catalog", "materials"),
             ("catalog", "pills"),
@@ -1639,9 +1640,15 @@ def _full_bundle(tg: int) -> dict[str, Any]:
 
 
 def _bootstrap_core_bundle(tg: int) -> dict[str, Any]:
-    from bot.plugins.xiuxian_game.cache import load_versioned_json, USER_VIEW_TTL
-    return load_versioned_json(
-        version_parts=("profile", tg),
+    from bot.plugins.xiuxian_game.cache import load_multi_versioned_json, USER_VIEW_TTL
+    return load_multi_versioned_json(
+        version_part_groups=(
+            ("profile", tg),
+            ("user-view", tg),
+            ("settings",),
+            ("catalog", "artifact-sets"),
+            ("catalog", "artifacts"),
+        ),
         cache_parts=("bootstrap", tg),
         ttl=min(USER_VIEW_TTL, 10),
         loader=lambda: build_bootstrap_core_bundle(tg, **_bundle_runtime_flags(tg)),
@@ -1657,6 +1664,7 @@ def _deferred_bundle_sections(tg: int) -> dict[str, Any]:
             ("profile", tg),
             ("user-view", tg),
             ("settings",),
+            ("catalog", "artifact-sets"),
             ("catalog", "artifacts"),
             ("catalog", "materials"),
             ("catalog", "pills"),
@@ -1693,6 +1701,7 @@ def _deferred_bundle_section(tg: int, section: str) -> dict[str, Any]:
             ("user-view", tg),
             ("settings",),
             ("catalog", "achievements"),
+            ("catalog", "artifact-sets"),
             ("catalog", "artifacts"),
             ("catalog", "materials"),
             ("catalog", "pills"),
@@ -2914,6 +2923,17 @@ def _auction_bid_button_text(auction: dict[str, Any]) -> str:
     return f"加价到 {next_bid_price} 灵石"
 
 
+def _auction_return_destination_text(auction: dict[str, Any]) -> str:
+    item_kind = str((auction or {}).get("item_kind") or "").strip()
+    if item_kind == "technique":
+        return "功法栏"
+    if item_kind == "material":
+        return "材料背包"
+    if item_kind == "recipe":
+        return "配方栏"
+    return "背包"
+
+
 def _auction_keyboard(auction: dict[str, Any]) -> InlineKeyboardMarkup | None:
     auction = auction or {}
     if str(auction.get("status") or "active") != "active":
@@ -3038,7 +3058,8 @@ async def _finalize_auction_flow(result: dict[str, Any] | None) -> None:
 
     if outcome == "expired" and seller_tg > 0:
         try:
-            await _send_message(bot, seller_tg, f"⌛ 你的拍卖【{item_name}】已流拍，拍品已退回背包。", persistent=True)
+            destination = _auction_return_destination_text(auction)
+            await _send_message(bot, seller_tg, f"⌛ 你的拍卖【{item_name}】已流拍，拍品已退回{destination}。", persistent=True)
         except Exception as exc:
             LOGGER.warning(f"xiuxian auction expire notify failed tg={seller_tg}: {exc}")
     _queue_event_summary_refresh(chat_id)

@@ -331,25 +331,25 @@ h2 {
 /* 底部导航栏 */
 .bottom-nav {
   position: fixed;
-  left: 12px;
-  right: 12px;
-  bottom: max(12px, env(safe-area-inset-bottom));
+  left: 20px;
+  right: 20px;
+  bottom: max(20px, env(safe-area-inset-bottom));
   z-index: 100;
   display: flex;
-  gap: 8px;
+  gap: 10px;
   overflow-x: auto;
-  padding: 10px;
+  padding: 12px;
   border: 1px solid var(--line);
-  border-radius: 22px;
+  border-radius: 8px;
   background: var(--panel);
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.36);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   scrollbar-width: none;
 }
 
 .bottom-nav.hidden {
-  display: none;
+  display: none !important;
 }
 
 .bottom-nav::-webkit-scrollbar {
@@ -358,28 +358,33 @@ h2 {
 
 .bottom-nav a {
   flex: 0 0 auto;
-  min-width: 102px;
-  display: flex;
-  flex-direction: row;
+  min-width: 110px;
+  min-height: 38px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 12px;
+  gap: 6px;
+  padding: 8px 14px;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
   color: var(--muted);
   text-decoration: none;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 999px;
-  transition: all 0.2s;
-  gap: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  transition: all 0.2s ease;
 }
 
 .bottom-nav a.is-active {
-  color: #101010;
-  background: linear-gradient(135deg, #52B54B, #65d65d);
+  color: #fff;
+  background: linear-gradient(135deg, var(--brand-deep), var(--brand));
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 8px 16px -4px rgba(82, 181, 75, 0.36);
 }
 
 .bottom-nav a:hover:not(.is-active) {
-  color: var(--text);
   background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
 }

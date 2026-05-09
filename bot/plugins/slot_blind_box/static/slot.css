@@ -1341,49 +1341,63 @@ button span {
 
 .bottom-nav {
   position: fixed;
-  left: 50%;
-  bottom: max(10px, env(safe-area-inset-bottom));
-  z-index: 20;
+  left: 20px;
+  right: 20px;
+  bottom: max(20px, env(safe-area-inset-bottom));
+  z-index: 24;
   display: flex;
-  gap: 4px;
-  width: min(600px, calc(100% - 24px));
-  transform: translateX(-50%);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 16px;
-  background: rgba(15, 23, 42, 0.86);
-  box-shadow: var(--shadow);
-  backdrop-filter: var(--blur);
-  -webkit-backdrop-filter: var(--blur);
-  padding: 7px;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  scrollbar-width: none;
+}
+
+.bottom-nav::-webkit-scrollbar {
+  display: none;
 }
 
 .bottom-nav a {
-  display: grid;
-  flex: 1 1 0;
-  min-width: 0;
-  place-items: center;
-  gap: 2px;
-  border-radius: 10px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 110px;
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 6px;
   color: var(--muted);
-  padding: 7px 4px;
   text-decoration: none;
-  font-size: 12px;
-  transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  line-height: 1.2;
+  white-space: nowrap;
+  background: transparent;
+  transition: all 0.2s ease;
 }
 
 .bottom-nav a:hover {
-  transform: translateY(-1px);
+  background: var(--surface-soft);
   color: var(--text);
 }
 
-.bottom-nav a.active {
-  background: rgba(250, 204, 21, 0.14);
-  color: var(--gold);
-  animation: nav-glow 2.4s ease-in-out infinite;
+.bottom-nav a.is-active {
+  color: #111827;
+  background: linear-gradient(135deg, var(--amber), var(--gold));
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 8px 16px -4px rgba(250, 204, 21, 0.42);
 }
 
 .bottom-nav .nav-icon {
-  font-size: 18px;
+  font-size: 1em;
   line-height: 1;
 }
 

@@ -542,8 +542,6 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
             "灵河垂钓",
             f"在{spot['name']}守了半日，灵河无获——本次轮空。",
         )
-        if active_talisman:
-            _legacy_service().set_active_talisman(tg, None)
         return {
             "spot_key": spot["key"],
             "spot_name": spot["name"],
@@ -615,8 +613,6 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
         "灵河垂钓",
         f"在 {spot['name']} 钓起【{reward_name}】×{quantity}，品阶 {quality['label']}。",
     )
-    if active_talisman:
-        _legacy_service().set_active_talisman(tg, None)
     return {
         "spot_key": spot["key"],
         "spot_name": spot["name"],

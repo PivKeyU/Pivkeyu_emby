@@ -1043,8 +1043,6 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
         scene["requirement_state"] = requirement_state
         from bot.plugins.xiuxian_game.world_service import _bump_daily_counter
         _bump_daily_counter(tg, "explore_daily_count")
-        if active_talisman:
-            legacy_service.set_active_talisman(tg, None)
         return {"scene": scene, "exploration": serialize_exploration(exploration)}
 
 

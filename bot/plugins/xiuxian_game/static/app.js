@@ -15,6 +15,7 @@ const state = {
   deferredBundlePromise: null,
   deferredSectionsLoaded: new Set(),
   deferredSectionPromises: new Map(),
+  externalSectionRefreshAt: {},
   deferredBootstrapTimer: null,
   retreatTimingTimer: null,
   wikiFilter: "all",
@@ -393,6 +394,12 @@ function nextUiFrame() {
   });
 }
 
+async function waitForUiFrames(count = 2) {
+  for (let index = 0; index < count; index += 1) {
+    await nextUiFrame();
+  }
+}
+
 async function uploadImage(path, file, folder) {
   if (!file) {
     throw new Error("请先选择一张图片");
@@ -567,6 +574,13 @@ const WIKI_FILTER_LABELS = {
   task: "任务",
   social: "社交",
   sect: "宗门",
+  activity: "活动",
+  scene: "秘境",
+  encounter: "奇遇",
+  boss: "Boss",
+  farm: "灵田",
+  fishing: "垂钓",
+  gambling: "赌坊",
   material: "材料",
   artifact: "法宝",
   pill: "丹药",
@@ -814,7 +828,7 @@ function renderWikiArea() {
       return;
     }
     if (countsNode) countsNode.textContent = "展开或搜索后加载";
-    if (hintNode) hintNode.textContent = "可搜索玩法教程、材料来源、法宝、丹药、符箓、功法、称号、成就与配方获取方式。为减少首页加载时间，Wiki 改为按需加载。";
+    if (hintNode) hintNode.textContent = "可搜索玩法教程、秘境、奇遇、Boss、灵田、垂钓、赌坊、材料来源与配方获取方式。为减少首页加载时间，Wiki 改为按需加载。";
     renderWikiCards(featuredRoot, [], { emptyTitle: "按需加载 Wiki", emptyText: "展开本模块或输入关键词后，再拉取玩法手册与掉落词条。" });
     renderWikiCards(resultRoot, [], { emptyTitle: "等待检索", emptyText: "输入关键词后，可快速定位玩法和物品来源。" });
     return;
@@ -823,12 +837,12 @@ function renderWikiArea() {
   const counts = bundle.counts || {};
   const examples = Array.isArray(bundle.search_examples) ? bundle.search_examples.filter(Boolean) : [];
   if (countsNode) {
-    countsNode.textContent = `教程 ${Number(counts.tutorial || 0)} · 材料 ${Number(counts.material || 0)} · 法宝 ${Number(counts.artifact || 0)} · 丹药 ${Number(counts.pill || 0)} · 符箓 ${Number(counts.talisman || 0)} · 功法 ${Number(counts.technique || 0)} · 称号 ${Number(counts.title || 0)} · 配方 ${Number(counts.recipe || 0)} · 成就 ${Number(counts.achievement || 0)}`;
+    countsNode.textContent = `教程 ${Number(counts.tutorial || 0)} · 活动 ${Number(counts.activity || 0)} · 材料 ${Number(counts.material || 0)} · 法宝 ${Number(counts.artifact || 0)} · 丹药 ${Number(counts.pill || 0)} · 符箓 ${Number(counts.talisman || 0)} · 功法 ${Number(counts.technique || 0)} · 称号 ${Number(counts.title || 0)} · 配方 ${Number(counts.recipe || 0)} · 成就 ${Number(counts.achievement || 0)}`;
   }
   if (hintNode) {
     hintNode.textContent = examples.length
       ? `试试这些关键词：${examples.join("、")}`
-      : "可搜索玩法教程、材料来源、法宝、丹药、符箓、功法、称号、成就与配方获取方式，也可按入门、探索、炼制、战斗、任务、社交、宗门筛选。";
+      : "可搜索玩法教程、秘境、奇遇、Boss、灵田、垂钓、赌坊、材料来源与配方获取方式，也可按入门、探索、炼制、战斗、任务、社交、宗门筛选。";
   }
 
   renderWikiCards(featuredRoot, bundle.featured_tutorials || [], {
@@ -1034,6 +1048,15 @@ const DEFERRED_CARD_SECTIONS = {
   "fishing-card": "fishing",
   "gambling-card": "gambling",
 };
+
+const EXTERNAL_REFRESH_SECTION_IDS = new Set([
+  "inventory-card",
+  "market-card",
+  "auction-card",
+  "gift-card",
+  "craft-card",
+]);
+const EXTERNAL_REFRESH_INTERVAL_MS = 15000;
 
 const LAZY_SECTION_IDS = [
   ...DEFERRED_SECTION_IDS,
@@ -1536,12 +1559,32 @@ function foldCardLabel(card) {
   return card?.querySelector(".fold-summary h2")?.textContent?.trim() || "未命名模块";
 }
 
-function jumpToFoldCard(cardId) {
+function foldToolbarScrollOffset() {
+  const toolbar = document.querySelector("#fold-toolbar");
+  if (!toolbar || toolbar.classList.contains("hidden")) return 12;
+  const top = Number.parseFloat(window.getComputedStyle(toolbar).top || "0");
+  return Math.ceil((Number.isFinite(top) ? top : 0) + toolbar.getBoundingClientRect().height + 12);
+}
+
+function scrollFoldCardIntoView(card, { behavior = "smooth" } = {}) {
+  if (!card) return;
+  card.style.scrollMarginTop = `${foldToolbarScrollOffset()}px`;
+  card.scrollIntoView({ behavior, block: "start", inline: "nearest" });
+}
+
+async function jumpToFoldCard(cardId) {
   const card = document.getElementById(cardId);
   if (!card || card.classList.contains("hidden")) return;
   card.open = true;
-  card.scrollIntoView({ behavior: "smooth", block: "start" });
   syncFoldToolbar();
+  refreshExternallyMutableSection(card.id);
+  renderLazyFoldCard(card.id, { force: true });
+  await waitForUiFrames(2);
+  scrollFoldCardIntoView(card);
+  window.setTimeout(() => {
+    if (!card.isConnected || card.classList.contains("hidden")) return;
+    scrollFoldCardIntoView(card, { behavior: "auto" });
+  }, 180);
 }
 
 function candidatePageScrollTargets() {
@@ -1663,6 +1706,7 @@ function renderLazyFoldCard(cardId, { force = false } = {}) {
       renderArtifactList(bundle.artifacts || [], retreating, equipLimit, equippedArtifacts.length);
       renderTalismanList(bundle.talismans || [], retreating);
       renderPillList(bundle.pills || [], retreating);
+      renderMaterialInventoryList(bundle.materials || []);
       return true;
     case "technique-card":
       renderTechniqueArea(bundle);
@@ -1742,6 +1786,23 @@ function renderLazyFoldCard(cardId, { force = false } = {}) {
     default:
       return false;
   }
+}
+
+function refreshExternallyMutableSection(cardId) {
+  if (!EXTERNAL_REFRESH_SECTION_IDS.has(cardId)) return;
+  const now = Date.now();
+  const lastRefresh = Number(state.externalSectionRefreshAt?.[cardId] || 0);
+  if (now - lastRefresh < EXTERNAL_REFRESH_INTERVAL_MS) return;
+  state.externalSectionRefreshAt = state.externalSectionRefreshAt || {};
+  state.externalSectionRefreshAt[cardId] = now;
+  const section = DEFERRED_CARD_SECTIONS[cardId];
+  if (!section) return;
+  state.deferredSectionsLoaded?.delete?.(section);
+  if (state.deferredBundleLoaded) {
+    state.deferredBundleLoaded = false;
+    state.deferredBundlePromise = null;
+  }
+  loadDeferredSection(section, { silent: true }).catch(() => null);
 }
 
 function renderOpenLazyFoldCards() {
@@ -1869,6 +1930,7 @@ function setupFoldToolbar() {
     card.addEventListener("toggle", () => {
       syncFoldToolbar();
       if (card.open) {
+        refreshExternallyMutableSection(card.id);
         renderLazyFoldCard(card.id, { force: true });
       }
     });
@@ -2498,6 +2560,7 @@ function renderProfile(bundle) {
   renderArtifactList(bundle.artifacts, retreating, equipLimit, equippedArtifacts.length);
   renderTalismanList(bundle.talismans, retreating);
   renderPillList(bundle.pills, retreating);
+  renderMaterialInventoryList(bundle.materials || []);
   renderOfficialShop(bundle.official_shop, retreating);
   renderPersonalShop(bundle.personal_shop);
   renderCommunityShop(bundle.community_shop, retreating);
@@ -2650,6 +2713,7 @@ function renderArtifactList(items, retreating, equipLimit, equippedCount) {
         <strong>${escapeHtml(item.name)}</strong>
         <span class="badge badge--normal">x${escapeHtml(row.quantity)}</span>
       </div>
+      ${itemArtworkHtml(item, "artifact")}
       <p>${escapeHtml(item.description || "暂无描述")}</p>
       <div class="item-tags">
         <span class="tag">${escapeHtml(artifactEquipCategoryLabel(item))}</span>
@@ -2708,7 +2772,7 @@ function renderTalismanList(items, retreating) {
   const root = document.querySelector("#talisman-list");
   root.innerHTML = "";
   if (!items.length) {
-    root.innerHTML = `<article class="stack-item"><strong>暂无符箓</strong><p>符箓启用后会护持下一次斗法、Boss、探索、垂钓、炼制或吐纳，后台发放或商店购买后会出现在这里。</p></article>`;
+    root.innerHTML = `<article class="stack-item"><strong>暂无符箓</strong><p>符箓启用后会持续护持探索与垂钓；斗法、Boss、炼制、吐纳或闭关后仍会消耗，后台发放或商店购买后会出现在这里。</p></article>`;
     return;
   }
 
@@ -2717,7 +2781,7 @@ function renderTalismanList(items, retreating) {
     const effects = item.resolved_effects || {};
     const disabled = item.active || !item.usable || retreating;
     const reason = item.active
-      ? "当前已有生效中的符箓"
+      ? "当前已生效"
       : fallbackReason(item.unusable_reason, retreating ? "闭关期间无法启用符箓" : "当前条件不满足，暂时无法启用");
 
     const card = document.createElement("article");
@@ -3664,6 +3728,7 @@ function renderExploreArea(bundle) {
         <strong>${escapeHtml(scene.name)}</strong>
         <span class="badge ${sceneRiskBadgeClass(meta.riskLevel)}">${escapeHtml(meta.riskLabel)}</span>
       </div>
+      ${itemArtworkHtml(scene, "scene", "scene-art")}
       <p>${escapeHtml(cleanSceneCopy(scene.description) || "暂无场景描述")}</p>
       <div class="info-grid">
         <article class="info-chip">
@@ -3778,6 +3843,7 @@ function renderArtifactList(items, retreating, equipLimit, equippedCount) {
         <strong>${escapeHtml(item.name)}</strong>
         <span class="badge badge--normal">x${escapeHtml(row.quantity)}</span>
       </div>
+      ${itemArtworkHtml(item, "artifact")}
       <p>${escapeHtml(item.description || "暂无描述")}</p>
       <div class="item-tags">
         <span class="tag">${escapeHtml(artifactEquipCategoryLabel(item))}</span>
@@ -4658,7 +4724,10 @@ document.querySelector("#talisman-list").addEventListener("click", async (event)
       payload = await runButtonAction(button, "激活中…", () => postJson("/plugins/xiuxian/api/talisman/activate", {
         talisman_id: Number(button.dataset.talismanId)
       }));
-      message = `已启用 ${payload.talisman.name}，将护持下一次斗法、Boss、探索、垂钓、炼制或吐纳。`;
+      message = `已启用 ${payload.talisman.name}，会持续护持探索与垂钓；斗法、Boss、炼制、吐纳或闭关后会消耗。`;
+      if (payload.replaced_talisman_id) {
+        message += " 原生效符箓已被覆盖。";
+      }
       title = "激活成功";
     }
     setStatus(message, "success");
@@ -5518,6 +5587,17 @@ function itemAffixTags(item, effects = {}) {
   return rows.join("");
 }
 
+function itemArtworkHtml(item, kind = "item", className = "item-art") {
+  const url = String(item?.image_url || "").trim();
+  if (!url) return "";
+  const label = item?.name || kind || "图片";
+  return `
+    <figure class="${className}">
+      <img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" loading="lazy" decoding="async">
+    </figure>
+  `;
+}
+
 function talismanActiveEffectTags(item) {
   const summary = Array.isArray(item?.active_effect_summary) ? item.active_effect_summary : [];
   if (!summary.length) return "";
@@ -5548,6 +5628,7 @@ renderArtifactList = function renderArtifactList(items, retreating, equipLimit, 
         <strong>${escapeHtml(item.name)}</strong>
         <span class="badge badge--normal">x${escapeHtml(row.quantity)}</span>
       </div>
+      ${itemArtworkHtml(item, "artifact")}
       <p>${escapeHtml(item.description || "暂无描述")}</p>
       <div class="item-tags">
         <span class="tag">${escapeHtml(artifactEquipCategoryLabel(item))}</span>
@@ -5571,8 +5652,8 @@ renderTalismanList = function renderTalismanList(items, retreating) {
   for (const row of items) {
     const item = row.talisman;
     const effects = item.resolved_effects || {};
-    const disabled = !item.usable || retreating;
-    const reason = item.active ? "" : fallbackReason(item.unusable_reason, "当前无法启用该符箓");
+    const disabled = item.active || !item.usable || retreating;
+    const reason = item.active ? "当前已生效" : fallbackReason(item.unusable_reason, "当前无法启用该符箓");
     const card = document.createElement("article");
     card.className = "stack-item";
     card.innerHTML = `
@@ -5580,13 +5661,14 @@ renderTalismanList = function renderTalismanList(items, retreating) {
         <strong>${escapeHtml(item.name)}</strong>
         <span class="badge badge--normal">x${escapeHtml(row.quantity)}</span>
       </div>
+      ${itemArtworkHtml(item, "talisman")}
       <p>${escapeHtml(item.description || "暂无描述")}</p>
       <div class="item-tags">
         <span class="tag">${escapeHtml(item.rarity || "凡品")}</span>
         ${itemAffixTags(item, effects)}
         ${talismanActiveEffectTags(item)}
       </div>
-      <p>启用后持续护持下一次斗法、Boss、探索、垂钓、炼制或吐纳。</p>
+      <p>启用后持续护持探索与垂钓；斗法、Boss、炼制、吐纳或闭关后会消耗。</p>
       ${reason ? `<p class="reason-text">${escapeHtml(reason)}</p>` : ""}
       <button type="button" data-talisman-id="${item.id}" ${disabled ? "disabled" : ""}>${item.active ? "已生效" : "启用符箓"}</button>
     `;
@@ -5610,6 +5692,7 @@ renderPillList = function renderPillList(items, retreating) {
         <strong>${escapeHtml(item.name)}</strong>
         <span class="badge badge--normal">x${escapeHtml(row.quantity)}</span>
       </div>
+      ${itemArtworkHtml(item, "pill")}
       <p>${escapeHtml(item.description || "暂无描述")}</p>
       <div class="item-tags">
         <span class="tag">${escapeHtml(item.rarity || "凡品")}</span>
@@ -5700,6 +5783,36 @@ function inventorySearchValue(selector) {
   return String(document.querySelector(selector)?.value || "").trim().toLowerCase();
 }
 
+function searchQueryTokens(query) {
+  return String(query || "")
+    .trim()
+    .toLowerCase()
+    .split(/[\s,，、;；:：/|｜]+/)
+    .filter(Boolean);
+}
+
+function collectSearchText(value, output = []) {
+  if (value === null || value === undefined || value === false) return output;
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectSearchText(item, output));
+    return output;
+  }
+  if (typeof value === "object") {
+    Object.values(value).forEach((item) => {
+      if (item === null || item === undefined || typeof item === "object") return;
+      collectSearchText(item, output);
+    });
+    return output;
+  }
+  const text = String(value).trim().toLowerCase();
+  if (text) output.push(text);
+  return output;
+}
+
+function buildSearchHaystack(values = []) {
+  return collectSearchText(values).join(" ");
+}
+
 function formatPercentText(value, fallback = "0") {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return fallback;
@@ -5708,12 +5821,10 @@ function formatPercentText(value, fallback = "0") {
 
 function textQueryMatches(query, values = []) {
   if (!query) return true;
-  const haystack = values
-    .flatMap((value) => Array.isArray(value) ? value : [value])
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-  return haystack.includes(query);
+  const tokens = searchQueryTokens(query);
+  if (!tokens.length) return true;
+  const haystack = buildSearchHaystack(values);
+  return tokens.every((token) => haystack.includes(token));
 }
 
 function inventoryMatches(item, query, extraFields = []) {
@@ -5758,6 +5869,7 @@ function rerenderInventoryLists() {
   renderArtifactList(bundle.artifacts || [], retreating, equipLimit, equippedArtifacts.length);
   renderTalismanList(bundle.talismans || [], retreating);
   renderPillList(bundle.pills || [], retreating);
+  renderMaterialInventoryList(bundle.materials || []);
   renderCraftArea(bundle);
 }
 
@@ -5869,6 +5981,60 @@ function recipeResultRequirementText(recipe, item) {
   return "";
 }
 
+function recipeSearchValues(recipe) {
+  return [
+    recipe?.search_index,
+    recipe?.search_tokens,
+    recipe?.id ? `配方id${recipe.id} recipe:${recipe.id}` : "",
+    recipe?.name,
+    recipe?.recipe_kind,
+    recipe?.recipe_kind_label,
+    recipe?.result_kind,
+    recipe?.result_kind_label,
+    recipe?.source,
+    recipe?.obtained_note,
+    recipe?.source_text,
+    recipe?.source_labels,
+    recipe?.result_item,
+    (recipe?.ingredients || []).map((item) => [
+      item?.material,
+      item?.material?.name,
+      item?.source_text,
+      item?.sources,
+    ]),
+    (recipe?.material_check?.materials || []).map((item) => [
+      item?.material_name,
+      item?.source_text,
+      item?.sources,
+    ]),
+  ];
+}
+
+function recipeSearchScore(recipe, query) {
+  const tokens = searchQueryTokens(query);
+  if (!tokens.length) return 0;
+  const haystack = buildSearchHaystack(recipeSearchValues(recipe));
+  if (!tokens.every((token) => haystack.includes(token))) return -1;
+  const normalizedQuery = tokens.join(" ");
+  const name = String(recipe?.name || "").toLowerCase();
+  const resultName = String(recipe?.result_item?.name || "").toLowerCase();
+  const recipeKind = String(recipe?.recipe_kind_label || recipe?.recipe_kind || "").toLowerCase();
+  const sourceText = String(recipe?.source_text || "").toLowerCase();
+  let score = 0;
+  if (name === normalizedQuery) score += 120;
+  if (name.includes(normalizedQuery)) score += 80;
+  if (resultName.includes(normalizedQuery)) score += 48;
+  if (recipeKind.includes(normalizedQuery)) score += 24;
+  if (sourceText.includes(normalizedQuery)) score += 16;
+  for (const token of tokens) {
+    if (name.includes(token)) score += 16;
+    if (resultName.includes(token)) score += 10;
+    if (recipeKind.includes(token)) score += 6;
+    if (sourceText.includes(token)) score += 4;
+  }
+  return score;
+}
+
 renderCraftArea = function renderCraftArea(bundle) {
   const materialRoot = document.querySelector("#material-list");
   const recipeRoot = document.querySelector("#recipe-list");
@@ -5891,6 +6057,7 @@ renderCraftArea = function renderCraftArea(bundle) {
           </div>
           ${qualityBadgeHtml(row.material.quality_label || row.material.quality_level, row.material.quality_color, "badge badge--normal")}
         </div>
+        ${itemArtworkHtml(row.material, "material", "item-art item-art--compact")}
         <p>数量 ${escapeHtml(row.quantity)}</p>
         <p class="muted">${escapeHtml(row.material.quality_feature || row.material.quality_description || "")}</p>
       </article>
@@ -5901,16 +6068,13 @@ renderCraftArea = function renderCraftArea(bundle) {
 
   const recipes = bundle.recipes || [];
   const recipeQuery = inventorySearchValue("#recipe-search");
-  const filteredRecipes = recipes.filter((recipe) => textQueryMatches(recipeQuery, [
-    recipe.name,
-    recipe.recipe_kind_label,
-    recipe.result_item?.name,
-    (recipe.ingredients || []).map((item) => item.material?.name),
-    (recipe.ingredients || []).map((item) => item.source_text),
-    recipe.source_text,
-    recipe.source,
-    recipe.obtained_note,
-  ]));
+  const filteredRecipes = recipeQuery
+    ? recipes
+      .map((recipe) => ({ recipe, score: recipeSearchScore(recipe, recipeQuery) }))
+      .filter((row) => row.score >= 0)
+      .sort((left, right) => right.score - left.score || String(left.recipe?.name || "").localeCompare(String(right.recipe?.name || ""), "zh-CN"))
+      .map((row) => row.recipe)
+    : recipes;
   recipeRoot.innerHTML = "";
   if (!filteredRecipes.length) {
     recipeRoot.innerHTML = recipes.length
@@ -5971,6 +6135,7 @@ renderCraftArea = function renderCraftArea(bundle) {
           <strong>成品属性预览</strong>
           ${qualityBadgeHtml(resultItem.rarity || resultItem.quality_label || "凡品", resultItem.quality_color, "badge badge--normal")}
         </div>
+        ${itemArtworkHtml(resultItem, recipe.result_kind || recipe.recipe_kind || "item", "item-art item-art--compact")}
         <p>${escapeHtml(previewDescription)}</p>
         <div class="item-tags">${previewTags || `<span class="tag">暂无额外词条</span>`}</div>
         ${requirementText ? `<p>${escapeHtml(requirementText)}</p>` : ""}
@@ -6074,6 +6239,7 @@ renderArtifactList = function renderArtifactList(items, retreating, equipLimit, 
         <strong>${escapeHtml(item.name)}</strong>
         <span class="badge badge--normal">x${escapeHtml(row.quantity)}</span>
       </div>
+      ${itemArtworkHtml(item, "artifact")}
       <p>${escapeHtml(item.description || "暂无描述")}</p>
       <div class="item-tags">
         <span class="tag">${escapeHtml(artifactEquipCategoryLabel(item))}</span>
@@ -6111,7 +6277,7 @@ renderTalismanList = function renderTalismanList(items, retreating) {
   if (!rows.length) {
     root.innerHTML = (items || []).length
       ? `<article class="stack-item"><strong>未找到匹配符箓</strong><p>可以按名称、效果或境界要求搜索。</p></article>`
-      : `<article class="stack-item"><strong>暂无符箓</strong><p>符箓启用后会护持下一次斗法、Boss、探索、垂钓、炼制或吐纳，后续可通过商店、掉落或发放获得。</p></article>`;
+      : `<article class="stack-item"><strong>暂无符箓</strong><p>符箓启用后会持续护持探索与垂钓；斗法、Boss、炼制、吐纳或闭关后仍会消耗，后续可通过商店、掉落或发放获得。</p></article>`;
     return;
   }
   const cardsArray = [];
@@ -6126,7 +6292,7 @@ renderTalismanList = function renderTalismanList(items, retreating) {
     const unbindCost = Number(state.profileBundle?.settings?.equipment_unbind_cost || 0);
     const reason = disabledReason(
       disabled,
-      item.active ? "当前已有生效中的符箓" : item.unusable_reason,
+      item.active ? "当前已生效" : item.unusable_reason,
       retreating ? "闭关期间无法启用符箓" : "当前不满足启用条件"
     );
     const card = document.createElement("article");
@@ -6136,6 +6302,7 @@ renderTalismanList = function renderTalismanList(items, retreating) {
         <strong>${escapeHtml(item.name)}</strong>
         <span class="badge badge--normal">x${escapeHtml(row.quantity)}</span>
       </div>
+      ${itemArtworkHtml(item, "talisman")}
       <p>${escapeHtml(item.description || "暂无描述")}</p>
       <div class="item-tags">
         ${qualityBadgeHtml(item.rarity || "凡品", item.quality_color, "tag")}
@@ -6144,7 +6311,7 @@ renderTalismanList = function renderTalismanList(items, retreating) {
         ${itemAffixTags(item, effects)}
         ${talismanActiveEffectTags(item)}
       </div>
-      <p>启用后持续护持下一次斗法、Boss、探索、垂钓、炼制或吐纳，斗法内最多显化 ${escapeHtml(item.effect_uses || 1)} 次。</p>
+      <p>启用后持续护持探索与垂钓；斗法、Boss、炼制、吐纳或闭关后会消耗，斗法内最多显化 ${escapeHtml(item.effect_uses || 1)} 次。</p>
       <p>境界要求：${escapeHtml(item.min_realm_stage ? `${item.min_realm_stage}${item.min_realm_layer}层` : "无限制")}</p>
       <p>可交易：${escapeHtml(row.tradeable_quantity ?? 0)} ｜ 可提交：${escapeHtml(row.consumable_quantity ?? 0)}</p>
       ${reason ? `<p class="reason-text">${escapeHtml(reason)}</p>` : ""}
@@ -6191,6 +6358,7 @@ renderPillList = function renderPillList(items, retreating) {
         <strong>${escapeHtml(item.name)}</strong>
         <span class="badge badge--normal">x${escapeHtml(row.quantity)}</span>
       </div>
+      ${itemArtworkHtml(item, "pill")}
       <p>${escapeHtml(item.description || "暂无描述")}</p>
       <div class="item-tags">
         ${qualityBadgeHtml(item.rarity || "凡品", item.quality_color, "tag")}
@@ -6213,7 +6381,46 @@ renderPillList = function renderPillList(items, retreating) {
   renderGroupedCards(root, cardsArray, item => item.pill_type_label || item.pill_type || "其他");
 };
 
-["#artifact-search", "#talisman-search", "#pill-search", "#material-search"].forEach((selector) => {
+function renderMaterialInventoryList(items = []) {
+  const root = document.querySelector("#material-inventory-list");
+  if (!root) return;
+  root.innerHTML = "";
+  const query = inventorySearchValue("#material-inventory-search");
+  const rows = sortInventoryRowsByQuality(
+    (items || []).filter((row) => inventoryMatches(row.material || {}, query, ["quality_feature", "quality_description"])),
+    (row) => row.material || {},
+    "quality_level"
+  );
+  if (!rows.length) {
+    root.innerHTML = (items || []).length
+      ? `<article class="stack-item"><strong>未找到匹配材料</strong><p>换个名称、品质或用途关键词再试。</p></article>`
+      : `<article class="stack-item"><strong>暂无材料</strong><p>探索、垂钓、任务、灵田收获或拍卖流拍返还后会出现在这里。</p></article>`;
+    return;
+  }
+  const cardsArray = rows.map((row) => {
+    const item = row.material || {};
+    const card = document.createElement("article");
+    card.className = "stack-item";
+    card.innerHTML = `
+      <div class="stack-item-head">
+        <strong>${escapeHtml(item.name || "未命名材料")}</strong>
+        <span class="badge badge--normal">x${escapeHtml(row.quantity || 0)}</span>
+      </div>
+      ${itemArtworkHtml(item, "material")}
+      <p>${escapeHtml(item.description || item.quality_description || item.quality_feature || "暂无描述")}</p>
+      <div class="item-tags">
+        ${qualityBadgeHtml(item.quality_label || item.rarity || "凡品", item.quality_color, "tag")}
+        ${item.quality_feature ? `<span class="tag">${escapeHtml(item.quality_feature)}</span>` : ""}
+        <span class="tag">可交易 ${escapeHtml(row.tradeable_quantity ?? row.quantity ?? 0)}</span>
+        <span class="tag">可提交 ${escapeHtml(row.consumable_quantity ?? row.quantity ?? 0)}</span>
+      </div>
+    `;
+    return { card, item };
+  });
+  renderGroupedCards(root, cardsArray, item => item.quality_label || item.rarity || "材料");
+}
+
+["#artifact-search", "#talisman-search", "#pill-search", "#material-search", "#material-inventory-search"].forEach((selector) => {
   document.querySelector(selector)?.addEventListener("input", () => {
     rerenderInventoryLists();
   });
@@ -6809,6 +7016,8 @@ renderProfile = function renderProfileRedesigned(bundle) {
   setDisabled(document.querySelector("#personal-auction-form button[type='submit']"), retreating || Boolean(duelLockReason), auctionDisabledReason);
   setDisabled(document.querySelector("#gift-form button[type='submit']"), Boolean(duelLockReason), duelLockReason);
   setDisabled(document.querySelector("#red-envelope-form button[type='submit']"), Boolean(duelLockReason), duelLockReason);
+
+  renderMaterialInventoryList(bundle.materials || []);
 
   const auctionFeeDisplay = document.querySelector("#auction-fee-display");
   if (auctionFeeDisplay) {
@@ -7435,6 +7644,7 @@ renderArtifactList = function renderArtifactListEnhanced(items, retreating, equi
         <strong>${escapeHtml(item.name || "未命名法宝")}</strong>
         <span class="badge badge--normal">x${escapeHtml(row.quantity ?? 0)}</span>
       </div>
+      ${itemArtworkHtml(item, "artifact")}
       <p>${escapeHtml(item.description || "暂无描述")}</p>
       <div class="item-tags">
         <span class="tag">${escapeHtml(artifactEquipCategoryLabel(item))}</span>
@@ -8450,10 +8660,13 @@ function renderBossPersonalTab(bossData) {
     const canChallenge = boss.unlocked && (bossAttemptsUnlimited(boss) || bossRemainingAttempts(boss) > 0);
     const disabledReason = !boss.unlocked ? `需达到 ${escapeHtml(boss.realm_stage || "未知境界")}` : !canChallenge ? "今日次数已尽" : "";
     const firstChar = String(boss.name || "Boss").trim().slice(0, 1) || "B";
+    const bossEmblem = boss.image_url
+      ? itemArtworkHtml(boss, "boss", "boss-art")
+      : `<div class="boss-emblem">${escapeHtml(firstChar)}</div>`;
     return `
       <article class="stack-item boss-personal-card ${canChallenge ? "is-ready" : ""}">
         <div class="boss-card-top">
-          <div class="boss-emblem">${escapeHtml(firstChar)}</div>
+          ${bossEmblem}
           <div class="boss-title-block">
             <strong>${escapeHtml(boss.name || "未命名 Boss")}</strong>
             <span>${escapeHtml(boss.realm_stage || "未知境界")} · 门票 ${escapeHtml(boss.ticket_cost_stone || 0)} 灵石</span>
@@ -8504,6 +8717,7 @@ function renderBossWorldTab(bossData) {
   statusRoot.innerHTML = `
     <article class="stack-item boss-world-card">
       <div class="boss-world-head">
+        ${itemArtworkHtml(boss, "boss", "boss-art boss-art--world")}
         <div>
           <strong>${escapeHtml(boss.name || "世界 Boss")}</strong>
           <p>${escapeHtml(boss.description || "全服共伐目标。")}</p>

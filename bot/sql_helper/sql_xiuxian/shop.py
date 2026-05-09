@@ -455,12 +455,14 @@ def _settle_auction_row(session: Session, auction: XiuxianAuctionItem) -> dict[s
     auction.completed_at = now
 
     if not has_bid:
-        _grant_auction_item_to_inventory(
+        returned_item = _grant_auction_item_to_inventory(
             session,
             tg=int(auction.owner_tg),
             item_kind=str(auction.item_kind or ""),
             item_ref_id=int(auction.item_ref_id),
             quantity=int(auction.quantity or 0),
+            source="auction_expired",
+            obtained_note="拍卖流拍返还",
         )
         auction.status = "expired"
         auction.winner_tg = None
@@ -474,6 +476,8 @@ def _settle_auction_row(session: Session, auction: XiuxianAuctionItem) -> dict[s
             "winner_tg": None,
             "winner_display_name": None,
             "seller_tg": int(auction.owner_tg),
+            "returned_item": returned_item,
+            "returned_quantity": max(int(auction.quantity or 0), 0),
         }
 
     fee_amount = current_price * fee_percent // 100
@@ -507,12 +511,14 @@ def _settle_auction_row(session: Session, auction: XiuxianAuctionItem) -> dict[s
                 allow_dead=True,
                 apply_tribute=False,
             )
-        _grant_auction_item_to_inventory(
+        returned_item = _grant_auction_item_to_inventory(
             session,
             tg=int(auction.owner_tg),
             item_kind=str(auction.item_kind or ""),
             item_ref_id=int(auction.item_ref_id),
             quantity=int(auction.quantity or 0),
+            source="auction_cancelled",
+            obtained_note="拍卖结算取消返还",
         )
         auction.status = "cancelled"
         auction.winner_tg = None
@@ -529,6 +535,8 @@ def _settle_auction_row(session: Session, auction: XiuxianAuctionItem) -> dict[s
             "winner_tg": None,
             "winner_display_name": None,
             "seller_tg": int(auction.owner_tg),
+            "returned_item": returned_item,
+            "returned_quantity": max(int(auction.quantity or 0), 0),
         }
 
     seller = (
@@ -636,12 +644,14 @@ def cancel_auction_item(auction_id: int, *, owner_tg: int | None = None) -> dict
                     apply_tribute=False,
                 )
 
-        _grant_auction_item_to_inventory(
+        returned_item = _grant_auction_item_to_inventory(
             session,
             tg=int(auction.owner_tg),
             item_kind=str(auction.item_kind or ""),
             item_ref_id=int(auction.item_ref_id),
             quantity=int(auction.quantity or 0),
+            source="auction_cancelled",
+            obtained_note="取消拍卖返还",
         )
 
         auction.status = "cancelled"
@@ -658,6 +668,8 @@ def cancel_auction_item(auction_id: int, *, owner_tg: int | None = None) -> dict
             "result": "cancelled",
             "auction": serialize_auction_item(auction),
             "refunded_bidder_tg": current_bidder_tg or None,
+            "returned_item": returned_item,
+            "returned_quantity": max(int(auction.quantity or 0), 0),
         }
 
 

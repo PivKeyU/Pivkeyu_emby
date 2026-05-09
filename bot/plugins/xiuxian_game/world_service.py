@@ -2675,6 +2675,118 @@ def _material_source_catalog() -> dict[int, list[str]]:
     }
 
 
+_RECIPE_SEARCH_SPLIT_RE = re.compile(r"[\s,，、;；:：/|｜()（）\[\]【】<>《》]+")
+
+
+def _normalize_recipe_search_text(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+
+def _append_recipe_search_terms(terms: list[str], value: Any) -> None:
+    if value is None or isinstance(value, bool):
+        return
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            _append_recipe_search_terms(terms, item)
+        return
+    text = _normalize_recipe_search_text(value)
+    if not text:
+        return
+    terms.append(text)
+    for part in _RECIPE_SEARCH_SPLIT_RE.split(text):
+        part = part.strip()
+        if part and part != text:
+            terms.append(part)
+
+
+def _recipe_item_search_fields(item: dict[str, Any] | None) -> list[Any]:
+    if not item:
+        return []
+    return [
+        item.get("name"),
+        item.get("description"),
+        item.get("rarity"),
+        item.get("quality_label"),
+        item.get("quality_description"),
+        item.get("quality_feature"),
+        item.get("artifact_type_label"),
+        item.get("artifact_role_label"),
+        item.get("equip_category_label"),
+        item.get("equip_slot_label"),
+        item.get("pill_type_label"),
+        item.get("effect_label"),
+        item.get("talisman_type_label"),
+        item.get("technique_type_label"),
+        item.get("min_realm_stage"),
+    ]
+
+
+def _recipe_search_terms(recipe: dict[str, Any]) -> list[str]:
+    recipe_id = int(recipe.get("id") or 0)
+    result_ref_id = int(recipe.get("result_ref_id") or 0)
+    terms: list[str] = []
+    _append_recipe_search_terms(
+        terms,
+        [
+            recipe.get("name"),
+            recipe.get("recipe_kind"),
+            recipe.get("recipe_kind_label"),
+            recipe.get("result_kind"),
+            recipe.get("result_kind_label"),
+            recipe.get("source"),
+            recipe.get("obtained_note"),
+            recipe.get("source_text"),
+            recipe.get("source_labels"),
+            f"配方id{recipe_id}" if recipe_id > 0 else "",
+            f"recipe:{recipe_id}" if recipe_id > 0 else "",
+            f"成品id{result_ref_id}" if result_ref_id > 0 else "",
+        ],
+    )
+    _append_recipe_search_terms(terms, _recipe_item_search_fields(recipe.get("result_item") or {}))
+    for ingredient in recipe.get("ingredients") or []:
+        if not isinstance(ingredient, dict):
+            continue
+        material = ingredient.get("material") or {}
+        material_id = int(material.get("id") or ingredient.get("material_id") or 0)
+        _append_recipe_search_terms(
+            terms,
+            [
+                ingredient.get("source_text"),
+                ingredient.get("sources"),
+                f"材料id{material_id}" if material_id > 0 else "",
+                _recipe_item_search_fields(material),
+            ],
+        )
+    for check in (recipe.get("material_check") or {}).get("materials") or []:
+        if not isinstance(check, dict):
+            continue
+        _append_recipe_search_terms(
+            terms,
+            [
+                check.get("material_name"),
+                check.get("source_text"),
+                check.get("sources"),
+            ],
+        )
+    seen: set[str] = set()
+    unique_terms: list[str] = []
+    for term in terms:
+        if term and term not in seen:
+            seen.add(term)
+            unique_terms.append(term)
+    return unique_terms
+
+
+def attach_recipe_search_indexes(recipes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    for recipe in recipes:
+        if not isinstance(recipe, dict):
+            continue
+        terms = _recipe_search_terms(recipe)
+        recipe["search_tokens"] = terms
+        recipe["search_index"] = " ".join(terms)
+    return recipes
+
+
 def build_recipe_catalog(tg: int | None = None) -> list[dict[str, Any]]:
     material_sources = _material_source_catalog()
     item_sources = get_item_source_catalog()
@@ -2764,7 +2876,7 @@ def build_recipe_catalog(tg: int | None = None) -> list[dict[str, Any]]:
             recipe["current_success_rate"] = preview["current_success_rate"]
         recipe.setdefault("owned", True)
         rows.append(recipe)
-    return rows
+    return attach_recipe_search_indexes(rows)
 
 
 def _recipe_fragment_requirement(recipe_id: int) -> dict[str, Any] | None:

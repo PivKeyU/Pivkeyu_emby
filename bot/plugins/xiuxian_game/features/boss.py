@@ -62,33 +62,89 @@ def _boss_loot_chance(entry: dict[str, Any]) -> int:
     return max(min(chance, 100), 0)
 
 
+_STACKABLE_BOSS_LOOT_KINDS = {"artifact", "pill", "talisman", "material"}
+_KNOWLEDGE_BOSS_LOOT_KINDS = {"recipe", "technique"}
+
+
+def _normalized_boss_loot_item(loot: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(loot, dict):
+        return None
+    kind = str(loot.get("kind") or "").strip()
+    try:
+        ref_id = int(loot.get("ref_id") or 0)
+        quantity = int(loot.get("quantity") or 0)
+    except (TypeError, ValueError):
+        return None
+    quantity = max(quantity, 0)
+    if not kind or ref_id <= 0 or quantity <= 0:
+        return None
+    return {"kind": kind, "ref_id": ref_id, "quantity": quantity}
+
+
+def _prepare_boss_loot_grants(loot_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    prepared: list[dict[str, Any]] = []
+    stackable_by_key: dict[tuple[str, int], dict[str, Any]] = {}
+    for loot in loot_items or []:
+        normalized = _normalized_boss_loot_item(loot)
+        if normalized is None:
+            continue
+        kind = str(normalized["kind"])
+        if kind in _STACKABLE_BOSS_LOOT_KINDS:
+            key = (kind, int(normalized["ref_id"]))
+            current = stackable_by_key.get(key)
+            if current is None:
+                current = dict(normalized)
+                stackable_by_key[key] = current
+                prepared.append(current)
+            else:
+                current["quantity"] = int(current.get("quantity") or 0) + int(normalized["quantity"])
+            continue
+        if kind in _KNOWLEDGE_BOSS_LOOT_KINDS:
+            for _ in range(max(int(normalized["quantity"] or 0), 1)):
+                prepared.append({**normalized, "quantity": 1})
+            continue
+        prepared.append(normalized)
+    return prepared
+
+
 def _grant_boss_loot_items_in_session(
     session: Session,
     tg: int,
     loot_items: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     granted_items: list[dict[str, Any]] = []
-    for loot in loot_items:
+    for loot in _prepare_boss_loot_grants(loot_items):
+        kind = str(loot["kind"])
         try:
             granted = _grant_item_by_kind_in_session(
                 session,
                 int(tg),
-                str(loot["kind"]),
+                kind,
                 int(loot["ref_id"]),
                 int(loot["quantity"]),
             )
+            session.flush()
         except ValueError:
             continue
         if granted:
-            kind = str(loot["kind"])
-            granted_items.append(
-                {
-                    "kind": kind,
-                    "ref_id": int(loot["ref_id"]),
-                    "quantity": int(loot["quantity"]),
-                    "item": _granted_item_payload(granted, kind),
-                }
-            )
+            duplicate_converted = bool(granted.get("duplicate_converted"))
+            row = {
+                "kind": kind,
+                "ref_id": int(loot["ref_id"]),
+                "quantity": 0 if duplicate_converted else int(loot["quantity"]),
+                "item": _granted_item_payload(granted, kind),
+            }
+            if duplicate_converted:
+                row.update(
+                    {
+                        "duplicate_converted": True,
+                        "stone_compensation": int(granted.get("stone_compensation") or 0),
+                        "converted_to_stone": int(granted.get("converted_to_stone") or 0),
+                        "item_kind_label": str(granted.get("item_kind_label") or ""),
+                        "item_name": str(granted.get("item_name") or ""),
+                    }
+                )
+            granted_items.append(row)
     return granted_items
 
 

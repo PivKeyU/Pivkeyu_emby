@@ -15,6 +15,8 @@ from bot.sql_helper.sql_xiuxian import (
     serialize_profile,
     upsert_profile,
     utcnow,
+    _queue_profile_cache_invalidation,
+    _queue_user_view_cache_invalidation,
 )
 
 
@@ -159,6 +161,7 @@ def settle_retreat_progress(tg: int) -> dict[str, Any] | None:
 
         if delta_minutes <= 0:
             if now >= end_at and resolved_minutes >= total_minutes:
+                updated.active_talisman_id = None
                 updated.retreat_started_at = None
                 updated.retreat_end_at = None
                 updated.retreat_gain_per_minute = 0
@@ -166,6 +169,8 @@ def settle_retreat_progress(tg: int) -> dict[str, Any] | None:
                 updated.retreat_minutes_total = 0
                 updated.retreat_minutes_resolved = 0
                 updated.updated_at = now
+                _queue_profile_cache_invalidation(session, tg)
+                _queue_user_view_cache_invalidation(session, tg)
                 session.commit()
             return None
 
@@ -185,6 +190,7 @@ def settle_retreat_progress(tg: int) -> dict[str, Any] | None:
 
         if affordable_minutes <= 0:
             if insufficient_stone or now >= end_at:
+                updated.active_talisman_id = None
                 updated.retreat_started_at = None
                 updated.retreat_end_at = None
                 updated.retreat_gain_per_minute = 0
@@ -192,6 +198,8 @@ def settle_retreat_progress(tg: int) -> dict[str, Any] | None:
                 updated.retreat_minutes_total = 0
                 updated.retreat_minutes_resolved = 0
                 updated.updated_at = now
+                _queue_profile_cache_invalidation(session, tg)
+                _queue_user_view_cache_invalidation(session, tg)
                 session.commit()
                 profile_payload = serialize_profile(updated)
                 return {
@@ -237,6 +245,7 @@ def settle_retreat_progress(tg: int) -> dict[str, Any] | None:
         poison_decay = max(int(round(in_game_days * daily_decay)), 0)
         if poison_decay > 0:
             updated.dan_poison = max(int(updated.dan_poison or 0) - poison_decay, 0)
+        updated.active_talisman_id = None if finished else updated.active_talisman_id
         updated.retreat_minutes_resolved = 0 if finished else settled_minutes
         updated.retreat_started_at = None if finished else updated.retreat_started_at
         updated.retreat_end_at = None if finished else updated.retreat_end_at
@@ -244,6 +253,8 @@ def settle_retreat_progress(tg: int) -> dict[str, Any] | None:
         updated.retreat_cost_per_minute = 0 if finished else int(updated.retreat_cost_per_minute or 0)
         updated.retreat_minutes_total = 0 if finished else total_minutes
         updated.updated_at = now
+        _queue_profile_cache_invalidation(session, tg)
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         profile_payload = serialize_profile(updated)
 
@@ -262,6 +273,7 @@ def settle_retreat_progress(tg: int) -> dict[str, Any] | None:
 
 def ensure_not_in_retreat(tg: int) -> None:
     legacy_service = _legacy_service()
+    settle_retreat_progress(tg)
     profile = get_profile(tg, create=False)
     if profile is not None:
         legacy_service._assert_gender_ready(profile, "执行当前操作")
@@ -271,6 +283,7 @@ def ensure_not_in_retreat(tg: int) -> None:
 
 def start_retreat_for_user(tg: int, hours: int) -> dict[str, Any]:
     legacy_service = _legacy_service()
+    settle_retreat_progress(tg)
     profile = legacy_service._require_alive_profile_obj(tg, "开始闭关")
     assert_currency_operation_allowed(tg, "开始闭关", profile=profile)
     if is_retreating(profile):
@@ -295,8 +308,6 @@ def start_retreat_for_user(tg: int, hours: int) -> dict[str, Any]:
         retreat_minutes_total=total_minutes,
         retreat_minutes_resolved=0,
     )
-    if int(getattr(profile, "active_talisman_id", 0) or 0) > 0:
-        legacy_service.set_active_talisman(tg, None)
     return {
         "hours": retreat_hours,
         "estimated_gain": estimated_gain,
@@ -317,6 +328,7 @@ def finish_retreat_for_user(tg: int) -> dict[str, Any]:
 
     upsert_profile(
         tg,
+        active_talisman_id=None,
         retreat_started_at=None,
         retreat_end_at=None,
         retreat_gain_per_minute=0,

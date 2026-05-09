@@ -20,6 +20,7 @@ from bot.sql_helper.sql_xiuxian import (
     get_xiuxian_settings,
     list_artifacts,
     list_achievements,
+    list_boss_configs,
     list_encounter_templates,
     list_materials,
     list_pills,
@@ -533,6 +534,78 @@ def _build_title_catalog() -> dict[int, dict[str, Any]]:
     }
 
 
+def _item_name(item_catalog: dict[str, dict[int, dict[str, Any]]], kind: str, ref_id: int) -> str:
+    payload = (item_catalog.get(str(kind or "").strip()) or {}).get(int(ref_id or 0)) or {}
+    return str(payload.get("name") or "").strip()
+
+
+def _reward_name(item_catalog: dict[str, dict[int, dict[str, Any]]], kind: str, ref_id: int) -> str:
+    name = _item_name(item_catalog, kind, ref_id)
+    if name:
+        return name
+    label = ITEM_KIND_LABELS.get(kind, kind or "奖励")
+    return f"{label}#{int(ref_id or 0)}" if int(ref_id or 0) > 0 else str(label)
+
+
+def _reward_names_from_pool(
+    item_catalog: dict[str, dict[int, dict[str, Any]]],
+    rows: Any,
+    *,
+    limit: int = 4,
+) -> list[str]:
+    names: list[str] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        kind = str(row.get("item_kind") or row.get("kind") or "").strip()
+        ref_id = int(row.get("item_ref_id") or row.get("ref_id") or 0)
+        name = str(row.get("item_name") or "").strip() or _item_name(item_catalog, kind, ref_id)
+        if name and name not in names:
+            names.append(name)
+        if len(names) >= limit:
+            break
+    return names
+
+
+def _scene_requirement_text(scene: dict[str, Any]) -> str:
+    stage = str(scene.get("min_realm_stage") or "").strip()
+    layer = max(int(scene.get("min_realm_layer") or 1), 1)
+    power = max(int(scene.get("min_combat_power") or 0), 0)
+    parts: list[str] = []
+    if stage:
+        parts.append(f"{stage}{layer}层")
+    if power > 0:
+        parts.append(f"战力 {power}")
+    return "、".join(parts) if parts else "入道后即可进入"
+
+
+def _boss_loot_names(item_catalog: dict[str, dict[int, dict[str, Any]]], boss: dict[str, Any], limit: int = 5) -> list[str]:
+    fields = (
+        ("loot_artifacts_json", "artifact"),
+        ("loot_pills_json", "pill"),
+        ("loot_talismans_json", "talisman"),
+        ("loot_materials_json", "material"),
+        ("loot_recipes_json", "recipe"),
+        ("loot_techniques_json", "technique"),
+    )
+    names: list[str] = []
+    for field, kind in fields:
+        for row in boss.get(field) or []:
+            if not isinstance(row, dict):
+                continue
+            ref_id = int(row.get("ref_id") or 0)
+            if ref_id <= 0:
+                continue
+            name = _reward_name(item_catalog, kind, ref_id)
+            chance = max(int(row.get("chance") or 0), 0)
+            label = f"{name}({chance}%)" if chance > 0 else name
+            if label not in names:
+                names.append(label)
+            if len(names) >= limit:
+                return names
+    return names
+
+
 def _build_recipe_entries(
     source_map: dict[tuple[str, int], list[str]],
     material_use_map: dict[int, list[str]],
@@ -855,6 +928,232 @@ def _build_achievement_entries(
     return entries
 
 
+def _build_scene_entries(
+    item_catalog: dict[str, dict[int, dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for scene in list_scenes(enabled_only=True):
+        scene_id = int(scene.get("id") or 0)
+        name = str(scene.get("name") or "").strip()
+        if scene_id <= 0 or not name:
+            continue
+        drops = list_scene_drops(scene_id)
+        drop_names = [
+            _reward_name(item_catalog, str(drop.get("reward_kind") or ""), int(drop.get("reward_ref_id") or 0))
+            for drop in drops
+            if int(drop.get("reward_ref_id") or 0) > 0
+        ]
+        event_names: list[str] = []
+        event_rewards: list[str] = []
+        for event in scene.get("event_pool") or []:
+            if not isinstance(event, dict):
+                continue
+            event_name = str(event.get("name") or event.get("description") or "").strip()
+            if event_name:
+                event_names.append(event_name)
+            kind = str(event.get("bonus_reward_kind") or "").strip()
+            ref_id = int(event.get("bonus_reward_ref_id") or 0)
+            if kind and ref_id > 0:
+                event_rewards.append(_reward_name(item_catalog, kind, ref_id))
+        reward_preview = _join_labels([*drop_names, *event_rewards], limit=6)
+        entries.append(
+            {
+                "id": f"scene-{scene_id}",
+                "kind": "scene",
+                "group": "scene",
+                "filter_keys": _merge_filter_keys("scene", "activity", "explore"),
+                "kind_label": "秘境",
+                "title": name,
+                "subtitle": f"探索 · {_scene_requirement_text(scene)}",
+                "description": str(scene.get("description") or "").strip() or "可派遣角色探索并结算材料、配方、灵石或奇遇。",
+                "body_lines": [
+                    f"进入要求：{_scene_requirement_text(scene)}",
+                    f"最长探索：{max(int(scene.get('max_minutes') or 0), 0)} 分钟",
+                    f"主要掉落：{reward_preview}",
+                    f"事件线索：{_join_labels(event_names, limit=4)}" if event_names else "事件线索：暂无额外事件标注。",
+                    "玩法链路：按境界和战力解锁秘境，探索结算后再把掉落材料投入炼制、任务或交易。",
+                ],
+                "tags": ["探索", "秘境", *_source_type_tags([f"探索·{name}"])[:2]],
+                "keywords": _extract_keywords(name, str(scene.get("description") or ""), " ".join(drop_names), " ".join(event_names), " ".join(event_rewards)),
+            }
+        )
+    return entries
+
+
+def _build_encounter_entries(item_catalog: dict[str, dict[int, dict[str, Any]]]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for encounter in list_encounter_templates(enabled_only=True):
+        encounter_id = int(encounter.get("id") or 0)
+        name = str(encounter.get("name") or "").strip()
+        if encounter_id <= 0 or not name:
+            continue
+        reward_kind = str(encounter.get("reward_item_kind") or "").strip()
+        reward_ref_id = int(encounter.get("reward_item_ref_id") or 0)
+        reward_name = _reward_name(item_catalog, reward_kind, reward_ref_id) if reward_kind and reward_ref_id > 0 else ""
+        stone_min = max(int(encounter.get("reward_stone_min") or 0), 0)
+        stone_max = max(int(encounter.get("reward_stone_max") or 0), stone_min)
+        lines = [
+            f"触发按钮：{str(encounter.get('button_text') or '响应奇遇').strip()}",
+            f"奖励物品：{reward_name}" if reward_name else "奖励物品：暂无固定物品奖励。",
+            f"灵石奖励：{stone_min}-{stone_max}" if stone_max > 0 else "灵石奖励：无固定灵石奖励。",
+            "玩法链路：群内自动触发或管理员派发后，按按钮参与奇遇并结算奖励。",
+        ]
+        entries.append(
+            {
+                "id": f"encounter-{encounter_id}",
+                "kind": "encounter",
+                "group": "encounter",
+                "filter_keys": _merge_filter_keys("encounter", "activity", "explore", "social"),
+                "kind_label": "奇遇",
+                "title": name,
+                "subtitle": "群内奇遇",
+                "description": str(encounter.get("description") or "").strip() or "群内可参与的限时事件。",
+                "body_lines": lines,
+                "tags": ["奇遇", reward_name, "群内事件"],
+                "keywords": _extract_keywords(name, str(encounter.get("description") or ""), reward_name, str(encounter.get("success_text") or "")),
+            }
+        )
+    return entries
+
+
+def _build_boss_entries(item_catalog: dict[str, dict[int, dict[str, Any]]]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    type_labels = {"personal": "个人Boss", "world": "世界Boss"}
+    for boss in list_boss_configs(enabled_only=True):
+        boss_id = int(boss.get("id") or 0)
+        name = str(boss.get("name") or "").strip()
+        if boss_id <= 0 or not name:
+            continue
+        boss_type = str(boss.get("boss_type") or "personal").strip()
+        type_label = type_labels.get(boss_type, "Boss")
+        loot_names = _boss_loot_names(item_catalog, boss)
+        reward_line = f"奖励：灵石 {int(boss.get('stone_reward_min') or 0)}-{int(boss.get('stone_reward_max') or 0)}，修为 {int(boss.get('cultivation_reward') or 0)}"
+        if loot_names:
+            reward_line += f"，掉落 {_join_labels(loot_names, limit=5)}"
+        entries.append(
+            {
+                "id": f"boss-{boss_id}",
+                "kind": "boss",
+                "group": "boss",
+                "filter_keys": _merge_filter_keys("boss", "activity", "combat", "explore"),
+                "kind_label": "Boss",
+                "title": name,
+                "subtitle": f"{type_label} · {str(boss.get('realm_stage') or '未知境界')}",
+                "description": str(boss.get("description") or boss.get("flavor_text") or "").strip() or "高强度战斗目标，胜利后可获得灵石、修为和掉落。",
+                "body_lines": [
+                    f"战斗属性：气血 {int(boss.get('qi_blood') or boss.get('hp') or 0)}，攻击 {int(boss.get('attack_power') or 0)}，防御 {int(boss.get('defense_power') or 0)}，身法 {int(boss.get('body_movement') or 0)}",
+                    f"主动技能：{str(boss.get('skill_name') or '无').strip()}；被动：{str(boss.get('passive_name') or '无').strip()}",
+                    reward_line,
+                    f"挑战限制：每日 {int(boss.get('daily_attempt_limit') or 0) or '不限'} 次，门票 {int(boss.get('ticket_cost_stone') or 0)} 灵石",
+                    "玩法链路：提升战力与法宝、符箓配置后挑战；世界Boss需要多人累计伤害结算。",
+                ],
+                "tags": [type_label, str(boss.get("realm_stage") or ""), *_source_type_tags([f"Boss·{name}"])],
+                "keywords": _extract_keywords(name, type_label, str(boss.get("description") or ""), str(boss.get("skill_name") or ""), str(boss.get("passive_name") or ""), " ".join(loot_names)),
+            }
+        )
+    return entries
+
+
+def _build_farm_entries(item_catalog: dict[str, dict[int, dict[str, Any]]]) -> list[dict[str, Any]]:
+    plantable = []
+    for material in item_catalog.get("material", {}).values():
+        material_name = str(material.get("name") or "").strip()
+        rules = FARMABLE_MATERIAL_RULES.get(material_name) or {}
+        if bool(material.get("can_plant")) or bool(rules.get("can_plant")):
+            plantable.append(material_name)
+    return [
+        {
+            "id": "farm-overview",
+            "kind": "farm",
+            "group": "farm",
+            "filter_keys": _merge_filter_keys("farm", "activity", "explore", "crafting"),
+            "kind_label": "灵田",
+            "title": "灵田种植",
+            "subtitle": "材料稳定产出",
+            "description": "解锁地块后可种植部分材料，成熟收获进入材料背包，用于炼丹、炼器、制符和任务提交。",
+            "body_lines": [
+                f"可种材料：{_join_labels(plantable, limit=8)}",
+                "地块规则：初始开放 3 块，后续地块按境界与灵石消耗解锁。",
+                "田间操作：可浇水、施肥、除虫，成熟后在收获窗口内领取材料。",
+                "玩法链路：探索或交易拿到材料后，转灵田做稳定供给，再投入配方炼制。",
+            ],
+            "tags": ["灵田", "种植", "材料", "炼制"],
+            "keywords": _extract_keywords("灵田种植", "灵田", "种植", "浇水", "施肥", "除虫", "材料", " ".join(plantable)),
+        }
+    ]
+
+
+def _build_fishing_entries(item_catalog: dict[str, dict[int, dict[str, Any]]]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    candidates = _build_fishing_candidates(_build_item_lookups(), owned_recipe_ids=set())
+    for spot in FISHING_SPOTS.values():
+        key = str(spot.get("key") or "").strip()
+        name = str(spot.get("name") or "").strip()
+        if not key or not name:
+            continue
+        spot_rows = _spot_candidates(spot, candidates)
+        reward_names = [str(row.get("name") or "").strip() for row in spot_rows if str(row.get("name") or "").strip()]
+        kind_labels = [
+            ITEM_KIND_LABELS.get(kind, kind)
+            for kind in (spot.get("kind_weights") or {}).keys()
+            if str(kind or "").strip()
+        ]
+        requirement = f"{spot.get('min_realm_stage')}{max(int(spot.get('min_realm_layer') or 1), 1)}层" if spot.get("min_realm_stage") else "入道后即可"
+        entries.append(
+            {
+                "id": f"fishing-{key}",
+                "kind": "fishing",
+                "group": "fishing",
+                "filter_keys": _merge_filter_keys("fishing", "activity", "explore"),
+                "kind_label": "垂钓",
+                "title": name,
+                "subtitle": f"垂钓点 · {requirement}",
+                "description": str(spot.get("description") or "").strip() or "消耗灵石抛竿，按机缘和钓点权重获取奖励。",
+                "body_lines": [
+                    f"进入要求：{requirement}",
+                    f"抛竿消耗：{max(int(spot.get('cast_cost_stone') or 0), 0)} 灵石",
+                    f"奖励类型：{_join_labels(kind_labels, limit=6)}",
+                    f"候选奖励：{_join_labels(reward_names, limit=8)}",
+                    "玩法链路：按境界选择钓点，机缘越高越容易钓到高品阶奖励。",
+                ],
+                "tags": ["垂钓", requirement, *_merge_filter_keys(kind_labels)[:2]],
+                "keywords": _extract_keywords(name, str(spot.get("description") or ""), " ".join(kind_labels), " ".join(reward_names)),
+            }
+        )
+    return entries
+
+
+def _build_gambling_entries(item_catalog: dict[str, dict[int, dict[str, Any]]]) -> list[dict[str, Any]]:
+    settings = get_xiuxian_settings()
+    pool = [
+        row
+        for row in settings.get("gambling_reward_pool") or []
+        if bool(row.get("gambling_enabled", row.get("enabled", True))) and max(float(row.get("gambling_weight", row.get("base_weight") or 0.0) or 0.0), 0.0) > 0
+    ]
+    reward_names = _reward_names_from_pool(item_catalog, pool, limit=10)
+    exchange_cost = max(int(settings.get("gambling_exchange_cost_stone") or 0), 0)
+    return [
+        {
+            "id": "gambling-immortal-stone",
+            "kind": "gambling",
+            "group": "gambling",
+            "filter_keys": _merge_filter_keys("gambling", "activity", "explore"),
+            "kind_label": "赌坊",
+            "title": "仙界奇石",
+            "subtitle": "赌坊开石",
+            "description": "用灵石兑换仙界奇石后开启奖池，机缘会影响稀有奖励权重。",
+            "body_lines": [
+                f"兑换消耗：{exchange_cost} 灵石/枚" if exchange_cost > 0 else "兑换消耗：按后台当前配置结算。",
+                f"奖池规模：{len(pool)} 项",
+                f"代表奖励：{_join_labels(reward_names, limit=8)}",
+                "玩法链路：先兑换奇石，再批量开石；高品阶奖励基础概率低，机缘越高越容易抬升稀有权重。",
+            ],
+            "tags": ["仙界奇石", "赌坊", "机缘", "奖池"],
+            "keywords": _extract_keywords("仙界奇石", "赌坊", "开石", "机缘", "奖池", " ".join(reward_names)),
+        }
+    ]
+
+
 def build_wiki_bundle() -> dict[str, Any]:
     ensure_seed_data()
     tutorials = _parse_guide_sections()
@@ -868,11 +1167,18 @@ def build_wiki_bundle() -> dict[str, Any]:
     item_entries = _build_item_entries(source_map, crafted_by_map, item_catalog)
     title_entries = _build_title_entries(source_map, title_catalog)
     achievement_entries = _build_achievement_entries(item_catalog, title_catalog)
+    scene_entries = _build_scene_entries(item_catalog)
+    encounter_entries = _build_encounter_entries(item_catalog)
+    boss_entries = _build_boss_entries(item_catalog)
+    farm_entries = _build_farm_entries(item_catalog)
+    fishing_entries = _build_fishing_entries(item_catalog)
+    gambling_entries = _build_gambling_entries(item_catalog)
+    activity_entries = scene_entries + encounter_entries + boss_entries + farm_entries + fishing_entries + gambling_entries
     artifact_count = sum(1 for entry in item_entries if str(entry.get("group") or "") == "artifact")
     pill_count = sum(1 for entry in item_entries if str(entry.get("group") or "") == "pill")
     talisman_count = sum(1 for entry in item_entries if str(entry.get("group") or "") == "talisman")
     technique_count = sum(1 for entry in item_entries if str(entry.get("group") or "") == "technique")
-    search_index = tutorials + material_entries + item_entries + title_entries + recipe_entries + achievement_entries
+    search_index = tutorials + activity_entries + material_entries + item_entries + title_entries + recipe_entries + achievement_entries
     featured_tutorials = tutorials[:8]
     return {
         "featured_tutorials": featured_tutorials,
@@ -887,6 +1193,13 @@ def build_wiki_bundle() -> dict[str, Any]:
             "title": len(title_entries),
             "recipe": len(recipe_entries),
             "achievement": len(achievement_entries),
+            "activity": len(activity_entries),
+            "scene": len(scene_entries),
+            "encounter": len(encounter_entries),
+            "boss": len(boss_entries),
+            "farm": len(farm_entries),
+            "fishing": len(fishing_entries),
+            "gambling": len(gambling_entries),
         },
-        "search_examples": ["闭关", "宗门", "补天丹", "天道精华", "玄龟盾炼制图", "长青诀", "初入仙途", "承道出山"],
+        "search_examples": ["闭关", "世界Boss", "仙界奇石", "青溪灵涧", "灵田", "补天丹", "玄龟盾炼制图", "承道出山"],
     }

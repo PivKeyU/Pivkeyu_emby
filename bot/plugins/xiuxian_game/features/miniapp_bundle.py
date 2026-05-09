@@ -30,6 +30,10 @@ from bot.plugins.xiuxian_game.features.exploration import _scene_requirement_sta
 from bot.plugins.xiuxian_game.features.farm import build_farm_bundle
 from bot.plugins.xiuxian_game.features.fishing import build_fishing_bundle
 from bot.plugins.xiuxian_game.features.gambling import build_gambling_bundle
+from bot.plugins.xiuxian_game.features.crafting import (
+    build_recipe_catalog,
+    build_recipe_fragment_synthesis_catalog,
+)
 from bot.plugins.xiuxian_game.features.growth import build_spirit_stone_commissions
 from bot.plugins.xiuxian_game.features.shop import attach_official_recycle_quotes
 from bot.plugins.xiuxian_game.service import (
@@ -47,6 +51,9 @@ from bot.plugins.xiuxian_game.service import (
     _settle_retreat_progress,
     _self_profile_snapshot,
     _build_user_technique_rows,
+    _artifact_set_index,
+    _decorate_artifact_with_set,
+    _resolve_active_artifact_sets,
     _pill_batch_use_note,
     _pill_batch_use_max,
     _pill_supports_batch_use,
@@ -81,8 +88,6 @@ from bot.plugins.xiuxian_game.world_service import (
     _scene_exploration_counts,
     _user_task_daily_limit,
     _user_task_publish_count_today,
-    build_recipe_catalog,
-    build_recipe_fragment_synthesis_catalog,
     get_current_sect_bundle,
     list_sects_for_user,
     list_tasks_for_user,
@@ -325,13 +330,16 @@ def _build_core_profile_bundle(tg: int) -> dict[str, Any]:
     xiuxian_settings = get_xiuxian_settings()
     equip_limit = max(int(xiuxian_settings.get("artifact_equip_limit", DEFAULT_SETTINGS["artifact_equip_limit"]) or 0), 1)
     equipped_artifacts = []
+    artifact_set_map = _artifact_set_index()
     for row in list_equipped_artifacts(tg):
         artifact = dict(row.get("artifact") or {})
         if not artifact:
             continue
+        artifact = _decorate_artifact_with_set(artifact, artifact_set_map)
         artifact["equipped"] = True
         artifact["slot"] = row.get("slot")
         equipped_artifacts.append(artifact)
+    artifact_set_bundle = _resolve_active_artifact_sets(equipped_artifacts)
     active_talisman = serialize_talisman(get_talisman(profile_obj.active_talisman_id)) if profile_obj and profile_obj.active_talisman_id else None
     current_technique = _current_technique_payload(profile)
     current_title = get_current_title(tg)
@@ -465,7 +473,7 @@ def _build_core_profile_bundle(tg: int) -> dict[str, Any]:
         "active_talisman": active_talisman,
         "current_technique": current_technique,
         "current_title": current_title,
-        "active_artifact_sets": [],
+        "active_artifact_sets": artifact_set_bundle["sets"],
         "settings": settings,
         "effective_stats": effective_stats,
         "combat_power": combat_power,
@@ -552,9 +560,6 @@ def _build_talisman_rows(bundle: dict[str, Any], tg: int) -> list[dict[str, Any]
         item["active_effect_summary"] = active_talisman_effect_summary(item["active_effects"])
         usable = realm_requirement_met(profile, item.get("min_realm_stage"), item.get("min_realm_layer"))
         reason = "" if usable else f"需要达到 {format_realm_requirement(item.get('min_realm_stage'), item.get('min_realm_layer'))}"
-        if profile.get("active_talisman_id") and profile.get("active_talisman_id") != item.get("id"):
-            usable = False
-            reason = "你已经启用了一张符箓"
         row["bound_quantity"] = bound_quantity
         row["unbound_quantity"] = max(total_quantity - bound_quantity, 0)
         row["consumable_quantity"] = row["unbound_quantity"]

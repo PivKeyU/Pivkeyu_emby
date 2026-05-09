@@ -24,6 +24,7 @@ from sqlalchemy import (
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
+from bot.plugins.xiuxian_game.asset_images import resolve_image_url
 from bot.plugins.xiuxian_game import cache as xiuxian_cache
 from bot.sql_helper import Base, Session
 from bot.sql_helper.sql_emby import Emby
@@ -740,7 +741,7 @@ def serialize_material(material: XiuxianMaterial | None) -> dict[str, Any] | Non
         "quality_color": quality["color"],
         "quality_description": quality["description"],
         "quality_feature": quality_note,
-        "image_url": material.image_url,
+        "image_url": resolve_image_url(material.image_url, kind="material", name=material.name, quality=quality["label"]),
         "description": material.description,
         "can_plant": can_plant,
         "seed_price_stone": int(material.seed_price_stone or 0),
@@ -796,7 +797,7 @@ def serialize_scene(scene: XiuxianScene | None) -> dict[str, Any] | None:
         "id": scene.id,
         "name": scene.name,
         "description": scene.description,
-        "image_url": scene.image_url,
+        "image_url": resolve_image_url(scene.image_url, kind="scene", name=scene.name, quality=scene.min_realm_stage),
         "max_minutes": scene.max_minutes,
         "min_realm_stage": normalize_realm_stage(scene.min_realm_stage) if scene.min_realm_stage else None,
         "min_realm_layer": scene.min_realm_layer,
@@ -990,7 +991,7 @@ def serialize_artifact(artifact: XiuxianArtifact | None) -> dict[str, Any] | Non
         "equip_category_label": ARTIFACT_EQUIP_CATEGORY_LABELS.get(equip_category, equip_category),
         "artifact_set_id": artifact.artifact_set_id,
         "unique_item": bool(artifact.unique_item),
-        "image_url": artifact.image_url,
+        "image_url": resolve_image_url(artifact.image_url, kind="artifact", name=artifact.name, quality=quality["label"]),
         "description": artifact.description,
         "attack_bonus": artifact.attack_bonus,
         "defense_bonus": artifact.defense_bonus,
@@ -1034,7 +1035,7 @@ def serialize_pill(pill: XiuxianPill | None) -> dict[str, Any] | None:
         "pill_type_label": PILL_TYPE_LABELS.get(pill.pill_type, pill.pill_type),
         "effect_label": PILL_TYPE_LABELS.get(pill.pill_type, pill.pill_type),
         "effect_value_label": PILL_EFFECT_VALUE_LABELS.get(pill.pill_type, "主效果"),
-        "image_url": pill.image_url,
+        "image_url": resolve_image_url(pill.image_url, kind="pill", name=pill.name, quality=quality["label"]),
         "description": pill.description,
         "effect_value": pill.effect_value,
         "poison_delta": pill.poison_delta,
@@ -1066,7 +1067,7 @@ def serialize_talisman(talisman: XiuxianTalisman | None) -> dict[str, Any] | Non
         "quality_color": quality["color"],
         "quality_description": quality["description"],
         "quality_feature": quality["feature"],
-        "image_url": talisman.image_url,
+        "image_url": resolve_image_url(talisman.image_url, kind="talisman", name=talisman.name, quality=quality["label"]),
         "description": talisman.description,
         "attack_bonus": talisman.attack_bonus,
         "defense_bonus": talisman.defense_bonus,
@@ -1100,7 +1101,7 @@ def serialize_technique(technique: XiuxianTechnique | None) -> dict[str, Any] | 
         "quality_feature": quality["feature"],
         "technique_type": technique.technique_type,
         "technique_type_label": TECHNIQUE_TYPE_LABELS.get(technique.technique_type, technique.technique_type),
-        "image_url": technique.image_url,
+        "image_url": resolve_image_url(technique.image_url, kind="technique", name=technique.name, quality=quality["label"]),
         "description": technique.description,
         "attack_bonus": technique.attack_bonus,
         "defense_bonus": technique.defense_bonus,
@@ -1342,7 +1343,7 @@ def serialize_boss_config(boss: XiuxianBossConfig | None) -> dict[str, Any] | No
         "boss_type": boss.boss_type,
         "realm_stage": boss.realm_stage,
         "description": boss.description,
-        "image_url": boss.image_url,
+        "image_url": resolve_image_url(boss.image_url, kind="boss", name=boss.name, quality=boss.realm_stage),
         "hp": int(boss.hp or 0),
         "attack_power": int(boss.attack_power or 0),
         "defense_power": int(boss.defense_power or 0),

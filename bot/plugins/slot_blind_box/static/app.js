@@ -209,7 +209,7 @@ function renderBottomNav(items = []) {
   refs.bottomNav.classList.remove("hidden");
   const currentPath = window.location.pathname;
   refs.bottomNav.innerHTML = items.map((item) => {
-    const active = item.path === currentPath ? "active" : "";
+    const active = item.path === currentPath ? "is-active" : "";
     return `
       <a class="${active}" href="${escapeHtml(item.path)}">
         <span class="nav-icon">${escapeHtml(item.icon || "◇")}</span>

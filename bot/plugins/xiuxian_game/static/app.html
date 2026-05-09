@@ -82,7 +82,7 @@
             关键词
             <input id="wiki-search" type="search" placeholder="可搜：闭关、补天丹、玄龟盾炼制图、长青诀、初入仙途、承道出山">
           </label>
-          <p id="wiki-search-hint" class="section-copy">可搜索玩法教程、材料来源、法宝、丹药、符箓、功法、称号、成就与配方获取方式，也可按入门、探索、炼制、战斗、任务、社交、宗门筛选。</p>
+          <p id="wiki-search-hint" class="section-copy">可搜索玩法教程、秘境、奇遇、Boss、灵田、垂钓、赌坊、材料来源与配方获取方式，也可按入门、探索、炼制、战斗、任务、社交、宗门筛选。</p>
           <div id="wiki-filter-row" class="wiki-filter-row">
             <button type="button" class="ghost is-active" data-wiki-filter="all">全部</button>
             <button type="button" class="ghost" data-wiki-filter="tutorial">玩法</button>
@@ -93,6 +93,7 @@
             <button type="button" class="ghost" data-wiki-filter="task">任务</button>
             <button type="button" class="ghost" data-wiki-filter="social">社交</button>
             <button type="button" class="ghost" data-wiki-filter="sect">宗门</button>
+            <button type="button" class="ghost" data-wiki-filter="activity">活动</button>
             <button type="button" class="ghost" data-wiki-filter="material">材料</button>
             <button type="button" class="ghost" data-wiki-filter="artifact">法宝</button>
             <button type="button" class="ghost" data-wiki-filter="pill">丹药</button>
@@ -495,7 +496,7 @@
             <p class="eyebrow">纳戒须弥</p>
             <h2>背包与装备</h2>
           </div>
-          <span class="summary-tip">法宝、符箓、丹药分栏展示</span>
+          <span class="summary-tip">法宝、符箓、丹药、材料分栏展示</span>
         </summary>
         <div class="fold-body">
           <div class="inventory-columns">
@@ -518,6 +519,13 @@
               <div class="mini-fold-body">
                 <input id="pill-search" type="search" placeholder="搜索丹药名称或类型">
                 <div id="pill-list" class="stack-list"></div>
+              </div>
+            </details>
+            <details class="mini-fold">
+              <summary class="mini-fold-summary"><h3>材料</h3><span class="summary-tip">炼制、交易与任务提交</span></summary>
+              <div class="mini-fold-body">
+                <input id="material-inventory-search" type="search" placeholder="搜索材料名称、品质或用途">
+                <div id="material-inventory-list" class="stack-list"></div>
               </div>
             </details>
           </div>

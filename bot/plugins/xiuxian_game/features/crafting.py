@@ -20,7 +20,9 @@ def patch_recipe_with_ingredients(recipe_id: int, **kwargs) -> dict[str, Any]:
 
 
 def build_recipe_catalog(tg: int | None = None) -> list[dict[str, Any]]:
-    return append_farm_source_labels(_legacy_world_service().build_recipe_catalog(tg))
+    legacy = _legacy_world_service()
+    recipes = append_farm_source_labels(legacy.build_recipe_catalog(tg))
+    return legacy.attach_recipe_search_indexes(recipes)
 
 
 def build_recipe_fragment_synthesis_catalog(tg: int) -> list[dict[str, Any]]:

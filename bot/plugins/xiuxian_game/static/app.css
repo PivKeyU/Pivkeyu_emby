@@ -353,8 +353,7 @@ h3 {
 .fold-card {
   padding: 0;
   overflow: hidden;
-  content-visibility: auto;
-  contain-intrinsic-size: 520px;
+  scroll-margin-top: 116px;
 }
 
 .fold-summary {
@@ -414,8 +413,6 @@ h3 {
   padding: 0 18px 18px;
   display: grid;
   gap: 14px;
-  content-visibility: auto;
-  contain-intrinsic-size: 720px;
 }
 
 .mini-fold {
@@ -753,6 +750,54 @@ h3 {
 .recipe-result-preview p {
   margin-top: 8px;
   color: rgba(226, 232, 240, 0.84);
+}
+
+.item-art,
+.scene-art,
+.boss-art {
+  position: relative;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid rgba(204, 167, 114, 0.2);
+  background: var(--surface-soft);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.item-art {
+  aspect-ratio: 16 / 9;
+  border-radius: 14px;
+}
+
+.item-art--compact {
+  aspect-ratio: 21 / 9;
+}
+
+.scene-art {
+  aspect-ratio: 21 / 9;
+  border-radius: 16px;
+}
+
+.boss-art {
+  width: 54px;
+  height: 54px;
+  flex: 0 0 54px;
+  border-radius: 16px;
+}
+
+.boss-art--world {
+  width: 72px;
+  height: 72px;
+  border-radius: 18px;
+}
+
+.item-art img,
+.scene-art img,
+.boss-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .recipe-craft-controls {
@@ -1419,54 +1464,68 @@ button.is-blocked:not(:disabled) {
 
 .bottom-nav {
   position: fixed;
-  left: 12px;
-  right: 12px;
-  max-width: calc(100% - 24px);
-  bottom: max(12px, env(safe-area-inset-bottom));
+  left: 20px;
+  right: 20px;
+  bottom: max(20px, env(safe-area-inset-bottom));
   z-index: 24;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(82px, 1fr));
-  gap: 8px;
-  padding: 10px;
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 12px;
   border: 1px solid var(--line);
-  border-radius: 22px;
+  border-radius: 8px;
   background: rgba(20, 23, 29, 0.94);
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.42);
-  backdrop-filter: blur(20px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  scrollbar-width: none;
   touch-action: pan-y;
 }
 
+.bottom-nav::-webkit-scrollbar {
+  display: none;
+}
+
 .bottom-nav a {
-  width: 100%;
-  min-width: 0;
-  min-height: 54px;
-  padding: 8px 10px;
-  border-radius: 16px;
-  flex-direction: column;
-  gap: 4px;
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 110px;
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  gap: 6px;
   text-align: center;
   text-decoration: none;
-  color: var(--ink);
-  background: var(--surface-strong);
-  border: 1px solid var(--line-strong);
-  white-space: normal;
+  color: var(--muted);
+  background: transparent;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
   line-height: 1.2;
+  transition: all 0.2s ease;
+}
+
+.bottom-nav a:hover {
+  background: var(--surface-soft);
+  color: var(--accent);
 }
 
 .bottom-nav a.is-active {
   color: #fff;
   background: linear-gradient(135deg, var(--accent-strong), var(--accent));
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 8px 16px -4px rgba(204, 167, 114, 0.36);
 }
 
 .bottom-nav-icon {
-  font-size: 16px;
+  font-size: 1em;
   line-height: 1;
 }
 
 .bottom-nav-label {
-  display: block;
-  max-width: 100%;
-  overflow-wrap: anywhere;
+  display: inline;
 }
 
 @media (hover: none) {
@@ -1910,20 +1969,20 @@ button.is-blocked:not(:disabled) {
   }
 
   .bottom-nav {
-    left: 8px;
-    right: 8px;
-    max-width: calc(100% - 16px);
-    bottom: max(8px, env(safe-area-inset-bottom));
-    grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
-    padding: 8px;
-    border-radius: 18px;
+    left: 20px;
+    right: 20px;
+    max-width: none;
+    bottom: max(20px, env(safe-area-inset-bottom));
+    gap: 10px;
+    padding: 12px;
+    border-radius: 8px;
   }
 
   .bottom-nav a {
-    min-width: 0;
-    min-height: 48px;
-    padding: 8px 6px;
-    font-size: 11px;
+    min-width: 110px;
+    min-height: 38px;
+    padding: 8px 14px;
+    font-size: 13px;
   }
 
   .fab-container {
@@ -2030,6 +2089,27 @@ button.is-blocked:not(:disabled) {
     border-radius: 14px;
   }
 
+  .boss-art {
+    width: 44px;
+    height: 44px;
+    flex-basis: 44px;
+    border-radius: 14px;
+  }
+
+  .boss-art--world {
+    width: 52px;
+    height: 52px;
+  }
+
+  .item-art {
+    aspect-ratio: 18 / 9;
+  }
+
+  .item-art--compact,
+  .scene-art {
+    aspect-ratio: 24 / 9;
+  }
+
   .fold-shortcut {
     min-height: 38px;
     padding: 5px 3px;
@@ -2038,18 +2118,19 @@ button.is-blocked:not(:disabled) {
   }
 
   .bottom-nav {
-    gap: 5px;
-    padding: 6px;
+    gap: 10px;
+    padding: 12px;
   }
 
   .bottom-nav a {
-    min-height: 40px;
-    padding: 6px 4px;
-    font-size: 10px;
+    min-width: 110px;
+    min-height: 38px;
+    padding: 8px 14px;
+    font-size: 13px;
   }
 
   .bottom-nav-icon {
-    font-size: 14px;
+    font-size: 1em;
   }
 }
 
@@ -2220,24 +2301,24 @@ button.is-blocked:not(:disabled) {
   }
 
   .bottom-nav {
-    left: 8px;
-    right: 8px;
-    max-width: calc(100% - 16px);
-    bottom: max(6px, env(safe-area-inset-bottom));
-    grid-template-columns: repeat(auto-fit, minmax(68px, 1fr));
-    gap: 6px;
-    padding: 6px;
-    border-radius: 16px;
+    left: 20px;
+    right: 20px;
+    max-width: none;
+    bottom: max(20px, env(safe-area-inset-bottom));
+    gap: 10px;
+    padding: 12px;
+    border-radius: 8px;
   }
 
   .bottom-nav a {
-    min-height: 36px;
-    padding: 6px 5px;
-    font-size: 10px;
+    min-width: 110px;
+    min-height: 38px;
+    padding: 8px 14px;
+    font-size: 13px;
   }
 
   .bottom-nav-icon {
-    font-size: 13px;
+    font-size: 1em;
   }
 
   .fab-container {

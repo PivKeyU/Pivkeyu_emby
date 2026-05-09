@@ -211,7 +211,7 @@ function renderBottomNav() {
   for (const item of items) {
     const link = document.createElement("a");
     link.href = item.path;
-    link.textContent = `${item.icon} ${item.label}`;
+    link.textContent = `${item.icon || ""} ${item.label || item.id || "入口"}`.trim();
     if (item.path === currentPath) {
       link.classList.add("is-active");
     }
