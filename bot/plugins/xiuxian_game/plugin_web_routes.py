@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import time
 import traceback
@@ -20,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from pyrogram import enums, filters
 from pyrogram.enums import ChatMemberStatus
 from pyrogram.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
+from starlette.requests import ClientDisconnect
 
 from bot import LOGGER, admin_p, api as api_config, bot, config, group, owner, owner_p, prefixes, user_p
 from bot.func_helper.moderation import (
@@ -428,6 +430,75 @@ COMMAND_DISPATCH_CACHE: dict[tuple[int, int, str], float] = {}
 ENCOUNTER_AUTO_CHAT_STATE: dict[int, bool] = {}
 DUEL_SETTLEMENT_PAGE_SIZE = 10
 STATIC_ASSET_PATTERN = re.compile(r'(/plugins/xiuxian/static/([A-Za-z0-9_.-]+\.(?:css|js)))')
+
+
+def _env_int(name: str, default: int, minimum: int = 1, maximum: int | None = None) -> int:
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        value = max(minimum, int(raw))
+        if maximum is not None:
+            value = min(value, maximum)
+        return value
+    except (TypeError, ValueError):
+        LOGGER.warning(f"环境变量 {name}={raw!r} 不是有效整数，回退到默认值 {default}")
+        return default
+
+
+XIUXIAN_API_MAX_CONCURRENCY = _env_int("PIVKEYU_XIUXIAN_API_MAX_CONCURRENCY", 32, minimum=1, maximum=512)
+XIUXIAN_HEAVY_API_MAX_CONCURRENCY = _env_int("PIVKEYU_XIUXIAN_HEAVY_API_MAX_CONCURRENCY", 8, minimum=1, maximum=128)
+XIUXIAN_API_ACQUIRE_TIMEOUT = _env_int("PIVKEYU_XIUXIAN_API_ACQUIRE_TIMEOUT", 2, minimum=1, maximum=30)
+_XIUXIAN_API_SEMAPHORE = asyncio.Semaphore(XIUXIAN_API_MAX_CONCURRENCY)
+_XIUXIAN_HEAVY_API_SEMAPHORE = asyncio.Semaphore(XIUXIAN_HEAVY_API_MAX_CONCURRENCY)
+_XIUXIAN_HEAVY_API_PREFIXES = (
+    "/plugins/xiuxian/api/bootstrap",
+    "/plugins/xiuxian/api/wiki",
+    "/plugins/xiuxian/api/gambling",
+    "/plugins/xiuxian/api/sect/donate",
+    "/plugins/xiuxian/api/farm/auto-harvest",
+    "/plugins/xiuxian/api/player/search",
+    "/plugins/xiuxian/admin-api/bootstrap",
+)
+
+
+def _is_xiuxian_api_path(path: str) -> bool:
+    return path.startswith("/plugins/xiuxian/api/") or path.startswith("/plugins/xiuxian/admin-api/")
+
+
+def _is_heavy_xiuxian_api_path(path: str) -> bool:
+    return any(path.startswith(prefix) for prefix in _XIUXIAN_HEAVY_API_PREFIXES)
+
+
+async def _try_acquire_api_slot(semaphore: asyncio.Semaphore, timeout: int) -> bool:
+    try:
+        await asyncio.wait_for(semaphore.acquire(), timeout=timeout)
+        return True
+    except asyncio.TimeoutError:
+        return False
+
+
+async def _acquire_xiuxian_api_slots(path: str) -> list[asyncio.Semaphore] | None:
+    acquired: list[asyncio.Semaphore] = []
+    for semaphore in (
+        _XIUXIAN_API_SEMAPHORE,
+        _XIUXIAN_HEAVY_API_SEMAPHORE if _is_heavy_xiuxian_api_path(path) else None,
+    ):
+        if semaphore is None:
+            continue
+        if not await _try_acquire_api_slot(semaphore, XIUXIAN_API_ACQUIRE_TIMEOUT):
+            for item in reversed(acquired):
+                item.release()
+            return None
+        acquired.append(semaphore)
+    return acquired
+
+
+def _release_xiuxian_api_slots(acquired: list[asyncio.Semaphore]) -> None:
+    for semaphore in reversed(acquired):
+        semaphore.release()
+
+
 XIUXIAN_BOT_COMMANDS = (
     BotCommand("xiuxian", f"修仙玩法 v{PLUGIN_VERSION} [私聊]"),
     BotCommand("xiuxian_me", "展示修仙名帖 [群聊]"),
@@ -730,18 +801,45 @@ def register_web(app) -> None:
         @app.middleware("http")
         async def xiuxian_request_context_middleware(request: Request, call_next):
             path = str(request.url.path or "")
-            if path.startswith("/plugins/xiuxian"):
-                init_data = request.headers.get("x-telegram-init-data")
-                if not init_data:
-                    body = await request.body()
-                    init_data = _extract_init_data_from_body_bytes(request.headers.get("content-type", ""), body)
+            acquired_slots: list[asyncio.Semaphore] = []
+            if _is_xiuxian_api_path(path):
+                slots = await _acquire_xiuxian_api_slots(path)
+                if slots is None:
+                    LOGGER.warning(f"xiuxian api busy path={path}")
+                    return JSONResponse(
+                        status_code=429,
+                        content={
+                            "code": 429,
+                            "message": "当前请求较多，请稍后再试。",
+                            "detail": "Too Many Requests",
+                        },
+                    )
+                acquired_slots = slots
+            try:
+                if path.startswith("/plugins/xiuxian"):
+                    init_data = request.headers.get("x-telegram-init-data")
+                    if not init_data:
+                        try:
+                            body = await request.body()
+                        except ClientDisconnect:
+                            return JSONResponse(
+                                status_code=499,
+                                content={
+                                    "code": 499,
+                                    "message": "客户端已断开连接。",
+                                    "detail": "Client Disconnect",
+                                },
+                            )
+                        init_data = _extract_init_data_from_body_bytes(request.headers.get("content-type", ""), body)
 
-                    async def receive():
-                        return {"type": "http.request", "body": body, "more_body": False}
+                        async def receive():
+                            return {"type": "http.request", "body": body, "more_body": False}
 
-                    request = Request(request.scope, receive)
-                request.state.xiuxian_init_data = init_data
-            return await call_next(request)
+                        request = Request(request.scope, receive)
+                    request.state.xiuxian_init_data = init_data
+                return await call_next(request)
+            finally:
+                _release_xiuxian_api_slots(acquired_slots)
 
         app.state.xiuxian_request_context_middleware = True
 

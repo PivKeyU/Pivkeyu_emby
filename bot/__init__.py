@@ -254,9 +254,8 @@ pyrogram_max_concurrent_transmissions = _env_int(
     1,
 )
 LOGGER.info(
-    "Pyrogram 运行参数 workers=%s max_concurrent_transmissions=%s",
-    pyrogram_workers,
-    pyrogram_max_concurrent_transmissions,
+    f"Pyrogram 运行参数 workers={pyrogram_workers} "
+    f"max_concurrent_transmissions={pyrogram_max_concurrent_transmissions}"
 )
 
 bot = Client(bot_name, api_id=owner_api, api_hash=owner_hash, bot_token=bot_token, proxy=proxy,

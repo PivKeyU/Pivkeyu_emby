@@ -41,7 +41,7 @@ class Web:
         self.start_api = None
 
     async def _configure_runtime_limits(self) -> None:
-        tokens = _env_int("PIVKEYU_WEB_THREADPOOL_TOKENS", 128, minimum=40, maximum=512)
+        tokens = _env_int("PIVKEYU_WEB_THREADPOOL_TOKENS", 64, minimum=24, maximum=512)
         try:
             import anyio
 

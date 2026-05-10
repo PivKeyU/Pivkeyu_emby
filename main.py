@@ -1,7 +1,8 @@
 #! /usr/bin/python3
 # -*- coding: utf-8 -*-
 
-from bot import bot
+from bot import bot, bot_token
+from bot.func_helper.bot_watchdog import schedule_bot_watchdog
 
 # 面板
 from bot.modules.panel import *
@@ -12,4 +13,5 @@ from bot.modules.extra import *
 from bot.modules.callback import *
 from bot.web import *
 
+schedule_bot_watchdog(bot, bot_token)
 bot.run()
