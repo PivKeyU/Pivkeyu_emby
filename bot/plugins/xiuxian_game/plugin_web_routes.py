@@ -228,6 +228,7 @@ from bot.plugins.xiuxian_game.features.marriage import (
 )
 from bot.plugins.xiuxian_game.features.miniapp_bundle import (
     build_fishing_cast_bundle_patch,
+    build_gambling_action_bundle_patch,
     build_bootstrap_core_bundle,
     build_full_profile_bundle,
 )
@@ -449,33 +450,50 @@ def _env_int(name: str, default: int, minimum: int = 1, maximum: int | None = No
 
 XIUXIAN_API_MAX_CONCURRENCY = _env_int("PIVKEYU_XIUXIAN_API_MAX_CONCURRENCY", 32, minimum=1, maximum=512)
 XIUXIAN_HEAVY_API_MAX_CONCURRENCY = _env_int("PIVKEYU_XIUXIAN_HEAVY_API_MAX_CONCURRENCY", 8, minimum=1, maximum=128)
+XIUXIAN_VIEW_API_MAX_CONCURRENCY = _env_int("PIVKEYU_XIUXIAN_VIEW_API_MAX_CONCURRENCY", XIUXIAN_HEAVY_API_MAX_CONCURRENCY, minimum=1, maximum=128)
+XIUXIAN_ACTION_API_MAX_CONCURRENCY = _env_int("PIVKEYU_XIUXIAN_ACTION_API_MAX_CONCURRENCY", 24, minimum=1, maximum=256)
 XIUXIAN_API_ACQUIRE_TIMEOUT = _env_int("PIVKEYU_XIUXIAN_API_ACQUIRE_TIMEOUT", 2, minimum=1, maximum=30)
+XIUXIAN_ACTION_API_ACQUIRE_TIMEOUT = _env_int("PIVKEYU_XIUXIAN_ACTION_API_ACQUIRE_TIMEOUT", 10, minimum=1, maximum=60)
 _XIUXIAN_API_SEMAPHORE = asyncio.Semaphore(XIUXIAN_API_MAX_CONCURRENCY)
-_XIUXIAN_HEAVY_API_SEMAPHORE = asyncio.Semaphore(XIUXIAN_HEAVY_API_MAX_CONCURRENCY)
-_XIUXIAN_HEAVY_API_PREFIXES = (
+_XIUXIAN_VIEW_API_SEMAPHORE = asyncio.Semaphore(XIUXIAN_VIEW_API_MAX_CONCURRENCY)
+_XIUXIAN_ACTION_API_SEMAPHORE = asyncio.Semaphore(XIUXIAN_ACTION_API_MAX_CONCURRENCY)
+_XIUXIAN_VIEW_API_PREFIXES = (
     "/plugins/xiuxian/api/bootstrap",
     "/plugins/xiuxian/api/wiki",
-    "/plugins/xiuxian/api/gambling",
-    "/plugins/xiuxian/api/fishing",
-    "/plugins/xiuxian/api/explore",
-    "/plugins/xiuxian/api/boss",
+    "/plugins/xiuxian/api/boss/list",
+    "/plugins/xiuxian/api/boss/world/status",
+    "/plugins/xiuxian/api/player/search",
+    "/plugins/xiuxian/admin-api/bootstrap",
+)
+_XIUXIAN_ACTION_API_PREFIXES = (
+    "/plugins/xiuxian/api/gambling/exchange",
+    "/plugins/xiuxian/api/gambling/open",
+    "/plugins/xiuxian/api/fishing/cast",
+    "/plugins/xiuxian/api/explore/start",
+    "/plugins/xiuxian/api/explore/claim",
+    "/plugins/xiuxian/api/boss/challenge",
+    "/plugins/xiuxian/api/boss/world/attack",
     "/plugins/xiuxian/api/pill/use",
     "/plugins/xiuxian/api/retreat",
     "/plugins/xiuxian/api/sect/donate",
     "/plugins/xiuxian/api/farm/auto-harvest",
-    "/plugins/xiuxian/api/player/search",
-    "/plugins/xiuxian/admin-api/bootstrap",
 )
 _XIUXIAN_USER_ACTION_LOCK = Lock()
 _XIUXIAN_USER_ACTION_KEYS: set[tuple[str, int]] = set()
+_XIUXIAN_WIKI_BUILD_TASK: asyncio.Task | None = None
+_XIUXIAN_WIKI_BUILD_LOCK = asyncio.Lock()
 
 
 def _is_xiuxian_api_path(path: str) -> bool:
     return path.startswith("/plugins/xiuxian/api/") or path.startswith("/plugins/xiuxian/admin-api/")
 
 
-def _is_heavy_xiuxian_api_path(path: str) -> bool:
-    return any(path.startswith(prefix) for prefix in _XIUXIAN_HEAVY_API_PREFIXES)
+def _is_view_xiuxian_api_path(path: str) -> bool:
+    return any(path.startswith(prefix) for prefix in _XIUXIAN_VIEW_API_PREFIXES)
+
+
+def _is_action_xiuxian_api_path(path: str) -> bool:
+    return any(path.startswith(prefix) for prefix in _XIUXIAN_ACTION_API_PREFIXES)
 
 
 async def _try_acquire_api_slot(semaphore: asyncio.Semaphore, timeout: int) -> bool:
@@ -488,13 +506,17 @@ async def _try_acquire_api_slot(semaphore: asyncio.Semaphore, timeout: int) -> b
 
 async def _acquire_xiuxian_api_slots(path: str) -> list[asyncio.Semaphore] | None:
     acquired: list[asyncio.Semaphore] = []
-    for semaphore in (
-        _XIUXIAN_API_SEMAPHORE,
-        _XIUXIAN_HEAVY_API_SEMAPHORE if _is_heavy_xiuxian_api_path(path) else None,
-    ):
-        if semaphore is None:
-            continue
-        if not await _try_acquire_api_slot(semaphore, XIUXIAN_API_ACQUIRE_TIMEOUT):
+    if _is_view_xiuxian_api_path(path):
+        semaphores = (_XIUXIAN_VIEW_API_SEMAPHORE,)
+        timeout = XIUXIAN_API_ACQUIRE_TIMEOUT
+    elif _is_action_xiuxian_api_path(path):
+        semaphores = (_XIUXIAN_ACTION_API_SEMAPHORE,)
+        timeout = XIUXIAN_ACTION_API_ACQUIRE_TIMEOUT
+    else:
+        semaphores = (_XIUXIAN_API_SEMAPHORE,)
+        timeout = XIUXIAN_API_ACQUIRE_TIMEOUT
+    for semaphore in semaphores:
+        if not await _try_acquire_api_slot(semaphore, timeout):
             for item in reversed(acquired):
                 item.release()
             return None
@@ -523,6 +545,49 @@ def _release_user_action(key: tuple[str, int] | None) -> None:
         return
     with _XIUXIAN_USER_ACTION_LOCK:
         _XIUXIAN_USER_ACTION_KEYS.discard(key)
+
+
+def _cached_wiki_bundle() -> dict[str, Any]:
+    from bot.plugins.xiuxian_game.cache import CATALOG_TTL, load_multi_versioned_json
+
+    return load_multi_versioned_json(
+        version_part_groups=(
+            ("catalog", "achievements"),
+            ("catalog", "artifact-sets"),
+            ("catalog", "artifacts"),
+            ("catalog", "bosses"),
+            ("catalog", "encounters"),
+            ("catalog", "materials"),
+            ("catalog", "pills"),
+            ("catalog", "recipes"),
+            ("catalog", "scenes"),
+            ("catalog", "shop-items"),
+            ("catalog", "talismans"),
+            ("catalog", "tasks"),
+            ("catalog", "techniques"),
+            ("catalog", "titles"),
+        ),
+        cache_parts=("wiki-bundle",),
+        ttl=min(CATALOG_TTL, 60),
+        loader=build_wiki_bundle,
+    )
+
+
+async def _wiki_bundle_once() -> dict[str, Any]:
+    global _XIUXIAN_WIKI_BUILD_TASK
+    async with _XIUXIAN_WIKI_BUILD_LOCK:
+        task = _XIUXIAN_WIKI_BUILD_TASK
+        if task is None or task.done():
+            task = asyncio.create_task(run_in_threadpool(_cached_wiki_bundle))
+            _XIUXIAN_WIKI_BUILD_TASK = task
+
+            def _cleanup(done_task: asyncio.Task) -> None:
+                global _XIUXIAN_WIKI_BUILD_TASK
+                if _XIUXIAN_WIKI_BUILD_TASK is done_task:
+                    _XIUXIAN_WIKI_BUILD_TASK = None
+
+            task.add_done_callback(_cleanup)
+    return await task
 
 
 XIUXIAN_BOT_COMMANDS = (
@@ -987,32 +1052,7 @@ def register_web(app) -> None:
     @user_router.post("/api/wiki")
     async def xiuxian_wiki_api(payload: InitDataPayload):
         await run_in_threadpool(_verify_user_from_init_data, payload.init_data)
-
-        def _cached_wiki():
-            from bot.plugins.xiuxian_game.cache import load_multi_versioned_json, CATALOG_TTL
-            return load_multi_versioned_json(
-                version_part_groups=(
-                    ("catalog", "achievements"),
-                    ("catalog", "artifact-sets"),
-                    ("catalog", "artifacts"),
-                    ("catalog", "bosses"),
-                    ("catalog", "encounters"),
-                    ("catalog", "materials"),
-                    ("catalog", "pills"),
-                    ("catalog", "recipes"),
-                    ("catalog", "scenes"),
-                    ("catalog", "shop-items"),
-                    ("catalog", "talismans"),
-                    ("catalog", "tasks"),
-                    ("catalog", "techniques"),
-                    ("catalog", "titles"),
-                ),
-                cache_parts=("wiki-bundle",),
-                ttl=min(CATALOG_TTL, 60),
-                loader=build_wiki_bundle,
-            )
-
-        return {"code": 200, "data": await run_in_threadpool(_cached_wiki)}
+        return {"code": 200, "data": await _wiki_bundle_once()}
 
     @user_router.post("/api/upload-image")
     async def xiuxian_upload_image_api(
@@ -1267,7 +1307,16 @@ def register_web(app) -> None:
             raise HTTPException(status_code=429, detail="上一次奇石兑换仍在处理中，请稍后再试。")
         try:
             result = exchange_immortal_stones(telegram_user["id"], payload.count)
-            return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
+            return {
+                "code": 200,
+                "data": {
+                    "result": result,
+                    "bundle_patch": build_gambling_action_bundle_patch(
+                        telegram_user["id"],
+                        **_bundle_runtime_flags(telegram_user["id"]),
+                    ),
+                },
+            }
         finally:
             _release_user_action(action_key)
 
@@ -1280,7 +1329,13 @@ def register_web(app) -> None:
                 raise HTTPException(status_code=429, detail="上一次开石仍在处理中，请稍后再试。")
             try:
                 result = open_immortal_stones(telegram_user["id"], payload.count)
-                return telegram_user, result, _with_result_core_bundle(telegram_user["id"], result)
+                return telegram_user, result, {
+                    "result": result,
+                    "bundle_patch": build_gambling_action_bundle_patch(
+                        telegram_user["id"],
+                        **_bundle_runtime_flags(telegram_user["id"]),
+                    ),
+                }
             finally:
                 _release_user_action(action_key)
 

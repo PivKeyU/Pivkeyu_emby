@@ -274,6 +274,30 @@ def build_fishing_cast_bundle_patch(
     bundle = _build_core_profile_bundle(tg)
     bundle["journal"] = list_recent_journals(tg)
     bundle["fishing"] = build_fishing_bundle(tg)
+    bundle["bundle_section"] = "fishing"
+    _apply_capabilities(
+        bundle,
+        can_upload_images=can_upload_images,
+        upload_image_reason=upload_image_reason,
+        allow_non_admin_image_upload=allow_non_admin_image_upload,
+        is_admin=is_admin,
+        admin_panel_url=admin_panel_url,
+    )
+    return bundle
+
+
+def build_gambling_action_bundle_patch(
+    tg: int,
+    *,
+    can_upload_images: bool = False,
+    upload_image_reason: str = "",
+    allow_non_admin_image_upload: bool = False,
+    is_admin: bool = False,
+    admin_panel_url: str | None = None,
+) -> dict[str, Any]:
+    bundle = _build_core_profile_bundle(tg)
+    bundle["gambling"] = build_gambling_bundle(tg, bundle=bundle)
+    bundle["bundle_section"] = "gambling"
     _apply_capabilities(
         bundle,
         can_upload_images=can_upload_images,

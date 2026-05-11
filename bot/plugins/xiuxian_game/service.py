@@ -10234,16 +10234,26 @@ def build_gambling_bundle(tg: int, bundle: dict[str, Any] | None = None, *, incl
     current_bundle = bundle or {}
     settings = get_xiuxian_settings()
     immortal_stone = _immortal_stone_material()
-    material_rows = current_bundle.get("materials") if isinstance(current_bundle.get("materials"), list) else list_user_materials(tg)
-    owned_row = next(
-        (
-            row
-            for row in material_rows or []
-            if str(((row or {}).get("material") or {}).get("name") or "").strip() == IMMORTAL_STONE_NAME
-        ),
-        None,
-    )
-    owned_quantity = int((owned_row or {}).get("quantity") or 0)
+    material_id = int(immortal_stone.get("id") or 0)
+    if isinstance(current_bundle.get("materials"), list):
+        owned_row = next(
+            (
+                row
+                for row in current_bundle.get("materials") or []
+                if int(((row or {}).get("material") or {}).get("id") or 0) == material_id
+                or str(((row or {}).get("material") or {}).get("name") or "").strip() == IMMORTAL_STONE_NAME
+            ),
+            None,
+        )
+        owned_quantity = int((owned_row or {}).get("quantity") or 0)
+    else:
+        with Session() as session:
+            owned_quantity = sum(
+                max(int(row.quantity or 0), 0)
+                for row in session.query(XiuxianMaterialInventory)
+                .filter(XiuxianMaterialInventory.tg == int(tg), XiuxianMaterialInventory.material_id == material_id)
+                .all()
+            )
     effective_stats = current_bundle.get("effective_stats") or {}
     profile = current_bundle.get("profile") or serialize_profile(get_profile(tg, create=False)) or {}
     fortune_value = int(effective_stats.get("fortune", profile.get("fortune", FORTUNE_BASELINE)) or FORTUNE_BASELINE)
@@ -10312,6 +10322,17 @@ def build_gambling_bundle(tg: int, bundle: dict[str, Any] | None = None, *, incl
         "pool_preview": enabled_pool,
         "pool_size": len(enabled_pool),
     }
+
+
+def _gambling_effective_fortune(tg: int) -> tuple[int, dict[str, Any]]:
+    profile_obj = get_profile(int(tg), create=False)
+    profile_payload = serialize_profile(profile_obj) if profile_obj is not None else {}
+    if not profile_payload:
+        return FORTUNE_BASELINE, {}
+    battle_bundle = _battle_bundle(profile_payload)
+    effective_stats = battle_bundle.get("stats") or {}
+    fortune_value = int(effective_stats.get("fortune") or profile_payload.get("fortune") or FORTUNE_BASELINE)
+    return max(fortune_value, 0), profile_payload
 
 
 def exchange_immortal_stones(tg: int, count: int) -> dict[str, Any]:
@@ -10385,14 +10406,7 @@ def open_immortal_stones(tg: int, count: int) -> dict[str, Any]:
     if amount > max_count:
         raise ValueError(f"单次最多只能开启 {max_count} 枚仙界奇石。")
 
-    preview_bundle = serialize_full_profile(int(tg))
-    fortune_value = int(
-        (preview_bundle.get("effective_stats") or {}).get(
-            "fortune",
-            (preview_bundle.get("profile") or {}).get("fortune", FORTUNE_BASELINE),
-        )
-        or FORTUNE_BASELINE
-    )
+    fortune_value, _ = _gambling_effective_fortune(int(tg))
     empty_chance = _gambling_empty_chance(fortune_value)
     reward_pool = [
         entry
@@ -11290,7 +11304,22 @@ def _normalize_gambling_reward_pool(raw: Any) -> list[dict[str, Any]]:
 
 def _configured_gambling_pool(settings: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     current = settings or get_xiuxian_settings()
-    return _merge_catalog_gambling_reward_pool(_normalize_gambling_reward_pool(current.get("gambling_reward_pool")))
+    from bot.plugins.xiuxian_game.cache import CATALOG_TTL, load_multi_versioned_json
+
+    return load_multi_versioned_json(
+        version_part_groups=(
+            ("settings",),
+            ("catalog", "artifacts"),
+            ("catalog", "materials"),
+            ("catalog", "pills"),
+            ("catalog", "recipes"),
+            ("catalog", "talismans"),
+            ("catalog", "techniques"),
+        ),
+        cache_parts=("gambling", "reward-pool"),
+        ttl=CATALOG_TTL,
+        loader=lambda: _merge_catalog_gambling_reward_pool(_normalize_gambling_reward_pool(current.get("gambling_reward_pool"))),
+    )
 
 
 def _reward_pool_entry_enabled(entry: dict[str, Any], channel: str) -> bool:

@@ -43,6 +43,7 @@ const BOOTSTRAP_CACHE_KEY_PREFIX = "xiuxian_bootstrap_core_v1";
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
 const DEFERRED_SECTION_REQUEST_TIMEOUT_MS = 18000;
 const WIKI_REQUEST_TIMEOUT_MS = 20000;
+const ACTION_REQUEST_TIMEOUT_MS = 45000;
 const NETWORK_ERROR_MESSAGES = new Set([
   "Failed to fetch",
   "Load failed",
@@ -4259,6 +4260,10 @@ async function refreshBundle({ background = false } = {}) {
 
 function applyReturnedBundle(payload, { backgroundFallback = true } = {}) {
   if (payload?.bundle_patch) {
+    const patchSection = String(payload.bundle_patch.bundle_section || "").trim();
+    if (patchSection) {
+      state.deferredSectionsLoaded.add(patchSection);
+    }
     const mergedBundle = mergeBundleData(state.profileBundle, payload.bundle_patch);
     applyProfileBundle(mergedBundle);
     return Promise.resolve(mergedBundle);
@@ -4522,7 +4527,7 @@ document.querySelector("#gambling-exchange-form")?.addEventListener("submit", as
       "兑换中…",
       () => postJson("/plugins/xiuxian/api/gambling/exchange", {
         count: Number(document.querySelector("#gambling-exchange-count")?.value || 0),
-      }, { timeoutMs: 20000 }),
+      }, { timeoutMs: ACTION_REQUEST_TIMEOUT_MS }),
       { lockKey: "gambling:exchange" },
     );
     const result = payload.result || {};
@@ -4546,7 +4551,7 @@ document.querySelector("#gambling-open-form")?.addEventListener("submit", async 
       "开启中…",
       () => postJson("/plugins/xiuxian/api/gambling/open", {
         count: Number(document.querySelector("#gambling-open-count")?.value || 0),
-      }, { timeoutMs: 20000 }),
+      }, { timeoutMs: ACTION_REQUEST_TIMEOUT_MS }),
       { lockKey: "gambling:open" },
     );
     const result = payload.result || {};
@@ -8571,7 +8576,7 @@ document.querySelector("#fishing-spot-list")?.addEventListener("click", async (e
     const payload = await runButtonAction(
       button,
       "抛竿中…",
-      () => postJson("/plugins/xiuxian/api/fishing/cast", { spot_key: spotKey }, { timeoutMs: 20000 }),
+      () => postJson("/plugins/xiuxian/api/fishing/cast", { spot_key: spotKey }, { timeoutMs: ACTION_REQUEST_TIMEOUT_MS }),
       { lockKey: "fishing:cast" },
     );
     applyReturnedBundle(payload);
