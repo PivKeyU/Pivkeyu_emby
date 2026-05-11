@@ -2066,6 +2066,15 @@ def _consume_required_item(
     )
 
 
+def _pending_inventory_row(session: Session, model_cls: type, **keys: int) -> Any | None:
+    for pending in session.new:
+        if not isinstance(pending, model_cls):
+            continue
+        if all(int(getattr(pending, key, 0) or 0) == int(value) for key, value in keys.items()):
+            return pending
+    return None
+
+
 def _grant_item_in_session(
     session: Session,
     tg: int,
@@ -2082,12 +2091,14 @@ def _grant_item_in_session(
         artifact = get_artifact(int(ref_id))
         if artifact is None:
             raise ValueError("任务奖励物不存在")
-        row = (
-            session.query(XiuxianArtifactInventory)
-            .filter(XiuxianArtifactInventory.tg == int(tg), XiuxianArtifactInventory.artifact_id == int(ref_id))
-            .with_for_update()
-            .first()
-        )
+        row = _pending_inventory_row(session, XiuxianArtifactInventory, tg=int(tg), artifact_id=int(ref_id))
+        if row is None:
+            row = (
+                session.query(XiuxianArtifactInventory)
+                .filter(XiuxianArtifactInventory.tg == int(tg), XiuxianArtifactInventory.artifact_id == int(ref_id))
+                .with_for_update()
+                .first()
+            )
         if row is None:
             row = XiuxianArtifactInventory(tg=int(tg), artifact_id=int(ref_id), quantity=0, bound_quantity=0)
             session.add(row)
@@ -2099,12 +2110,14 @@ def _grant_item_in_session(
         pill = get_pill(int(ref_id))
         if pill is None:
             raise ValueError("任务奖励物不存在")
-        row = (
-            session.query(XiuxianPillInventory)
-            .filter(XiuxianPillInventory.tg == int(tg), XiuxianPillInventory.pill_id == int(ref_id))
-            .with_for_update()
-            .first()
-        )
+        row = _pending_inventory_row(session, XiuxianPillInventory, tg=int(tg), pill_id=int(ref_id))
+        if row is None:
+            row = (
+                session.query(XiuxianPillInventory)
+                .filter(XiuxianPillInventory.tg == int(tg), XiuxianPillInventory.pill_id == int(ref_id))
+                .with_for_update()
+                .first()
+            )
         if row is None:
             row = XiuxianPillInventory(tg=int(tg), pill_id=int(ref_id), quantity=0)
             session.add(row)
@@ -2115,12 +2128,14 @@ def _grant_item_in_session(
         talisman = get_talisman(int(ref_id))
         if talisman is None:
             raise ValueError("任务奖励物不存在")
-        row = (
-            session.query(XiuxianTalismanInventory)
-            .filter(XiuxianTalismanInventory.tg == int(tg), XiuxianTalismanInventory.talisman_id == int(ref_id))
-            .with_for_update()
-            .first()
-        )
+        row = _pending_inventory_row(session, XiuxianTalismanInventory, tg=int(tg), talisman_id=int(ref_id))
+        if row is None:
+            row = (
+                session.query(XiuxianTalismanInventory)
+                .filter(XiuxianTalismanInventory.tg == int(tg), XiuxianTalismanInventory.talisman_id == int(ref_id))
+                .with_for_update()
+                .first()
+            )
         if row is None:
             row = XiuxianTalismanInventory(tg=int(tg), talisman_id=int(ref_id), quantity=0, bound_quantity=0)
             session.add(row)
@@ -2132,12 +2147,14 @@ def _grant_item_in_session(
         material = get_material(int(ref_id))
         if material is None:
             raise ValueError("任务奖励物不存在")
-        row = (
-            session.query(XiuxianMaterialInventory)
-            .filter(XiuxianMaterialInventory.tg == int(tg), XiuxianMaterialInventory.material_id == int(ref_id))
-            .with_for_update()
-            .first()
-        )
+        row = _pending_inventory_row(session, XiuxianMaterialInventory, tg=int(tg), material_id=int(ref_id))
+        if row is None:
+            row = (
+                session.query(XiuxianMaterialInventory)
+                .filter(XiuxianMaterialInventory.tg == int(tg), XiuxianMaterialInventory.material_id == int(ref_id))
+                .with_for_update()
+                .first()
+            )
         if row is None:
             row = XiuxianMaterialInventory(tg=int(tg), material_id=int(ref_id), quantity=0)
             session.add(row)
@@ -2396,6 +2413,17 @@ def _get_item_payload(kind: str, ref_id: int) -> dict[str, Any] | None:
             recipe["result_item"] = _get_item_payload(str(recipe.get("result_kind") or ""), int(recipe.get("result_ref_id") or 0))
         return recipe
     return None
+
+
+def _attach_talisman_preview_effects(item: dict[str, Any] | None, profile: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    if not item:
+        return item
+    legacy = _legacy_service()
+    profile_payload = profile or {}
+    item["resolved_effects"] = legacy.resolve_talisman_effects(profile_payload, item)
+    item["active_effects"] = legacy.resolve_talisman_active_effects(profile_payload, item)
+    item["active_effect_summary"] = legacy.active_talisman_effect_summary(item["active_effects"])
+    return item
 
 
 def _quality_from_item(kind: str, item: dict[str, Any] | None) -> int:
@@ -2871,6 +2899,8 @@ def build_recipe_catalog(tg: int | None = None) -> list[dict[str, Any]]:
         recipe["source_labels"] = resolved_source_labels
         recipe["source_text"] = "、".join(resolved_source_labels[:4]) if resolved_source_labels else ""
         recipe["result_item"] = _get_item_payload(recipe["result_kind"], int(recipe["result_ref_id"]))
+        if str(recipe.get("result_kind") or "") == "talisman":
+            recipe["result_item"] = _attach_talisman_preview_effects(recipe["result_item"], profile)
         if profile and profile.get("consented"):
             preview = _recipe_success_preview(recipe, ingredients, profile, recipe["result_item"])
             recipe["current_success_rate"] = preview["current_success_rate"]

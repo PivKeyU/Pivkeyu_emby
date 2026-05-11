@@ -4939,7 +4939,7 @@ def _current_technique_payload(profile_data: dict[str, Any]) -> dict[str, Any] |
     return technique
 
 
-SEED_DATA_VERSION = "2026-05-08-talisman-scope-v1"
+SEED_DATA_VERSION = "2026-05-11-longsui-pill-balance-v1"
 DEFAULT_ARTIFACT_SET_SYNC_SETTING = "default_artifact_set_sync_version"
 DEFAULT_ARTIFACT_SET_SYNC_VERSION = "2026-05-10-default-artifact-set-links-v1"
 DEFAULT_BOSS_SYNC_SETTING = "default_boss_sync_version"

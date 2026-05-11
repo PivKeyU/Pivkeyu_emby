@@ -963,9 +963,24 @@ def register_web(app) -> None:
         await run_in_threadpool(_verify_user_from_init_data, payload.init_data)
 
         def _cached_wiki():
-            from bot.plugins.xiuxian_game.cache import load_versioned_json, CATALOG_TTL
-            return load_versioned_json(
-                version_parts=("catalog", "wiki"),
+            from bot.plugins.xiuxian_game.cache import load_multi_versioned_json, CATALOG_TTL
+            return load_multi_versioned_json(
+                version_part_groups=(
+                    ("catalog", "achievements"),
+                    ("catalog", "artifact-sets"),
+                    ("catalog", "artifacts"),
+                    ("catalog", "bosses"),
+                    ("catalog", "encounters"),
+                    ("catalog", "materials"),
+                    ("catalog", "pills"),
+                    ("catalog", "recipes"),
+                    ("catalog", "scenes"),
+                    ("catalog", "shop-items"),
+                    ("catalog", "talismans"),
+                    ("catalog", "tasks"),
+                    ("catalog", "techniques"),
+                    ("catalog", "titles"),
+                ),
                 cache_parts=("wiki-bundle",),
                 ttl=min(CATALOG_TTL, 60),
                 loader=build_wiki_bundle,

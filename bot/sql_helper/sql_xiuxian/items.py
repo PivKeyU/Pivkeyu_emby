@@ -1271,9 +1271,11 @@ def _grant_artifact_inventory_in_session(
     strict_quantity: bool = False,
     exclude_owner_tgs: set[int] | None = None,
 ) -> tuple[XiuxianArtifact, XiuxianArtifactInventory, int]:
+    tg_value = int(tg)
+    artifact_value = int(artifact_id)
     artifact = (
         session.query(XiuxianArtifact)
-        .filter(XiuxianArtifact.id == int(artifact_id))
+        .filter(XiuxianArtifact.id == artifact_value)
         .with_for_update()
         .first()
     )
@@ -1281,17 +1283,28 @@ def _grant_artifact_inventory_in_session(
         raise ValueError("未找到目标法宝。")
 
     requested = max(int(quantity or 0), 1)
-    row = (
+    row = next(
+        (
+            pending
+            for pending in session.new
+            if isinstance(pending, XiuxianArtifactInventory)
+            and int(getattr(pending, "tg", 0) or 0) == tg_value
+            and int(getattr(pending, "artifact_id", 0) or 0) == artifact_value
+        ),
+        None,
+    )
+    if row is None:
+        row = (
         session.query(XiuxianArtifactInventory)
         .filter(
-            XiuxianArtifactInventory.tg == int(tg),
-            XiuxianArtifactInventory.artifact_id == int(artifact_id),
+            XiuxianArtifactInventory.tg == tg_value,
+            XiuxianArtifactInventory.artifact_id == artifact_value,
         )
         .with_for_update()
         .first()
-    )
+        )
     if row is None:
-        row = XiuxianArtifactInventory(tg=int(tg), artifact_id=int(artifact_id), quantity=0, bound_quantity=0)
+        row = XiuxianArtifactInventory(tg=tg_value, artifact_id=artifact_value, quantity=0, bound_quantity=0)
         session.add(row)
 
     if _artifact_unique_item_enabled(artifact):
@@ -1299,8 +1312,8 @@ def _grant_artifact_inventory_in_session(
             raise ValueError(f"唯一法宝【{artifact.name}】每次只能获取 1 件。")
         holder_tg = _unique_artifact_holder_tg_in_session(
             session,
-            int(artifact_id),
-            exclude_tgs={int(tg), *(exclude_owner_tgs or set())},
+            artifact_value,
+            exclude_tgs={tg_value, *(exclude_owner_tgs or set())},
         )
         if holder_tg is not None:
             raise ValueError(f"唯一法宝【{artifact.name}】已被其他人获得，无法再次获取。")

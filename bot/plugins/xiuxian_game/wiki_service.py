@@ -16,9 +16,11 @@ from bot.plugins.xiuxian_game.features.fishing import (
 from bot.plugins.xiuxian_game.features.growth import ensure_seed_data
 from bot.sql_helper.sql_xiuxian import (
     ITEM_KIND_LABELS,
+    PILL_EFFECT_VALUE_LABELS,
     get_quality_meta,
     get_xiuxian_settings,
     list_artifacts,
+    list_artifact_sets,
     list_achievements,
     list_boss_configs,
     list_encounter_templates,
@@ -86,6 +88,189 @@ BONUS_LABELS = (
     ("cultivation_bonus", "修炼效率"),
     ("breakthrough_bonus", "突破加成"),
 )
+BONUS_PERCENT_FIELDS = {"duel_rate_bonus", "cultivation_bonus", "breakthrough_bonus"}
+ATTRIBUTE_WIKI_ENTRIES = (
+    {
+        "key": "bone",
+        "label": "根骨",
+        "subtitle": "养成资质 · 抗丹毒 · 战力基础",
+        "description": "根骨主要影响吐纳修炼收益、突破成功率、丹毒减免、气血成长，并计入综合战力。",
+        "lines": [
+            "吐纳修炼：根骨越高，每日吐纳得到的修为越多。",
+            "突破境界：根骨会提高突破成功率，并减轻丹毒对突破的负面影响。",
+            "丹药与成长：根骨会降低服丹新增丹毒；境界和层数提升时也会抬高气血底线。",
+            "战力与门槛：根骨计入综合战力，也会作为部分委托、宗门和成长事件的条件或收益加成。",
+        ],
+        "tags": ["吐纳", "突破", "丹毒", "气血"],
+        "filters": ["starter", "combat", "task", "sect"],
+        "keywords": ["体魄", "道基", "抗丹毒", "修炼收益"],
+    },
+    {
+        "key": "comprehension",
+        "label": "悟性",
+        "subtitle": "修炼效率 · 炼制成功 · 技术委托",
+        "description": "悟性主要影响吐纳修为、突破成功率、炼丹炼器制符成功率，并计入综合战力。",
+        "lines": [
+            "吐纳修炼：悟性越高，每日吐纳得到的修为越多。",
+            "突破境界：悟性是突破成功率的重要来源之一。",
+            "炼制玩法：炼丹、炼器、制符会按悟性给成功率加成，材料品质和宗门加成也会叠加。",
+            "委托与宗门：部分技术类委托、宗门准入和宗门任务会要求悟性，并把悟性转成额外收益。",
+        ],
+        "tags": ["吐纳", "突破", "炼制", "委托"],
+        "filters": ["starter", "crafting", "task", "sect"],
+        "keywords": ["炼丹", "炼器", "制符", "成功率", "参悟"],
+    },
+    {
+        "key": "divine_sense",
+        "label": "神识",
+        "subtitle": "探索掉落 · 暴击会心 · 查探对手",
+        "description": "神识主要影响秘境掉落权重、空探索概率、斗法会心、Boss伤害，并用于看破他人虚实。",
+        "lines": [
+            "秘境探索：神识会提高材料类掉落权重，并降低高品阶场景的空手概率。",
+            "斗法战斗：神识差会影响会心概率；部分神识类功法、符箓和破甲效果也依赖它。",
+            "Boss玩法：神识会直接提高对 Boss 的伤害，并提高会心概率。",
+            "社交侦查：查看他人更详细虚实时，需要自己的神识高于对方。",
+        ],
+        "tags": ["探索", "斗法", "Boss", "查探"],
+        "filters": ["explore", "combat", "boss", "social", "sect"],
+        "keywords": ["暴击", "会心", "掉落权重", "看破", "虚实"],
+    },
+    {
+        "key": "fortune",
+        "label": "机缘",
+        "subtitle": "概率修正 · 稀有奖励 · 灵石收益",
+        "description": "机缘主要影响各种概率判定和稀有奖励权重，包括突破、聊天修为、炼制、探索、垂钓、赌坊、抢劫和夺宝。",
+        "lines": [
+            "概率判定：突破、聊天获得修为、属性小成长、斗法胜率、夺宝等概率都会受机缘修正。",
+            "探索与垂钓：机缘会提高高品阶掉落权重、降低空手或空竿概率，并影响钓到高品阶奖励的机会。",
+            "炼制玩法：机缘参与炼制成功率加成，并在最终概率上再次修正。",
+            "收益玩法：吐纳灵石、委托灵石、赌坊稀有奖励和抢劫收益都会吃机缘。",
+        ],
+        "tags": ["概率", "稀有", "探索", "赌坊"],
+        "filters": ["starter", "explore", "crafting", "combat", "task", "gambling"],
+        "keywords": ["运气", "概率", "稀有掉落", "空竿", "开石", "夺宝"],
+    },
+    {
+        "key": "willpower",
+        "label": "心志",
+        "subtitle": "突破稳定 · 高阶委托 · 斗法成长",
+        "description": "心志主要影响突破成功率、部分委托门槛与收益、宗门门槛，并计入综合战力。",
+        "lines": [
+            "突破境界：心志会提高突破成功率；突破失败时也会额外增长心志。",
+            "委托玩法：仙坊打工、值守地火室、镇守裂隙等委托会要求心志，并把心志折算为修为或灵石收益。",
+            "宗门门槛：部分宗门要求最低心志，入宗前需要先把有效属性堆到门槛。",
+            "斗法成长：斗法胜出后可能触发心志成长；心志本身也计入综合战力评分。",
+        ],
+        "tags": ["突破", "委托", "宗门", "成长"],
+        "filters": ["starter", "combat", "task", "sect"],
+        "keywords": ["道心", "突破失败", "地火", "裂隙", "打工"],
+    },
+    {
+        "key": "charisma",
+        "label": "魅力",
+        "subtitle": "灵石收益 · 委托门槛 · 综合战力",
+        "description": "魅力主要影响部分灵石收益和委托要求，也会少量计入综合战力。",
+        "lines": [
+            "吐纳收益：魅力会少量提高每日吐纳时获得的灵石。",
+            "委托收益：仙坊打工、照料灵田、修补灵剑等委托会把魅力折算进灵石收益，部分高阶委托还会要求魅力。",
+            "成长来源：部分委托成功后可能触发魅力小成长。",
+            "战力评分：魅力在综合战力里的权重较低，更偏收益和门槛属性。",
+        ],
+        "tags": ["灵石", "委托", "收益"],
+        "filters": ["starter", "task"],
+        "keywords": ["人缘", "坊市", "修剑", "打工"],
+    },
+    {
+        "key": "karma",
+        "label": "因果",
+        "subtitle": "突破辅助 · 探索事件 · 成长概率",
+        "description": "因果主要影响突破辅助、秘境额外事件、委托修为收益和属性成长概率，并计入综合战力。",
+        "lines": [
+            "突破境界：因果会小幅提高突破成功率。",
+            "秘境探索：因果会提高部分额外奖励事件的触发机会，并影响探索属性成长。",
+            "委托收益：部分实战或技术委托会把因果折算为修为收益。",
+            "成长概率：属性小成长判定会把机缘与部分因果一起用于概率修正。",
+        ],
+        "tags": ["突破", "探索", "委托", "成长"],
+        "filters": ["explore", "task", "combat"],
+        "keywords": ["额外事件", "概率修正", "修为收益"],
+    },
+    {
+        "key": "qi_blood",
+        "label": "气血",
+        "subtitle": "生命上限 · 持久战 · 实战委托",
+        "description": "气血主要决定斗法生命上限，并明显计入综合战力、抢劫收益和高风险委托。",
+        "lines": [
+            "斗法战斗：气血就是战斗中的生命上限，打到 0 即难以再战。",
+            "战力评分：气血会计入综合战力，数值通常比普通属性更大。",
+            "委托玩法：巡拣矿脉、云舟押阵、镇守裂隙等委托会要求或奖励气血路线。",
+            "成长来源：委托、探索和斗法胜出后都有机会触发气血成长。",
+        ],
+        "tags": ["生命", "斗法", "委托", "战力"],
+        "filters": ["combat", "task", "explore"],
+        "keywords": ["血量", "生命上限", "续航", "硬战"],
+    },
+    {
+        "key": "true_yuan",
+        "label": "真元",
+        "subtitle": "技能资源 · 修炼底子 · 耐力委托",
+        "description": "真元主要决定斗法技能消耗资源，并影响综合战力、技术/耐力委托和部分功法续航。",
+        "lines": [
+            "斗法战斗：真元是战斗中的技能资源，功法和符箓技能会消耗真元；真元不足时技能不会触发。",
+            "功法续航：治疗、护盾、破甲、闪避等技能常配置真元消耗，真元越高越能撑完整场。",
+            "委托玩法：照料灵田、值守地火室、检修护山阵、修补灵剑等会要求真元，并把真元折算为收益。",
+            "属性成长：吐纳和斗法胜出都有机会让真元成长；真元也计入综合战力。",
+        ],
+        "tags": ["技能", "斗法", "委托", "续航"],
+        "filters": ["combat", "task", "crafting", "sect"],
+        "keywords": ["蓝量", "法力", "技能消耗", "地火", "护山阵", "灵田"],
+    },
+    {
+        "key": "body_movement",
+        "label": "身法",
+        "subtitle": "先手闪避 · 抢劫攻防 · 门槛属性",
+        "description": "身法主要影响斗法先手和闪避，也影响抢劫、委托、宗门门槛与综合战力。",
+        "lines": [
+            "斗法战斗：每回合出手顺序按身法加随机值决定；双方身法差会影响闪避概率。",
+            "抢劫玩法：抢劫成功后的灵石金额、失败后的赔付，以及攻防压力都会计算身法。",
+            "委托与宗门：打工、代捕灵兽、护送商队、云舟押阵等会要求或奖励身法，部分宗门也有最低身法门槛。",
+            "成长来源：委托、探索和斗法胜出都有机会触发身法成长。",
+        ],
+        "tags": ["先手", "闪避", "抢劫", "委托"],
+        "filters": ["combat", "task", "social", "sect"],
+        "keywords": ["速度", "先攻", "闪避率", "偷窃", "抢劫"],
+    },
+    {
+        "key": "attack_power",
+        "label": "攻击",
+        "subtitle": "伤害输出 · 抢劫压力 · Boss伤害",
+        "description": "攻击主要决定斗法和 Boss 的伤害输出，也影响抢劫成功收益、高风险委托和综合战力。",
+        "lines": [
+            "斗法战斗：攻击决定普通攻击、持续伤害、额外伤害等大多数输出效果。",
+            "Boss玩法：攻击是 Boss 伤害的核心来源，同时参与最低伤害下限。",
+            "抢劫玩法：攻击会提高出手压力和得手金额；防守方则更看防御、身法、机缘和神识。",
+            "委托与门槛：代捕灵兽、护送商队、云舟押阵、镇守裂隙等实战委托会要求攻击。",
+        ],
+        "tags": ["伤害", "斗法", "Boss", "抢劫"],
+        "filters": ["combat", "boss", "task", "social"],
+        "keywords": ["输出", "破防", "伤害", "攻伐"],
+    },
+    {
+        "key": "defense_power",
+        "label": "防御",
+        "subtitle": "承伤减免 · 护盾格挡 · 抢劫防守",
+        "description": "防御主要减少斗法承伤、增强护盾或格挡类效果，并影响抢劫防守、委托门槛和综合战力。",
+        "lines": [
+            "斗法战斗：防御会抵消伤害；护盾和格挡类技能常按防御放大效果。",
+            "抢劫防守：防守方防御越高，越能压低对方得手压力，并提高对方失手赔付。",
+            "委托玩法：巡拣矿脉、护送商队、值守地火室、云舟押阵、镇守裂隙等会要求防御。",
+            "战力评分：防御是综合战力的核心战斗属性之一。",
+        ],
+        "tags": ["承伤", "护盾", "抢劫", "委托"],
+        "filters": ["combat", "task", "social", "sect"],
+        "keywords": ["减伤", "格挡", "护体", "防守"],
+    },
+)
 COMBAT_BONUS_FIELDS = (
     "attack_bonus",
     "defense_bonus",
@@ -94,6 +279,17 @@ COMBAT_BONUS_FIELDS = (
     "body_movement_bonus",
     "duel_rate_bonus",
 )
+COMBAT_EFFECT_LABELS = {
+    "extra_damage": "追击伤害",
+    "attack": "攻击",
+    "shield": "护盾",
+    "guard": "格挡",
+    "dodge": "闪避",
+    "armor_break": "破甲",
+    "heal": "治疗",
+    "burn": "灼烧",
+    "bleed": "流血",
+}
 TUTORIAL_FILTER_RULES = (
     ("starter", ("开局", "新手前三天", "先做什么", "第一天", "第二天", "第三天", "每日上线", "常用指令", "首页 wiki", "修仙 wiki")),
     ("explore", ("探索", "秘境", "垂钓", "灵田", "奇遇")),
@@ -245,12 +441,113 @@ def _format_bonus_summary(payload: dict[str, Any], limit: int = 5) -> str:
         if value == 0:
             continue
         prefix = "+" if value > 0 else ""
-        parts.append(f"{label}{prefix}{value}")
+        suffix = "%" if field in BONUS_PERCENT_FIELDS else ""
+        parts.append(f"{label}{prefix}{value}{suffix}")
     if not parts:
         return "暂无直接属性加成"
     visible = parts[:limit]
     suffix = f" 等 {len(parts)} 项" if len(parts) > limit else ""
     return "、".join(visible) + suffix
+
+
+def _format_realm_requirement(payload: dict[str, Any]) -> str:
+    stage = str(payload.get("min_realm_stage") or "").strip()
+    layer = max(int(payload.get("min_realm_layer") or 0), 0)
+    if not stage:
+        return "无境界门槛"
+    return f"{stage}{layer}层" if layer > 0 else stage
+
+
+def _format_pill_primary_effect(item: dict[str, Any]) -> str:
+    pill_type = str(item.get("pill_type") or "").strip()
+    label = str(item.get("effect_value_label") or PILL_EFFECT_VALUE_LABELS.get(pill_type) or "主效果").strip()
+    value = int(item.get("effect_value") or 0)
+    if pill_type == "foundation":
+        return f"{label}：+{value}%"
+    if pill_type == "clear_poison":
+        return f"{label}：-{value} 丹毒"
+    if pill_type in {"root_earth", "root_heaven", "root_variant"}:
+        return f"{label}：固定改造为{str(item.get('pill_type_label') or '指定灵根').replace('洗成', '')}"
+    prefix = "+" if value > 0 else ""
+    return f"{label}：{prefix}{value}"
+
+
+def _format_combat_effect_detail(effect: dict[str, Any]) -> str:
+    kind = str(effect.get("kind") or "").strip()
+    name = str(effect.get("name") or effect.get("display_name") or COMBAT_EFFECT_LABELS.get(kind) or kind or "战斗效果").strip()
+    parts: list[str] = []
+    chance = int(effect.get("chance") or 0)
+    if chance > 0:
+        parts.append(f"触发{chance}%")
+    duration = int(effect.get("duration") or 0)
+    if duration > 0:
+        parts.append(f"持续{duration}轮")
+    flat_damage = int(effect.get("flat_damage") or 0)
+    if flat_damage:
+        parts.append(f"固定伤害{flat_damage:+d}")
+    flat_shield = int(effect.get("flat_shield") or 0)
+    if flat_shield:
+        parts.append(f"护盾+{flat_shield}")
+    flat_heal = int(effect.get("flat_heal") or 0)
+    if flat_heal:
+        parts.append(f"治疗+{flat_heal}")
+    ratio_percent = int(effect.get("ratio_percent") or 0)
+    if ratio_percent:
+        parts.append(f"倍率{ratio_percent:+d}%")
+    dodge_bonus = int(effect.get("dodge_bonus") or 0)
+    if dodge_bonus:
+        parts.append(f"闪避{dodge_bonus:+d}")
+    hit_bonus = int(effect.get("hit_bonus") or 0)
+    if hit_bonus:
+        parts.append(f"命中{hit_bonus:+d}")
+    defense_ratio = int(effect.get("defense_ratio_percent") or 0)
+    if defense_ratio:
+        parts.append(f"防御影响{defense_ratio:+d}%")
+    attack_ratio = int(effect.get("attack_ratio_percent") or 0)
+    if attack_ratio:
+        parts.append(f"攻击影响{attack_ratio:+d}%")
+    cost = int(effect.get("cost_true_yuan") or 0)
+    if cost > 0:
+        parts.append(f"真元消耗{cost}")
+    kind_label = COMBAT_EFFECT_LABELS.get(kind, kind)
+    detail = f"{name}（{kind_label}）" if kind_label and kind_label != name else name
+    return f"{detail}：{'、'.join(parts)}" if parts else detail
+
+
+def _format_combat_config_summary(payload: dict[str, Any], *, limit: int = 4) -> str:
+    config = payload.get("combat_config") if isinstance(payload.get("combat_config"), dict) else {}
+    if not config:
+        return "暂无战斗技能配置"
+    rows: list[str] = []
+    opening_text = str(config.get("opening_text") or "").strip()
+    if opening_text:
+        rows.append(f"起手：{opening_text}")
+    for key, label in (("skills", "主动"), ("passives", "被动")):
+        for effect in config.get(key) or []:
+            if isinstance(effect, dict) and str(effect.get("kind") or "").strip():
+                rows.append(f"{label}{_format_combat_effect_detail(effect)}")
+    if not rows:
+        return "暂无战斗技能配置"
+    visible = rows[:limit]
+    suffix = f" 等 {len(rows)} 项" if len(rows) > limit else ""
+    return "；".join(visible) + suffix
+
+
+def _build_artifact_set_catalog() -> dict[int, dict[str, Any]]:
+    return {
+        int(item["id"]): item
+        for item in list_artifact_sets(enabled_only=True)
+        if int(item.get("id") or 0) > 0
+    }
+
+
+def _artifact_set_member_names(item_catalog: dict[str, dict[int, dict[str, Any]]], artifact_set_id: int) -> list[str]:
+    names = [
+        str(item.get("name") or "").strip()
+        for item in item_catalog.get("artifact", {}).values()
+        if int(item.get("artifact_set_id") or 0) == int(artifact_set_id or 0)
+    ]
+    return [name for name in names if name]
 
 
 def _format_reward_summary(
@@ -754,6 +1051,7 @@ def _build_item_entries(
     source_map: dict[tuple[str, int], list[str]],
     crafted_by_map: dict[tuple[str, int], list[str]],
     item_catalog: dict[str, dict[int, dict[str, Any]]],
+    artifact_set_catalog: dict[int, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     for kind in ("artifact", "pill", "talisman", "technique"):
@@ -771,6 +1069,47 @@ def _build_item_entries(
             if direct_sources:
                 source_label = "主要来源" if kind == "technique" else "直接获取"
                 body_lines.append(f"{source_label}：{_join_labels(direct_sources, limit=4)}")
+            set_payload: dict[str, Any] = {}
+            set_member_names: list[str] = []
+            if kind == "artifact":
+                set_id = int(item.get("artifact_set_id") or 0)
+                set_payload = artifact_set_catalog.get(set_id) or {}
+                set_member_names = _artifact_set_member_names(item_catalog, set_id) if set_payload else []
+                body_lines.append(
+                    "装备信息："
+                    f"{str(item.get('artifact_role_label') or item.get('artifact_role') or '法宝').strip()} · "
+                    f"{str(item.get('equip_slot_label') or item.get('equip_slot') or '未标注部位').strip()} · "
+                    f"{str(item.get('equip_category_label') or item.get('equip_category') or '未分类').strip()}"
+                    + (" · 唯一装备" if bool(item.get("unique_item")) else "")
+                )
+                body_lines.append(f"装备门槛：{_format_realm_requirement(item)}")
+                body_lines.append(f"基础属性：{_format_bonus_summary(item, limit=12)}")
+                body_lines.append(f"战斗效果：{_format_combat_config_summary(item)}")
+                if set_payload:
+                    body_lines.append(
+                        f"所属套装：{str(set_payload.get('name') or '').strip()}（{max(int(set_payload.get('required_count') or 0), 1)} 件激活）"
+                    )
+                    if set_member_names:
+                        body_lines.append(f"套装部件：{_join_labels(set_member_names, limit=6)}")
+                    body_lines.append(f"套装效果：{_format_bonus_summary(set_payload, limit=12)}")
+                    set_description = str(set_payload.get("description") or "").strip()
+                    if set_description:
+                        body_lines.append(f"套装说明：{set_description}")
+                else:
+                    body_lines.append("所属套装：无")
+            elif kind == "pill":
+                body_lines.append(f"丹药类型：{str(item.get('pill_type_label') or item.get('pill_type') or '未分类').strip()}")
+                body_lines.append(f"服用门槛：{_format_realm_requirement(item)}")
+                body_lines.append(f"主要效果：{_format_pill_primary_effect(item)}")
+                poison_delta = int(item.get("poison_delta") or 0)
+                poison_prefix = "+" if poison_delta > 0 else ""
+                body_lines.append(f"丹毒变化：{poison_prefix}{poison_delta}")
+                body_lines.append(f"附加属性：{_format_bonus_summary(item, limit=12)}")
+            elif kind == "talisman":
+                body_lines.append(f"使用门槛：{_format_realm_requirement(item)}")
+                body_lines.append(f"基础属性：{_format_bonus_summary(item, limit=12)}")
+                body_lines.append(f"显化次数：斗法内最多 {max(int(item.get('effect_uses') or 1), 1)} 次")
+                body_lines.append(f"战斗效果：{_format_combat_config_summary(item)}")
             if kind == "technique":
                 technique_type = str(item.get("technique_type_label") or item.get("technique_type") or "功法").strip()
                 realm_stage = str(item.get("min_realm_stage") or "").strip()
@@ -779,6 +1118,7 @@ def _build_item_entries(
                     layer_text = f"{realm_layer}层" if realm_layer > 0 else ""
                     body_lines.append(f"修习门槛：{realm_stage}{layer_text}")
                 body_lines.append(f"主要加成：{_format_bonus_summary(item)}")
+                body_lines.append(f"战斗效果：{_format_combat_config_summary(item)}")
             if not body_lines:
                 fallback = "获取方式：暂未标注，可先搜索同名配方或查看相关玩法教程。"
                 if kind == "technique":
@@ -793,6 +1133,14 @@ def _build_item_entries(
             elif kind == "technique":
                 body_lines.append(f"玩法链路：优先走{_source_route_summary(direct_sources)}掌握功法，再按门槛切换修习。")
             subtitle_parts = [ITEM_KIND_LABELS.get(kind, kind), str(quality.get("label") or "凡品")]
+            if kind == "artifact":
+                subtitle_parts.append(str(item.get("equip_slot_label") or item.get("equip_slot") or ""))
+                if set_payload:
+                    subtitle_parts.append(str(set_payload.get("name") or ""))
+            if kind == "pill":
+                subtitle_parts.append(str(item.get("pill_type_label") or item.get("pill_type") or ""))
+            if kind == "talisman":
+                subtitle_parts.append(f"显化 {max(int(item.get('effect_uses') or 1), 1)} 次")
             if kind == "technique":
                 subtitle_parts.append(str(item.get("technique_type_label") or item.get("technique_type") or "功法"))
             filter_keys = _merge_filter_keys(
@@ -815,9 +1163,24 @@ def _build_item_entries(
                     "tags": [
                         ITEM_KIND_LABELS.get(kind, kind),
                         str(quality.get("label") or ""),
+                        str(set_payload.get("name") or "") if kind == "artifact" and set_payload else "",
+                        str(item.get("pill_type_label") or "") if kind == "pill" else "",
+                        str(item.get("equip_slot_label") or "") if kind == "artifact" else "",
                         *(_source_type_tags(direct_sources)[:3]),
                     ],
-                    "keywords": _extract_keywords(name, str(item.get("description") or ""), " ".join(crafted_by), " ".join(direct_sources)),
+                    "keywords": _extract_keywords(
+                        name,
+                        str(item.get("description") or ""),
+                        " ".join(crafted_by),
+                        " ".join(direct_sources),
+                        str(set_payload.get("name") or ""),
+                        str(set_payload.get("description") or ""),
+                        " ".join(set_member_names),
+                        _format_bonus_summary(item, limit=12),
+                        _format_bonus_summary(set_payload, limit=12) if set_payload else "",
+                        _format_combat_config_summary(item),
+                        str(item.get("pill_type_label") or ""),
+                    ),
                 }
             )
     return entries
@@ -1154,17 +1517,46 @@ def _build_gambling_entries(item_catalog: dict[str, dict[int, dict[str, Any]]]) 
     ]
 
 
+def _build_attribute_entries() -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for entry in ATTRIBUTE_WIKI_ENTRIES:
+        key = str(entry.get("key") or "").strip()
+        label = str(entry.get("label") or key).strip()
+        if not key or not label:
+            continue
+        body_lines = [str(line or "").strip() for line in entry.get("lines") or [] if str(line or "").strip()]
+        tags = [str(tag or "").strip() for tag in entry.get("tags") or [] if str(tag or "").strip()]
+        keywords = [str(keyword or "").strip() for keyword in entry.get("keywords") or [] if str(keyword or "").strip()]
+        entries.append(
+            {
+                "id": f"attribute-{key}",
+                "kind": "attribute",
+                "group": "attribute",
+                "filter_keys": _merge_filter_keys("attribute", entry.get("filters") or []),
+                "kind_label": "属性",
+                "title": label,
+                "subtitle": str(entry.get("subtitle") or "属性说明").strip(),
+                "description": str(entry.get("description") or "修仙角色属性，会影响养成、战斗与玩法门槛。").strip(),
+                "body_lines": body_lines,
+                "tags": ["属性", *tags][:5],
+                "keywords": _extract_keywords(label, key, str(entry.get("subtitle") or ""), str(entry.get("description") or ""), " ".join(body_lines), " ".join(tags), " ".join(keywords)),
+            }
+        )
+    return entries
+
+
 def build_wiki_bundle() -> dict[str, Any]:
     ensure_seed_data()
     tutorials = _parse_guide_sections()
     item_catalog = _build_item_catalog()
+    artifact_set_catalog = _build_artifact_set_catalog()
     title_catalog = _build_title_catalog()
     source_map = _build_source_catalog(item_catalog, title_catalog)
     material_use_map: dict[int, list[str]] = defaultdict(list)
     crafted_by_map: dict[tuple[str, int], list[str]] = defaultdict(list)
     recipe_entries = _build_recipe_entries(source_map, material_use_map, crafted_by_map, item_catalog)
     material_entries = _build_material_entries(source_map, material_use_map, item_catalog)
-    item_entries = _build_item_entries(source_map, crafted_by_map, item_catalog)
+    item_entries = _build_item_entries(source_map, crafted_by_map, item_catalog, artifact_set_catalog)
     title_entries = _build_title_entries(source_map, title_catalog)
     achievement_entries = _build_achievement_entries(item_catalog, title_catalog)
     scene_entries = _build_scene_entries(item_catalog)
@@ -1173,18 +1565,20 @@ def build_wiki_bundle() -> dict[str, Any]:
     farm_entries = _build_farm_entries(item_catalog)
     fishing_entries = _build_fishing_entries(item_catalog)
     gambling_entries = _build_gambling_entries(item_catalog)
+    attribute_entries = _build_attribute_entries()
     activity_entries = scene_entries + encounter_entries + boss_entries + farm_entries + fishing_entries + gambling_entries
     artifact_count = sum(1 for entry in item_entries if str(entry.get("group") or "") == "artifact")
     pill_count = sum(1 for entry in item_entries if str(entry.get("group") or "") == "pill")
     talisman_count = sum(1 for entry in item_entries if str(entry.get("group") or "") == "talisman")
     technique_count = sum(1 for entry in item_entries if str(entry.get("group") or "") == "technique")
-    search_index = tutorials + activity_entries + material_entries + item_entries + title_entries + recipe_entries + achievement_entries
+    search_index = tutorials + attribute_entries + activity_entries + material_entries + item_entries + title_entries + recipe_entries + achievement_entries
     featured_tutorials = tutorials[:8]
     return {
         "featured_tutorials": featured_tutorials,
         "search_index": search_index,
         "counts": {
             "tutorial": len(tutorials),
+            "attribute": len(attribute_entries),
             "material": len(material_entries),
             "artifact": artifact_count,
             "pill": pill_count,
@@ -1201,5 +1595,5 @@ def build_wiki_bundle() -> dict[str, Any]:
             "fishing": len(fishing_entries),
             "gambling": len(gambling_entries),
         },
-        "search_examples": ["闭关", "世界Boss", "仙界奇石", "青溪灵涧", "灵田", "补天丹", "玄龟盾炼制图", "承道出山"],
+        "search_examples": ["真元", "心志", "身法", "闭关", "世界Boss", "仙界奇石", "青溪灵涧", "补天丹", "玄龟盾炼制图", "承道出山"],
     }

@@ -248,7 +248,7 @@ EXTRA_PILLS = [
         "name": "龙髓丹",
         "rarity": "中品",
         "pill_type": "qi_blood",
-        "effect_value": 12,
+        "effect_value": 120,
         "poison_delta": 3,
         "description": "地龙精华灌注，气血大幅增长。",
         "materials": [("地龙髓", 1), ("龙涎香", 1), ("九转雪莲", 1)],
@@ -590,5 +590,4 @@ EXTRA_PILLS = [
         "success": 12,
     },
 ]
-
 

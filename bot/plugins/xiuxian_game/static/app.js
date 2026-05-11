@@ -36,7 +36,7 @@ const state = {
   marriageSearchTimer: null,
 };
 
-const WIKI_BUNDLE_CACHE_KEY = "xiuxian_wiki_bundle_v2";
+const WIKI_BUNDLE_CACHE_KEY = "xiuxian_wiki_bundle_v3";
 const BOOTSTRAP_CACHE_KEY_PREFIX = "xiuxian_bootstrap_core_v1";
 const NETWORK_ERROR_MESSAGES = new Set([
   "Failed to fetch",
@@ -567,6 +567,7 @@ function wikiFilterMatches(entry, filter) {
 
 const WIKI_FILTER_LABELS = {
   tutorial: "玩法",
+  attribute: "属性",
   starter: "入门",
   explore: "探索",
   crafting: "炼制",
@@ -822,13 +823,13 @@ function renderWikiArea() {
   if (!bundle) {
     if (state.wikiBundleLoading) {
       if (countsNode) countsNode.textContent = "正在整理词条...";
-      if (hintNode) hintNode.textContent = "首次打开时才会拉取 Wiki 词条，当前正在加载玩法教程与掉落来源。";
-      renderWikiCards(featuredRoot, [], { emptyTitle: "Wiki 加载中", emptyText: "正在整理新手手册与掉落词条，请稍候。" });
+      if (hintNode) hintNode.textContent = "首次打开时才会拉取 Wiki 词条，当前正在加载属性说明、玩法教程与掉落来源。";
+      renderWikiCards(featuredRoot, [], { emptyTitle: "Wiki 加载中", emptyText: "正在整理属性说明、新手手册与掉落词条，请稍候。" });
       renderWikiCards(resultRoot, [], { emptyTitle: "等待检索", emptyText: "Wiki 正在加载，完成后可立即搜索玩法和物品来源。" });
       return;
     }
     if (countsNode) countsNode.textContent = "展开或搜索后加载";
-    if (hintNode) hintNode.textContent = "可搜索玩法教程、秘境、奇遇、Boss、灵田、垂钓、赌坊、材料来源与配方获取方式。为减少首页加载时间，Wiki 改为按需加载。";
+    if (hintNode) hintNode.textContent = "可搜索属性说明、玩法教程、秘境、奇遇、Boss、灵田、垂钓、赌坊、材料来源与配方获取方式。为减少首页加载时间，Wiki 改为按需加载。";
     renderWikiCards(featuredRoot, [], { emptyTitle: "按需加载 Wiki", emptyText: "展开本模块或输入关键词后，再拉取玩法手册与掉落词条。" });
     renderWikiCards(resultRoot, [], { emptyTitle: "等待检索", emptyText: "输入关键词后，可快速定位玩法和物品来源。" });
     return;
@@ -837,12 +838,12 @@ function renderWikiArea() {
   const counts = bundle.counts || {};
   const examples = Array.isArray(bundle.search_examples) ? bundle.search_examples.filter(Boolean) : [];
   if (countsNode) {
-    countsNode.textContent = `教程 ${Number(counts.tutorial || 0)} · 活动 ${Number(counts.activity || 0)} · 材料 ${Number(counts.material || 0)} · 法宝 ${Number(counts.artifact || 0)} · 丹药 ${Number(counts.pill || 0)} · 符箓 ${Number(counts.talisman || 0)} · 功法 ${Number(counts.technique || 0)} · 称号 ${Number(counts.title || 0)} · 配方 ${Number(counts.recipe || 0)} · 成就 ${Number(counts.achievement || 0)}`;
+    countsNode.textContent = `教程 ${Number(counts.tutorial || 0)} · 属性 ${Number(counts.attribute || 0)} · 活动 ${Number(counts.activity || 0)} · 材料 ${Number(counts.material || 0)} · 法宝 ${Number(counts.artifact || 0)} · 丹药 ${Number(counts.pill || 0)} · 符箓 ${Number(counts.talisman || 0)} · 功法 ${Number(counts.technique || 0)} · 称号 ${Number(counts.title || 0)} · 配方 ${Number(counts.recipe || 0)} · 成就 ${Number(counts.achievement || 0)}`;
   }
   if (hintNode) {
     hintNode.textContent = examples.length
       ? `试试这些关键词：${examples.join("、")}`
-      : "可搜索玩法教程、秘境、奇遇、Boss、灵田、垂钓、赌坊、材料来源与配方获取方式，也可按入门、探索、炼制、战斗、任务、社交、宗门筛选。";
+      : "可搜索属性说明、玩法教程、秘境、奇遇、Boss、灵田、垂钓、赌坊、材料来源与配方获取方式，也可按入门、探索、炼制、战斗、任务、社交、宗门筛选。";
   }
 
   renderWikiCards(featuredRoot, bundle.featured_tutorials || [], {
@@ -5964,6 +5965,8 @@ function recipeResultPreviewTags(recipe, item) {
     tags.push(`<span class="tag">丹毒 ${escapeHtml(item.poison_delta ?? 0)}</span>`);
   } else if (kind === "talisman") {
     tags.push(`<span class="tag">显化 ${escapeHtml(item.effect_uses || 1)} 次</span>`);
+    const activeEffectTags = talismanActiveEffectTags(item);
+    if (activeEffectTags) tags.push(activeEffectTags);
   } else if (kind === "material" && item.quality_feature) {
     tags.push(`<span class="tag">${escapeHtml(item.quality_feature)}</span>`);
   }
@@ -6035,6 +6038,101 @@ function recipeSearchScore(recipe, query) {
   return score;
 }
 
+const RECIPE_KIND_GROUP_META = {
+  artifact: { label: "法宝", order: 10 },
+  talisman: { label: "符箓", order: 20 },
+  pill: { label: "丹药", order: 30 },
+};
+
+function normalizedRecipeKind(recipe) {
+  const recipeKind = String(recipe?.recipe_kind || "").trim();
+  const resultKind = String(recipe?.result_kind || "").trim();
+  if (RECIPE_KIND_GROUP_META[recipeKind]) return recipeKind;
+  if (RECIPE_KIND_GROUP_META[resultKind]) return resultKind;
+  return recipeKind || resultKind || "other";
+}
+
+function recipeKindGroupLabel(recipe, kind) {
+  if (RECIPE_KIND_GROUP_META[kind]) return RECIPE_KIND_GROUP_META[kind].label;
+  return String(recipe?.recipe_kind_label || recipe?.result_kind_label || kind || "其他").trim() || "其他";
+}
+
+function recipePillGroupLabel(recipe) {
+  const item = recipe?.result_item || {};
+  return String(item.pill_type_label || item.pill_type || "其他丹药").trim() || "其他丹药";
+}
+
+function buildRecipeGroupDetails(className, title, tip, cards) {
+  const details = document.createElement("details");
+  details.className = className;
+  details.open = true;
+  details.innerHTML = `
+    <summary class="mini-fold-summary">
+      <h3>${escapeHtml(title)}</h3>
+      <span class="summary-tip">${escapeHtml(tip)}</span>
+    </summary>
+  `;
+  const body = document.createElement("div");
+  body.className = "mini-fold-body stack-list";
+  cards.forEach((card) => body.appendChild(card));
+  details.appendChild(body);
+  return details;
+}
+
+function appendPillRecipeSubgroups(body, rows) {
+  const groups = new Map();
+  rows.forEach(({ card, recipe }) => {
+    const label = recipePillGroupLabel(recipe);
+    if (!groups.has(label)) groups.set(label, []);
+    groups.get(label).push(card);
+  });
+  if (groups.size <= 1) {
+    rows.forEach(({ card }) => body.appendChild(card));
+    return;
+  }
+  groups.forEach((cards, label) => {
+    body.appendChild(buildRecipeGroupDetails("mini-fold recipe-pill-subgroup", `${label} (${cards.length})`, "丹药小类", cards));
+  });
+}
+
+function appendRecipeCardsByKind(root, rows) {
+  const groups = new Map();
+  rows.forEach((row) => {
+    const kind = normalizedRecipeKind(row.recipe);
+    if (!groups.has(kind)) {
+      groups.set(kind, {
+        kind,
+        label: recipeKindGroupLabel(row.recipe, kind),
+        order: RECIPE_KIND_GROUP_META[kind]?.order ?? 90,
+        rows: [],
+      });
+    }
+    groups.get(kind).rows.push(row);
+  });
+  [...groups.values()]
+    .sort((left, right) => left.order - right.order || String(left.label).localeCompare(String(right.label), "zh-Hans-CN"))
+    .forEach((group) => {
+      const details = document.createElement("details");
+      details.className = "mini-fold recipe-kind-group";
+      details.open = true;
+      details.innerHTML = `
+        <summary class="mini-fold-summary">
+          <h3>${escapeHtml(group.label)} (${escapeHtml(group.rows.length)})</h3>
+          <span class="summary-tip">${escapeHtml(group.rows.length)} 张配方</span>
+        </summary>
+      `;
+      const body = document.createElement("div");
+      body.className = "mini-fold-body stack-list";
+      if (group.kind === "pill") {
+        appendPillRecipeSubgroups(body, group.rows);
+      } else {
+        group.rows.forEach(({ card }) => body.appendChild(card));
+      }
+      details.appendChild(body);
+      root.appendChild(details);
+    });
+}
+
 renderCraftArea = function renderCraftArea(bundle) {
   const materialRoot = document.querySelector("#material-list");
   const recipeRoot = document.querySelector("#recipe-list");
@@ -6082,6 +6180,7 @@ renderCraftArea = function renderCraftArea(bundle) {
       : `<article class="stack-item"><strong>暂无配方</strong></article>`;
     return;
   }
+  const recipeCards = [];
   for (const recipe of filteredRecipes) {
     const resultItem = recipe.result_item || {};
     const resultName = resultItem.name || "成品";
@@ -6192,8 +6291,9 @@ renderCraftArea = function renderCraftArea(bundle) {
       <div class="recipe-source-list">${sourceCards || `<article class="recipe-source-item"><strong>获取路径待补充</strong><p>当前配方没有记录材料来源。</p></article>`}</div>
       ${actionArea}
     `;
-    recipeRoot.appendChild(card);
+    recipeCards.push({ card, recipe });
   }
+  appendRecipeCardsByKind(recipeRoot, recipeCards);
 };
 
 renderArtifactList = function renderArtifactList(items, retreating, equipLimit, equippedCount) {

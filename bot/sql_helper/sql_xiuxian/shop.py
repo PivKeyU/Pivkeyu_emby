@@ -170,6 +170,14 @@ def _grant_auction_item_to_inventory(
     normalized_note = (str(obtained_note or "").strip() or None) if obtained_note is not None else None
     auto_equip = True if auto_equip_if_empty is None else bool(auto_equip_if_empty)
 
+    def _pending_row(model_cls, **keys: int):
+        for pending in session.new:
+            if not isinstance(pending, model_cls):
+                continue
+            if all(int(getattr(pending, key, 0) or 0) == int(value) for key, value in keys.items()):
+                return pending
+        return None
+
     def _grant_technique_in_session(target_tg: int, technique_id: int) -> dict[str, Any]:
         technique = session.query(XiuxianTechnique).filter(XiuxianTechnique.id == int(technique_id)).first()
         if technique is None:
@@ -184,7 +192,9 @@ def _grant_auction_item_to_inventory(
             profile = XiuxianProfile(tg=int(target_tg))
             session.add(profile)
             session.flush()
-        row = (
+        row = _pending_row(XiuxianUserTechnique, tg=int(target_tg), technique_id=int(technique_id))
+        if row is None:
+            row = (
             session.query(XiuxianUserTechnique)
             .filter(
                 XiuxianUserTechnique.tg == int(target_tg),
@@ -192,7 +202,7 @@ def _grant_auction_item_to_inventory(
             )
             .with_for_update()
             .first()
-        )
+            )
         if row is None:
             row = XiuxianUserTechnique(
                 tg=int(target_tg),
@@ -220,7 +230,9 @@ def _grant_auction_item_to_inventory(
         recipe = session.query(XiuxianRecipe).filter(XiuxianRecipe.id == int(recipe_id)).first()
         if recipe is None:
             raise ValueError("recipe not found")
-        row = (
+        row = _pending_row(XiuxianUserRecipe, tg=int(target_tg), recipe_id=int(recipe_id))
+        if row is None:
+            row = (
             session.query(XiuxianUserRecipe)
             .filter(
                 XiuxianUserRecipe.tg == int(target_tg),
@@ -228,7 +240,7 @@ def _grant_auction_item_to_inventory(
             )
             .with_for_update()
             .first()
-        )
+            )
         if row is None:
             row = XiuxianUserRecipe(
                 tg=int(target_tg),
@@ -265,7 +277,9 @@ def _grant_auction_item_to_inventory(
         }
 
     if normalized_kind == "pill":
-        row = (
+        row = _pending_row(XiuxianPillInventory, tg=int(tg), pill_id=int(item_ref_id))
+        if row is None:
+            row = (
             session.query(XiuxianPillInventory)
             .filter(
                 XiuxianPillInventory.tg == int(tg),
@@ -273,7 +287,7 @@ def _grant_auction_item_to_inventory(
             )
             .with_for_update()
             .first()
-        )
+            )
         if row is None:
             row = XiuxianPillInventory(tg=int(tg), pill_id=int(item_ref_id), quantity=0)
             session.add(row)
@@ -287,7 +301,9 @@ def _grant_auction_item_to_inventory(
         }
 
     if normalized_kind == "talisman":
-        row = (
+        row = _pending_row(XiuxianTalismanInventory, tg=int(tg), talisman_id=int(item_ref_id))
+        if row is None:
+            row = (
             session.query(XiuxianTalismanInventory)
             .filter(
                 XiuxianTalismanInventory.tg == int(tg),
@@ -295,7 +311,7 @@ def _grant_auction_item_to_inventory(
             )
             .with_for_update()
             .first()
-        )
+            )
         if row is None:
             row = XiuxianTalismanInventory(tg=int(tg), talisman_id=int(item_ref_id), quantity=0, bound_quantity=0)
             session.add(row)
@@ -312,7 +328,9 @@ def _grant_auction_item_to_inventory(
         }
 
     if normalized_kind == "material":
-        row = (
+        row = _pending_row(XiuxianMaterialInventory, tg=int(tg), material_id=int(item_ref_id))
+        if row is None:
+            row = (
             session.query(XiuxianMaterialInventory)
             .filter(
                 XiuxianMaterialInventory.tg == int(tg),
@@ -320,7 +338,7 @@ def _grant_auction_item_to_inventory(
             )
             .with_for_update()
             .first()
-        )
+            )
         if row is None:
             row = XiuxianMaterialInventory(tg=int(tg), material_id=int(item_ref_id), quantity=0)
             session.add(row)

@@ -5,6 +5,8 @@ import re
 from datetime import timedelta
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
+
 from bot.sql_helper import Session
 from bot.sql_helper.sql_xiuxian import (
     DEFAULT_SETTINGS,
@@ -49,6 +51,7 @@ from bot.sql_helper.sql_xiuxian import (
     serialize_talisman,
     utcnow,
 )
+from bot.sql_helper.sql_xiuxian.items import _sync_sequence_for_primary_key_conflict
 from bot.plugins.xiuxian_game.achievement_service import record_exploration_metrics
 from bot.plugins.xiuxian_game.probability import roll_probability_percent
 
@@ -60,6 +63,24 @@ RARITY_LEVEL_MAP = {
     "地品": 4,
     "天品": 5,
 }
+
+
+class _ExplorationClaimSequenceRetry(RuntimeError):
+    pass
+
+
+def _recover_exploration_claim_sequence_conflict(exc: IntegrityError) -> bool:
+    for table_name in (
+        "xiuxian_user_recipes",
+        "xiuxian_user_techniques",
+        "xiuxian_artifact_inventory",
+        "xiuxian_pill_inventory",
+        "xiuxian_talisman_inventory",
+        "xiuxian_material_inventory",
+    ):
+        if _sync_sequence_for_primary_key_conflict(exc, table_name):
+            return True
+    return False
 
 
 def _legacy_service():
@@ -1046,7 +1067,7 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
         return {"scene": scene, "exploration": serialize_exploration(exploration)}
 
 
-def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
+def _claim_exploration_for_user_once(tg: int, exploration_id: int) -> dict[str, Any]:
     exploration_payload: dict[str, Any] | None = None
     reward_kind = None
     reward_ref_id = 0
@@ -1201,7 +1222,13 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
             updated_profile = serialize_profile(updated)
         exploration.claimed = True
         exploration.updated_at = utcnow()
-        session.commit()
+        try:
+            session.commit()
+        except IntegrityError as exc:
+            session.rollback()
+            if _recover_exploration_claim_sequence_conflict(exc):
+                raise _ExplorationClaimSequenceRetry() from exc
+            raise
         session.refresh(exploration)
         exploration_payload = serialize_exploration(exploration)
 
@@ -1270,3 +1297,13 @@ def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
         "profile": updated_profile,
         "achievement_unlocks": achievement_unlocks,
     }
+
+
+def claim_exploration_for_user(tg: int, exploration_id: int) -> dict[str, Any]:
+    for attempt in range(2):
+        try:
+            return _claim_exploration_for_user_once(tg, exploration_id)
+        except _ExplorationClaimSequenceRetry:
+            if attempt > 0:
+                raise
+    raise RuntimeError("claim exploration failed unexpectedly")
