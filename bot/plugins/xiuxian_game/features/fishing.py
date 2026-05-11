@@ -470,16 +470,12 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
     if profile_obj is not None:
         _ensure_daily_limit(profile_obj, "fish_daily_count", "fish_day_key", "fishing_daily_limit", "垂钓")
 
-    full_bundle = _legacy_service().serialize_full_profile(tg)
-    active_talisman = full_bundle.get("active_talisman") or None
-    talisman_active_effects = {}
-    if active_talisman:
-        talisman_active_effects = active_talisman.get("active_effects") or _legacy_service().resolve_talisman_active_effects(
-            full_bundle.get("profile") or {},
-            active_talisman,
-        )
-    effective_stats = full_bundle.get("effective_stats") or {}
-    effective_fortune = max(int(effective_stats.get("fortune") or full_bundle.get("profile", {}).get("fortune") or 0), 0)
+    profile_payload = _legacy_service().serialize_profile(profile_obj) if profile_obj is not None else {}
+    battle_bundle = _legacy_service()._battle_bundle(profile_payload) if profile_payload else {}
+    active_talisman = battle_bundle.get("active_talisman") or None
+    talisman_active_effects = battle_bundle.get("talisman_active_effects") or {}
+    effective_stats = battle_bundle.get("stats") or {}
+    effective_fortune = max(int(effective_stats.get("fortune") or profile_payload.get("fortune") or 0), 0)
     if active_talisman:
         effective_fortune += max(int(round(float(talisman_active_effects.get("fishing_luck_bonus") or 0))), 0)
     empty_chance = _fishing_empty_chance(spot, effective_fortune)
