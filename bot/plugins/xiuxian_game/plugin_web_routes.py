@@ -10,6 +10,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
+from threading import Lock
 from typing import Any, Iterable
 from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
@@ -455,11 +456,18 @@ _XIUXIAN_HEAVY_API_PREFIXES = (
     "/plugins/xiuxian/api/bootstrap",
     "/plugins/xiuxian/api/wiki",
     "/plugins/xiuxian/api/gambling",
+    "/plugins/xiuxian/api/fishing",
+    "/plugins/xiuxian/api/explore",
+    "/plugins/xiuxian/api/boss",
+    "/plugins/xiuxian/api/pill/use",
+    "/plugins/xiuxian/api/retreat",
     "/plugins/xiuxian/api/sect/donate",
     "/plugins/xiuxian/api/farm/auto-harvest",
     "/plugins/xiuxian/api/player/search",
     "/plugins/xiuxian/admin-api/bootstrap",
 )
+_XIUXIAN_USER_ACTION_LOCK = Lock()
+_XIUXIAN_USER_ACTION_KEYS: set[tuple[str, int]] = set()
 
 
 def _is_xiuxian_api_path(path: str) -> bool:
@@ -497,6 +505,24 @@ async def _acquire_xiuxian_api_slots(path: str) -> list[asyncio.Semaphore] | Non
 def _release_xiuxian_api_slots(acquired: list[asyncio.Semaphore]) -> None:
     for semaphore in reversed(acquired):
         semaphore.release()
+
+
+def _try_acquire_user_action(action: str, tg: int) -> tuple[str, int] | None:
+    key = (str(action or "").strip(), int(tg or 0))
+    if not key[0] or key[1] <= 0:
+        return None
+    with _XIUXIAN_USER_ACTION_LOCK:
+        if key in _XIUXIAN_USER_ACTION_KEYS:
+            return None
+        _XIUXIAN_USER_ACTION_KEYS.add(key)
+    return key
+
+
+def _release_user_action(key: tuple[str, int] | None) -> None:
+    if key is None:
+        return
+    with _XIUXIAN_USER_ACTION_LOCK:
+        _XIUXIAN_USER_ACTION_KEYS.discard(key)
 
 
 XIUXIAN_BOT_COMMANDS = (
@@ -1243,8 +1269,14 @@ def register_web(app) -> None:
     async def xiuxian_gambling_open_api(payload: GamblingOpenPayload):
         def _work():
             telegram_user = _verify_user_from_init_data(payload.init_data)
-            result = open_immortal_stones(telegram_user["id"], payload.count)
-            return telegram_user, result, _with_result_core_bundle(telegram_user["id"], result)
+            action_key = _try_acquire_user_action("gambling-open", telegram_user["id"])
+            if action_key is None:
+                raise HTTPException(status_code=429, detail="上一次开石仍在处理中，请稍后再试。")
+            try:
+                result = open_immortal_stones(telegram_user["id"], payload.count)
+                return telegram_user, result, _with_result_core_bundle(telegram_user["id"], result)
+            finally:
+                _release_user_action(action_key)
 
         telegram_user, result, data = await run_in_threadpool(_work)
         await _maybe_broadcast_gambling(telegram_user["id"], result)
@@ -1453,17 +1485,23 @@ def register_web(app) -> None:
     @user_router.post("/api/fishing/cast")
     def xiuxian_fishing_cast_api(payload: FishingCastPayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
-        result = cast_fishing_line_for_user(telegram_user["id"], payload.spot_key)
-        return {
-            "code": 200,
-            "data": {
-                "result": result,
-                "bundle_patch": build_fishing_cast_bundle_patch(
-                    telegram_user["id"],
-                    **_bundle_runtime_flags(telegram_user["id"]),
-                ),
-            },
-        }
+        action_key = _try_acquire_user_action("fishing-cast", telegram_user["id"])
+        if action_key is None:
+            raise HTTPException(status_code=429, detail="上一次抛竿仍在处理中，请稍后再试。")
+        try:
+            result = cast_fishing_line_for_user(telegram_user["id"], payload.spot_key)
+            return {
+                "code": 200,
+                "data": {
+                    "result": result,
+                    "bundle_patch": build_fishing_cast_bundle_patch(
+                        telegram_user["id"],
+                        **_bundle_runtime_flags(telegram_user["id"]),
+                    ),
+                },
+            }
+        finally:
+            _release_user_action(action_key)
 
     @user_router.post("/api/explore/start")
     def xiuxian_explore_start_api(payload: ExploreStartPayload):

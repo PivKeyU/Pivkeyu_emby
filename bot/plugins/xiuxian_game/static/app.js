@@ -15,7 +15,9 @@ const state = {
   deferredBundlePromise: null,
   deferredSectionsLoaded: new Set(),
   deferredSectionPromises: new Map(),
+  deferredSectionQueue: Promise.resolve(),
   externalSectionRefreshAt: {},
+  actionLocks: new Set(),
   deferredBootstrapTimer: null,
   retreatTimingTimer: null,
   wikiFilter: "all",
@@ -38,6 +40,9 @@ const state = {
 
 const WIKI_BUNDLE_CACHE_KEY = "xiuxian_wiki_bundle_v3";
 const BOOTSTRAP_CACHE_KEY_PREFIX = "xiuxian_bootstrap_core_v1";
+const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
+const DEFERRED_SECTION_REQUEST_TIMEOUT_MS = 18000;
+const WIKI_REQUEST_TIMEOUT_MS = 20000;
 const NETWORK_ERROR_MESSAGES = new Set([
   "Failed to fetch",
   "Load failed",
@@ -51,6 +56,21 @@ const UPSTREAM_UNAVAILABLE_MESSAGES = new Set([
   "Service Unavailable",
 ]);
 const REALM_ORDER = ["炼气", "筑基", "金丹", "元婴", "化神", "炼虚", "合体", "大乘", "渡劫", "人仙", "地仙", "天仙", "金仙", "大罗金仙", "仙君", "仙王", "仙尊", "仙帝"];
+
+function requestTimeoutMessage(timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS) {
+  const seconds = Math.max(Math.round(Number(timeoutMs || DEFAULT_REQUEST_TIMEOUT_MS) / 1000), 1);
+  return `请求超过 ${seconds} 秒仍未完成，请稍后重试。`;
+}
+
+function timeoutSignal(timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS) {
+  if (typeof AbortController !== "function") return { signal: undefined, cleanup: () => {} };
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), Math.max(Number(timeoutMs || DEFAULT_REQUEST_TIMEOUT_MS), 1000));
+  return {
+    signal: controller.signal,
+    cleanup: () => window.clearTimeout(timer),
+  };
+}
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -331,6 +351,12 @@ function normalizeError(error, fallback) {
   if (UPSTREAM_UNAVAILABLE_MESSAGES.has(message)) {
     return "服务正在重启或暂时不可用，请稍后重试。";
   }
+  if (error?.name === "AbortError" || message === "AbortError" || message === "The operation was aborted.") {
+    return "请求处理时间过长，已自动停止等待，请稍后重试。";
+  }
+  if (message.includes("仍未完成")) {
+    return message;
+  }
   if (message.startsWith("Unexpected token") || message === "Internal Server Error") {
     return defaultMessage(fallback);
   }
@@ -370,15 +396,40 @@ async function readResponsePayload(response) {
   }
 }
 
-async function postJson(path, body = {}) {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ init_data: state.initData, ...body })
-  });
-  const payload = await readResponsePayload(response);
+async function postJson(path, body = {}, options = {}) {
+  const timeoutMs = Number(options.timeoutMs || DEFAULT_REQUEST_TIMEOUT_MS);
+  const { signal, cleanup } = timeoutSignal(timeoutMs);
+  let response;
+  try {
+    response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ init_data: state.initData, ...body }),
+      signal,
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(requestTimeoutMessage(timeoutMs));
+    }
+    throw error;
+  } finally {
+    cleanup();
+  }
+  let payload;
+  try {
+    payload = await readResponsePayload(response);
+  } catch (error) {
+    if (response.status === 504) {
+      throw new Error("服务处理超时，请稍后重试。");
+    }
+    throw error;
+  }
   if (!response.ok || payload.code !== 200) {
-    throw new Error(payload.detail || payload.message || "请求失败");
+    const message = payload.detail || payload.message || "请求失败";
+    if (response.status === 429) {
+      throw new Error("当前修仙请求较多，请稍后再试。");
+    }
+    throw new Error(message);
   }
   rememberBundleCandidate(payload.data);
   return payload.data;
@@ -419,14 +470,20 @@ async function uploadImage(path, file, folder) {
   return payload.data;
 }
 
-async function runButtonAction(button, pendingText, handler) {
+async function runButtonAction(button, pendingText, handler, { lockKey = "" } = {}) {
+  const normalizedLockKey = String(lockKey || "").trim();
+  if (normalizedLockKey && state.actionLocks.has(normalizedLockKey)) {
+    throw new Error("上一次操作仍在处理中，请稍后再试。");
+  }
   const previous = button.textContent;
   button.disabled = true;
   button.textContent = pendingText;
+  if (normalizedLockKey) state.actionLocks.add(normalizedLockKey);
   try {
     await nextUiFrame();
     return await handler();
   } finally {
+    if (normalizedLockKey) state.actionLocks.delete(normalizedLockKey);
     button.disabled = false;
     button.textContent = previous;
   }
@@ -884,7 +941,7 @@ async function refreshWikiBundle({ force = false } = {}) {
   }
   state.wikiBundleLoading = true;
   renderWikiArea();
-  state.wikiBundlePromise = postJson("/plugins/xiuxian/api/wiki")
+  state.wikiBundlePromise = postJson("/plugins/xiuxian/api/wiki", {}, { timeoutMs: WIKI_REQUEST_TIMEOUT_MS })
     .then((bundle) => {
       state.wikiBundle = bundle;
       writeSessionStorage(WIKI_BUNDLE_CACHE_KEY, JSON.stringify(bundle));
@@ -4102,13 +4159,20 @@ async function loadDeferredSection(section, { silent = false } = {}) {
   if (state.deferredSectionPromises.has(normalized)) {
     return state.deferredSectionPromises.get(normalized);
   }
-  const request = (async () => {
-    const deferred = await postJson(`/plugins/xiuxian/api/bootstrap/section/${encodeURIComponent(normalized)}`);
+  const request = state.deferredSectionQueue.catch(() => null).then(async () => {
+    if (state.deferredBundleLoaded || state.deferredSectionsLoaded.has(normalized)) {
+      return state.profileBundle;
+    }
+    const deferred = await postJson(
+      `/plugins/xiuxian/api/bootstrap/section/${encodeURIComponent(normalized)}`,
+      {},
+      { timeoutMs: DEFERRED_SECTION_REQUEST_TIMEOUT_MS },
+    );
     state.profileBundle = mergeBundleData(state.profileBundle, deferred);
     state.deferredSectionsLoaded.add(normalized);
     applyProfileBundle(state.profileBundle);
     return state.profileBundle;
-  })()
+  })
     .catch((error) => {
       if (!silent) throw error;
       return state.profileBundle;
@@ -4116,6 +4180,7 @@ async function loadDeferredSection(section, { silent = false } = {}) {
     .finally(() => {
       state.deferredSectionPromises.delete(normalized);
     });
+  state.deferredSectionQueue = request.catch(() => null);
   state.deferredSectionPromises.set(normalized, request);
   return request;
 }
@@ -4129,7 +4194,7 @@ async function loadDeferredBundle({ silent = false } = {}) {
   }
   state.deferredBundleLoading = true;
   state.deferredBundlePromise = (async () => {
-    const deferred = await postJson("/plugins/xiuxian/api/bootstrap/deferred");
+    const deferred = await postJson("/plugins/xiuxian/api/bootstrap/deferred", {}, { timeoutMs: DEFERRED_SECTION_REQUEST_TIMEOUT_MS });
     state.profileBundle = mergeBundleData(state.profileBundle, deferred);
     state.deferredBundleLoaded = true;
     clearDeferredSectionState();
@@ -4167,7 +4232,7 @@ async function refreshBundle({ background = false } = {}) {
       state.deferredBundleLoaded = false;
       state.deferredBundlePromise = null;
       clearDeferredSectionState();
-      const payload = await postJson("/plugins/xiuxian/api/bootstrap");
+      const payload = await postJson("/plugins/xiuxian/api/bootstrap", {}, { timeoutMs: 20000 });
       storeBootstrapCache(payload);
       renderBottomNav(payload.bottom_nav || []);
       applyProfileBundle(payload.profile_bundle);
@@ -4176,7 +4241,7 @@ async function refreshBundle({ background = false } = {}) {
     state.deferredBundleLoaded = false;
     state.deferredBundlePromise = null;
     clearDeferredSectionState();
-    const payload = await postJson("/plugins/xiuxian/api/bootstrap");
+    const payload = await postJson("/plugins/xiuxian/api/bootstrap", {}, { timeoutMs: 20000 });
     storeBootstrapCache(payload);
     renderBottomNav(payload.bottom_nav || []);
     const mergedBundle = mergeBundleData(state.profileBundle, payload.profile_bundle);
@@ -4257,7 +4322,7 @@ async function bootstrap() {
     applyProfileBundle(cachedPayload.profile_bundle);
   }
   try {
-    const payload = await postJson("/plugins/xiuxian/api/bootstrap");
+    const payload = await postJson("/plugins/xiuxian/api/bootstrap", {}, { timeoutMs: 20000 });
     storeBootstrapCache(payload);
     renderBottomNav(payload.bottom_nav || []);
     applyProfileBundle(payload.profile_bundle);
@@ -8493,10 +8558,14 @@ document.querySelector("#fishing-spot-list")?.addEventListener("click", async (e
   if (!button || button.disabled) return;
   const spotKey = button.dataset.fishingSpot || "";
   try {
-    const payload = await runButtonAction(button, "抛竿中…", () => postJson("/plugins/xiuxian/api/fishing/cast", {
-      spot_key: spotKey,
-    }));
+    const payload = await runButtonAction(
+      button,
+      "抛竿中…",
+      () => postJson("/plugins/xiuxian/api/fishing/cast", { spot_key: spotKey }, { timeoutMs: 20000 }),
+      { lockKey: "fishing:cast" },
+    );
     applyReturnedBundle(payload);
+    refreshExternallyMutableSection("inventory-card");
     const result = payload.result || {};
     const rewardName = grantedItemName(result.reward_item) || result.reward_item?.name || "未知物品";
     const lines = [result.message || "你已经顺利完成本次垂钓。"];

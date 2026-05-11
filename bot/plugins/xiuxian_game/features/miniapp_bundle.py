@@ -272,18 +272,8 @@ def build_fishing_cast_bundle_patch(
     admin_panel_url: str | None = None,
 ) -> dict[str, Any]:
     bundle = _build_core_profile_bundle(tg)
-    bundle["artifacts"] = list_user_artifacts(tg)
-    bundle["pills"] = list_user_pills(tg)
-    bundle["talismans"] = list_user_talismans(tg)
-    bundle["materials"] = list_user_materials(tg)
-    bundle["recipes"] = list_user_recipes(tg, enabled_only=False)
-    bundle["techniques"] = list_user_techniques(tg, enabled_only=False)
-    bundle["technique_owned_count"] = len(bundle["techniques"])
-    bundle["recipe_discovered_count"] = len(bundle["recipes"])
-    bundle["recipe_fragment_syntheses"] = build_recipe_fragment_synthesis_catalog(tg)
     bundle["journal"] = list_recent_journals(tg)
     bundle["fishing"] = build_fishing_bundle(tg)
-    attach_official_recycle_quotes(bundle)
     _apply_capabilities(
         bundle,
         can_upload_images=can_upload_images,
