@@ -1262,8 +1262,14 @@ def register_web(app) -> None:
     @user_router.post("/api/gambling/exchange")
     def xiuxian_gambling_exchange_api(payload: GamblingExchangePayload):
         telegram_user = _verify_user_from_init_data(payload.init_data)
-        result = exchange_immortal_stones(telegram_user["id"], payload.count)
-        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
+        action_key = _try_acquire_user_action("gambling-exchange", telegram_user["id"])
+        if action_key is None:
+            raise HTTPException(status_code=429, detail="上一次奇石兑换仍在处理中，请稍后再试。")
+        try:
+            result = exchange_immortal_stones(telegram_user["id"], payload.count)
+            return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
+        finally:
+            _release_user_action(action_key)
 
     @user_router.post("/api/gambling/open")
     async def xiuxian_gambling_open_api(payload: GamblingOpenPayload):

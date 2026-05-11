@@ -4517,9 +4517,14 @@ document.querySelector("#gambling-exchange-form")?.addEventListener("submit", as
   event.preventDefault();
   const button = event.currentTarget.querySelector("button[type='submit']");
   try {
-    const payload = await runButtonAction(button, "兑换中…", () => postJson("/plugins/xiuxian/api/gambling/exchange", {
-      count: Number(document.querySelector("#gambling-exchange-count")?.value || 0),
-    }));
+    const payload = await runButtonAction(
+      button,
+      "兑换中…",
+      () => postJson("/plugins/xiuxian/api/gambling/exchange", {
+        count: Number(document.querySelector("#gambling-exchange-count")?.value || 0),
+      }, { timeoutMs: 20000 }),
+      { lockKey: "gambling:exchange" },
+    );
     const result = payload.result || {};
     const message = `消耗 ${Number(result.total_cost_stone || 0)} 灵石，兑换 ${Number(result.exchange_count || 0)} 枚仙界奇石，当前持有 ${Number(result.immortal_stone_quantity || 0)} 枚。`;
     setStatus(message, "success");
@@ -4536,9 +4541,14 @@ document.querySelector("#gambling-open-form")?.addEventListener("submit", async 
   event.preventDefault();
   const button = event.currentTarget.querySelector("button[type='submit']");
   try {
-    const payload = await runButtonAction(button, "开启中…", () => postJson("/plugins/xiuxian/api/gambling/open", {
-      count: Number(document.querySelector("#gambling-open-count")?.value || 0),
-    }));
+    const payload = await runButtonAction(
+      button,
+      "开启中…",
+      () => postJson("/plugins/xiuxian/api/gambling/open", {
+        count: Number(document.querySelector("#gambling-open-count")?.value || 0),
+      }, { timeoutMs: 20000 }),
+      { lockKey: "gambling:open" },
+    );
     const result = payload.result || {};
     const rareRows = (result.summary || []).filter((item) => item.broadcasted);
     const lines = [

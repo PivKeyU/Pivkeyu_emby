@@ -210,7 +210,7 @@ def build_profile_section_bundle(
         is_admin=is_admin,
         admin_panel_url=admin_panel_url,
     )
-    if normalized in {"inventory", "gift", "official_recycle", "market", "auction", "task", "craft", "gambling"}:
+    if normalized in {"inventory", "gift", "official_recycle", "market", "auction", "task", "craft"}:
         _attach_inventory_section(bundle, tg)
 
     if normalized == "inventory" or normalized == "gift":

@@ -10229,7 +10229,7 @@ def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
     return settings
 
 
-def build_gambling_bundle(tg: int, bundle: dict[str, Any] | None = None) -> dict[str, Any]:
+def build_gambling_bundle(tg: int, bundle: dict[str, Any] | None = None, *, include_source_labels: bool = False) -> dict[str, Any]:
     ensure_seed_data()
     current_bundle = bundle or {}
     settings = get_xiuxian_settings()
@@ -10249,7 +10249,7 @@ def build_gambling_bundle(tg: int, bundle: dict[str, Any] | None = None) -> dict
     fortune_value = int(effective_stats.get("fortune", profile.get("fortune", FORTUNE_BASELINE)) or FORTUNE_BASELINE)
     quality_rules = _normalize_gambling_quality_weight_rules(settings.get("gambling_quality_weight_rules"))
     raw_pool = _configured_gambling_pool(settings)
-    source_catalog = get_item_source_catalog()
+    source_catalog = get_item_source_catalog() if include_source_labels else {}
     empty_chance = _gambling_empty_chance(fortune_value)
     enabled_pool = []
     total_effective_weight = 0.0
@@ -10266,15 +10266,16 @@ def build_gambling_bundle(tg: int, bundle: dict[str, Any] | None = None) -> dict
         chance = (
             float(entry.get("effective_weight") or 0.0) / total_effective_weight * 100.0 * max(1.0 - empty_chance, 0.0)
         ) if total_effective_weight > 0 else 0.0
-        source_labels = source_catalog.get(
-            (str(entry.get("item_kind") or "").strip(), int(entry.get("item_ref_id") or 0)),
-            [],
-        )
-        route_labels = [label for label in source_labels if label != "仙界奇石"] or source_labels
-        if not route_labels and str(entry.get("item_kind") or "").strip() == "recipe":
-            route_labels = _recipe_fragment_source_labels(int(entry.get("item_ref_id") or 0), source_catalog)
-        entry["source_labels"] = route_labels[:6]
-        entry["source_summary"] = "、".join(route_labels[:4]) if route_labels else ""
+        if include_source_labels:
+            source_labels = source_catalog.get(
+                (str(entry.get("item_kind") or "").strip(), int(entry.get("item_ref_id") or 0)),
+                [],
+            )
+            route_labels = [label for label in source_labels if label != "仙界奇石"] or source_labels
+            if not route_labels and str(entry.get("item_kind") or "").strip() == "recipe":
+                route_labels = _recipe_fragment_source_labels(int(entry.get("item_ref_id") or 0), source_catalog)
+            entry["source_labels"] = route_labels[:6]
+            entry["source_summary"] = "、".join(route_labels[:4]) if route_labels else ""
         entry["chance_percent"] = chance
     enabled_pool.sort(
         key=lambda item: (
