@@ -2441,12 +2441,17 @@ function artifactEquipCategoryLabel(item = {}) {
   switch (item?.equip_slot) {
     case "weapon":
       return "武器";
+    case "shield":
+      return "盾";
+    case "accessory":
+      return "饰品";
+    case "clothes":
     case "chest":
     case "legs":
     case "boots":
     case "helmet":
-    case "bracelet":
       return "防具";
+    case "bracelet":
     case "necklace":
     case "ring":
       return "饰品";
@@ -5668,6 +5673,23 @@ function itemAffixTags(item, effects = {}) {
   return rows.join("");
 }
 
+function itemAffixText(item, effects = {}) {
+  const html = itemAffixTags(item || {}, effects || {});
+  if (!html) return "暂无加成";
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = html;
+  return [...wrapper.querySelectorAll(".tag")]
+    .map((node) => (node.textContent || "").trim())
+    .filter(Boolean)
+    .join(" · ") || "暂无加成";
+}
+
+function artifactSetSummaryText(artifactSet = {}) {
+  const countText = `${Number(artifactSet.equipped_count || 0)}/${Number(artifactSet.required_count || 2)}`;
+  const effectSource = artifactSet.active ? (artifactSet.resolved_effects || artifactSet) : artifactSet;
+  return `${artifactSet.name || "未命名套装"} ${countText} · ${itemAffixText(artifactSet, effectSource)}`;
+}
+
 function itemArtworkHtml(item, kind = "item", className = "item-art") {
   const url = String(item?.image_url || "").trim();
   if (!url) return "";
@@ -7760,7 +7782,7 @@ renderProfile = function renderProfileWithDiscoveries(bundle) {
   if (profileGrid) {
     const activeSets = (bundle.active_artifact_sets || []).filter((item) => item.active);
     const activeSetText = activeSets.length
-      ? activeSets.map((item) => `${item.name}(${item.equipped_count}/${item.required_count})`).join("、")
+      ? activeSets.map((item) => artifactSetSummaryText(item)).join("、")
       : "暂无激活";
     const techniqueCount = Number(bundle.technique_owned_count ?? (bundle.techniques || []).length ?? 0);
     profileGrid.insertAdjacentHTML(
@@ -7816,7 +7838,7 @@ renderArtifactList = function renderArtifactListEnhanced(items, retreating, equi
       item.unusable_reason,
       retreating ? "闭关期间无法切换法宝" : "当前不满足装备条件"
     );
-    const activeSet = item.artifact_set_name ? `${item.artifact_set_name}` : "无套装";
+    const activeSet = item.artifact_set ? artifactSetSummaryText(item.artifact_set) : "无套装";
     const card = document.createElement("article");
     card.className = "stack-item";
     card.innerHTML = `
@@ -7838,6 +7860,7 @@ renderArtifactList = function renderArtifactListEnhanced(items, retreating, equi
         ${itemAffixTags(item, effects)}
       </div>
       <p>境界要求：${escapeHtml(item.min_realm_stage ? `${item.min_realm_stage}${item.min_realm_layer}层` : "无限制")}</p>
+      ${item.artifact_set ? `<p>套装加成：${escapeHtml(activeSet)}</p>` : ""}
       <p>可交易：${escapeHtml(row.tradeable_quantity ?? 0)} ｜ 可提交：${escapeHtml(row.consumable_quantity ?? 0)}</p>
       ${reason ? `<p class="reason-text">${escapeHtml(reason)}</p>` : ""}
       <div class="inline-action-buttons">

@@ -9,13 +9,11 @@
   ];
   const ARTIFACT_SLOT_OPTIONS = [
     { value: "weapon", label: "武器" },
-    { value: "chest", label: "胸甲" },
-    { value: "legs", label: "护腿" },
-    { value: "boots", label: "靴子" },
-    { value: "necklace", label: "项链" },
-    { value: "ring", label: "戒指" },
     { value: "helmet", label: "头冠" },
-    { value: "bracelet", label: "护腕" },
+    { value: "clothes", label: "衣服" },
+    { value: "boots", label: "鞋" },
+    { value: "shield", label: "盾" },
+    { value: "accessory", label: "饰品" },
   ];
   const SECT_CAMP_OPTIONS = [
     { value: "orthodox", label: "正道" },
@@ -894,7 +892,7 @@
           <span class="badge badge--normal">${escapeHtml(item.required_count || 2)} 件生效</span>
         </div>
         <p>${escapeHtml(item.description || "暂无套装说明")}</p>
-        <p>${escapeHtml(affixSummary(item))}</p>
+        <p>套装加成：${escapeHtml(affixSummary(item))}</p>
         <div class="inline-action-buttons">${editButton("artifact-set", item.id)}${deleteButton("artifact-set", item.id)}</div>
       </article>
     `).join("") || `<article class="stack-item"><strong>暂无套装</strong></article>`);

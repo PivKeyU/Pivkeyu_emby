@@ -35,6 +35,14 @@ const PILL_TYPES = [
   { value: "root_heaven", label: "洗成天灵根", effect: "效果值未用" },
   { value: "root_variant", label: "洗成变异灵根", effect: "效果值未用" },
 ];
+const ARTIFACT_SLOT_OPTIONS = [
+  { value: "weapon", label: "武器" },
+  { value: "helmet", label: "头冠" },
+  { value: "clothes", label: "衣服" },
+  { value: "boots", label: "鞋" },
+  { value: "shield", label: "盾" },
+  { value: "accessory", label: "饰品" },
+];
 const SCENE_EVENT_TYPES = [
   ["encounter", "普通遭遇"],
   ["fortune", "机缘"],
@@ -1605,6 +1613,7 @@ function hydrateAdminForms() {
     { value: "battle", label: "战斗法宝" },
     { value: "support", label: "辅助法宝" },
   ], $("artifact-type")?.value || "battle", null);
+  setOptions($("artifact-slot"), ARTIFACT_SLOT_OPTIONS, $("artifact-slot")?.value || "weapon", null);
   setOptions(
     $("artifact-set-id"),
     [{ value: "", label: "无套装" }, ...((state.bundle?.artifact_sets || []).map((item) => ({ value: item.id, label: `${item.id} · ${item.name}` })))],
@@ -3570,7 +3579,7 @@ function applySettings(settings = {}) {
   $("setting-gambling-fortune-divisor").value = settings.gambling_fortune_divisor ?? 6;
   $("setting-gambling-fortune-bonus").value = settings.gambling_fortune_bonus_per_quality_percent ?? 8;
   if ($("official-shop-name")) $("official-shop-name").value = settings.official_shop_name ?? "官方商店";
-  $("setting-artifact-limit").value = settings.artifact_equip_limit ?? 3;
+  $("setting-artifact-limit").value = settings.artifact_equip_limit ?? 6;
   $("setting-user-upload").checked = Boolean(settings.allow_non_admin_image_upload);
   $("setting-chat-chance").value = settings.chat_cultivation_chance ?? 6;
   $("setting-chat-min").value = settings.chat_cultivation_min_gain ?? 1;
@@ -3965,7 +3974,7 @@ function bindEvents() {
       duel_winner_steal_percent: Number($("setting-duel-steal").value || 25),
       artifact_plunder_chance: Number($("setting-artifact-plunder").value || 20),
       equipment_unbind_cost: Number($("setting-unbind-cost").value || 0),
-      artifact_equip_limit: Number($("setting-artifact-limit").value || 3),
+      artifact_equip_limit: Number($("setting-artifact-limit").value || 6),
       high_quality_broadcast_level: Math.max(Number($("setting-quality-broadcast").value || 6), 6),
       slave_tribute_percent: Number($("setting-slave-tribute").value || 20),
       furnace_harvest_cultivation_percent: Number($("setting-furnace-harvest").value || 10),
@@ -4593,7 +4602,8 @@ renderWorld = function renderWorldEnhanced() {
         <strong>${escapeHtml(item.name)}</strong>
         <span class="badge badge--normal">${item.enabled ? "启用中" : "已停用"}</span>
       </div>
-      <p>生效件数 ${escapeHtml(item.required_count || 2)} · ${escapeHtml(affixSummary(item))}</p>
+      <p>生效件数 ${escapeHtml(item.required_count || 2)}</p>
+      <p>套装加成：${escapeHtml(affixSummary(item))}</p>
       <p>${escapeHtml(item.description || "暂无套装描述")}</p>
       <div class="inline-action-buttons">${editButton("artifact-set", item.id)}${deleteButton("artifact-set", item.id)}</div>
     </article>`).join("") || `<article class="stack-item"><strong>暂无套装</strong></article>`);

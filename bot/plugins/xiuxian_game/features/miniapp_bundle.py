@@ -23,6 +23,7 @@ from bot.sql_helper.sql_xiuxian import (
     list_user_talismans,
     list_user_techniques,
     list_user_titles,
+    normalize_artifact_slot,
     serialize_profile,
 )
 from bot.plugins.xiuxian_game.achievement_service import ACHIEVEMENT_METRIC_LABELS, build_user_achievement_overview
@@ -519,7 +520,7 @@ def _inventory_context(bundle: dict[str, Any], tg: int) -> dict[str, Any]:
         artifact = row.get("artifact") or {}
         if int(artifact.get("id") or 0) > 0:
             equipped_ids.add(int(artifact["id"]))
-        slot = str(row.get("slot") or artifact.get("equip_slot") or "").strip()
+        slot = normalize_artifact_slot(artifact.get("equip_slot"))
         if slot:
             equipped_slot_names.add(slot)
     equip_limit = max(int(settings.get("artifact_equip_limit") or bundle.get("capabilities", {}).get("artifact_equip_limit") or 1), 1)

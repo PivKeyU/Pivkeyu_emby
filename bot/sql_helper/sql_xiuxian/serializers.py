@@ -971,7 +971,8 @@ def serialize_artifact(artifact: XiuxianArtifact | None) -> dict[str, Any] | Non
     if artifact is None:
         return None
     quality = get_quality_meta(artifact.rarity)
-    equip_category = artifact_equip_category(artifact.equip_slot)
+    equip_slot = normalize_artifact_slot(artifact.equip_slot)
+    equip_category = artifact_equip_category(equip_slot)
 
     return {
         "id": artifact.id,
@@ -985,8 +986,9 @@ def serialize_artifact(artifact: XiuxianArtifact | None) -> dict[str, Any] | Non
         "artifact_type_label": ARTIFACT_TYPE_LABELS.get(artifact.artifact_type, artifact.artifact_type),
         "artifact_role": artifact.artifact_role,
         "artifact_role_label": ARTIFACT_ROLE_LABELS.get(artifact.artifact_role, artifact.artifact_role),
-        "equip_slot": artifact.equip_slot,
-        "equip_slot_label": ARTIFACT_SLOT_LABELS.get(artifact.equip_slot, artifact.equip_slot),
+        "equip_slot": equip_slot,
+        "equip_slot_raw": artifact.equip_slot,
+        "equip_slot_label": artifact_slot_label(equip_slot),
         "equip_category": equip_category,
         "equip_category_label": ARTIFACT_EQUIP_CATEGORY_LABELS.get(equip_category, equip_category),
         "artifact_set_id": artifact.artifact_set_id,
@@ -1012,7 +1014,7 @@ def serialize_artifact(artifact: XiuxianArtifact | None) -> dict[str, Any] | Non
 
 
 def artifact_equip_category(slot: str | None) -> str | None:
-    slot_name = str(slot or "").strip().lower()
+    slot_name = normalize_artifact_slot(slot)
     if not slot_name:
         return None
     return ARTIFACT_SLOT_CATEGORY_MAP.get(slot_name, "other")
@@ -1744,7 +1746,7 @@ def _normalize_artifact_fields(fields: dict[str, Any]) -> dict[str, Any]:
     payload.update(_normalize_common_bonus_fields(fields))
     payload["artifact_type"] = str(fields.get("artifact_type") or "battle").strip() or "battle"
     payload["artifact_role"] = str(fields.get("artifact_role") or payload["artifact_type"] or "battle").strip() or "battle"
-    payload["equip_slot"] = str(fields.get("equip_slot") or "weapon").strip() or "weapon"
+    payload["equip_slot"] = normalize_artifact_slot(fields.get("equip_slot") or "weapon")
     payload["artifact_set_id"] = _coerce_int(fields.get("artifact_set_id"), 0) or None
     payload["unique_item"] = _coerce_bool(fields.get("unique_item"), False)
     payload["duel_rate_bonus"] = _coerce_int(fields.get("duel_rate_bonus"), 0)

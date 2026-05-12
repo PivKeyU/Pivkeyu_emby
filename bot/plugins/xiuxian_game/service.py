@@ -114,6 +114,7 @@ from bot.sql_helper.sql_xiuxian import (
     normalize_gender,
     normalize_marriage_request_status,
     normalize_marriage_status,
+    normalize_artifact_slot,
     normalize_realm_stage,
     normalize_social_mode,
     finalize_auction_item as sql_finalize_auction_item,
@@ -354,6 +355,8 @@ DEFAULT_ARTIFACTS = [
         "name": "凡铁剑",
         "rarity": "凡品",
         "artifact_type": "battle",
+        "artifact_role": "battle",
+        "equip_slot": "weapon",
         "description": "最基础的入门法宝，适合刚踏入仙途的道友防身。",
         "attack_bonus": 12,
         "defense_bonus": 6,
@@ -377,6 +380,8 @@ DEFAULT_ARTIFACTS = [
         "name": "青罡剑",
         "rarity": "下品",
         "artifact_type": "battle",
+        "artifact_role": "battle",
+        "equip_slot": "weapon",
         "description": "以寒铁与赤炎晶砂淬成，剑势凌厉，最适合初入筑基的剑修。",
         "attack_bonus": 18,
         "defense_bonus": 5,
@@ -404,6 +409,8 @@ DEFAULT_ARTIFACTS = [
         "name": "玄龟盾",
         "rarity": "下品",
         "artifact_type": "support",
+        "artifact_role": "guardian",
+        "equip_slot": "shield",
         "description": "以玄龟甲片和地脉岩芯炼成，擅长化劲护体。",
         "attack_bonus": 4,
         "defense_bonus": 18,
@@ -431,6 +438,8 @@ DEFAULT_ARTIFACTS = [
         "name": "逐云履",
         "rarity": "中品",
         "artifact_type": "support",
+        "artifact_role": "movement",
+        "equip_slot": "boots",
         "description": "以云纹丝炼成的轻灵法履，步踏如风，专克笨重攻势。",
         "attack_bonus": 8,
         "defense_bonus": 8,
@@ -457,6 +466,8 @@ DEFAULT_ARTIFACTS = [
         "name": "赤焰珠",
         "rarity": "中品",
         "artifact_type": "battle",
+        "artifact_role": "support",
+        "equip_slot": "accessory",
         "description": "珠内封着一缕离火，攻势不算厚重，但善于不断灼烧对手。",
         "attack_bonus": 16,
         "true_yuan_bonus": 50,
@@ -482,6 +493,8 @@ DEFAULT_ARTIFACTS = [
         "name": "残修青罡古剑",
         "rarity": "上品",
         "artifact_type": "battle",
+        "artifact_role": "battle",
+        "equip_slot": "weapon",
         "description": "自秘境残剑中修复而来，剑身尚有裂纹，却也藏着不俗杀意。",
         "attack_bonus": 28,
         "defense_bonus": 10,
@@ -520,6 +533,8 @@ DEFAULT_ARTIFACTS = [
         "name": "残修玄龟古盾",
         "rarity": "上品",
         "artifact_type": "support",
+        "artifact_role": "guardian",
+        "equip_slot": "shield",
         "description": "由古盾残片重新归铸，盾势厚重，最适合久战磨敌。",
         "attack_bonus": 6,
         "defense_bonus": 28,
@@ -1813,6 +1828,179 @@ ARTIFACT_SET_BLUEPRINTS = [
                 "materials": [("周天星核", 1), ("无相天露", 1), ("先天混沌石", 1), ("鸿蒙天髓", 1)],
                 "success": 23,
                 "broadcast": True,
+            },
+        ],
+    },
+    {
+        "name": "云岚初行套",
+        "description": "适合前期成型的六部位轻装，补足武器、头冠、衣服、鞋、盾与饰品的基础配置。",
+        "required_count": 3,
+        "attack_bonus": 8,
+        "defense_bonus": 8,
+        "body_movement_bonus": 8,
+        "items": [
+            {
+                "name": "云岚轻灵剑",
+                "rarity": "凡品",
+                "artifact_type": "battle",
+                "artifact_role": "battle",
+                "equip_slot": "weapon",
+                "attack_bonus": 14,
+                "body_movement_bonus": 3,
+                "description": "剑身轻薄，适合初入仙途者熟悉御器节奏。",
+                "combat_config": {"passives": [{"name": "轻灵斩", "kind": "extra_damage", "chance": 20, "flat_damage": 10, "ratio_percent": 12, "text": "云岚轻灵剑顺势一挑，剑光贴着灵压掠过。"}]},
+                "materials": [("寒铁矿", 2), ("云纹丝", 1)],
+                "success": 72,
+            },
+            {
+                "name": "云岚束发冠",
+                "rarity": "凡品",
+                "artifact_type": "support",
+                "artifact_role": "support",
+                "equip_slot": "helmet",
+                "comprehension_bonus": 3,
+                "divine_sense_bonus": 3,
+                "description": "冠中嵌一缕清风玉纹，可令灵台稍定。",
+                "materials": [("灵木芯", 2), ("凝露花", 1)],
+                "success": 74,
+            },
+            {
+                "name": "云岚护身衣",
+                "rarity": "凡品",
+                "artifact_type": "support",
+                "artifact_role": "guardian",
+                "equip_slot": "clothes",
+                "defense_bonus": 10,
+                "qi_blood_bonus": 24,
+                "description": "衣纹朴素，却能分散入门斗法中的余劲。",
+                "combat_config": {"passives": [{"name": "云纹护体", "kind": "shield", "chance": 18, "flat_shield": 14, "ratio_percent": 10, "text": "云岚护身衣浮起细纹，卸去一截冲击。"}]},
+                "materials": [("云纹丝", 2), ("归元草", 1)],
+                "success": 72,
+            },
+            {
+                "name": "云岚踏风鞋",
+                "rarity": "凡品",
+                "artifact_type": "support",
+                "artifact_role": "movement",
+                "equip_slot": "boots",
+                "body_movement_bonus": 10,
+                "defense_bonus": 2,
+                "description": "鞋底缝有轻风纹，闪转腾挪更稳。",
+                "materials": [("云纹丝", 2), ("雷击木", 1)],
+                "success": 72,
+            },
+            {
+                "name": "云岚小圆盾",
+                "rarity": "凡品",
+                "artifact_type": "support",
+                "artifact_role": "guardian",
+                "equip_slot": "shield",
+                "defense_bonus": 12,
+                "qi_blood_bonus": 18,
+                "description": "盾面不大，胜在顺手，能护住破绽。",
+                "combat_config": {"passives": [{"name": "圆盾格挡", "kind": "guard", "chance": 18, "defense_ratio_percent": 14, "duration": 1, "text": "云岚小圆盾横在身前，硬接一记余势。"}]},
+                "materials": [("玄龟甲片", 1), ("灵木芯", 1)],
+                "success": 70,
+            },
+            {
+                "name": "云岚清心坠",
+                "rarity": "凡品",
+                "artifact_type": "support",
+                "artifact_role": "support",
+                "equip_slot": "accessory",
+                "true_yuan_bonus": 22,
+                "fortune_bonus": 2,
+                "cultivation_bonus": 3,
+                "description": "坠子中存一滴清露，可稳住初学者的真元流转。",
+                "materials": [("凝露花", 1), ("归元草", 2)],
+                "success": 72,
+            },
+        ],
+    },
+    {
+        "name": "赤炉炼战套",
+        "description": "炼器修士偏爱的中阶六部位战装，攻守平衡，适合日常斗法与炼制成长。",
+        "required_count": 4,
+        "attack_bonus": 18,
+        "defense_bonus": 14,
+        "cultivation_bonus": 8,
+        "items": [
+            {
+                "name": "赤炉断金斧",
+                "rarity": "中品",
+                "artifact_type": "battle",
+                "artifact_role": "battle",
+                "equip_slot": "weapon",
+                "attack_bonus": 34,
+                "duel_rate_bonus": 4,
+                "description": "斧刃带赤炉余温，重劈时能震散护体灵光。",
+                "combat_config": {"passives": [{"name": "断金重劈", "kind": "armor_break", "chance": 26, "defense_ratio_percent": 16, "duration": 2, "text": "赤炉断金斧轰然劈下，护体灵光被砸出裂纹。"}]},
+                "materials": [("赤霄铜髓", 2), ("断雷砂", 1), ("星河砂", 1)],
+                "success": 56,
+            },
+            {
+                "name": "赤炉护额冠",
+                "rarity": "中品",
+                "artifact_type": "support",
+                "artifact_role": "support",
+                "equip_slot": "helmet",
+                "comprehension_bonus": 8,
+                "divine_sense_bonus": 8,
+                "description": "护额温润，可让炼火躁意不扰灵台。",
+                "materials": [("金乌羽粉", 1), ("霜华露珠", 2), ("云母银丝", 1)],
+                "success": 58,
+            },
+            {
+                "name": "赤炉百炼衣",
+                "rarity": "中品",
+                "artifact_type": "support",
+                "artifact_role": "guardian",
+                "equip_slot": "clothes",
+                "defense_bonus": 24,
+                "qi_blood_bonus": 62,
+                "description": "衣内嵌入百炼铜丝，可承受炼火反震。",
+                "combat_config": {"passives": [{"name": "百炼护劲", "kind": "shield", "chance": 24, "flat_shield": 24, "ratio_percent": 16, "text": "赤炉百炼衣火纹一亮，护住经脉要害。"}]},
+                "materials": [("赤霄铜髓", 2), ("云母银丝", 2), ("厚土晶", 1)],
+                "success": 55,
+            },
+            {
+                "name": "赤炉行火鞋",
+                "rarity": "中品",
+                "artifact_type": "support",
+                "artifact_role": "movement",
+                "equip_slot": "boots",
+                "body_movement_bonus": 22,
+                "duel_rate_bonus": 4,
+                "description": "鞋底火纹一闪，可借地火反推身形。",
+                "combat_config": {"passives": [{"name": "行火错步", "kind": "dodge", "chance": 24, "dodge_bonus": 20, "duration": 1, "text": "赤炉行火鞋踏出火星，人影已偏开一线。"}]},
+                "materials": [("离火絮", 2), ("金乌羽粉", 1), ("云母银丝", 1)],
+                "success": 56,
+            },
+            {
+                "name": "赤炉熔铁盾",
+                "rarity": "中品",
+                "artifact_type": "support",
+                "artifact_role": "guardian",
+                "equip_slot": "shield",
+                "defense_bonus": 28,
+                "qi_blood_bonus": 40,
+                "description": "盾缘常有暗红余烬，攻来之力会被层层熔解。",
+                "combat_config": {"passives": [{"name": "熔铁回护", "kind": "guard", "chance": 26, "defense_ratio_percent": 20, "duration": 1, "text": "赤炉熔铁盾沉声挡下攻势，火纹顺势反卷。"}]},
+                "materials": [("玄龟骨晶", 2), ("赤霄铜髓", 1), ("断雷砂", 1)],
+                "success": 54,
+            },
+            {
+                "name": "赤炉温玉佩",
+                "rarity": "中品",
+                "artifact_type": "support",
+                "artifact_role": "support",
+                "equip_slot": "accessory",
+                "true_yuan_bonus": 48,
+                "cultivation_bonus": 8,
+                "fortune_bonus": 4,
+                "description": "温玉藏火，可在修炼时缓缓调匀真元。",
+                "materials": [("暖玉粉", 2), ("灵雾草心", 1), ("霜华露珠", 1)],
+                "success": 57,
             },
         ],
     },
@@ -4872,7 +5060,7 @@ def build_user_artifact_rows(
     equipped_slot_names: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     artifact_set_map = _artifact_set_index()
-    occupied_slots = {slot for slot in (equipped_slot_names or set()) if slot}
+    occupied_slots = {normalize_artifact_slot(slot) for slot in (equipped_slot_names or set()) if slot}
     rows = []
     for row in list_user_artifacts(tg):
         total_quantity = max(int(row.get("quantity") or 0), 0)
@@ -4890,7 +5078,7 @@ def build_user_artifact_rows(
             reason = ""
         else:
             reason = f"需要达到 {format_realm_requirement(item.get('min_realm_stage'), item.get('min_realm_layer'))}"
-        target_slot = str(item.get("equip_slot") or "").strip()
+        target_slot = normalize_artifact_slot(item.get("equip_slot"))
         slot_replaceable = bool(target_slot and target_slot in occupied_slots)
         if not item["equipped"] and len(equipped_ids) >= equip_limit and not slot_replaceable:
             usable = False
@@ -4939,9 +5127,9 @@ def _current_technique_payload(profile_data: dict[str, Any]) -> dict[str, Any] |
     return technique
 
 
-SEED_DATA_VERSION = "2026-05-11-longsui-pill-balance-v1"
+SEED_DATA_VERSION = "2026-05-12-expanded-artifact-slots-and-sets-v1"
 DEFAULT_ARTIFACT_SET_SYNC_SETTING = "default_artifact_set_sync_version"
-DEFAULT_ARTIFACT_SET_SYNC_VERSION = "2026-05-10-default-artifact-set-links-v1"
+DEFAULT_ARTIFACT_SET_SYNC_VERSION = "2026-05-12-expanded-artifact-set-links-v1"
 DEFAULT_BOSS_SYNC_SETTING = "default_boss_sync_version"
 DEFAULT_BOSS_SYNC_VERSION = "2026-05-09-editable-default-bosses-v1"
 SEED_DATA_READY = False
@@ -6947,8 +7135,9 @@ def _legacy_serialize_full_profile(tg: int) -> dict[str, Any]:
         item["slot"] = row["slot"]
         equipped.append(item)
         equipped_ids.add(int(item["id"]))
-        if str(item.get("equip_slot") or "").strip():
-            equipped_slot_names.add(str(item.get("equip_slot") or "").strip())
+        equipped_slot = normalize_artifact_slot(item.get("equip_slot"))
+        if equipped_slot:
+            equipped_slot_names.add(equipped_slot)
     active_talisman = serialize_talisman(get_talisman(profile.active_talisman_id)) if profile and profile.active_talisman_id else None
     if active_talisman:
         active_talisman["resolved_effects"] = resolve_talisman_effects(profile_data, active_talisman)
@@ -9938,6 +10127,18 @@ def update_xiuxian_settings(payload: dict[str, Any]) -> dict[str, Any]:
                 0,
             ),
             100,
+        )
+    if "artifact_equip_limit" in patch and patch["artifact_equip_limit"] is not None:
+        patch["artifact_equip_limit"] = min(
+            max(
+                _coerce_int(
+                    patch["artifact_equip_limit"],
+                    DEFAULT_SETTINGS["artifact_equip_limit"],
+                    1,
+                ),
+                1,
+            ),
+            12,
         )
     if "duel_winner_steal_percent" in patch and patch["duel_winner_steal_percent"] is not None:
         patch["duel_winner_steal_percent"] = min(

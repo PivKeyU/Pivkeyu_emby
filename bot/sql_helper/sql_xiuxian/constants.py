@@ -153,17 +153,48 @@ ARTIFACT_ROLE_LABELS = {
 }
 ARTIFACT_SLOT_LABELS = {
     "weapon": "武器",
-    "chest": "胸甲",
-    "legs": "护腿",
-    "boots": "靴子",
-    "necklace": "项链",
-    "ring": "戒指",
     "helmet": "头冠",
-    "bracelet": "护腕",
+    "clothes": "衣服",
+    "boots": "鞋",
+    "shield": "盾",
+    "accessory": "饰品",
+    # Legacy slot keys kept readable for older rows and imports.
+    "chest": "衣服",
+    "legs": "衣服",
+    "robe": "衣服",
+    "armor": "衣服",
+    "necklace": "饰品",
+    "ring": "饰品",
+    "bracelet": "饰品",
+}
+ARTIFACT_EQUIP_SLOTS = ("weapon", "helmet", "clothes", "boots", "shield", "accessory")
+ARTIFACT_SLOT_ALIASES = {
+    "weapon": "weapon",
+    "sword": "weapon",
+    "blade": "weapon",
+    "helmet": "helmet",
+    "head": "helmet",
+    "crown": "helmet",
+    "chest": "clothes",
+    "legs": "clothes",
+    "robe": "clothes",
+    "armor": "clothes",
+    "clothes": "clothes",
+    "boots": "boots",
+    "boot": "boots",
+    "shoes": "boots",
+    "shoe": "boots",
+    "shield": "shield",
+    "necklace": "accessory",
+    "ring": "accessory",
+    "bracelet": "accessory",
+    "accessory": "accessory",
+    "amulet": "accessory",
 }
 ARTIFACT_EQUIP_CATEGORY_LABELS = {
     "weapon": "武器",
     "armor": "防具",
+    "shield": "盾",
     "accessory": "饰品",
     "other": "其他装备",
 }
@@ -173,10 +204,27 @@ ARTIFACT_SLOT_CATEGORY_MAP = {
     "legs": "armor",
     "boots": "armor",
     "helmet": "armor",
-    "bracelet": "armor",
+    "clothes": "armor",
+    "robe": "armor",
+    "armor": "armor",
+    "shield": "shield",
+    "bracelet": "accessory",
     "necklace": "accessory",
     "ring": "accessory",
+    "accessory": "accessory",
 }
+
+
+def normalize_artifact_slot(slot: str | None) -> str:
+    raw = str(slot or "").strip().lower()
+    if not raw:
+        return "weapon"
+    return ARTIFACT_SLOT_ALIASES.get(raw, raw if raw in ARTIFACT_EQUIP_SLOTS else "accessory")
+
+
+def artifact_slot_label(slot: str | None) -> str:
+    normalized = normalize_artifact_slot(slot)
+    return ARTIFACT_SLOT_LABELS.get(normalized, str(slot or "").strip() or "饰品")
 SECT_CAMP_LABELS = {
     "orthodox": "正道",
     "heterodox": "邪道",
@@ -395,7 +443,7 @@ DEFAULT_SETTINGS = {
     "allow_user_task_publish": True,
     "task_publish_cost": 20,
     "user_task_daily_limit": 3,
-    "artifact_equip_limit": 3,
+    "artifact_equip_limit": 6,
     "duel_bet_enabled": True,
     "duel_bet_seconds": 120,
     "duel_bet_min_amount": 10,

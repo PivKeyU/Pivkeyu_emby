@@ -2310,17 +2310,19 @@ def set_equipped_artifact(tg: int, artifact_id: int, equip_limit: int = 3) -> di
             session.flush()
             action = "unequipped"
         else:
-            slot_conflict = None
+            target_equip_slot = normalize_artifact_slot(artifact.equip_slot)
+            slot_conflicts: list[XiuxianEquippedArtifact] = []
             for row in equipped_rows:
                 equipped_artifact = session.query(XiuxianArtifact).filter(XiuxianArtifact.id == row.artifact_id).first()
-                if equipped_artifact and str(equipped_artifact.equip_slot or "") == str(artifact.equip_slot or ""):
-                    slot_conflict = row
-                    break
-            if slot_conflict is not None:
-                replaced_artifact_id = int(slot_conflict.artifact_id)
-                session.delete(slot_conflict)
+                if equipped_artifact and normalize_artifact_slot(equipped_artifact.equip_slot) == target_equip_slot:
+                    slot_conflicts.append(row)
+            if slot_conflicts:
+                replaced_artifact_id = int(slot_conflicts[0].artifact_id)
+                for slot_conflict in slot_conflicts:
+                    session.delete(slot_conflict)
                 session.flush()
-                equipped_rows = [row for row in equipped_rows if row.id != slot_conflict.id]
+                conflict_ids = {row.id for row in slot_conflicts}
+                equipped_rows = [row for row in equipped_rows if row.id not in conflict_ids]
             safe_limit = max(int(equip_limit or 0), 1)
             if len(equipped_rows) >= safe_limit:
                 raise ValueError(f"当前最多只能装备 {safe_limit} 件法宝。")
