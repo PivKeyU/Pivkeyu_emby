@@ -3379,6 +3379,7 @@ def craft_recipe_for_user(tg: int, recipe_id: int, quantity: int = 1) -> dict[st
             row.updated_at = utcnow()
             if row.quantity <= 0:
                 session.delete(row)
+        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
     preview = _recipe_success_preview(
         recipe,
