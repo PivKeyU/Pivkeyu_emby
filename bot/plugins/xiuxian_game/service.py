@@ -2876,7 +2876,14 @@ DEFAULT_SCENES.extend(
                 {"name": "裂空真传", "description": "遗迹穹顶忽现一段天阙步法。", "event_type": "oddity", "weight": 2, "bonus_reward_kind": "technique", "bonus_reward_ref_id_name": "紫宸裂空经", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 18},
                 {"name": "天阙坠雷", "description": "残破禁制坠下一缕神雷，震得经脉发麻。", "event_type": "danger", "weight": 3, "stone_bonus_min": 36, "stone_bonus_max": 66, "stone_loss_min": 18, "stone_loss_max": 32},
             ],
-            "drops": [{"reward_kind": "material", "reward_ref_id_name": name, "quantity_min": 1, "quantity_max": 2, "weight": 4 + (10 - index), "stone_reward": 14, "event_text": f"你在紫宸天遗中截获一份【{name}】。"} for index, name in enumerate(SEED_MATERIAL_BLUEPRINTS["仙品"], start=1)],
+            "drops": [
+                *[{"reward_kind": "material", "reward_ref_id_name": name, "quantity_min": 1, "quantity_max": 2, "weight": 4 + (10 - index), "stone_reward": 14, "event_text": f"你在紫宸天遗中截获一份【{name}】。"} for index, name in enumerate(SEED_MATERIAL_BLUEPRINTS["仙品"], start=1)],
+                {"reward_kind": "material", "reward_ref_id_name": "玄冥冰魄", "quantity_min": 1, "quantity_max": 1, "weight": 3, "stone_reward": 22, "event_text": "紫宸天遗阴影深处寒意凝结，你凿下一枚玄冥冰魄。"},
+                {"reward_kind": "material", "reward_ref_id_name": "长生灵藤心", "quantity_min": 1, "quantity_max": 1, "weight": 3, "stone_reward": 22, "event_text": "残阙裂缝里仍有古藤不死，你取下其中一截长生灵藤心。"},
+                {"reward_kind": "material", "reward_ref_id_name": "太清星尘", "quantity_min": 1, "quantity_max": 1, "weight": 3, "stone_reward": 22, "event_text": "碎裂天穹落下点点清辉，你收拢一捧太清星尘。"},
+                {"reward_kind": "recipe", "reward_ref_id_name": "紫宸战铠炼制图", "quantity_min": 1, "quantity_max": 1, "weight": 2, "stone_reward": 80, "event_text": "紫宸天遗残阙之下，一副战铠阵纹仍在缓缓亮灭，你拓下完整炼图。"},
+                {"reward_kind": "recipe", "reward_ref_id_name": "紫宸飞履炼制图", "quantity_min": 1, "quantity_max": 1, "weight": 2, "stone_reward": 80, "event_text": "裂空旧阶上留有飞履步纹，你循着残痕悟出紫宸飞履炼制图。"},
+            ],
         },
         {
             "name": "鸿蒙源海",
@@ -3239,6 +3246,7 @@ BREAKTHROUGH_PILLS, BREAKTHROUGH_RECIPES, BREAKTHROUGH_SCENES = _build_breakthro
 DEFAULT_PILLS.extend(BREAKTHROUGH_PILLS)
 DEFAULT_RECIPES.extend(BREAKTHROUGH_RECIPES)
 DEFAULT_SCENES.extend(BREAKTHROUGH_SCENES)
+DEFAULT_MATERIALS = apply_farmable_material_overrides(DEFAULT_MATERIALS, DEFAULT_RECIPES)
 
 SPIRIT_STONE_COMMISSION_ACTION = "commission"
 SPIRIT_STONE_COMMISSIONS = {
@@ -3478,6 +3486,7 @@ TALISMAN_ACTIVE_EFFECT_FIELDS = (
     "fishing_luck_bonus",
     "fishing_empty_reduce",
     "fishing_quantity_bonus",
+    "exploration_repeat_count",
     "boss_damage_bonus",
     "boss_crit_bonus",
     "practice_stone_bonus",
@@ -4064,6 +4073,8 @@ def _normalize_talisman_active_effects(raw: Any) -> dict[str, float]:
         "explore_drop_bonus": "exploration_drop_bonus",
         "explore_quantity_bonus": "exploration_quantity_bonus",
         "explore_stone_bonus": "exploration_stone_bonus",
+        "explore_repeat_count": "exploration_repeat_count",
+        "repeat_count": "exploration_repeat_count",
         "risk_reduce": "exploration_risk_reduce",
         "death_risk_reduce": "exploration_risk_reduce",
         "empty_reduce": "fishing_empty_reduce",
@@ -4086,6 +4097,7 @@ def _normalize_talisman_active_effects(raw: Any) -> dict[str, float]:
         "fishing_luck_bonus": 32.0,
         "fishing_empty_reduce": 28.0,
         "fishing_quantity_bonus": 35.0,
+        "exploration_repeat_count": 5.0,
         "boss_damage_bonus": 55.0,
         "boss_crit_bonus": 18.0,
         "practice_stone_bonus": 35.0,
@@ -4158,6 +4170,8 @@ def _infer_talisman_active_effects(talisman: dict[str, Any] | None) -> dict[str,
     else:
         effects["exploration_drop_bonus"] = min(4 + level * 2 + divine_sense / 5 + fortune / 8, 32)
         effects["exploration_quantity_bonus"] = min(level + fortune / 8, 35)
+    if "多次探索" in name_text or "连探" in name_text:
+        effects["exploration_repeat_count"] = min(2 + max(level - 4, 0), 5)
 
     effects["exploration_drop_bonus"] = min(effects["exploration_drop_bonus"] + divine_sense / 12 + fortune / 20, 32)
     effects["fishing_luck_bonus"] = min(effects["fishing_luck_bonus"] + fortune / 8, 32)
@@ -4195,6 +4209,7 @@ def active_talisman_effect_summary(effects: dict[str, Any] | None) -> list[str]:
         ("fishing_luck_bonus", "垂钓机缘"),
         ("fishing_empty_reduce", "空竿减免"),
         ("fishing_quantity_bonus", "钓获数量"),
+        ("exploration_repeat_count", "多次探索"),
         ("boss_damage_bonus", "Boss伤害"),
         ("boss_crit_bonus", "Boss会心"),
         ("practice_stone_bonus", "吐纳灵石"),
@@ -4204,7 +4219,12 @@ def active_talisman_effect_summary(effects: dict[str, Any] | None) -> list[str]:
         value = float(source.get(key) or 0)
         if value <= 0:
             continue
-        rows.append(f"{label}+{value:g}%" if key != "cultivation_bonus" else f"{label}+{value:g}")
+        if key == "cultivation_bonus":
+            rows.append(f"{label}+{value:g}")
+        elif key == "exploration_repeat_count":
+            rows.append(f"{label}×{int(value)}")
+        else:
+            rows.append(f"{label}+{value:g}%")
     return rows
 
 
@@ -5127,7 +5147,7 @@ def _current_technique_payload(profile_data: dict[str, Any]) -> dict[str, Any] |
     return technique
 
 
-SEED_DATA_VERSION = "2026-05-12-expanded-artifact-slots-and-sets-v1"
+SEED_DATA_VERSION = "2026-05-19-xiuxian-craft-farm-recycle-explore-recipes-v1"
 DEFAULT_ARTIFACT_SET_SYNC_SETTING = "default_artifact_set_sync_version"
 DEFAULT_ARTIFACT_SET_SYNC_VERSION = "2026-05-12-expanded-artifact-set-links-v1"
 DEFAULT_BOSS_SYNC_SETTING = "default_boss_sync_version"
@@ -5696,6 +5716,19 @@ def _round_seed_shop_price(value: float) -> int:
     return max(int(ceil(max(float(value), 1.0) / 5.0) * 5), 5)
 
 
+def _is_immortal_stone_payload(item_kind: str, payload: dict[str, Any]) -> bool:
+    return str(item_kind or "").strip() == "material" and str((payload or {}).get("name") or "").strip() == IMMORTAL_STONE_NAME
+
+
+def _immortal_stone_exchange_cost() -> int:
+    settings = get_xiuxian_settings()
+    return max(_coerce_int(settings.get("gambling_exchange_cost_stone"), DEFAULT_SETTINGS["gambling_exchange_cost_stone"], 1), 1)
+
+
+def _immortal_stone_recycle_limit() -> int:
+    return max(_immortal_stone_exchange_cost() - 1, 1)
+
+
 def _seed_quality_price_multiplier(level: int, *, item_kind: str) -> float:
     rarity_level = max(int(level or 1), 1)
     base_step = {
@@ -5848,6 +5881,8 @@ def _talisman_seed_shop_price(payload: dict[str, Any]) -> int:
 
 
 def _material_seed_shop_price(payload: dict[str, Any]) -> int:
+    if _is_immortal_stone_payload("material", payload):
+        return _immortal_stone_exchange_cost()
     quality_level = max(int(payload.get("quality_level") or 1), 1)
     seed_price = max(int(payload.get("seed_price_stone") or 0), 0)
     growth_minutes = max(int(payload.get("growth_minutes") or 0), 0)
@@ -5991,6 +6026,8 @@ def _seed_official_shop_price(item_kind: str, payload: dict[str, Any]) -> int:
 
 def _official_recycle_anchor_price(item_kind: str, payload: dict[str, Any]) -> int:
     normalized_kind = str(item_kind or "").strip()
+    if _is_immortal_stone_payload(normalized_kind, payload):
+        return _immortal_stone_exchange_cost()
     if normalized_kind in RECYCLABLE_ITEM_KINDS:
         return _seed_official_shop_price(normalized_kind, payload)
     raise ValueError("当前物品类型暂不支持万宝归炉")
@@ -6000,26 +6037,32 @@ def _official_recycle_ratio(item_kind: str, quality_level: int, payload: dict[st
     normalized_kind = str(item_kind or "").strip()
     level = max(int(quality_level or 1), 1)
     if normalized_kind == "artifact":
-        ratio = min(0.44, 0.22 + (level - 1) * 0.035)
+        ratio = min(0.60, (0.22 + (level - 1) * 0.035) * 1.38)
         if payload.get("unique_item"):
-            ratio = max(ratio - 0.05, 0.28)
+            ratio = max(ratio - 0.05, 0.38)
         return ratio
     if normalized_kind == "pill":
-        return min(0.42, 0.24 + (level - 1) * 0.028)
+        return min(0.58, (0.24 + (level - 1) * 0.028) * 1.38)
     if normalized_kind == "talisman":
-        return min(0.43, 0.23 + (level - 1) * 0.03)
+        return min(0.59, (0.23 + (level - 1) * 0.03) * 1.38)
     if normalized_kind == "material":
         plant_bonus = 0.02 if payload.get("can_plant") else 0.0
-        return min(0.46, 0.26 + (level - 1) * 0.03 + plant_bonus)
+        return min(0.62, (0.26 + (level - 1) * 0.03 + plant_bonus) * 1.38)
     if normalized_kind == "technique":
-        return min(0.41, 0.20 + (level - 1) * 0.032)
+        return min(0.57, (0.20 + (level - 1) * 0.032) * 1.38)
     if normalized_kind == "recipe":
-        return min(0.38, 0.18 + (level - 1) * 0.028)
+        return min(0.54, (0.18 + (level - 1) * 0.028) * 1.38)
     raise ValueError("当前物品类型暂不支持万宝归炉")
+
+
+def _official_recycle_charisma_bonus_percent(charisma: int) -> int:
+    return min(max(int(charisma or 0) - 10, 0) // 4, 10)
 
 
 def _official_recycle_price_cap(item_kind: str, quality_level: int, payload: dict[str, Any]) -> int:
     normalized_kind = str(item_kind or "").strip()
+    if _is_immortal_stone_payload(normalized_kind, payload):
+        return _immortal_stone_recycle_limit()
     level = max(int(quality_level or 1), 1)
     if normalized_kind == "artifact":
         stat_score = _weighted_seed_stat_value(
@@ -6169,6 +6212,7 @@ def build_official_recycle_quote(
     *,
     available_quantity: int,
     quantity: int = 1,
+    charisma: int = 0,
 ) -> dict[str, Any]:
     normalized_kind = str(item_kind or "").strip()
     if normalized_kind not in RECYCLABLE_ITEM_KINDS:
@@ -6186,10 +6230,24 @@ def build_official_recycle_quote(
     quality_color = _official_payload_quality_color(normalized_kind, payload)
     anchor_price = _official_recycle_anchor_price(normalized_kind, payload)
     ratio = _official_recycle_ratio(normalized_kind, quality_level, payload)
-    hard_limit = _round_seed_shop_price(anchor_price * 0.55)
+    hard_limit = _round_seed_shop_price(anchor_price * 0.72)
     cap_price = _official_recycle_price_cap(normalized_kind, quality_level, payload)
     unit_price = _round_seed_shop_price(anchor_price * ratio)
+    charisma_bonus_percent = _official_recycle_charisma_bonus_percent(charisma)
+    if charisma_bonus_percent > 0:
+        unit_price = _round_seed_shop_price(unit_price * (1 + charisma_bonus_percent / 100.0))
     unit_price = max(min(unit_price, hard_limit, cap_price), 5)
+    if _is_immortal_stone_payload(normalized_kind, payload):
+        unit_price = min(unit_price, _immortal_stone_recycle_limit())
+    quote_note = (
+        f"按{quality_label}品阶、属性与魅力折价归炉，品质越高、属性越强，归炉价越高"
+        f"{f'，本次魅力加成 {charisma_bonus_percent}%' if charisma_bonus_percent else ''}，但仍低于官方商店售价。"
+    )
+    if _is_immortal_stone_payload(normalized_kind, payload):
+        quote_note = (
+            f"{IMMORTAL_STONE_NAME}按当前兑换成本折价归炉"
+            f"{f'，本次魅力加成 {charisma_bonus_percent}%' if charisma_bonus_percent else ''}，回收价不会高于兑换成本。"
+        )
     return {
         "shop_name": OFFICIAL_RECYCLE_NAME,
         "item_kind": normalized_kind,
@@ -6205,7 +6263,8 @@ def build_official_recycle_quote(
         "total_price_stone": unit_price * requested,
         "max_total_price_stone": unit_price * available,
         "anchor_price_stone": anchor_price,
-        "quote_note": f"按{quality_label}品阶与属性折价归炉，品质越高、属性越强，归炉价越高，但仍低于官方商店售价。",
+        "charisma_bonus_percent": charisma_bonus_percent,
+        "quote_note": quote_note,
     }
 
 
@@ -6222,6 +6281,7 @@ def attach_official_recycle_quotes(bundle: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(bundle, dict):
         return bundle
     entries: list[dict[str, Any]] = []
+    charisma = int((bundle.get("effective_stats") or {}).get("charisma") or (bundle.get("profile") or {}).get("charisma") or 0)
     source_specs = (
         ("artifact", "artifacts", "artifact"),
         ("pill", "pills", "pill"),
@@ -6252,6 +6312,7 @@ def attach_official_recycle_quotes(bundle: dict[str, Any]) -> dict[str, Any]:
                         item_payload,
                         available_quantity=available_quantity,
                         quantity=available_quantity,
+                        charisma=charisma,
                     )
                 )
             except ValueError:
@@ -6273,6 +6334,12 @@ def attach_official_recycle_quotes(bundle: dict[str, Any]) -> dict[str, Any]:
 
 def _find_official_recycle_quote_for_user(tg: int, item_kind: str, item_ref_id: int) -> dict[str, Any] | None:
     normalized_kind = str(item_kind or "").strip()
+    profile = get_profile(int(tg), create=False)
+    profile_payload = serialize_profile(profile) if profile is not None else {}
+    try:
+        charisma = int((_battle_bundle(profile_payload).get("stats") or {}).get("charisma") or profile_payload.get("charisma") or 0)
+    except Exception:
+        charisma = int(profile_payload.get("charisma") or 0)
     source_map: dict[str, tuple[list[dict[str, Any]], str]] = {
         "artifact": (list_user_artifacts(tg), "artifact"),
         "pill": (list_user_pills(tg), "pill"),
@@ -6305,6 +6372,7 @@ def _find_official_recycle_quote_for_user(tg: int, item_kind: str, item_ref_id: 
                 item_payload,
                 available_quantity=available_quantity,
                 quantity=1,
+                charisma=charisma,
             )
         except ValueError:
             return None

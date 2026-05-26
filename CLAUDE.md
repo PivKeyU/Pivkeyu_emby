@@ -50,7 +50,7 @@ bot/
     api/__init__.py              # Route aggregation: /emby, /user, /auth, /admin-api, miniapp
     api/admin.py                 # Admin panel API (largest API file, ~57K)
     api/miniapp.py               # Telegram Mini App backend
-    api/webhook/                 # Emby webhook receivers (client_filter, favorites, media)
+    api/webhook/                 # Emby webhook receivers (client_filter)
     static/                      # SPA static assets (admin.html, miniapp.html)
     migration_bundle.py          # Historical migration tracking for runtime plugins
   modules/

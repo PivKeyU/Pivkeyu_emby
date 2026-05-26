@@ -76,6 +76,7 @@ from bot.sql_helper.sql_xiuxian import (
     grant_talisman_to_user,
     grant_technique_to_user,
     grant_duplicate_knowledge_compensation_in_session,
+    consume_user_materials_in_session,
     _queue_catalog_cache_invalidation,
     _queue_user_view_cache_invalidation,
     list_achievements,
@@ -3363,22 +3364,17 @@ def craft_recipe_for_user(tg: int, recipe_id: int, quantity: int = 1) -> dict[st
         for item in ingredients:
             material_id = int(item["material_id"])
             required_quantity = int(item["quantity"] or 0) * requested_quantity
-            row = (
-                session.query(XiuxianMaterialInventory)
-                .filter(XiuxianMaterialInventory.tg == tg, XiuxianMaterialInventory.material_id == material_id)
-                .with_for_update()
-                .first()
+            consumed, owned_quantity = consume_user_materials_in_session(
+                session,
+                tg,
+                material_id,
+                required_quantity,
             )
-            if row is None or row.quantity < required_quantity:
-                owned_quantity = max(int(getattr(row, "quantity", 0) or 0), 0)
+            if not consumed:
                 raise ValueError(
                     f"材料数量已变更：{item['material']['name']} 缺 {max(required_quantity - owned_quantity, 0)}"
                     "，请刷新后重新尝试"
                 )
-            row.quantity -= required_quantity
-            row.updated_at = utcnow()
-            if row.quantity <= 0:
-                session.delete(row)
         _queue_user_view_cache_invalidation(session, tg)
         session.commit()
     preview = _recipe_success_preview(

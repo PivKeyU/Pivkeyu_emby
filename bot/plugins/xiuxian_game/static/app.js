@@ -58,6 +58,33 @@ const UPSTREAM_UNAVAILABLE_MESSAGES = new Set([
 ]);
 const REALM_ORDER = ["炼气", "筑基", "金丹", "元婴", "化神", "炼虚", "合体", "大乘", "渡劫", "人仙", "地仙", "天仙", "金仙", "大罗金仙", "仙君", "仙王", "仙尊", "仙帝"];
 
+function applyTelegramTheme() {
+  const root = document.documentElement;
+  const scheme = String(tg?.colorScheme || "").toLowerCase();
+  if (scheme === "light" || scheme === "dark") {
+    root.dataset.colorScheme = scheme;
+  }
+  const params = tg?.themeParams || {};
+  const map = {
+    bg_color: "--bg-top",
+    secondary_bg_color: "--surface",
+    text_color: "--ink",
+    hint_color: "--muted",
+    button_color: "--accent-strong",
+    button_text_color: "--tg-button-text",
+    link_color: "--accent",
+  };
+  for (const [key, cssVar] of Object.entries(map)) {
+    const value = params[key];
+    if (typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value)) {
+      root.style.setProperty(cssVar, value);
+    }
+  }
+}
+
+applyTelegramTheme();
+tg?.onEvent?.("themeChanged", applyTelegramTheme);
+
 function requestTimeoutMessage(timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS) {
   const seconds = Math.max(Math.round(Number(timeoutMs || DEFAULT_REQUEST_TIMEOUT_MS) / 1000), 1);
   return `请求超过 ${seconds} 秒仍未完成，请稍后重试。`;
@@ -3421,7 +3448,7 @@ function renderCraftArea(bundle) {
     ? materials.map((row) => `<article class="stack-item"><strong>${escapeHtml(row.material.name)}</strong><p>品质 ${escapeHtml(row.material.quality_label || row.material.quality_level)} · 数量 ${escapeHtml(row.quantity)}</p><p class="muted">${escapeHtml(row.material.quality_feature || "")}</p></article>`).join("")
     : `<article class="stack-item"><strong>暂无炼制材料</strong><p>可通过探索、任务或主人发放获得。</p></article>`;
 
-  const recipes = bundle.recipes || [];
+  const recipes = sortRecipesByResultQuality(bundle.recipes || []);
   recipeRoot.innerHTML = "";
   if (!recipes.length) {
     recipeRoot.innerHTML = `<article class="stack-item"><strong>暂无配方</strong></article>`;
@@ -5963,6 +5990,17 @@ function sortInventoryRowsByQuality(rows, pickItem, qualityKey = "rarity_level")
   });
 }
 
+function recipeResultQuality(recipe) {
+  return Number(recipe?.result_quality || recipe?.result_item?.rarity_level || recipe?.result_item?.quality_level || 0);
+}
+
+function sortRecipesByResultQuality(recipes) {
+  return [...(recipes || [])].sort((left, right) => (
+    recipeResultQuality(right) - recipeResultQuality(left)
+    || String(left?.name || "").localeCompare(String(right?.name || ""), "zh-Hans-CN")
+  ));
+}
+
 function rerenderInventoryLists() {
   const bundle = state.profileBundle;
   if (!bundle?.profile?.consented) return;
@@ -6183,13 +6221,17 @@ function buildRecipeGroupDetails(className, title, tip, cards) {
 
 function appendPillRecipeSubgroups(body, rows) {
   const groups = new Map();
-  rows.forEach(({ card, recipe }) => {
+  const sortedRows = [...(rows || [])].sort((left, right) => (
+    recipeResultQuality(right.recipe) - recipeResultQuality(left.recipe)
+    || String(left.recipe?.name || "").localeCompare(String(right.recipe?.name || ""), "zh-Hans-CN")
+  ));
+  sortedRows.forEach(({ card, recipe }) => {
     const label = recipePillGroupLabel(recipe);
     if (!groups.has(label)) groups.set(label, []);
     groups.get(label).push(card);
   });
   if (groups.size <= 1) {
-    rows.forEach(({ card }) => body.appendChild(card));
+    sortedRows.forEach(({ card }) => body.appendChild(card));
     return;
   }
   groups.forEach((cards, label) => {
@@ -6225,6 +6267,10 @@ function appendRecipeCardsByKind(root, rows) {
       `;
       const body = document.createElement("div");
       body.className = "mini-fold-body stack-list";
+      group.rows.sort((left, right) => (
+        recipeResultQuality(right.recipe) - recipeResultQuality(left.recipe)
+        || String(left.recipe?.name || "").localeCompare(String(right.recipe?.name || ""), "zh-Hans-CN")
+      ));
       if (group.kind === "pill") {
         appendPillRecipeSubgroups(body, group.rows);
       } else {
@@ -6266,7 +6312,7 @@ renderCraftArea = function renderCraftArea(bundle) {
       ? `<article class="stack-item"><strong>未找到匹配材料</strong><p>换个名称、品质或用途关键词再试。</p></article>`
       : `<article class="stack-item"><strong>暂无炼制材料</strong><p>可通过探索、任务或主人发放获得。</p></article>`;
 
-  const recipes = bundle.recipes || [];
+  const recipes = sortRecipesByResultQuality(bundle.recipes || []);
   const recipeQuery = inventorySearchValue("#recipe-search");
   const filteredRecipes = recipeQuery
     ? recipes
@@ -8525,7 +8571,7 @@ function renderFishingArea(bundle) {
   summaryRoot.innerHTML = `
     <article class="info-chip">
       <span>当前机缘</span>
-      <strong>${escapeHtml(fishing.current_fortune || bundle?.effective_stats?.fortune || bundle?.profile?.fortune || 0)}</strong>
+      <strong>${escapeHtml(fishing.effective_fortune || fishing.current_fortune || bundle?.effective_stats?.fortune || bundle?.profile?.fortune || 0)}</strong>
     </article>
     <article class="info-chip">
       <span>可用钓场</span>

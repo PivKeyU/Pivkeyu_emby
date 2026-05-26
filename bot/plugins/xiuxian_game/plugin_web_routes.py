@@ -227,6 +227,7 @@ from bot.plugins.xiuxian_game.features.marriage import (
     set_gender_for_user,
 )
 from bot.plugins.xiuxian_game.features.miniapp_bundle import (
+    build_craft_action_bundle_patch,
     build_fishing_cast_bundle_patch,
     build_gambling_action_bundle_patch,
     build_bootstrap_core_bundle,
@@ -1474,7 +1475,12 @@ def register_web(app) -> None:
         def _work():
             telegram_user = _verify_user_from_init_data(payload.init_data)
             result = craft_recipe_for_user(telegram_user["id"], payload.recipe_id, payload.quantity)
-            return telegram_user, result, _with_result_core_bundle(telegram_user["id"], result)
+            flags = _bundle_runtime_flags(telegram_user["id"])
+            data = {
+                "result": result,
+                "bundle_patch": build_craft_action_bundle_patch(telegram_user["id"], **flags),
+            }
+            return telegram_user, result, data
 
         telegram_user, result, data = await run_in_threadpool(_work)
         await _maybe_broadcast_craft(telegram_user["id"], result)

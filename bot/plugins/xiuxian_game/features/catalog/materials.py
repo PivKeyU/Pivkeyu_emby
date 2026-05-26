@@ -420,11 +420,81 @@ FARMABLE_MATERIAL_RULES: dict[str, dict[str, object]] = {
 }
 
 
-def apply_farmable_material_overrides(materials: list[dict[str, object]]) -> list[dict[str, object]]:
+AUTO_FARMABLE_PRICE_BASE = {
+    1: 12,
+    2: 34,
+    3: 86,
+    4: 150,
+    5: 260,
+    6: 460,
+    7: 760,
+}
+AUTO_FARMABLE_GROWTH_MINUTES = {
+    1: 42,
+    2: 105,
+    3: 180,
+    4: 270,
+    5: 390,
+    6: 540,
+    7: 720,
+}
+AUTO_FARMABLE_UNLOCKS = {
+    1: ("炼气", 1),
+    2: ("炼气", 5),
+    3: ("筑基", 3),
+    4: ("金丹", 3),
+    5: ("元婴", 3),
+    6: ("化神", 3),
+    7: ("合体", 1),
+}
+NON_PLANTABLE_RECIPE_MATERIAL_TERMS = ("残页", "丹谱", "符谱", "炼制图")
+
+
+def _pill_recipe_material_names(recipes: list[dict[str, object]] | None) -> set[str]:
+    names: set[str] = set()
+    for recipe in recipes or []:
+        if str(recipe.get("recipe_kind") or "") != "pill" and str(recipe.get("result_kind") or "") != "pill":
+            continue
+        for ingredient in recipe.get("ingredients") or []:
+            if not isinstance(ingredient, dict):
+                continue
+            name = str(ingredient.get("material_name") or "").strip()
+            if not name or any(term in name for term in NON_PLANTABLE_RECIPE_MATERIAL_TERMS):
+                continue
+            names.add(name)
+    return names
+
+
+def _auto_farmable_material_rule(material: dict[str, object]) -> dict[str, object]:
+    name = str(material.get("name") or "").strip()
+    quality = max(min(int(material.get("quality_level") or 1), 7), 1)
+    price_base = AUTO_FARMABLE_PRICE_BASE.get(quality, AUTO_FARMABLE_PRICE_BASE[7])
+    price_offset = sum(ord(char) for char in name) % 4
+    yield_min, yield_max = (2, 5) if quality <= 1 else (1, 3) if quality <= 3 else (1, 2) if quality <= 5 else (1, 1)
+    unlock_stage, unlock_layer = AUTO_FARMABLE_UNLOCKS.get(quality, AUTO_FARMABLE_UNLOCKS[7])
+    return {
+        "can_plant": True,
+        "seed_price_stone": price_base + price_offset * max(quality * 4, 4),
+        "growth_minutes": AUTO_FARMABLE_GROWTH_MINUTES.get(quality, AUTO_FARMABLE_GROWTH_MINUTES[7]) + price_offset * 6,
+        "yield_min": yield_min,
+        "yield_max": yield_max,
+        "unlock_realm_stage": unlock_stage,
+        "unlock_realm_layer": unlock_layer,
+    }
+
+
+def apply_farmable_material_overrides(
+    materials: list[dict[str, object]],
+    recipes: list[dict[str, object]] | None = None,
+) -> list[dict[str, object]]:
+    pill_material_names = _pill_recipe_material_names(recipes)
     rows: list[dict[str, object]] = []
     for item in materials:
         payload = dict(item)
-        payload.update(FARMABLE_MATERIAL_RULES.get(str(payload.get("name") or ""), {}))
+        name = str(payload.get("name") or "").strip()
+        payload.update(FARMABLE_MATERIAL_RULES.get(name, {}))
+        if name in pill_material_names and not bool(payload.get("can_plant")):
+            payload.update(_auto_farmable_material_rule(payload))
         rows.append(payload)
     return rows
 
@@ -436,5 +506,4 @@ ALL_EXTRA_MATERIALS = apply_farmable_material_overrides(_merge_material_catalogs
     EXTRA_TALISMAN_MATERIALS,
     EXTRA_MATERIALS,
 ))
-
 

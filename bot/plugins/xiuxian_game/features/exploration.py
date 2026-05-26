@@ -625,6 +625,15 @@ def _build_exploration_outcome(
     }
 
 
+def _exploration_repeat_count(effects: dict[str, Any] | None) -> int:
+    raw_value = (effects or {}).get("exploration_repeat_count")
+    try:
+        value = int(float(raw_value or 0))
+    except (TypeError, ValueError):
+        value = 0
+    return max(min(value, 5), 1)
+
+
 def _get_active_exploration(tg: int) -> dict[str, Any] | None:
     with Session() as session:
         row = (
@@ -1035,6 +1044,25 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
     outcome["requirement_state"] = requirement_state
     if active_talisman:
         summary = legacy_service.active_talisman_effect_summary(talisman_active_effects)
+        repeat_count = _exploration_repeat_count(talisman_active_effects)
+        if repeat_count > 1 and drop_succeeded:
+            quantity *= repeat_count
+            scaled_stone_reward *= repeat_count
+            outcome["repeat_count"] = repeat_count
+            outcome["drops"] = [
+                {
+                    "kind": chosen.get("reward_kind") if drop_succeeded else None,
+                    "ref_id": chosen.get("reward_ref_id") if drop_succeeded else None,
+                    "quantity": quantity,
+                    "succeeded": drop_succeeded,
+                    "quality_level": effective_quality,
+                }
+            ]
+            outcome["stones"] = {
+                "drop_reward": scaled_stone_reward,
+                "repeat_count": repeat_count,
+            }
+            event_text = _join_scene_fragments(event_text, f"符力分化 {repeat_count} 重灵影，本次主要收获与灵石按 {repeat_count} 次累计。")
         outcome["active_talisman"] = {
             "id": int(active_talisman.get("id") or 0),
             "name": str(active_talisman.get("name") or ""),

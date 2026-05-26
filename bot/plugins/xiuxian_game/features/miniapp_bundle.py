@@ -310,6 +310,30 @@ def build_gambling_action_bundle_patch(
     return bundle
 
 
+def build_craft_action_bundle_patch(
+    tg: int,
+    *,
+    can_upload_images: bool = False,
+    upload_image_reason: str = "",
+    allow_non_admin_image_upload: bool = False,
+    is_admin: bool = False,
+    admin_panel_url: str | None = None,
+) -> dict[str, Any]:
+    bundle = _build_core_profile_bundle(tg)
+    _attach_inventory_section(bundle, tg)
+    bundle.update(_build_craft_section(tg))
+    bundle["bundle_section"] = "craft"
+    _apply_capabilities(
+        bundle,
+        can_upload_images=can_upload_images,
+        upload_image_reason=upload_image_reason,
+        allow_non_admin_image_upload=allow_non_admin_image_upload,
+        is_admin=is_admin,
+        admin_panel_url=admin_panel_url,
+    )
+    return bundle
+
+
 def _build_core_profile_bundle(tg: int) -> dict[str, Any]:
     _prepare_profile_state(tg)
     profile_obj = _repair_profile_realm_state(tg)

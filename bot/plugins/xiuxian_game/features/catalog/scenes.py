@@ -1005,7 +1005,12 @@ EXTRA_SCENES = [
             {"reward_kind": "material", "reward_ref_id_name": "鲲鹏巨羽", "quantity_min": 1, "quantity_max": 1, "weight": 2, "stone_reward": 80, "event_text": "圣境之中遗落着一根散发九彩神光的羽毛，其大如扇，你认出这正是鲲鹏巨羽。"},
             {"reward_kind": "material", "reward_ref_id_name": "天玄真银", "quantity_min": 1, "quantity_max": 1, "weight": 3, "stone_reward": 75, "event_text": "圣境矿脉深处，一块散发银白光芒的金属在混沌之气中若隐若现，你将其收入囊中。"},
             {"reward_kind": "material", "reward_ref_id_name": "阴阳无极水", "quantity_min": 1, "quantity_max": 1, "weight": 2, "stone_reward": 85, "event_text": "阴阳交汇之处，一瓶散发着黑白交融光芒的神水静静等待着你，你将其郑重收起。"},
+            {"reward_kind": "material", "reward_ref_id_name": "鸿蒙天髓", "quantity_min": 1, "quantity_max": 1, "weight": 2, "stone_reward": 95, "event_text": "圣境髓脉深处，有一滴鸿蒙天髓悬而不落，你以玉瓶小心封存。"},
+            {"reward_kind": "material", "reward_ref_id_name": "造化青莲瓣", "quantity_min": 1, "quantity_max": 1, "weight": 2, "stone_reward": 92, "event_text": "混沌莲池中飘来一片青莲瓣，造化生机在掌心缓缓流转。"},
+            {"reward_kind": "material", "reward_ref_id_name": "周天星核", "quantity_min": 1, "quantity_max": 1, "weight": 2, "stone_reward": 90, "event_text": "鸿蒙天幕忽然垂落星辉，一枚周天星核凝成实质落入你手。"},
             {"reward_kind": "recipe", "reward_ref_id_name": "鸿蒙混沌丹丹谱", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 100, "event_text": "鸿蒙圣境核心之地，一页散发混沌光泽的玉简在虚空中浮现，你凝神将其映入脑海。"},
+            {"reward_kind": "recipe", "reward_ref_id_name": "太初道甲炼制图", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 100, "event_text": "鸿蒙圣境深处，大道甲纹在混沌壁影中缓缓显化，你拓下其中一卷太初护身炼图。"},
+            {"reward_kind": "recipe", "reward_ref_id_name": "太初道环炼制图", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 100, "event_text": "鸿蒙紫气凝成环影，周天一炁流转不息，你在光影散去前悟得太初道环炼图。"},
         ],
     },
     {
@@ -1219,5 +1224,3 @@ EXTRA_SCENES = [
         ],
     },
 ]
-
-

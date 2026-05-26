@@ -2528,27 +2528,40 @@ def list_user_materials(tg: int) -> list[dict[str, Any]]:
     return _load_user_view_cache(actor_tg, "materials", loader=_loader)
 
 
+def consume_user_materials_in_session(
+    session: OrmSession,
+    tg: int,
+    material_id: int,
+    quantity: int = 1,
+) -> tuple[bool, int]:
+    remaining = max(int(quantity or 0), 1)
+    rows = _ordered_owner_rows(session, XiuxianMaterialInventory, tg, "material_id", material_id)
+    total_quantity = sum(max(int(row.quantity or 0), 0) for row in rows)
+    if total_quantity < remaining:
+        return False, total_quantity
+
+    now = utcnow()
+    for row in rows:
+        if remaining <= 0:
+            break
+        available = max(int(row.quantity or 0), 0)
+        if available <= 0:
+            continue
+        delta = min(available, remaining)
+        row.quantity = available - delta
+        row.updated_at = now
+        remaining -= delta
+        if row.quantity <= 0:
+            session.delete(row)
+    _queue_user_view_cache_invalidation(session, tg)
+    return True, total_quantity
+
+
 def consume_user_materials(tg: int, material_id: int, quantity: int = 1) -> bool:
     with Session() as session:
-        remaining = max(int(quantity or 0), 1)
-        rows = _ordered_owner_rows(session, XiuxianMaterialInventory, tg, "material_id", material_id)
-        total_quantity = sum(max(int(row.quantity or 0), 0) for row in rows)
-        if total_quantity < remaining:
+        consumed, _owned_quantity = consume_user_materials_in_session(session, tg, material_id, quantity)
+        if not consumed:
             return False
-        now = utcnow()
-        for row in rows:
-            if remaining <= 0:
-                break
-            available = max(int(row.quantity or 0), 0)
-            if available <= 0:
-                continue
-            delta = min(available, remaining)
-            row.quantity = available - delta
-            row.updated_at = now
-            remaining -= delta
-            if row.quantity <= 0:
-                session.delete(row)
-        _queue_user_view_cache_invalidation(session, tg)
         session.commit()
         return True
 

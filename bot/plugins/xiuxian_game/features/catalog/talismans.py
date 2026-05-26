@@ -196,6 +196,23 @@ EXTRA_TALISMANS = [
         "materials": [("离魄藤种", 1), ("天眷符骨", 1), ("曜金雷髓", 1)],
         "success": 36,
     },
+    {
+        "name": "多次探索符",
+        "rarity": "仙品",
+        "divine_sense_bonus": 14,
+        "fortune_bonus": 12,
+        "description": "符纹分化数道灵影，启用后可在一次秘境探索中牵引多重机缘，将主要掉落与灵石结算按次数累积。",
+        "combat_config": {
+            "active_effects": {
+                "exploration_repeat_count": 3,
+                "exploration_drop_bonus": 12,
+                "exploration_quantity_bonus": 18,
+                "exploration_stone_bonus": 18,
+            },
+        },
+        "materials": [("天眷符骨", 1), ("星渊潮核", 1), ("太清星尘", 1)],
+        "success": 32,
+    },
     # ========== 新增：凡品符箓 ==========
     {
         "name": "醒神符",
@@ -621,5 +638,4 @@ EXTRA_TALISMANS = [
         "success": 34,
     },
 ]
-
 

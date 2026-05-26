@@ -16,6 +16,7 @@ from bot.sql_helper.sql_xiuxian import (
     create_journal,
     get_shared_spiritual_stone_total,
     get_profile,
+    get_talisman,
     grant_artifact_to_user,
     grant_material_to_user,
     grant_pill_to_user,
@@ -29,6 +30,7 @@ from bot.sql_helper.sql_xiuxian import (
     list_talismans,
     list_techniques,
     realm_index,
+    serialize_talisman,
 )
 
 
@@ -103,6 +105,15 @@ def _legacy_service():
     from bot.plugins.xiuxian_game import service as legacy_service
 
     return legacy_service
+
+
+def _active_talisman_for_profile(profile_payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not profile_payload:
+        return None
+    active_talisman_id = int((profile_payload or {}).get("active_talisman_id") or 0)
+    if active_talisman_id <= 0:
+        return None
+    return serialize_talisman(get_talisman(active_talisman_id))
 
 
 def _shared_reward_pool(settings: dict[str, Any] | None = None) -> list[dict[str, Any]]:
@@ -328,6 +339,13 @@ def _fishing_empty_chance(spot: dict[str, Any], fortune: int) -> float:
     return max(min(base - reduction, 0.42), 0.08)
 
 
+def _apply_fishing_empty_reduce(empty_chance: float, effects: dict[str, Any] | None) -> float:
+    empty_reduce = max(float((effects or {}).get("fishing_empty_reduce") or 0), 0.0)
+    if empty_reduce <= 0:
+        return empty_chance
+    return max(empty_chance * (1 - min(empty_reduce, 85.0) / 100.0), 0.02)
+
+
 def _kind_weights_for_tier(spot: dict[str, Any], tier_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     available_kinds = {str(row.get("kind") or "") for row in tier_rows if str(row.get("kind") or "")}
     weights = []
@@ -383,6 +401,7 @@ def _build_spot_bundle(
     *,
     current_fortune: int,
     profile_stone: int,
+    talisman_active_effects: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     available = _meets_realm_requirement(profile, spot.get("min_realm_stage"), int(spot.get("min_realm_layer") or 1))
     stone_cost = max(int(spot.get("cast_cost_stone") or 0), 0)
@@ -405,6 +424,10 @@ def _build_spot_bundle(
     ]
     quality_min = max(int(spot.get("quality_min") or 1), 1)
     quality_max = max(int(spot.get("quality_max") or quality_min), quality_min)
+    empty_chance = _apply_fishing_empty_reduce(
+        _fishing_empty_chance(spot, current_fortune),
+        talisman_active_effects,
+    )
     return {
         "key": spot["key"],
         "name": spot["name"],
@@ -418,7 +441,7 @@ def _build_spot_bundle(
         "available": bool(available and candidates),
         "available_reason": available_reason if candidates else "当前没有可从该钓场钓出的物品",
         "candidate_count": len(candidates),
-        "empty_chance_percent": round(_fishing_empty_chance(spot, current_fortune) * 100.0, 1),
+        "empty_chance_percent": round(empty_chance * 100.0, 1),
         "reward_preview": _preview_rewards(candidates),
         "odds_preview": odds_preview,
     }
@@ -435,6 +458,14 @@ def build_fishing_bundle(tg: int) -> dict[str, Any]:
             "note": "踏入仙途后才能开始垂钓。",
         }
     current_fortune = max(int(profile.fortune or 0), 0)
+    profile_payload = _legacy_service().serialize_profile(profile)
+    battle_bundle = _legacy_service()._battle_bundle(profile_payload) if profile_payload else {}
+    active_talisman = _active_talisman_for_profile(profile_payload)
+    talisman_active_effects = battle_bundle.get("talisman_active_effects") or {}
+    effective_stats = battle_bundle.get("stats") or {}
+    effective_fortune = max(int(effective_stats.get("fortune") or current_fortune), 0)
+    if active_talisman:
+        effective_fortune += max(int(round(float(talisman_active_effects.get("fishing_luck_bonus") or 0))), 0)
     profile_stone = max(int(get_shared_spiritual_stone_total(int(profile.tg or 0)) or 0), 0)
     base_candidates = _base_fishing_candidates()
     spots = [
@@ -442,14 +473,16 @@ def build_fishing_bundle(tg: int) -> dict[str, Any]:
             spot,
             profile,
             _spot_candidates(spot, base_candidates),
-            current_fortune=current_fortune,
+            current_fortune=effective_fortune,
             profile_stone=profile_stone,
+            talisman_active_effects=talisman_active_effects,
         )
         for spot in FISHING_SPOTS.values()
     ]
     return {
         "spots": spots,
         "current_fortune": current_fortune,
+        "effective_fortune": effective_fortune,
         "available_spot_count": sum(1 for spot in spots if spot.get("available")),
         "note": "垂钓与仙界奇石共用同一套奖励池，但会额外压低高品阶权重，并且存在空竿；共享奖池会自动排除破境丹、破境丹丹方、唯一法宝与仙界奇石本体。",
     }
@@ -472,7 +505,7 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
 
     profile_payload = _legacy_service().serialize_profile(profile_obj) if profile_obj is not None else {}
     battle_bundle = _legacy_service()._battle_bundle(profile_payload) if profile_payload else {}
-    active_talisman = battle_bundle.get("active_talisman") or None
+    active_talisman = _active_talisman_for_profile(profile_payload)
     talisman_active_effects = battle_bundle.get("talisman_active_effects") or {}
     effective_stats = battle_bundle.get("stats") or {}
     effective_fortune = max(int(effective_stats.get("fortune") or profile_payload.get("fortune") or 0), 0)
@@ -480,9 +513,7 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
         effective_fortune += max(int(round(float(talisman_active_effects.get("fishing_luck_bonus") or 0))), 0)
     empty_chance = _fishing_empty_chance(spot, effective_fortune)
     if active_talisman:
-        empty_reduce = max(float(talisman_active_effects.get("fishing_empty_reduce") or 0), 0.0)
-        if empty_reduce > 0:
-            empty_chance = max(empty_chance * (1 - min(empty_reduce, 85.0) / 100.0), 0.02)
+        empty_chance = _apply_fishing_empty_reduce(empty_chance, talisman_active_effects)
     base_candidates = _base_fishing_candidates(settings)
     candidates = _spot_candidates(spot, base_candidates)
     if not candidates:

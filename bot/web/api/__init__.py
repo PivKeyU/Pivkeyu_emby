@@ -15,8 +15,6 @@ from .login import router as login_router
 from .miniapp import is_admin_user_id, router as miniapp_router, verify_init_data
 from .user_info import route as user_info_route
 from .webhook.client_filter import router as client_filter_router
-from .webhook.favorites import router as favorites_router
-from .webhook.media import router as media_router
 
 emby_api_route = APIRouter(prefix="/emby", tags=["对接 Emby 的接口"])
 user_api_route = APIRouter(prefix="/user", tags=["对接用户信息的接口"])
@@ -90,14 +88,6 @@ async def verify_admin_token(request: Request):
 
 emby_api_route.include_router(
     ban_playlist_route,
-)
-emby_api_route.include_router(
-    favorites_router,
-    dependencies=[Depends(verify_token)]
-)
-emby_api_route.include_router(
-    media_router,
-    dependencies=[Depends(verify_token)]
 )
 emby_api_route.include_router(
     client_filter_router,

@@ -148,12 +148,6 @@ async def shou_dong_uplayrank(_, msg):
         await msg.reply(
             f"🔔 请输入 `/uranks 天数`，此运行手动不会影响{sakura_b}的结算（仅定时运行时结算），放心使用。\n"
             f"定时结算状态: {_open.uplays}")
-@bot.on_message(filters.command('sync_favorites', prefixes) & admins_on_filter)
-async def sync_favorites_admin(_, msg):
-    await deleteMessage(msg)
-    await msg.reply("⭕ 正在同步用户收藏记录...")
-    await sync_favorites()
-    await msg.reply("✅ 用户收藏记录同步完成")
 
 @bot.on_message(filters.command('restart', prefixes) & admins_on_filter)
 async def restart_bot(_, msg):

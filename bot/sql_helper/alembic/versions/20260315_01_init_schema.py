@@ -11,7 +11,6 @@ import sqlalchemy as sa
 from bot.sql_helper.sql_code import Code
 from bot.sql_helper.sql_emby import Emby
 from bot.sql_helper.sql_emby2 import Emby2
-from bot.sql_helper.sql_favorites import EmbyFavorites
 from bot.sql_helper.sql_partition import PartitionCode, PartitionGrant
 from bot.sql_helper.sql_request_record import RequestRecord
 
@@ -33,7 +32,6 @@ def upgrade() -> None:
         Emby2.__table__,
         Code.__table__,
         RequestRecord.__table__,
-        EmbyFavorites.__table__,
         PartitionCode.__table__,
         PartitionGrant.__table__,
     ):
