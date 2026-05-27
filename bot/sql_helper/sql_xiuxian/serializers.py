@@ -973,6 +973,8 @@ def serialize_artifact(artifact: XiuxianArtifact | None) -> dict[str, Any] | Non
     quality = get_quality_meta(artifact.rarity)
     equip_slot = normalize_artifact_slot(artifact.equip_slot)
     equip_category = artifact_equip_category(equip_slot)
+    combat_config = _normalize_combat_config(artifact.combat_config)
+    curse_effects = _normalize_curse_effects(combat_config.get("curse_effects"))
 
     return {
         "id": artifact.id,
@@ -1006,7 +1008,9 @@ def serialize_artifact(artifact: XiuxianArtifact | None) -> dict[str, Any] | Non
         "body_movement_bonus": artifact.body_movement_bonus,
         "duel_rate_bonus": artifact.duel_rate_bonus,
         "cultivation_bonus": artifact.cultivation_bonus,
-        "combat_config": _normalize_combat_config(artifact.combat_config),
+        "combat_config": combat_config,
+        "curse_effects": curse_effects,
+        "curse_summary": _format_curse_effect_summary(curse_effects),
         "min_realm_stage": normalize_realm_stage(artifact.min_realm_stage) if artifact.min_realm_stage else None,
         "min_realm_layer": artifact.min_realm_layer,
         "enabled": artifact.enabled,
@@ -1519,6 +1523,73 @@ def _coerce_bool(value: Any, default: bool = True) -> bool:
 def normalize_technique_capacity(value: Any, default: int = DEFAULT_TECHNIQUE_CAPACITY) -> int:
     return min(max(_coerce_int(value, default), 1), MAX_TECHNIQUE_CAPACITY)
 
+CURSE_TRIGGER_ACTION_LABELS = {
+    "practice": "吐纳",
+    "commission": "委托",
+    "exploration": "探索",
+    "fishing": "垂钓",
+    "personal_boss": "个人Boss",
+    "world_boss": "世界Boss",
+}
+
+
+def _normalize_curse_effects(raw: Any) -> dict[str, Any]:
+    payload = _sanitize_json_value(copy.deepcopy(raw)) if isinstance(raw, dict) else {}
+    if not isinstance(payload, dict):
+        payload = {}
+    actions: list[str] = []
+    raw_actions = payload.get("trigger_actions")
+    if isinstance(raw_actions, str):
+        raw_actions = re.split(r"[\s,，、;；|/]+", raw_actions.strip())
+    for item in raw_actions or []:
+        action = str(item or "").strip()
+        if action in CURSE_TRIGGER_ACTION_LABELS and action not in actions:
+            actions.append(action)
+    return {
+        "label": str(payload.get("label") or "").strip() or "诅咒反噬",
+        "summary": str(payload.get("summary") or "").strip(),
+        "trigger_text": str(payload.get("trigger_text") or "").strip(),
+        "trigger_chance_percent": max(min(_coerce_int(payload.get("trigger_chance_percent"), 0), 100), 0),
+        "stone_loss_percent": max(min(_coerce_int(payload.get("stone_loss_percent"), 0), 100), 0),
+        "stone_loss_min": max(_coerce_int(payload.get("stone_loss_min"), 0), 0),
+        "stone_loss_cap": max(_coerce_int(payload.get("stone_loss_cap"), 0), 0),
+        "dan_poison_gain": max(_coerce_int(payload.get("dan_poison_gain"), 0), 0),
+        "trigger_actions": actions,
+    }
+
+
+def _format_curse_effect_summary(curse: dict[str, Any] | None) -> str:
+    payload = curse or {}
+    chance = max(min(_coerce_int(payload.get("trigger_chance_percent"), 0), 100), 0)
+    if chance <= 0:
+        return ""
+    actions = [
+        CURSE_TRIGGER_ACTION_LABELS[action]
+        for action in payload.get("trigger_actions") or []
+        if action in CURSE_TRIGGER_ACTION_LABELS
+    ]
+    parts = [f"{chance}% 概率反噬"]
+    if actions:
+        parts.insert(0, "、".join(actions))
+    stone_loss_percent = max(min(_coerce_int(payload.get("stone_loss_percent"), 0), 100), 0)
+    stone_loss_min = max(_coerce_int(payload.get("stone_loss_min"), 0), 0)
+    stone_loss_cap = max(_coerce_int(payload.get("stone_loss_cap"), 0), 0)
+    if stone_loss_percent > 0 or stone_loss_min > 0:
+        stone_parts: list[str] = []
+        if stone_loss_percent > 0:
+            stone_parts.append(f"吞走 {stone_loss_percent}% 灵石")
+        if stone_loss_min > 0:
+            stone_parts.append(f"至少 {stone_loss_min}")
+        if stone_loss_cap > 0:
+            stone_parts.append(f"至多 {stone_loss_cap}")
+        parts.append("，".join(stone_parts))
+    poison_gain = max(_coerce_int(payload.get("dan_poison_gain"), 0), 0)
+    if poison_gain > 0:
+        parts.append(f"丹毒 +{poison_gain}")
+    summary = str(payload.get("summary") or "").strip()
+    if summary:
+        parts.append(summary)
+    return "；".join(part for part in parts if part)
 
 
 def _normalize_duel_bet_amount_options(
@@ -1555,6 +1626,17 @@ def _normalize_combat_config(raw: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
         payload = {}
     payload["opening_text"] = str(payload.get("opening_text") or "").strip()
+    payload["active_effects"] = (
+        _sanitize_json_value(copy.deepcopy(payload.get("active_effects")))
+        if isinstance(payload.get("active_effects"), dict)
+        else {}
+    )
+    payload["utility_effects"] = (
+        _sanitize_json_value(copy.deepcopy(payload.get("utility_effects")))
+        if isinstance(payload.get("utility_effects"), dict)
+        else {}
+    )
+    payload["curse_effects"] = _normalize_curse_effects(payload.get("curse_effects"))
     for key in ("skills", "passives"):
         normalized_rows: list[dict[str, Any]] = []
         for item in payload.get(key) or []:

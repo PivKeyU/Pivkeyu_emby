@@ -618,6 +618,7 @@
               </label>
             </div>
             <button type="submit">投入万宝炉</button>
+            <p class="section-copy">下方报价卡支持直接勾选并批量归炉，法宝列表也会显示品阶，避免来回切换查看。</p>
           </form>
           <details class="mini-fold">
             <summary class="mini-fold-summary">
@@ -628,6 +629,15 @@
               <label class="wide-field">
                 搜索报价
                 <input id="official-recycle-search" type="search" placeholder="搜索名称、品阶、类型或说明">
+              </label>
+              <div class="inline-actions recycle-batch-toolbar">
+                <button id="official-recycle-select-visible" type="button" class="ghost">勾选当前筛选</button>
+                <button id="official-recycle-clear-selection" type="button" class="ghost">清空勾选</button>
+                <button id="official-recycle-batch-submit" type="button">一键归炉勾选项</button>
+              </div>
+              <label class="wide-field">
+                批量预估
+                <input id="official-recycle-batch-preview" type="text" value="未勾选归炉物品" readonly>
               </label>
               <div id="official-recycle-list" class="stack-list recycle-quote-list"></div>
             </div>

@@ -523,6 +523,32 @@ h3 {
   padding-top: 0;
 }
 
+.recycle-batch-toolbar > button {
+  flex: 1 1 180px;
+}
+
+.recycle-selection-row {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.recycle-selection-check {
+  flex: 1 1 180px;
+}
+
+.recycle-selection-qty {
+  display: grid;
+  gap: 6px;
+  min-width: 120px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.recycle-selection-qty input {
+  min-height: 42px;
+}
+
 .board-grid {
   align-items: start;
 }
@@ -819,12 +845,14 @@ h3 {
 }
 
 .item-art {
-  aspect-ratio: 16 / 9;
-  border-radius: 14px;
+  aspect-ratio: 21 / 7;
+  max-height: 112px;
+  border-radius: 12px;
 }
 
 .item-art--compact {
-  aspect-ratio: 21 / 9;
+  aspect-ratio: 21 / 6;
+  max-height: 88px;
 }
 
 .scene-art {

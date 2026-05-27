@@ -962,6 +962,15 @@ def _format_layer_upgrade_line(upgraded_layers: list[int] | None, *, label: str 
     return f"🪜 {label}：{' → '.join(f'`{layer}层`' for layer in layers)}"
 
 
+def _format_curse_event_line(curse_event: dict[str, Any] | None) -> str:
+    if not isinstance(curse_event, dict):
+        return ""
+    message = str(curse_event.get("message") or "").strip()
+    if not message:
+        return ""
+    return f"☠️ {_md_escape(message)}"
+
+
 def _format_group_profile_showcase(payload: dict[str, Any], fallback_name: str | None = None) -> str:
     profile = payload["profile"]
     effective_stats = payload.get("effective_stats") or {}
@@ -4535,10 +4544,14 @@ def register_bot(bot_instance) -> None:
                     upgraded = "\n层数提升：" + "、".join(f"{layer}层" for layer in result["upgraded_layers"])
                 growth_text = _format_attribute_growth_text(result.get("attribute_growth"))
                 growth_line = f"\n{growth_text}" if growth_text else ""
+                curse_line = ""
+                curse_text = _format_curse_event_line(result.get("curse_event"))
+                if curse_text:
+                    curse_line = f"\n{curse_text}"
                 return (
                     f"吐纳修炼完成。\n"
                     f"本次获得：修为 +{result['gain']}、灵石 +{result['stone_gain']}"
-                    f"{upgraded}{growth_line}\n\n"
+                    f"{upgraded}{growth_line}{curse_line}\n\n"
                     f"{_format_profile_text(result['profile'])}"
                 )
 
@@ -4834,6 +4847,9 @@ def register_bot(bot_instance) -> None:
             growth_text = _format_attribute_growth_text(result.get("attribute_growth"))
             if growth_text:
                 lines.append(growth_text)
+            curse_text = _format_curse_event_line(result.get("curse_event"))
+            if curse_text:
+                lines.append(curse_text)
             segment_started_at = time.perf_counter()
             await _reply_text(
                 msg,
@@ -4905,6 +4921,9 @@ def register_bot(bot_instance) -> None:
                     detail = str(commission.get("detail") or "").strip()
                     if detail:
                         detail_rows.append(f"↳ {_md_escape(detail)}")
+                    curse_text = _format_curse_event_line(result.get("curse_event"))
+                    if curse_text:
+                        detail_rows.append(f"↳ {curse_text}")
                     growth_text = _format_attribute_growth_text(
                         commission.get("attribute_growth"),
                         prefix=f"{commission.get('name') or selected.get('name') or '灵石委托'}成长",

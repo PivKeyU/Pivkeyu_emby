@@ -97,6 +97,16 @@ class OfficialRecyclePayload(InitDataPayload):
     quantity: int = 1
 
 
+class OfficialRecycleBatchItemPayload(BaseModel):
+    item_kind: str
+    item_ref_id: int
+    quantity: int = 1
+
+
+class OfficialRecycleBatchPayload(InitDataPayload):
+    items: list[OfficialRecycleBatchItemPayload] = Field(default_factory=list)
+
+
 class RetreatPayload(InitDataPayload):
     hours: int = 1
 

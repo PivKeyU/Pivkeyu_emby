@@ -777,6 +777,46 @@ EXTRA_ARTIFACTS = [
         "min_realm_layer": 2,
         "enabled": True,
     },
+    {
+        "name": "噬运血珏",
+        "rarity": "仙品",
+        "artifact_type": "battle",
+        "artifact_role": "battle",
+        "equip_slot": "necklace",
+        "unique_item": True,
+        "description": "一枚被血月浸透的古珏，能强行撕开极限、逼出凶性。佩戴时战意暴涨，却会在吐纳、委托、探索、垂钓与讨伐强敌后随机反噬，吞走灵石并灼伤经脉。",
+        "attack_bonus": 58,
+        "body_movement_bonus": 24,
+        "divine_sense_bonus": 18,
+        "fortune_bonus": 16,
+        "duel_rate_bonus": 9,
+        "combat_config": {
+            "skills": [
+                {
+                    "name": "血月追魂",
+                    "kind": "extra_damage",
+                    "chance": 34,
+                    "flat_damage": 36,
+                    "ratio_percent": 22,
+                    "text": "噬运血珏骤然泛起猩红幽光，一缕血月残影贴着对手神魂斩过。",
+                }
+            ],
+            "curse_effects": {
+                "label": "血珏反噬",
+                "summary": "高额战斗收益的代价，是气运与经脉会被它反咬一口。",
+                "trigger_text": "噬运血珏在掌心骤然发烫，血色纹路沿经脉逆卷而上，反手咬住了你的气运。",
+                "trigger_chance_percent": 24,
+                "stone_loss_percent": 12,
+                "stone_loss_min": 18,
+                "stone_loss_cap": 188,
+                "dan_poison_gain": 6,
+                "trigger_actions": ["practice", "commission", "exploration", "fishing", "personal_boss", "world_boss"],
+            },
+        },
+        "min_realm_stage": "元婴",
+        "min_realm_layer": 4,
+        "enabled": True,
+    },
     # ========== 新增：先天至宝法宝 ==========
     {
         "name": "开天斧",
@@ -813,10 +853,12 @@ EXTRA_ARTIFACTS = [
         "artifact_role": "support",
         "equip_slot": "bracelet",
         "description": "此镯以造化玉蝶之内丹融合天道法则精华而成，镯体晶莹如泪，蕴含重塑命运之力，佩戴者可借造化之力改写因果，逆天改命，令天地法则为之改变。",
-        "cultivation_bonus": 40,
-        "comprehension_bonus": 30,
-        "fortune_bonus": 20,
-        "duel_rate_bonus": 12,
+        "cultivation_bonus": 56,
+        "comprehension_bonus": 42,
+        "divine_sense_bonus": 24,
+        "fortune_bonus": 28,
+        "true_yuan_bonus": 96,
+        "duel_rate_bonus": 14,
         "combat_config": {
             "skills": [
                 {
@@ -868,9 +910,11 @@ EXTRA_ARTIFACTS = [
         "artifact_role": "support",
         "equip_slot": "necklace",
         "description": "此石以女娲补天遗留的天道玉髓为核心，融合大道金莲精华，佩戴者可获女娲护佑，断肢可重续，魂魄可重聚，天地难灭其身。",
-        "cultivation_bonus": 50,
-        "qi_blood_bonus": 200,
-        "fortune_bonus": 30,
+        "defense_bonus": 36,
+        "cultivation_bonus": 60,
+        "qi_blood_bonus": 240,
+        "fortune_bonus": 36,
+        "true_yuan_bonus": 88,
         "combat_config": {
             "skills": [
                 {
@@ -888,5 +932,3 @@ EXTRA_ARTIFACTS = [
         "enabled": True,
     },
 ]
-
-

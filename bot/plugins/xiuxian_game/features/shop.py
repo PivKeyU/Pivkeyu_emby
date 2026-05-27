@@ -84,6 +84,17 @@ def recycle_item_to_official_shop(
     )
 
 
+def recycle_items_to_official_shop(
+    *,
+    tg: int,
+    items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return _legacy_service().recycle_items_to_official_shop(
+        tg=tg,
+        items=items,
+    )
+
+
 def attach_official_recycle_quotes(bundle: dict[str, Any]) -> dict[str, Any]:
     return _legacy_service().attach_official_recycle_quotes(bundle)
 

@@ -18,6 +18,7 @@ const state = {
   deferredSectionQueue: Promise.resolve(),
   externalSectionRefreshAt: {},
   actionLocks: new Set(),
+  officialRecycleSelections: {},
   deferredBootstrapTimer: null,
   retreatTimingTimer: null,
   wikiFilter: "all",
@@ -36,10 +37,13 @@ const state = {
   marriageSearchQuery: "",
   marriageSearchResults: [],
   marriageSearchTimer: null,
+  foldStates: {},
+  foldStatesLoaded: false,
 };
 
 const WIKI_BUNDLE_CACHE_KEY = "xiuxian_wiki_bundle_v3";
 const BOOTSTRAP_CACHE_KEY_PREFIX = "xiuxian_bootstrap_core_v1";
+const FOLD_STATE_CACHE_KEY_PREFIX = "xiuxian_fold_states_v1";
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
 const DEFERRED_SECTION_REQUEST_TIMEOUT_MS = 18000;
 const WIKI_REQUEST_TIMEOUT_MS = 20000;
@@ -818,6 +822,76 @@ function writeLocalStorage(key, value) {
 function bootstrapCacheKey() {
   const userId = Number(tg?.initDataUnsafe?.user?.id || 0);
   return `${BOOTSTRAP_CACHE_KEY_PREFIX}:${userId > 0 ? userId : "anon"}`;
+}
+
+function foldStateCacheKey() {
+  const userId = Number(tg?.initDataUnsafe?.user?.id || 0);
+  return `${FOLD_STATE_CACHE_KEY_PREFIX}:${userId > 0 ? userId : "anon"}`;
+}
+
+function hydrateFoldStates() {
+  const raw = readLocalStorage(foldStateCacheKey());
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      writeLocalStorage(foldStateCacheKey(), null);
+      return {};
+    }
+    return Object.fromEntries(
+      Object.entries(parsed).filter(([key, value]) => typeof key === "string" && typeof value === "boolean")
+    );
+  } catch (error) {
+    writeLocalStorage(foldStateCacheKey(), null);
+    return {};
+  }
+}
+
+function ensureFoldStatesLoaded() {
+  if (state.foldStatesLoaded) return;
+  state.foldStates = hydrateFoldStates();
+  state.foldStatesLoaded = true;
+}
+
+function persistFoldStates() {
+  ensureFoldStatesLoaded();
+  writeLocalStorage(foldStateCacheKey(), JSON.stringify(state.foldStates || {}));
+}
+
+function foldStateKey(...parts) {
+  return parts
+    .map((part) => String(part ?? "").trim())
+    .filter(Boolean)
+    .join(":");
+}
+
+function readFoldState(key, defaultOpen = false) {
+  ensureFoldStatesLoaded();
+  if (!key) return Boolean(defaultOpen);
+  if (!Object.prototype.hasOwnProperty.call(state.foldStates, key)) {
+    return Boolean(defaultOpen);
+  }
+  return Boolean(state.foldStates[key]);
+}
+
+function writeFoldState(key, open) {
+  const normalizedKey = String(key || "").trim();
+  if (!normalizedKey) return;
+  ensureFoldStatesLoaded();
+  state.foldStates[normalizedKey] = Boolean(open);
+  persistFoldStates();
+}
+
+function bindPersistentFoldState(details, key, { defaultOpen = false } = {}) {
+  if (!details) return details;
+  const normalizedKey = String(key || "").trim();
+  details.open = readFoldState(normalizedKey, defaultOpen);
+  if (!normalizedKey) return details;
+  details.dataset.foldKey = normalizedKey;
+  details.addEventListener("toggle", () => {
+    writeFoldState(normalizedKey, details.open);
+  });
+  return details;
 }
 
 function hydrateBootstrapCache() {
@@ -2158,7 +2232,119 @@ function officialRecycleSearchText(quote = {}) {
   ].map((value) => String(value || "").toLowerCase()).join(" ");
 }
 
+function officialRecycleVisibleQuotes(bundle = state.profileBundle) {
+  const quotes = officialRecycleItems(bundle);
+  const query = String(document.querySelector("#official-recycle-search")?.value || "").trim().toLowerCase();
+  return query
+    ? quotes.filter((quote) => officialRecycleSearchText(quote).includes(query))
+    : quotes;
+}
+
+function officialRecycleSelectionKey(kind, itemRefId) {
+  return `${String(kind || "")}:${String(itemRefId || "")}`;
+}
+
+function findOfficialRecycleQuoteBySelectionKey(selectionKey, bundle = state.profileBundle) {
+  const [kind, itemRefId] = String(selectionKey || "").split(":");
+  return findOfficialRecycleQuote(kind, itemRefId, bundle);
+}
+
+function officialRecycleIsFixedQuantityKind(kind) {
+  return kind === "technique" || kind === "recipe";
+}
+
+function officialRecycleMaxQuantity(quote = {}) {
+  if (officialRecycleIsFixedQuantityKind(String(quote.item_kind || ""))) {
+    return 1;
+  }
+  return Math.max(Number(quote.available_quantity || 0), 0);
+}
+
+function defaultOfficialRecycleSelectionQuantity(quote = {}) {
+  return Math.max(officialRecycleMaxQuantity(quote), 1);
+}
+
+function officialRecycleSelectedQuantity(kind, itemRefId) {
+  const key = officialRecycleSelectionKey(kind, itemRefId);
+  return Math.max(Number(state.officialRecycleSelections?.[key] || 0), 0);
+}
+
+function sanitizeOfficialRecycleSelections(bundle = state.profileBundle) {
+  const nextSelections = {};
+  const quotesByKey = new Map(
+    officialRecycleItems(bundle).map((quote) => [
+      officialRecycleSelectionKey(quote.item_kind, quote.item_ref_id),
+      quote,
+    ]),
+  );
+  for (const [key, rawQuantity] of Object.entries(state.officialRecycleSelections || {})) {
+    const quote = quotesByKey.get(key);
+    if (!quote) continue;
+    const maxQuantity = officialRecycleMaxQuantity(quote);
+    if (maxQuantity <= 0) continue;
+    const normalizedQuantity = Math.min(Math.max(Number(rawQuantity || 0), 1), maxQuantity);
+    nextSelections[key] = normalizedQuantity;
+  }
+  state.officialRecycleSelections = nextSelections;
+}
+
+function setOfficialRecycleSelection(quote, quantity) {
+  if (!quote) return;
+  const key = officialRecycleSelectionKey(quote.item_kind, quote.item_ref_id);
+  const maxQuantity = officialRecycleMaxQuantity(quote);
+  if (maxQuantity <= 0) {
+    delete state.officialRecycleSelections[key];
+    return;
+  }
+  const normalizedQuantity = Math.min(Math.max(Number(quantity || 0), 1), maxQuantity);
+  state.officialRecycleSelections[key] = normalizedQuantity;
+}
+
+function clearOfficialRecycleSelection(kind, itemRefId) {
+  const key = officialRecycleSelectionKey(kind, itemRefId);
+  delete state.officialRecycleSelections[key];
+}
+
+function selectedOfficialRecycleEntries(bundle = state.profileBundle) {
+  sanitizeOfficialRecycleSelections(bundle);
+  return officialRecycleItems(bundle)
+    .map((quote) => {
+      const quantity = officialRecycleSelectedQuantity(quote.item_kind, quote.item_ref_id);
+      if (quantity <= 0) return null;
+      return { quote, quantity };
+    })
+    .filter(Boolean);
+}
+
+function updateOfficialRecycleBatchPreview(bundle = state.profileBundle) {
+  const preview = document.querySelector("#official-recycle-batch-preview");
+  const button = document.querySelector("#official-recycle-batch-submit");
+  if (!preview) return;
+  const blockedReason = currentDuelLockReason(bundle);
+  const selectedEntries = selectedOfficialRecycleEntries(bundle);
+  const totalKinds = selectedEntries.length;
+  const totalQuantity = selectedEntries.reduce((sum, entry) => sum + Math.max(Number(entry.quantity || 0), 0), 0);
+  const totalStone = selectedEntries.reduce(
+    (sum, entry) => sum + Math.max(Number(entry.quote?.unit_price_stone || 0), 0) * Math.max(Number(entry.quantity || 0), 0),
+    0,
+  );
+  preview.value = totalKinds
+    ? `已勾选 ${totalKinds} 项，共 ${totalQuantity} 件，预计到账 ${totalStone} 灵石`
+    : "未勾选归炉物品";
+  if (button) {
+    button.disabled = Boolean(blockedReason) || totalKinds <= 0;
+    button.title = blockedReason || "";
+  }
+}
+
 function officialRecycleQuoteCardHtml(quote, blockedReason) {
+  const selectedQuantity = officialRecycleSelectedQuantity(quote.item_kind, quote.item_ref_id);
+  const isChecked = selectedQuantity > 0;
+  const maxQuantity = Math.max(officialRecycleMaxQuantity(quote), 1);
+  const selectionEnabled = !blockedReason && maxQuantity > 0;
+  const quantityValue = isChecked ? selectedQuantity : defaultOfficialRecycleSelectionQuantity(quote);
+  const fixedQuantity = officialRecycleIsFixedQuantityKind(String(quote.item_kind || ""));
+  const selectionKey = officialRecycleSelectionKey(quote.item_kind, quote.item_ref_id);
   return `
     <div class="stack-item-head">
       <strong>${escapeHtml(quote.item_name)}</strong>
@@ -2171,6 +2357,24 @@ function officialRecycleQuoteCardHtml(quote, blockedReason) {
     </div>
     <p>当前整包归炉最多到账 ${escapeHtml(quote.max_total_price_stone || 0)} 灵石。</p>
     <p class="muted">${escapeHtml(quote.quote_note || "")}</p>
+    <div class="inline-actions recycle-selection-row">
+      <label class="inline-check recycle-selection-check">
+        <input type="checkbox" data-recycle-select="${escapeHtml(selectionKey)}" ${isChecked ? "checked" : ""} ${selectionEnabled ? "" : "disabled"}>
+        <span>勾选本项</span>
+      </label>
+      <label class="recycle-selection-qty">
+        <span>${fixedQuantity ? "数量固定 1" : "归炉数量"}</span>
+        <input
+          type="number"
+          min="1"
+          max="${escapeHtml(maxQuantity)}"
+          value="${escapeHtml(quantityValue)}"
+          data-recycle-quantity="${escapeHtml(selectionKey)}"
+          ${!isChecked || !selectionEnabled ? "disabled" : ""}
+          ${fixedQuantity ? "readonly" : ""}
+        >
+      </label>
+    </div>
     ${blockedReason ? `<p class="reason-text">${escapeHtml(blockedReason)}</p>` : ""}
   `;
 }
@@ -2189,7 +2393,7 @@ function populateOfficialRecycleInventorySelect() {
   rows.forEach((row) => {
     const option = document.createElement("option");
     option.value = row.item_ref_id;
-    option.textContent = `${row.item_name} · 可归炉 ${row.available_quantity} · ${row.unit_price_stone} 灵石/件`;
+    option.textContent = `${row.item_name} · ${row.quality_label || "凡品"} · 可归炉 ${row.available_quantity} · ${row.unit_price_stone} 灵石/件`;
     select.appendChild(option);
   });
   if ([...select.options].some((option) => String(option.value) === String(previousValue))) {
@@ -2222,10 +2426,28 @@ function updateOfficialRecycleQuotePreview(bundle = state.profileBundle) {
   quantityInput.max = String(Math.max(availableQuantity, 1));
   quantityInput.value = String(quantity);
   const totalPrice = Math.max(Number(quote.unit_price_stone || 0), 0) * quantity;
-  preview.value = `单价 ${quote.unit_price_stone || 0} 灵石，当前可归炉 ${availableQuantity} 件，本次到账 ${totalPrice} 灵石`;
+  preview.value = `${quote.quality_label || "凡品"} · 单价 ${quote.unit_price_stone || 0} 灵石，当前可归炉 ${availableQuantity} 件，本次到账 ${totalPrice} 灵石`;
   if (hint) {
     hint.textContent = String(quote.quote_note || bundle?.official_recycle?.description || "万宝归炉会按物品品阶与属性自动折价。");
   }
+}
+
+function selectVisibleOfficialRecycleQuotes(bundle = state.profileBundle) {
+  officialRecycleVisibleQuotes(bundle).forEach((quote) => {
+    setOfficialRecycleSelection(quote, defaultOfficialRecycleSelectionQuantity(quote));
+  });
+}
+
+function clearAllOfficialRecycleSelections() {
+  state.officialRecycleSelections = {};
+}
+
+function buildOfficialRecycleBatchPayload(bundle = state.profileBundle) {
+  return selectedOfficialRecycleEntries(bundle).map(({ quote, quantity }) => ({
+    item_kind: quote.item_kind,
+    item_ref_id: Number(quote.item_ref_id || 0),
+    quantity: Number(quantity || 0),
+  }));
 }
 
 function taskRequirementRows(kind) {
@@ -2927,10 +3149,38 @@ function renderOfficialShop(items, retreating) {
         <span class="tag">${escapeHtml(item.item_kind_label)}</span>
       </div>
       ${blockedReason ? `<p class="reason-text">${escapeHtml(blockedReason)}</p>` : ""}
-      <button type="button" data-buy-id="${item.id}" ${(retreating || duelLockReason) ? "disabled" : ""}>购买 1 件</button>
+      ${shopPurchaseControlsHtml(item, retreating || duelLockReason)}
     `;
     root.appendChild(card);
   }
+}
+
+function isPillShopItem(item) {
+  return String(item?.item_kind || "").trim() === "pill";
+}
+
+function shopPurchaseControlsHtml(item, disabled) {
+  if (!isPillShopItem(item)) {
+    return `<button type="button" data-buy-id="${item.id}" ${disabled ? "disabled" : ""}>购买 1 件</button>`;
+  }
+  const maxQuantity = Math.max(Number(item?.quantity || 1), 1);
+  const quantityLabel = `${item?.item_name || "丹药"}购买数量`;
+  return `
+    <div class="inline-actions">
+      <input
+        type="number"
+        min="1"
+        max="${escapeHtml(maxQuantity)}"
+        step="1"
+        inputmode="numeric"
+        value="1"
+        data-buy-quantity-for="${item.id}"
+        aria-label="${escapeHtml(quantityLabel)}"
+        ${disabled ? "disabled" : ""}
+      >
+      <button type="button" data-buy-id="${item.id}" ${disabled ? "disabled" : ""}>按数量购买</button>
+    </div>
+  `;
 }
 
 function renderOfficialRecyclePanel(bundle, retreating) {
@@ -2950,17 +3200,16 @@ function renderOfficialRecyclePanel(bundle, retreating) {
     }
     populateOfficialRecycleInventorySelect();
     updateOfficialRecycleQuotePreview(bundle);
+    updateOfficialRecycleBatchPreview(bundle);
     return;
   }
 
-  const query = String(document.querySelector("#official-recycle-search")?.value || "").trim().toLowerCase();
-  const visibleQuotes = query
-    ? quotes.filter((quote) => officialRecycleSearchText(quote).includes(query))
-    : quotes;
+  const visibleQuotes = officialRecycleVisibleQuotes(bundle);
   if (!visibleQuotes.length) {
     root.innerHTML = `<article class="stack-item"><strong>没有匹配的归炉报价</strong><p>可按物品名称、类型、品阶或报价说明搜索。</p></article>`;
     populateOfficialRecycleInventorySelect();
     updateOfficialRecycleQuotePreview(bundle);
+    updateOfficialRecycleBatchPreview(bundle);
     return;
   }
 
@@ -3008,6 +3257,7 @@ function renderOfficialRecyclePanel(bundle, retreating) {
 
   populateOfficialRecycleInventorySelect();
   updateOfficialRecycleQuotePreview(bundle);
+  updateOfficialRecycleBatchPreview(bundle);
 }
 
 function renderPersonalShop(items) {
@@ -3052,7 +3302,7 @@ function renderCommunityShop(items, retreating) {
       </div>
       <p>${escapeHtml(item.item_kind_label)} · 库存 ${escapeHtml(item.quantity)} · ${escapeHtml(item.shop_name)}</p>
       ${blockedReason ? `<p class="reason-text">${escapeHtml(blockedReason)}</p>` : ""}
-      <button type="button" data-buy-id="${item.id}" ${(retreating || duelLockReason) ? "disabled" : ""}>购买 1 件</button>
+      ${shopPurchaseControlsHtml(item, retreating || duelLockReason)}
     `;
     root.appendChild(card);
   }
@@ -4120,6 +4370,7 @@ function renderLeaderboard(result) {
 function applyProfileBundle(bundle, { deferSecondary = true } = {}) {
   if (!bundle) return;
   state.profileBundle = bundle;
+  sanitizeOfficialRecycleSelections(bundle);
   state.pendingBundleCandidate = null;
   const renderToken = (state.bundleRenderToken || 0) + 1;
   state.bundleRenderToken = renderToken;
@@ -4394,13 +4645,14 @@ document.querySelector("#train-btn").addEventListener("click", async (event) => 
   try {
     const payload = await runButtonAction(button, "吐纳中…", () => postJson("/plugins/xiuxian/api/train"));
     const growthText = attributeGrowthText(payload.attribute_growth || []);
+    const curseText = curseEventText(payload.curse_event);
     const efficiencyText = Number(payload.cultivation_efficiency_percent || 100) < 100
       ? `\n避世修为效率：${payload.cultivation_efficiency_percent}%（原始 ${payload.gain_raw || payload.gain}）`
       : "";
-    setStatus(`本次修炼获得修为 ${payload.gain}、灵石 ${payload.stone_gain}${growthText ? `，${growthText}` : ""}。`, "success");
+    setStatus(`本次修炼获得修为 ${payload.gain}、灵石 ${payload.stone_gain}${growthText ? `，${growthText}` : ""}。${curseText ? ` ${curseText}` : ""}`, "success");
     syncActionBundle(payload);
     refreshLeaderboardInBackground(state.leaderboard.kind, state.leaderboard.page);
-    await popup("吐纳成功", `修为 +${payload.gain}\n灵石 +${payload.stone_gain}${growthText ? `\n${growthText}` : ""}${efficiencyText}`);
+    await popup("吐纳成功", `修为 +${payload.gain}\n灵石 +${payload.stone_gain}${growthText ? `\n${growthText}` : ""}${efficiencyText}${curseText ? `\n☠️ ${curseText}` : ""}`);
   } catch (error) {
     const message = normalizeError(error, "吐纳修炼失败。");
     setStatus(message, "error");
@@ -4614,10 +4866,59 @@ document.querySelector("#auction-item-kind")?.addEventListener("change", renderA
 document.querySelector("#official-recycle-kind")?.addEventListener("change", () => {
   populateOfficialRecycleInventorySelect();
   updateOfficialRecycleQuotePreview();
+  updateOfficialRecycleBatchPreview();
 });
 document.querySelector("#official-recycle-item-ref")?.addEventListener("change", () => updateOfficialRecycleQuotePreview());
 document.querySelector("#official-recycle-quantity")?.addEventListener("input", () => updateOfficialRecycleQuotePreview());
 document.querySelector("#official-recycle-search")?.addEventListener("input", () => {
+  renderOfficialRecyclePanel(state.profileBundle, false);
+});
+document.querySelector("#official-recycle-list")?.addEventListener("change", (event) => {
+  const checkbox = event.target.closest("[data-recycle-select]");
+  if (checkbox) {
+    const quote = findOfficialRecycleQuoteBySelectionKey(checkbox.dataset.recycleSelect);
+    if (!quote) return;
+    if (checkbox.checked) {
+      const quantityInput = checkbox.closest(".stack-item")?.querySelector("[data-recycle-quantity]");
+      const quantity = Number(quantityInput?.value || defaultOfficialRecycleSelectionQuantity(quote));
+      setOfficialRecycleSelection(quote, quantity);
+    } else {
+      clearOfficialRecycleSelection(quote.item_kind, quote.item_ref_id);
+    }
+    renderOfficialRecyclePanel(state.profileBundle, false);
+    return;
+  }
+  const quantityInput = event.target.closest("[data-recycle-quantity]");
+  if (!quantityInput) return;
+  const quote = findOfficialRecycleQuoteBySelectionKey(quantityInput.dataset.recycleQuantity);
+  if (!quote) return;
+  const maxQuantity = Math.max(officialRecycleMaxQuantity(quote), 1);
+  const normalizedQuantity = Math.min(Math.max(Number(quantityInput.value || 0), 1), maxQuantity);
+  quantityInput.value = String(normalizedQuantity);
+  if (officialRecycleSelectedQuantity(quote.item_kind, quote.item_ref_id) > 0) {
+    setOfficialRecycleSelection(quote, normalizedQuantity);
+    updateOfficialRecycleBatchPreview();
+  }
+});
+document.querySelector("#official-recycle-list")?.addEventListener("input", (event) => {
+  const quantityInput = event.target.closest("[data-recycle-quantity]");
+  if (!quantityInput) return;
+  const quote = findOfficialRecycleQuoteBySelectionKey(quantityInput.dataset.recycleQuantity);
+  if (!quote) return;
+  const maxQuantity = Math.max(officialRecycleMaxQuantity(quote), 1);
+  const normalizedQuantity = Math.min(Math.max(Number(quantityInput.value || 0), 1), maxQuantity);
+  quantityInput.value = String(normalizedQuantity);
+  if (officialRecycleSelectedQuantity(quote.item_kind, quote.item_ref_id) > 0) {
+    setOfficialRecycleSelection(quote, normalizedQuantity);
+    updateOfficialRecycleBatchPreview();
+  }
+});
+document.querySelector("#official-recycle-select-visible")?.addEventListener("click", () => {
+  selectVisibleOfficialRecycleQuotes(state.profileBundle);
+  renderOfficialRecyclePanel(state.profileBundle, false);
+});
+document.querySelector("#official-recycle-clear-selection")?.addEventListener("click", () => {
+  clearAllOfficialRecycleSelections();
   renderOfficialRecyclePanel(state.profileBundle, false);
 });
 ["#official-recycle-jump-from-shop", "#official-recycle-jump-from-market"].forEach((selector) => {
@@ -4699,6 +5000,49 @@ document.querySelector("#official-recycle-form")?.addEventListener("submit", asy
     await popup("归炉成功", message);
   } catch (error) {
     const message = normalizeError(error, "提交万宝归炉失败。");
+    setStatus(message, "error");
+    await popup("操作失败", message, "error");
+  }
+});
+
+document.querySelector("#official-recycle-batch-submit")?.addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const items = buildOfficialRecycleBatchPayload(state.profileBundle);
+  if (!items.length) {
+    const message = "请先勾选至少一项要归炉的物品。";
+    setStatus(message, "warning");
+    await popup("尚未勾选", message, "warning");
+    return;
+  }
+  try {
+    const payload = await runButtonAction(button, "批量归炉中…", () => postJson("/plugins/xiuxian/api/recycle/official/batch", {
+      items,
+    }, { timeoutMs: ACTION_REQUEST_TIMEOUT_MS }));
+    const result = payload?.result || {};
+    const lines = [
+      `归炉项数：${Number(result.recycled_line_count || 0)} 项`,
+      `归炉数量：${Number(result.total_quantity || 0)} 件`,
+      `到账灵石：${Number(result.net_stone_gain ?? result.total_price_stone ?? 0)}`,
+    ];
+    const detailRows = Array.isArray(result.items) ? result.items : [];
+    if (detailRows.length) {
+      lines.push(`明细：${detailRows.slice(0, 6).map((item) => `${item.item_name || "未知物品"} x${Number(item.quantity || 0)} +${Number(item.net_stone_gain ?? item.total_price_stone ?? 0)}`).join("、")}`);
+      if (detailRows.length > 6) {
+        lines.push(`其余 ${detailRows.length - 6} 项已一并归炉。`);
+      }
+    }
+    if (result.partial_success) {
+      lines.push(`中断原因：${result.error_message || "批量归炉中断。"}。`);
+    }
+    if (!result.partial_success) {
+      clearAllOfficialRecycleSelections();
+    }
+    syncActionBundle(payload);
+    const message = String(result.summary_text || "批量归炉已完成。");
+    setStatus(message, result.partial_success ? "warning" : "success");
+    await popup(result.partial_success ? "部分归炉完成" : "批量归炉完成", lines.join("\n"), result.partial_success ? "warning" : "success");
+  } catch (error) {
+    const message = normalizeError(error, "批量归炉失败。");
     setStatus(message, "error");
     await popup("操作失败", message, "error");
   }
@@ -4853,15 +5197,32 @@ document.querySelector("#talisman-list").addEventListener("click", async (event)
   }
 });
 
+function readShopPurchaseQuantity(button) {
+  const itemId = Number(button?.dataset.buyId || 0);
+  if (!itemId) return 1;
+  const input = button.closest(".stack-item")?.querySelector(`[data-buy-quantity-for="${itemId}"]`);
+  if (!input) return 1;
+  const min = Math.max(Number.parseInt(input.min || "1", 10) || 1, 1);
+  const parsedMax = Number.parseInt(input.max || "", 10);
+  const max = Number.isFinite(parsedMax) && parsedMax > 0 ? parsedMax : null;
+  let quantity = Math.max(Number.parseInt(input.value || String(min), 10) || min, min);
+  if (max !== null) quantity = Math.min(quantity, max);
+  input.value = String(quantity);
+  return quantity;
+}
+
 async function purchaseItem(button) {
   try {
+    const requestedQuantity = readShopPurchaseQuantity(button);
     const payload = await runButtonAction(button, "购买中…", () => postJson("/plugins/xiuxian/api/shop/purchase", {
       item_id: Number(button.dataset.buyId),
-      quantity: 1
+      quantity: requestedQuantity
     }));
     const itemName = payload.item?.item_name || "商品";
+    const purchasedQuantity = Math.max(Number(payload.purchased_quantity || requestedQuantity || 1), 1);
+    const quantityText = purchasedQuantity > 1 ? ` x${purchasedQuantity}` : "";
     const discountText = payload.discount_amount ? `，魅力减免 ${payload.discount_amount} 灵石` : "";
-    const message = `购买 ${itemName} 成功，共消耗 ${payload.total_cost} 灵石${discountText}。`;
+    const message = `购买 ${itemName}${quantityText} 成功，共消耗 ${payload.total_cost} 灵石${discountText}。`;
     setStatus(message, "success");
     syncActionBundle(payload);
     await popup("购买成功", message);
@@ -5282,6 +5643,8 @@ document.querySelector("#exploration-active")?.addEventListener("click", async (
       const growthText = attributeGrowthText(result.attribute_growth || []);
       if (growthText) lines.push(`📈 ${growthText}`);
     }
+    const curseText = curseEventText(result.curse_event);
+    if (curseText) lines.push(`☠️ ${curseText}`);
     syncActionBundle(payload);
     await popup(
       death.died ? "探索失败" : "领取成功",
@@ -5697,7 +6060,13 @@ function itemAffixTags(item, effects = {}) {
   if (Number(values.duel || 0)) rows.push(`<span class="tag">斗法 +${escapeHtml(values.duel)}%</span>`);
   if (Number(values.cultivation || 0)) rows.push(`<span class="tag">修炼 +${escapeHtml(values.cultivation)}</span>`);
   if (Number(values.breakthrough || 0)) rows.push(`<span class="tag">突破 +${escapeHtml(values.breakthrough)}</span>`);
+  if (item?.curse_summary) rows.push(`<span class="tag">诅咒物</span>`);
   return rows.join("");
+}
+
+function curseEventText(event) {
+  const text = event && typeof event.message === "string" ? event.message.trim() : "";
+  return text || "";
 }
 
 function itemAffixText(item, effects = {}) {
@@ -6202,10 +6571,10 @@ function recipePillGroupLabel(recipe) {
   return String(item.pill_type_label || item.pill_type || "其他丹药").trim() || "其他丹药";
 }
 
-function buildRecipeGroupDetails(className, title, tip, cards) {
+function buildRecipeGroupDetails(className, title, tip, cards, { foldKey = "", defaultOpen = false } = {}) {
   const details = document.createElement("details");
   details.className = className;
-  details.open = true;
+  bindPersistentFoldState(details, foldKey, { defaultOpen });
   details.innerHTML = `
     <summary class="mini-fold-summary">
       <h3>${escapeHtml(title)}</h3>
@@ -6235,7 +6604,13 @@ function appendPillRecipeSubgroups(body, rows) {
     return;
   }
   groups.forEach((cards, label) => {
-    body.appendChild(buildRecipeGroupDetails("mini-fold recipe-pill-subgroup", `${label} (${cards.length})`, "丹药小类", cards));
+    body.appendChild(buildRecipeGroupDetails(
+      "mini-fold recipe-pill-subgroup",
+      `${label} (${cards.length})`,
+      "丹药小类",
+      cards,
+      { foldKey: foldStateKey("craft", "recipe-pill-subgroup", label) }
+    ));
   });
 }
 
@@ -6258,7 +6633,7 @@ function appendRecipeCardsByKind(root, rows) {
     .forEach((group) => {
       const details = document.createElement("details");
       details.className = "mini-fold recipe-kind-group";
-      details.open = true;
+      bindPersistentFoldState(details, foldStateKey("craft", "recipe-kind", group.kind));
       details.innerHTML = `
         <summary class="mini-fold-summary">
           <h3>${escapeHtml(group.label)} (${escapeHtml(group.rows.length)})</h3>
@@ -6509,7 +6884,7 @@ renderArtifactList = function renderArtifactList(items, retreating, equipLimit, 
     `;
     cardsArray.push({ card, item });
   }
-  renderGroupedCards(root, cardsArray, item => item.rarity || "凡品");
+  renderGroupedCards(root, cardsArray, item => item.rarity || "凡品", { foldNamespace: "inventory:artifact" });
 };
 
 renderTalismanList = function renderTalismanList(items, retreating) {
@@ -6571,7 +6946,7 @@ renderTalismanList = function renderTalismanList(items, retreating) {
     `;
     cardsArray.push({ card, item });
   }
-  renderGroupedCards(root, cardsArray, item => item.rarity || "凡品");
+  renderGroupedCards(root, cardsArray, item => item.rarity || "凡品", { foldNamespace: "inventory:talisman" });
 };
 
 renderPillList = function renderPillList(items, retreating) {
@@ -6626,7 +7001,7 @@ renderPillList = function renderPillList(items, retreating) {
     `;
     cardsArray.push({ card, item });
   }
-  renderGroupedCards(root, cardsArray, item => item.pill_type_label || item.pill_type || "其他");
+  renderGroupedCards(root, cardsArray, item => item.pill_type_label || item.pill_type || "其他", { foldNamespace: "inventory:pill" });
 };
 
 function renderMaterialInventoryList(items = []) {
@@ -6665,7 +7040,7 @@ function renderMaterialInventoryList(items = []) {
     `;
     return { card, item };
   });
-  renderGroupedCards(root, cardsArray, item => item.quality_label || item.rarity || "材料");
+  renderGroupedCards(root, cardsArray, item => item.quality_label || item.rarity || "材料", { foldNamespace: "inventory:material" });
 }
 
 ["#artifact-search", "#talisman-search", "#pill-search", "#material-search", "#material-inventory-search"].forEach((selector) => {
@@ -9048,6 +9423,8 @@ document.querySelector("#boss-personal-list")?.addEventListener("click", async (
         lines.push(`获得：${name}${Number(item.quantity || 0) > 1 ? ` ×${item.quantity}` : ""}`);
       });
     }
+    const curseText = curseEventText(result.curse_event);
+    if (curseText) lines.push(`☠️ ${curseText}`);
     if (result.summary) lines.push("", result.summary);
     setStatus(won ? `击败${bossName}！` : `挑战${bossName}失败`, won ? "success" : "warn");
     await popup(won ? "讨伐胜利" : "讨伐失败", lines.join("\n"));
@@ -9073,6 +9450,8 @@ document.querySelector("#boss-world-status")?.addEventListener("click", async (e
     if (result.boss_defeated) {
       lines.push("", "Boss已被击败！奖励已按伤害排名结算。");
     }
+    const curseText = curseEventText(result.curse_event);
+    if (curseText) lines.push(`☠️ ${curseText}`);
     setStatus(`造成 ${result.damage_dealt || 0} 点伤害`, "success");
     await popup("攻击世界Boss", lines.join("\n"));
     fetchBossData({ force: true }).then(renderBossData);
@@ -9177,10 +9556,11 @@ document.querySelector("#commission-list")?.addEventListener("click", async (eve
     const cultivationGain = Number(result.cultivation_gain || 0);
     const detail = result.detail || "委托已经顺利完成。";
     const growthText = attributeGrowthText(result.attribute_growth || []);
-    const message = `${title} 完成，灵石 +${stoneGain}，修为 +${cultivationGain}${growthText ? `，${growthText}` : ""}。`;
+    const curseText = curseEventText(payload.curse_event);
+    const message = `${title} 完成，灵石 +${stoneGain}，修为 +${cultivationGain}${growthText ? `，${growthText}` : ""}。${curseText ? ` ${curseText}` : ""}`;
     syncActionBundle(payload);
     setStatus(message, "success");
-    await popup("委托完成", `${detail}\n灵石 +${stoneGain}\n修为 +${cultivationGain}${growthText ? `\n${growthText}` : ""}`);
+    await popup("委托完成", `${detail}\n灵石 +${stoneGain}\n修为 +${cultivationGain}${growthText ? `\n${growthText}` : ""}${curseText ? `\n☠️ ${curseText}` : ""}`);
     refreshLeaderboardInBackground(state.leaderboard.kind, state.leaderboard.page);
   } catch (error) {
     const message = normalizeError(error, "承接灵石委托失败。");
@@ -9478,7 +9858,7 @@ if (fabAdmin) {
   });
 }
 
-function renderGroupedCards(root, cardsHtmlArray, groupingFn) {
+function renderGroupedCards(root, cardsHtmlArray, groupingFn, { foldNamespace = "", defaultOpen = false } = {}) {
   if (cardsHtmlArray.length <= 5) {
     cardsHtmlArray.forEach(({card}) => root.appendChild(card));
     return;
@@ -9498,7 +9878,7 @@ function renderGroupedCards(root, cardsHtmlArray, groupingFn) {
   groups.forEach((cards, key) => {
     const details = document.createElement("details");
     details.className = "mini-fold";
-    details.open = true;
+    bindPersistentFoldState(details, foldStateKey(foldNamespace || root?.id || "group", key), { defaultOpen });
     details.innerHTML = `<summary class="mini-fold-summary"><h3>${escapeHtml(key)} (${cards.length})</h3><span class="summary-tip">折叠分组</span></summary>`;
     const body = document.createElement("div");
     body.className = "mini-fold-body stack-list";

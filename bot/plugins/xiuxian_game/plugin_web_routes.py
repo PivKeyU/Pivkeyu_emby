@@ -84,6 +84,7 @@ from bot.plugins.xiuxian_game.api_models import (
     MentorshipTargetPayload,
     MentorshipTeachPayload,
     OfficialShopPatchPayload,
+    OfficialRecycleBatchPayload,
     OfficialRecyclePayload,
     OfficialShopPayload,
     PersonalAuctionPayload,
@@ -260,6 +261,7 @@ from bot.plugins.xiuxian_game.features.shop import (
     patch_shop_listing,
     place_auction_bid,
     purchase_shop_item,
+    recycle_items_to_official_shop,
     recycle_item_to_official_shop,
     search_xiuxian_players,
 )
@@ -1752,6 +1754,22 @@ def register_web(app) -> None:
             "万宝归炉",
             f"归炉了【{result.get('item_name') or '未知物品'}】x{result.get('quantity') or 0}，到账 {received_stone} 灵石",
         )
+        return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
+
+    @user_router.post("/api/recycle/official/batch")
+    def xiuxian_official_recycle_batch_api(payload: OfficialRecycleBatchPayload):
+        telegram_user = _verify_user_from_init_data(payload.init_data)
+        result = recycle_items_to_official_shop(
+            tg=telegram_user["id"],
+            items=[item.model_dump() for item in payload.items],
+        )
+        if result.get("recycled_line_count"):
+            _remember_journal(
+                telegram_user["id"],
+                "shop",
+                "万宝归炉",
+                str(result.get("summary_text") or "完成了一次批量归炉。"),
+            )
         return {"code": 200, "data": _with_result_core_bundle(telegram_user["id"], result)}
 
     @user_router.post("/api/player/search")

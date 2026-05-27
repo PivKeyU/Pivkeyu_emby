@@ -1506,10 +1506,12 @@ SEED_MATERIAL_BLUEPRINTS = {
     "仙品": [
         "仙凰真羽", "苍穹雷髓", "九转金液", "造化玉露", "混元息壤",
         "玄冥冰魄", "太清星尘", "赤霄凤血", "长生灵藤心", "太初光砂",
+        "玄苍龟晶", "太虚雷纹钢", "云阙天蚕丝",
     ],
     "先天至宝": [
         "先天混沌石", "太初紫气晶", "鸿蒙天髓", "造化青莲瓣", "周天星核",
         "玄黄母气", "大罗神铁", "无相天露", "太始龙骨", "元始真砂",
+        "混元界壳", "劫寂玄纱", "太易风痕晶",
     ],
 }
 
@@ -1832,6 +1834,244 @@ ARTIFACT_SET_BLUEPRINTS = [
         ],
     },
     {
+        "name": "玄穹镇劫套",
+        "description": "仙品重甲御守套装，补足高阶盾、甲、靴位，偏护体、卸力与反震。",
+        "required_count": 3,
+        "defense_bonus": 24,
+        "qi_blood_bonus": 140,
+        "duel_rate_bonus": 6,
+        "items": [
+            {
+                "name": "玄穹镇劫戟",
+                "rarity": "仙品",
+                "artifact_type": "battle",
+                "artifact_role": "guardian",
+                "equip_slot": "weapon",
+                "attack_bonus": 56,
+                "defense_bonus": 18,
+                "true_yuan_bonus": 42,
+                "duel_rate_bonus": 7,
+                "description": "戟锋沉如潮门，既能横断来势，也能借反震之力回击。",
+                "combat_config": {"passives": [{"name": "镇劫回潮", "kind": "extra_damage", "chance": 30, "flat_damage": 28, "ratio_percent": 22, "text": "玄穹镇劫戟借对方余势一拧，反震之力顺着戟锋轰然回卷。"}]},
+                "materials": [("太虚雷纹钢", 1), ("玄苍龟晶", 1), ("混元息壤", 1), ("太清星尘", 1)],
+                "success": 34,
+                "broadcast": True,
+                "min_realm_stage": "炼虚",
+                "min_realm_layer": 2,
+            },
+            {
+                "name": "玄穹镇劫盾",
+                "rarity": "仙品",
+                "artifact_type": "support",
+                "artifact_role": "guardian",
+                "equip_slot": "shield",
+                "defense_bonus": 52,
+                "qi_blood_bonus": 156,
+                "duel_rate_bonus": 6,
+                "description": "盾面铭着龟天古纹，受击时会像潮汐一般层层卸力。",
+                "combat_config": {"passives": [{"name": "镇劫玄幕", "kind": "shield", "chance": 30, "flat_shield": 46, "ratio_percent": 26, "text": "玄穹镇劫盾亮起深青古纹，护体光幕一层接一层展开。"}]},
+                "materials": [("玄苍龟晶", 1), ("混元息壤", 1), ("九转金液", 1), ("太虚雷纹钢", 1)],
+                "success": 32,
+                "broadcast": True,
+                "min_realm_stage": "炼虚",
+                "min_realm_layer": 3,
+            },
+            {
+                "name": "玄穹覆海甲",
+                "rarity": "仙品",
+                "artifact_type": "support",
+                "artifact_role": "guardian",
+                "equip_slot": "chest",
+                "defense_bonus": 48,
+                "qi_blood_bonus": 172,
+                "true_yuan_bonus": 30,
+                "description": "甲片相扣如重潮叠浪，最擅把巨力拆成绵长余波。",
+                "combat_config": {"passives": [{"name": "覆海卸潮", "kind": "guard", "chance": 28, "defense_ratio_percent": 26, "duration": 1, "text": "玄穹覆海甲甲片层层错开，将正面巨力拆成细密潮劲。"}]},
+                "materials": [("玄苍龟晶", 1), ("长生灵藤心", 1), ("九转金液", 1), ("云阙天蚕丝", 1)],
+                "success": 31,
+                "broadcast": True,
+                "min_realm_stage": "炼虚",
+                "min_realm_layer": 4,
+            },
+            {
+                "name": "玄穹踏界靴",
+                "rarity": "仙品",
+                "artifact_type": "support",
+                "artifact_role": "movement",
+                "equip_slot": "boots",
+                "defense_bonus": 20,
+                "body_movement_bonus": 34,
+                "duel_rate_bonus": 7,
+                "description": "靴底古纹与潮门共鸣，退可踏潮卸势，进可一步越界。",
+                "combat_config": {"passives": [{"name": "踏界避潮", "kind": "dodge", "chance": 30, "dodge_bonus": 28, "duration": 1, "text": "玄穹踏界靴在脚下荡开一圈暗潮，人影已错到攻势之外。"}]},
+                "materials": [("云阙天蚕丝", 1), ("太清星尘", 1), ("造化玉露", 1), ("太虚雷纹钢", 1)],
+                "success": 33,
+                "broadcast": True,
+                "min_realm_stage": "炼虚",
+                "min_realm_layer": 3,
+            },
+        ],
+    },
+    {
+        "name": "云阙巡霄套",
+        "description": "仙品轻甲巡天套装，补足高阶甲、盾、靴的机动路线，强调裂空追击。",
+        "required_count": 3,
+        "attack_bonus": 20,
+        "body_movement_bonus": 26,
+        "true_yuan_bonus": 72,
+        "items": [
+            {
+                "name": "云阙裂穹刃",
+                "rarity": "仙品",
+                "artifact_type": "battle",
+                "artifact_role": "battle",
+                "equip_slot": "weapon",
+                "attack_bonus": 60,
+                "body_movement_bonus": 18,
+                "duel_rate_bonus": 8,
+                "description": "刃身细长如天缝，最擅在高速错位中递出追命一斩。",
+                "combat_config": {"passives": [{"name": "裂穹逐影", "kind": "extra_damage", "chance": 32, "flat_damage": 30, "ratio_percent": 24, "text": "云阙裂穹刃借身法拉出一道细长天痕，追着退势再补一斩。"}]},
+                "materials": [("云阙天蚕丝", 1), ("赤霄凤血", 1), ("苍穹雷髓", 1), ("太初光砂", 1)],
+                "success": 35,
+                "broadcast": True,
+                "min_realm_stage": "炼虚",
+                "min_realm_layer": 5,
+            },
+            {
+                "name": "云阙流光甲",
+                "rarity": "仙品",
+                "artifact_type": "support",
+                "artifact_role": "guardian",
+                "equip_slot": "chest",
+                "defense_bonus": 38,
+                "qi_blood_bonus": 126,
+                "body_movement_bonus": 12,
+                "description": "甲如流霞铺身，既轻且韧，能在高速突进中维持护体完整。",
+                "combat_config": {"passives": [{"name": "流光护身", "kind": "shield", "chance": 26, "flat_shield": 38, "ratio_percent": 20, "text": "云阙流光甲亮起大片霞纹，把逼近身侧的杀机瞬间弹开。"}]},
+                "materials": [("云阙天蚕丝", 1), ("造化玉露", 1), ("长生灵藤心", 1), ("太清星尘", 1)],
+                "success": 34,
+                "broadcast": True,
+                "min_realm_stage": "炼虚",
+                "min_realm_layer": 5,
+            },
+            {
+                "name": "云阙逐电靴",
+                "rarity": "仙品",
+                "artifact_type": "support",
+                "artifact_role": "movement",
+                "equip_slot": "boots",
+                "defense_bonus": 16,
+                "body_movement_bonus": 40,
+                "duel_rate_bonus": 9,
+                "description": "靴跟蓄着雷光，一念借势，身法便比电芒更快半拍。",
+                "combat_config": {"passives": [{"name": "逐电瞬闪", "kind": "dodge", "chance": 34, "dodge_bonus": 34, "duration": 1, "text": "云阙逐电靴雷纹炸亮，原地只余一抹被拉长的残像。"}]},
+                "materials": [("云阙天蚕丝", 1), ("苍穹雷髓", 1), ("赤霄凤血", 1), ("太虚雷纹钢", 1)],
+                "success": 36,
+                "broadcast": True,
+                "min_realm_stage": "炼虚",
+                "min_realm_layer": 6,
+            },
+            {
+                "name": "云阙回风盾",
+                "rarity": "仙品",
+                "artifact_type": "support",
+                "artifact_role": "guardian",
+                "equip_slot": "shield",
+                "defense_bonus": 42,
+                "true_yuan_bonus": 54,
+                "body_movement_bonus": 14,
+                "duel_rate_bonus": 6,
+                "description": "盾缘似风轮缓缓转动，可在格挡时顺势导开正面灵压。",
+                "combat_config": {"passives": [{"name": "回风导压", "kind": "guard", "chance": 28, "defense_ratio_percent": 22, "duration": 1, "text": "云阙回风盾卷起一圈回风，把迎面冲力生生偏转了出去。"}]},
+                "materials": [("玄苍龟晶", 1), ("云阙天蚕丝", 1), ("太清星尘", 1), ("造化玉露", 1)],
+                "success": 34,
+                "broadcast": True,
+                "min_realm_stage": "炼虚",
+                "min_realm_layer": 6,
+            },
+        ],
+    },
+    {
+        "name": "混元御极套",
+        "description": "先天至宝级镇界套装，集断界、护道、踏虚于一体，整体偏全能生存。",
+        "required_count": 4,
+        "attack_bonus": 32,
+        "defense_bonus": 34,
+        "body_movement_bonus": 18,
+        "breakthrough_bonus": 16,
+        "items": [
+            {
+                "name": "混元断界戈",
+                "rarity": "先天至宝",
+                "artifact_type": "battle",
+                "artifact_role": "battle",
+                "equip_slot": "weapon",
+                "attack_bonus": 74,
+                "defense_bonus": 24,
+                "comprehension_bonus": 16,
+                "duel_rate_bonus": 10,
+                "description": "戈锋仿佛贴着界壁打磨而成，一挥就像要把前方天地直接切开。",
+                "combat_config": {"passives": [{"name": "断界裁痕", "kind": "armor_break", "chance": 36, "defense_ratio_percent": 30, "duration": 2, "text": "混元断界戈横扫而过，对手护体像被界壁裂缝生生扯开。"}]},
+                "materials": [("大罗神铁", 1), ("混元界壳", 1), ("太初紫气晶", 1), ("元始真砂", 1)],
+                "success": 24,
+                "broadcast": True,
+                "min_realm_stage": "大乘",
+                "min_realm_layer": 6,
+            },
+            {
+                "name": "混元玄界盾",
+                "rarity": "先天至宝",
+                "artifact_type": "support",
+                "artifact_role": "guardian",
+                "equip_slot": "shield",
+                "defense_bonus": 62,
+                "qi_blood_bonus": 210,
+                "true_yuan_bonus": 48,
+                "description": "盾心宛如一枚完整界壳，护体时像将自己暂时藏进另一重天地。",
+                "combat_config": {"passives": [{"name": "玄界垂幕", "kind": "shield", "chance": 32, "flat_shield": 60, "ratio_percent": 30, "text": "混元玄界盾放出厚重界幕，把整个人连同气机都一并收拢进去。"}]},
+                "materials": [("混元界壳", 1), ("玄黄母气", 1), ("鸿蒙天髓", 1), ("劫寂玄纱", 1)],
+                "success": 22,
+                "broadcast": True,
+                "min_realm_stage": "大乘",
+                "min_realm_layer": 7,
+            },
+            {
+                "name": "混元无漏甲",
+                "rarity": "先天至宝",
+                "artifact_type": "support",
+                "artifact_role": "guardian",
+                "equip_slot": "chest",
+                "defense_bonus": 58,
+                "qi_blood_bonus": 198,
+                "breakthrough_bonus": 10,
+                "description": "甲胄浑然一体，气机流转近乎无漏，越是死战越显稳固。",
+                "combat_config": {"passives": [{"name": "无漏守中", "kind": "guard", "chance": 30, "defense_ratio_percent": 30, "duration": 1, "text": "混元无漏甲收束周身气机，正面轰击竟被生生磨去大半。"}]},
+                "materials": [("劫寂玄纱", 1), ("玄黄母气", 1), ("太始龙骨", 1), ("周天星核", 1)],
+                "success": 21,
+                "broadcast": True,
+                "min_realm_stage": "大乘",
+                "min_realm_layer": 7,
+            },
+            {
+                "name": "混元踏虚履",
+                "rarity": "先天至宝",
+                "artifact_type": "support",
+                "artifact_role": "movement",
+                "equip_slot": "boots",
+                "defense_bonus": 24,
+                "body_movement_bonus": 42,
+                "duel_rate_bonus": 10,
+                "description": "履底留着太易风痕，一步踏出，落点常比心念更早到达。",
+                "combat_config": {"passives": [{"name": "踏虚遁迹", "kind": "dodge", "chance": 36, "dodge_bonus": 36, "duration": 1, "text": "混元踏虚履在原地留下一道淡淡风痕，真身已借虚空滑开。"}]},
+                "materials": [("太易风痕晶", 1), ("无相天露", 1), ("周天星核", 1), ("劫寂玄纱", 1)],
+                "success": 23,
+                "broadcast": True,
+                "min_realm_stage": "大乘",
+                "min_realm_layer": 7,
+            },
+        ],
+    },
+    {
         "name": "云岚初行套",
         "description": "适合前期成型的六部位轻装，补足武器、头冠、衣服、鞋、盾与饰品的基础配置。",
         "required_count": 3,
@@ -2024,6 +2264,10 @@ TALISMAN_BLUEPRINTS = [
     {"name": "摄魂符", "rarity": "极品", "attack_bonus": 22, "divine_sense_bonus": 22, "duel_rate_bonus": 4, "description": "取璇玑星砂配合幽冥墨玉炼就，符成时幽光闪烁如鬼火飘忽。专攻神魂破绽，可令对手灵台失守、神魂震荡。", "combat_config": {"skills": [{"name": "摄魂钉", "kind": "armor_break", "chance": 32, "defense_ratio_percent": 18, "duration": 2, "text": "摄魂符幽光一闪，神识化作森寒钉芒穿透虚空，直接刺入对手灵台深处，令其神魂剧痛难当。"}]}, "materials": [("璇玑星砂", 1), ("幽冥墨玉", 1), ("玄天乌金", 1)], "success": 44},
     {"name": "裂空符", "rarity": "仙品", "attack_bonus": 28, "body_movement_bonus": 24, "duel_rate_bonus": 6, "description": "以苍穹雷髓配合仙凰真羽绘就，符成时似有凤鸣九天、裂帛之音。引动时可短暂撕裂空间，令身形如鬼魅般穿梭于战场之间。", "combat_config": {"skills": [{"name": "裂空步", "kind": "extra_damage", "chance": 34, "flat_damage": 26, "ratio_percent": 24, "text": "裂空符燃成一道漆黑裂隙，下一瞬已从对手身后的虚空中闪出，攻势如影随形般贴脸而至。"}]}, "materials": [("苍穹雷髓", 1), ("太清星尘", 1), ("仙凰真羽", 1)], "success": 34},
     {"name": "化毒符", "rarity": "仙品", "defense_bonus": 18, "fortune_bonus": 10, "duel_rate_bonus": 4, "description": "以造化玉露配合长生灵藤心炼就，符成时散发淡淡青芒。专克天下万毒，可将体内浊毒尽数化解，令修士百毒不侵。", "combat_config": {"skills": [{"name": "清晦灵洗", "kind": "heal", "chance": 24, "flat_heal": 30, "ratio_percent": 20, "text": "化毒符散出柔和青芒，如春风化雨般涤荡全身，浊毒在青芒中逐渐消融，经脉重归清明。"}]}, "materials": [("造化玉露", 1), ("长生灵藤心", 1), ("玄冥冰魄", 1)], "success": 33},
+    {"name": "玄穹镇劫符", "rarity": "仙品", "defense_bonus": 20, "qi_blood_bonus": 88, "duel_rate_bonus": 4, "description": "以玄苍龟晶、混元息壤与太虚雷纹钢绘就，符成时会自然浮现一圈镇潮古纹。引动之后护体如城，最擅顶住正面重击。", "combat_config": {"skills": [{"name": "镇劫灵幕", "kind": "shield", "chance": 30, "flat_shield": 34, "ratio_percent": 22, "text": "玄穹镇劫符沉沉一震，深青灵幕像堤坝一样拦在身前。"}]}, "materials": [("玄苍龟晶", 1), ("混元息壤", 1), ("太虚雷纹钢", 1)], "success": 32},
+    {"name": "云阙裂界符", "rarity": "仙品", "attack_bonus": 26, "body_movement_bonus": 22, "duel_rate_bonus": 6, "description": "以云阙天蚕丝、苍穹雷髓与赤霄凤血并绘，符面隐约可见一道细长裂纹。引动时身法与斩势会同时被拔高。", "combat_config": {"skills": [{"name": "裂界追光", "kind": "extra_damage", "chance": 32, "flat_damage": 24, "ratio_percent": 22, "text": "云阙裂界符化出一道极细裂痕，攻势沿着那道裂痕瞬间追到面前。"}]}, "materials": [("云阙天蚕丝", 1), ("苍穹雷髓", 1), ("赤霄凤血", 1)], "success": 31},
+    {"name": "混元定界符", "rarity": "先天至宝", "defense_bonus": 24, "true_yuan_bonus": 60, "duel_rate_bonus": 6, "description": "以混元界壳、劫寂玄纱与玄黄母气为引绘成，一经催动便如将周身临时固定在另一重界面。", "combat_config": {"skills": [{"name": "定界镇压", "kind": "guard", "chance": 34, "defense_ratio_percent": 28, "duration": 1, "text": "混元定界符压下一重无形界壁，正面冲击像撞在了另一方天地上。"}]}, "materials": [("混元界壳", 1), ("劫寂玄纱", 1), ("玄黄母气", 1)], "success": 20},
+    {"name": "太易遁空符", "rarity": "先天至宝", "body_movement_bonus": 34, "divine_sense_bonus": 20, "duel_rate_bonus": 8, "description": "以太易风痕晶、无相天露与周天星核炼成，符成时像有一缕风已经先一步消失在原地。", "combat_config": {"skills": [{"name": "太易空遁", "kind": "dodge", "chance": 36, "dodge_bonus": 36, "duration": 1, "text": "太易遁空符刚一亮起，真身便像顺着风痕提前遁入了空隙之中。"}]}, "materials": [("太易风痕晶", 1), ("无相天露", 1), ("周天星核", 1)], "success": 18},
     {"name": "太初神雷符", "rarity": "先天至宝", "attack_bonus": 36, "divine_sense_bonus": 24, "duel_rate_bonus": 8, "description": "以先天紫气配合大罗神铁绘制，符成时天降异象、雷声滚滚。引动可召唤太初神雷，令天地失色、鬼神辟易，是为绝杀之术。", "combat_config": {"skills": [{"name": "太初雷殛", "kind": "extra_damage", "chance": 36, "flat_damage": 36, "ratio_percent": 30, "text": "太初神雷符撕裂苍穹，一道蕴含先天之威的雷芒从天而降，雷声震百里，令天地万物尽皆失色。"}]}, "materials": [("太初紫气晶", 1), ("大罗神铁", 1), ("周天星核", 1)], "success": 22},
 ]
 
@@ -2398,6 +2642,9 @@ TECHNIQUE_BLUEPRINTS = [
     {"name": "夜魇夺魂录", "rarity": "上品", "technique_type": "attack", "description": "邪道追魂秘卷，强调神识压迫与破甲斩杀。", "attack_bonus": 20, "divine_sense_bonus": 14, "duel_rate_bonus": 6, "combat_config": {"skills": [{"name": "夺魂追斩", "kind": "armor_break", "chance": 30, "defense_ratio_percent": 18, "duration": 2, "cost_true_yuan": 18, "text": "夜魇夺魂录牵出一缕阴影，顺着护体缝隙猛然钻入。"}]}, "min_realm_stage": "结丹", "min_realm_layer": 1},
     {"name": "星河归元章", "rarity": "极品", "technique_type": "cultivation", "description": "以周天星河温养经脉，久修者真元最厚。", "comprehension_bonus": 12, "true_yuan_bonus": 68, "cultivation_bonus": 16, "breakthrough_bonus": 8, "combat_config": {"passives": [{"name": "归元长潮", "kind": "heal", "chance": 18, "flat_heal": 24, "ratio_percent": 18, "text": "星河归元章缓缓运转，真元与气血像潮水一样回涨。"}]}, "min_realm_stage": "元婴", "min_realm_layer": 2},
     {"name": "紫宸裂空经", "rarity": "仙品", "technique_type": "combat", "description": "天阙遗经，擅裂空突进与高压连斩。", "attack_bonus": 26, "body_movement_bonus": 22, "duel_rate_bonus": 8, "combat_config": {"skills": [{"name": "裂空天步", "kind": "extra_damage", "chance": 32, "flat_damage": 28, "ratio_percent": 26, "cost_true_yuan": 24, "text": "紫宸裂空经踏出一记短促破空步，下一瞬攻势已贴脸而来。"}]}, "min_realm_stage": "化神", "min_realm_layer": 2},
+    {"name": "玄穹镇劫典", "rarity": "仙品", "technique_type": "defense", "description": "以镇海、卸力和稳身为核心的重守秘典，越是硬吃正面越能体现价值。", "defense_bonus": 24, "qi_blood_bonus": 96, "true_yuan_bonus": 40, "breakthrough_bonus": 6, "combat_config": {"skills": [{"name": "镇劫沉壁", "kind": "guard", "chance": 30, "defense_ratio_percent": 26, "duration": 1, "cost_true_yuan": 22, "text": "玄穹镇劫典一沉，周身气机像铸成了一整面厚重潮壁。"}]}, "min_realm_stage": "炼虚", "min_realm_layer": 2},
+    {"name": "云阙巡霄诀", "rarity": "仙品", "technique_type": "movement", "description": "专讲裂空借势与高速换位，适合追击、脱战与抢先手。", "attack_bonus": 18, "body_movement_bonus": 28, "duel_rate_bonus": 8, "combat_config": {"skills": [{"name": "巡霄错影", "kind": "dodge", "chance": 32, "dodge_bonus": 28, "duration": 1, "cost_true_yuan": 20, "text": "云阙巡霄诀顺着高空乱流一折，整个人像被抹成了一道掠影。"}]}, "min_realm_stage": "炼虚", "min_realm_layer": 5},
+    {"name": "混元御极经", "rarity": "先天至宝", "technique_type": "balanced", "description": "讲究以界护身、以风走位、以本源真元维持全程稳定的先天总纲。", "attack_bonus": 16, "defense_bonus": 24, "true_yuan_bonus": 96, "body_movement_bonus": 18, "breakthrough_bonus": 14, "combat_config": {"passives": [{"name": "御极界衣", "kind": "shield", "chance": 26, "flat_shield": 36, "ratio_percent": 24, "text": "混元御极经将本源真元织成一层薄界衣，硬生生护住了周身要害。"}]}, "min_realm_stage": "大乘", "min_realm_layer": 7},
     {"name": "太初一炁经", "rarity": "先天至宝", "technique_type": "balanced", "description": "先天一炁归于本源，攻守修炼俱强。", "attack_bonus": 18, "defense_bonus": 18, "comprehension_bonus": 18, "true_yuan_bonus": 88, "cultivation_bonus": 20, "breakthrough_bonus": 12, "combat_config": {"passives": [{"name": "一炁周流", "kind": "heal", "chance": 24, "flat_heal": 34, "ratio_percent": 24, "text": "太初一炁经周流全身，一切损耗都被缓缓抚平。"}]}, "min_realm_stage": "须弥", "min_realm_layer": 1},
 ]
 
@@ -2871,30 +3118,104 @@ DEFAULT_SCENES.extend(
             "name": "紫宸天遗",
             "description": "上古仙庭崩塌后的一角废墟，苍穹时有裂痕如蛛网蔓延，散落的天阙旧材历经万劫而不朽。",
             "max_minutes": 58,
+            "min_realm_stage": "炼虚",
+            "min_realm_layer": 7,
+            "min_combat_power": 1500,
             "event_pool": [
-                {"name": "天刀遗图", "description": "一截断碑后压着完整的仙刀炼图。", "event_type": "recipe", "weight": 3, "bonus_reward_kind": "recipe", "bonus_reward_ref_id_name": "紫宸天刀炼制图", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 26},
-                {"name": "裂空真传", "description": "遗迹穹顶忽现一段天阙步法。", "event_type": "oddity", "weight": 2, "bonus_reward_kind": "technique", "bonus_reward_ref_id_name": "紫宸裂空经", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 18},
+                {"name": "天刀遗图", "description": "一截断碑后压着完整的仙刀炼图。", "event_type": "recipe", "weight": 3, "bonus_reward_kind": "recipe", "bonus_reward_ref_id_name": "紫宸天刀炼制图", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 16},
+                {"name": "裂空真传", "description": "遗迹穹顶忽现一段天阙步法。", "event_type": "oddity", "weight": 2, "bonus_reward_kind": "technique", "bonus_reward_ref_id_name": "紫宸裂空经", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 12},
                 {"name": "天阙坠雷", "description": "残破禁制坠下一缕神雷，震得经脉发麻。", "event_type": "danger", "weight": 3, "stone_bonus_min": 36, "stone_bonus_max": 66, "stone_loss_min": 18, "stone_loss_max": 32},
             ],
             "drops": [
                 *[{"reward_kind": "material", "reward_ref_id_name": name, "quantity_min": 1, "quantity_max": 2, "weight": 4 + (10 - index), "stone_reward": 14, "event_text": f"你在紫宸天遗中截获一份【{name}】。"} for index, name in enumerate(SEED_MATERIAL_BLUEPRINTS["仙品"], start=1)],
-                {"reward_kind": "material", "reward_ref_id_name": "玄冥冰魄", "quantity_min": 1, "quantity_max": 1, "weight": 3, "stone_reward": 22, "event_text": "紫宸天遗阴影深处寒意凝结，你凿下一枚玄冥冰魄。"},
-                {"reward_kind": "material", "reward_ref_id_name": "长生灵藤心", "quantity_min": 1, "quantity_max": 1, "weight": 3, "stone_reward": 22, "event_text": "残阙裂缝里仍有古藤不死，你取下其中一截长生灵藤心。"},
-                {"reward_kind": "material", "reward_ref_id_name": "太清星尘", "quantity_min": 1, "quantity_max": 1, "weight": 3, "stone_reward": 22, "event_text": "碎裂天穹落下点点清辉，你收拢一捧太清星尘。"},
-                {"reward_kind": "recipe", "reward_ref_id_name": "紫宸战铠炼制图", "quantity_min": 1, "quantity_max": 1, "weight": 2, "stone_reward": 80, "event_text": "紫宸天遗残阙之下，一副战铠阵纹仍在缓缓亮灭，你拓下完整炼图。"},
-                {"reward_kind": "recipe", "reward_ref_id_name": "紫宸飞履炼制图", "quantity_min": 1, "quantity_max": 1, "weight": 2, "stone_reward": 80, "event_text": "裂空旧阶上留有飞履步纹，你循着残痕悟出紫宸飞履炼制图。"},
+                {"reward_kind": "material", "reward_ref_id_name": "玄冥冰魄", "quantity_min": 1, "quantity_max": 1, "weight": 2, "stone_reward": 22, "event_text": "紫宸天遗阴影深处寒意凝结，你凿下一枚玄冥冰魄。"},
+                {"reward_kind": "material", "reward_ref_id_name": "长生灵藤心", "quantity_min": 1, "quantity_max": 1, "weight": 2, "stone_reward": 22, "event_text": "残阙裂缝里仍有古藤不死，你取下其中一截长生灵藤心。"},
+                {"reward_kind": "material", "reward_ref_id_name": "太清星尘", "quantity_min": 1, "quantity_max": 1, "weight": 2, "stone_reward": 22, "event_text": "碎裂天穹落下点点清辉，你收拢一捧太清星尘。"},
+                {"reward_kind": "recipe", "reward_ref_id_name": "紫宸战铠炼制图", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 80, "event_text": "紫宸天遗残阙之下，一副战铠阵纹仍在缓缓亮灭，你拓下完整炼图。"},
+                {"reward_kind": "recipe", "reward_ref_id_name": "紫宸飞履炼制图", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 80, "event_text": "裂空旧阶上留有飞履步纹，你循着残痕悟出紫宸飞履炼制图。"},
             ],
         },
         {
             "name": "鸿蒙源海",
             "description": "混沌未分之地，大道法则尚呈液态流转。有缘者仅凭一息感应便能踏足，无缘者穷尽一生也寻不到入口。",
             "max_minutes": 60,
+            "min_realm_stage": "大乘",
+            "min_realm_layer": 5,
+            "min_combat_power": 1800,
             "event_pool": [
-                {"name": "大道剑图", "description": "源海之上浮起一卷大道剑图，转瞬又要散去。", "event_type": "recipe", "weight": 3, "bonus_reward_kind": "recipe", "bonus_reward_ref_id_name": "太初道剑炼制图", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 18},
-                {"name": "一炁残章", "description": "海面涟漪化成一段古老经文，须在一息之间记住。", "event_type": "oddity", "weight": 2, "bonus_reward_kind": "technique", "bonus_reward_ref_id_name": "太初一炁经", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 14},
+                {"name": "大道剑图", "description": "源海之上浮起一卷大道剑图，转瞬又要散去。", "event_type": "recipe", "weight": 3, "bonus_reward_kind": "recipe", "bonus_reward_ref_id_name": "太初道剑炼制图", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 10},
+                {"name": "一炁残章", "description": "海面涟漪化成一段古老经文，须在一息之间记住。", "event_type": "oddity", "weight": 2, "bonus_reward_kind": "technique", "bonus_reward_ref_id_name": "太初一炁经", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 8},
                 {"name": "源海逆浪", "description": "鸿蒙源海掀起一片逆浪，几乎将你的神识整个淹没。", "event_type": "danger", "weight": 3, "stone_bonus_min": 48, "stone_bonus_max": 88, "stone_loss_min": 24, "stone_loss_max": 40},
             ],
             "drops": [{"reward_kind": "material", "reward_ref_id_name": name, "quantity_min": 1, "quantity_max": 2, "weight": 4 + (10 - index), "stone_reward": 18, "event_text": f"你从鸿蒙源海中捞到一份【{name}】。"} for index, name in enumerate(SEED_MATERIAL_BLUEPRINTS["先天至宝"], start=1)],
+        },
+        {
+            "name": "玄穹潮墟",
+            "description": "坍塌的古潮关口仍在缓缓吞吐海雾，残盾与甲片半埋于碎石之间，是高阶守御器修最常踏足的险地。",
+            "max_minutes": 59,
+            "min_realm_stage": "炼虚",
+            "min_realm_layer": 3,
+            "min_combat_power": 1620,
+            "event_pool": [
+                {"name": "古盾劫图", "description": "半塌潮门之后，还压着一整面古盾阵图。", "event_type": "recipe", "weight": 3, "bonus_reward_kind": "recipe", "bonus_reward_ref_id_name": "玄穹镇劫盾炼制图", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 16},
+                {"name": "镇劫残章", "description": "断碑缝里留着一段专讲卸力与稳身的古经。", "event_type": "oddity", "weight": 2, "bonus_reward_kind": "technique", "bonus_reward_ref_id_name": "玄穹镇劫典", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 12},
+                {"name": "潮墟反灌", "description": "塌陷潮门忽然倒卷，碎甲与寒潮一同拍来。", "event_type": "danger", "weight": 3, "stone_bonus_min": 38, "stone_bonus_max": 70, "stone_loss_min": 16, "stone_loss_max": 30},
+            ],
+            "drops": [
+                *[{"reward_kind": "material", "reward_ref_id_name": name, "quantity_min": 1, "quantity_max": 2, "weight": 4 + (len(SEED_MATERIAL_BLUEPRINTS["仙品"]) - index), "stone_reward": 14, "event_text": f"你在玄穹潮墟中收下一份【{name}】。"} for index, name in enumerate(SEED_MATERIAL_BLUEPRINTS["仙品"], start=1)],
+                {"reward_kind": "material", "reward_ref_id_name": "玄苍龟晶", "quantity_min": 1, "quantity_max": 1, "weight": 3, "stone_reward": 24, "event_text": "断流海眼里滚出一枚沉重的玄苍龟晶。"},
+                {"reward_kind": "material", "reward_ref_id_name": "太虚雷纹钢", "quantity_min": 1, "quantity_max": 1, "weight": 3, "stone_reward": 24, "event_text": "你从断裂潮门的雷痕里凿下了一块太虚雷纹钢。"},
+                {"reward_kind": "recipe", "reward_ref_id_name": "玄穹镇劫戟炼制图", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 82, "event_text": "废关兵架上仍立着一柄残戟，你据其纹路补全了炼图。"},
+                {"reward_kind": "recipe", "reward_ref_id_name": "玄穹覆海甲炼制图", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 82, "event_text": "坍塌关墙后挂着一副破碎重甲，你拓下了完整覆海阵纹。"},
+                {"reward_kind": "recipe", "reward_ref_id_name": "玄穹踏界靴炼制图", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 80, "event_text": "碎石堆里留着一串踏界步印，你顺着步印悟出靴纹炼图。"},
+                {"reward_kind": "recipe", "reward_ref_id_name": "玄穹镇劫符符谱", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 74, "event_text": "一张残破符纸吸满海雾后显出完整镇劫符纹。"},
+            ],
+        },
+        {
+            "name": "云阙天径",
+            "description": "悬在高空裂风中的仙路遗段，脚下皆是罡风与碎光，唯有真正擅长腾挪的人才能在这里带走完整器图。",
+            "max_minutes": 59,
+            "min_realm_stage": "炼虚",
+            "min_realm_layer": 6,
+            "min_combat_power": 1720,
+            "event_pool": [
+                {"name": "裂穹刃图", "description": "裂风深处悬着一卷几乎被撕碎的仙刃图。", "event_type": "recipe", "weight": 3, "bonus_reward_kind": "recipe", "bonus_reward_ref_id_name": "云阙裂穹刃炼制图", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 14},
+                {"name": "巡霄步痕", "description": "断桥上残留的步痕竟是一整门裂空身法。", "event_type": "oddity", "weight": 2, "bonus_reward_kind": "technique", "bonus_reward_ref_id_name": "云阙巡霄诀", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 10},
+                {"name": "天径崩风", "description": "高空罡风忽然折返，几乎将你连人带护体一并削开。", "event_type": "danger", "weight": 3, "stone_bonus_min": 42, "stone_bonus_max": 76, "stone_loss_min": 18, "stone_loss_max": 32},
+            ],
+            "drops": [
+                *[{"reward_kind": "material", "reward_ref_id_name": name, "quantity_min": 1, "quantity_max": 2, "weight": 4 + (len(SEED_MATERIAL_BLUEPRINTS["仙品"]) - index), "stone_reward": 15, "event_text": f"你在云阙天径上截到一份【{name}】。"} for index, name in enumerate(SEED_MATERIAL_BLUEPRINTS["仙品"], start=1)],
+                {"reward_kind": "material", "reward_ref_id_name": "云阙天蚕丝", "quantity_min": 1, "quantity_max": 1, "weight": 3, "stone_reward": 24, "event_text": "裂风深处挂着一缕完好的云阙天蚕丝，被你险险收了下来。"},
+                {"reward_kind": "material", "reward_ref_id_name": "太虚雷纹钢", "quantity_min": 1, "quantity_max": 1, "weight": 2, "stone_reward": 24, "event_text": "断桥雷痕里嵌着一块太虚雷纹钢，仍在噼啪作响。"},
+                {"reward_kind": "recipe", "reward_ref_id_name": "云阙流光甲炼制图", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 82, "event_text": "你在残阶边缘抖开一页流光甲图，整页竟未被罡风撕碎。"},
+                {"reward_kind": "recipe", "reward_ref_id_name": "云阙逐电靴炼制图", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 82, "event_text": "断桥尽头留着一串雷痕步印，你顺着步印补齐了逐电靴图。"},
+                {"reward_kind": "recipe", "reward_ref_id_name": "云阙回风盾炼制图", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 80, "event_text": "一面碎盾在罡风里仍缓缓旋转，你临摹下了完整回风阵纹。"},
+                {"reward_kind": "recipe", "reward_ref_id_name": "云阙裂界符符谱", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 74, "event_text": "被风刃切开的符纸突然自行拼回，露出裂界符的全谱。"},
+            ],
+        },
+        {
+            "name": "混元界渊",
+            "description": "界渊深处时有两重天地互相碾压，古修士在这里留下的每一件重器都带着镇界之意，非大修无法承受其威压。",
+            "max_minutes": 60,
+            "min_realm_stage": "大乘",
+            "min_realm_layer": 6,
+            "min_combat_power": 2050,
+            "event_pool": [
+                {"name": "断界古戈", "description": "界渊崖壁里斜插着半截古戈，戈身上还留着完整器图。", "event_type": "recipe", "weight": 3, "bonus_reward_kind": "recipe", "bonus_reward_ref_id_name": "混元断界戈炼制图", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 10},
+                {"name": "御极总纲", "description": "两重界壁互相摩擦时，竟震出一段先天御极总纲。", "event_type": "oddity", "weight": 2, "bonus_reward_kind": "technique", "bonus_reward_ref_id_name": "混元御极经", "bonus_quantity_min": 1, "bonus_quantity_max": 1, "bonus_chance": 8},
+                {"name": "界渊倒压", "description": "界渊忽然反向挤压，你的护体几乎被两重天地当场碾碎。", "event_type": "danger", "weight": 3, "stone_bonus_min": 50, "stone_bonus_max": 90, "stone_loss_min": 22, "stone_loss_max": 40},
+            ],
+            "drops": [
+                *[{"reward_kind": "material", "reward_ref_id_name": name, "quantity_min": 1, "quantity_max": 2, "weight": 4 + (len(SEED_MATERIAL_BLUEPRINTS["先天至宝"]) - index), "stone_reward": 18, "event_text": f"你从混元界渊中摄出一份【{name}】。"} for index, name in enumerate(SEED_MATERIAL_BLUEPRINTS["先天至宝"], start=1)],
+                {"reward_kind": "material", "reward_ref_id_name": "混元界壳", "quantity_min": 1, "quantity_max": 1, "weight": 3, "stone_reward": 28, "event_text": "界壁碎裂后露出一片完整混元界壳，被你迅速收走。"},
+                {"reward_kind": "material", "reward_ref_id_name": "劫寂玄纱", "quantity_min": 1, "quantity_max": 1, "weight": 3, "stone_reward": 28, "event_text": "你在无声劫痕之间扯下一缕劫寂玄纱，入手竟轻若无物。"},
+                {"reward_kind": "material", "reward_ref_id_name": "太易风痕晶", "quantity_min": 1, "quantity_max": 1, "weight": 3, "stone_reward": 28, "event_text": "界渊边缘留着一抹永不散去的风痕，被你凝成了太易风痕晶。"},
+                {"reward_kind": "recipe", "reward_ref_id_name": "混元玄界盾炼制图", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 90, "event_text": "界渊底部有一面几乎完好的古盾，你拓下了它全部镇界纹路。"},
+                {"reward_kind": "recipe", "reward_ref_id_name": "混元无漏甲炼制图", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 90, "event_text": "一副无漏古甲在界压中仍不曾开裂，你收下了完整炼图。"},
+                {"reward_kind": "recipe", "reward_ref_id_name": "混元踏虚履炼制图", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 88, "event_text": "崖边残留的虚空步痕竟能自行演化，你将其拓成了一卷履图。"},
+                {"reward_kind": "recipe", "reward_ref_id_name": "混元定界符符谱", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 82, "event_text": "界渊震落的一页古符残纸上，正写着完整定界符骨。"},
+                {"reward_kind": "recipe", "reward_ref_id_name": "太易遁空符符谱", "quantity_min": 1, "quantity_max": 1, "weight": 1, "stone_reward": 82, "event_text": "一道太易风痕在你面前凝成符纹，转瞬便被你封入谱页。"},
+            ],
         },
     ]
 )
@@ -3520,6 +3841,15 @@ TALISMAN_UTILITY_KEYWORDS = (
     ("罚", "boss_damage_bonus"),
     ("白虎", "boss_damage_bonus"),
 )
+CURSE_TRIGGER_ACTION_LABELS = {
+    "practice": "吐纳",
+    "commission": "委托",
+    "exploration": "探索",
+    "fishing": "垂钓",
+    "personal_boss": "个人Boss",
+    "world_boss": "世界Boss",
+}
+CURSE_DAN_POISON_CAP = 100
 
 
 def _repair_profile_realm_state(tg: int) -> XiuxianProfile | None:
@@ -3592,7 +3922,8 @@ def _attribute_display_label(attribute_key: str) -> str:
 
 
 def _commission_effective_stats(tg: int, profile_data: dict[str, Any]) -> dict[str, float]:
-    artifact_effects = merge_artifact_effects(profile_data, collect_equipped_artifacts(tg))
+    equipped_artifacts = collect_equipped_artifacts(tg)
+    artifact_effects = merge_artifact_effects(profile_data, equipped_artifacts)
     active_talisman = serialize_talisman(get_talisman(profile_data.get("active_talisman_id"))) if profile_data.get("active_talisman_id") else None
     current_technique = _current_technique_payload(profile_data)
     current_title = get_current_title(tg)
@@ -3752,6 +4083,7 @@ def claim_spirit_stone_commission(tg: int, commission_key: str, *, include_profi
     profile_data = serialize_profile(profile) or {}
     if not realm_requirement_met(profile_data, config.get("min_realm_stage"), config.get("min_realm_layer")):
         raise ValueError(f"需要达到 {format_realm_requirement(config.get('min_realm_stage'), config.get('min_realm_layer'))} 才能承接该委托。")
+    equipped_artifacts = collect_equipped_artifacts(tg)
     stats = _commission_effective_stats(tg, profile_data)
     missing_requirement_text = _commission_missing_requirement_text(stats, config)
     if missing_requirement_text:
@@ -3773,6 +4105,7 @@ def claim_spirit_stone_commission(tg: int, commission_key: str, *, include_profi
     cultivation_gain = max(int(cultivation_gain), int(config["cultivation_range"][0]))
     raw_cultivation_gain = cultivation_gain
     activity_growth = {"triggered": False, "changes": [], "patch": {}, "chance": 0, "roll": None}
+    curse_event = None
 
     cooldown_until = None
     detail_text = random.choice(config["result_texts"])
@@ -3809,6 +4142,13 @@ def claim_spirit_stone_commission(tg: int, commission_key: str, *, include_profi
         row.realm_layer = layer
         row.cultivation = cultivation
         activity_growth = _apply_activity_stat_growth_to_profile_row(row, "commission", stats)
+        curse_event = _apply_artifact_curse_backlash(
+            tg,
+            "commission",
+            equipped_artifacts=equipped_artifacts,
+            session=session,
+            profile_row=row,
+        )
         row.updated_at = utcnow()
         session.commit()
 
@@ -3832,6 +4172,7 @@ def claim_spirit_stone_commission(tg: int, commission_key: str, *, include_profi
             + f"。{growth_text}"
         ),
     )
+    _record_artifact_curse_event(tg, curse_event)
     result = {
         "commission": {
             "key": config["key"],
@@ -3843,6 +4184,7 @@ def claim_spirit_stone_commission(tg: int, commission_key: str, *, include_profi
             "detail": detail_text,
             "attribute_growth": activity_growth.get("changes") or [],
         },
+        "curse_event": curse_event,
         "upgraded_layers": upgraded_layers,
         "remaining": remaining,
     }
@@ -4226,6 +4568,161 @@ def active_talisman_effect_summary(effects: dict[str, Any] | None) -> list[str]:
         else:
             rows.append(f"{label}+{value:g}%")
     return rows
+
+
+def _normalize_artifact_curse_effects(raw: Any) -> dict[str, Any]:
+    payload = raw if isinstance(raw, dict) else {}
+    actions: list[str] = []
+    raw_actions = payload.get("trigger_actions")
+    if isinstance(raw_actions, str):
+        raw_actions = re.split(r"[\s,，、;；|/]+", raw_actions.strip())
+    for item in raw_actions or []:
+        action = str(item or "").strip()
+        if action in CURSE_TRIGGER_ACTION_LABELS and action not in actions:
+            actions.append(action)
+    return {
+        "label": str(payload.get("label") or "").strip() or "诅咒反噬",
+        "summary": str(payload.get("summary") or "").strip(),
+        "trigger_text": str(payload.get("trigger_text") or "").strip(),
+        "trigger_chance_percent": max(min(_coerce_int(payload.get("trigger_chance_percent"), 0), 100), 0),
+        "stone_loss_percent": max(min(_coerce_int(payload.get("stone_loss_percent"), 0), 100), 0),
+        "stone_loss_min": max(_coerce_int(payload.get("stone_loss_min"), 0), 0),
+        "stone_loss_cap": max(_coerce_int(payload.get("stone_loss_cap"), 0), 0),
+        "dan_poison_gain": max(_coerce_int(payload.get("dan_poison_gain"), 0), 0),
+        "trigger_actions": actions,
+    }
+
+
+def _artifact_curse_effects(artifact: dict[str, Any] | None) -> dict[str, Any]:
+    if not artifact:
+        return {}
+    if isinstance(artifact.get("curse_effects"), dict):
+        return _normalize_artifact_curse_effects(artifact.get("curse_effects"))
+    combat_config = artifact.get("combat_config") if isinstance(artifact.get("combat_config"), dict) else {}
+    return _normalize_artifact_curse_effects(combat_config.get("curse_effects"))
+
+
+def _roll_artifact_curse_trigger(
+    action: str,
+    equipped_artifacts: list[dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    triggered: dict[str, Any] | None = None
+    for artifact in equipped_artifacts or []:
+        curse = _artifact_curse_effects(artifact)
+        chance = int(curse.get("trigger_chance_percent") or 0)
+        if chance <= 0 or action not in set(curse.get("trigger_actions") or []):
+            continue
+        roll = random.randint(1, 100)
+        if roll > chance:
+            continue
+        candidate = {
+            "artifact": artifact,
+            "curse": curse,
+            "roll": roll,
+        }
+        if triggered is None or chance > int((triggered.get("curse") or {}).get("trigger_chance_percent") or 0):
+            triggered = candidate
+    return triggered
+
+
+def _apply_artifact_curse_backlash(
+    tg: int,
+    action: str,
+    *,
+    equipped_artifacts: list[dict[str, Any]] | None = None,
+    session: Session | None = None,
+    profile_row: XiuxianProfile | None = None,
+) -> dict[str, Any] | None:
+    triggered = _roll_artifact_curse_trigger(action, equipped_artifacts)
+    if triggered is None:
+        return None
+
+    artifact = triggered["artifact"] or {}
+    curse = triggered["curse"] or {}
+    own_session = session is None
+    active_session = session or Session()
+    try:
+        profile = profile_row
+        if profile is None:
+            profile = active_session.query(XiuxianProfile).filter(XiuxianProfile.tg == int(tg)).with_for_update().first()
+        if profile is None or not profile.consented:
+            return None
+
+        current_stone = max(int(get_shared_spiritual_stone_total(int(tg), session=active_session, for_update=True) or 0), 0)
+        stone_loss_percent = int(curse.get("stone_loss_percent") or 0)
+        stone_loss_min = int(curse.get("stone_loss_min") or 0)
+        stone_loss_cap = int(curse.get("stone_loss_cap") or 0)
+        planned_stone_loss = 0
+        if current_stone > 0 and (stone_loss_percent > 0 or stone_loss_min > 0):
+            planned_stone_loss = max(int(round(current_stone * stone_loss_percent / 100.0)), stone_loss_min)
+            if stone_loss_cap > 0:
+                planned_stone_loss = min(planned_stone_loss, stone_loss_cap)
+        actual_stone_loss = min(current_stone, max(planned_stone_loss, 0))
+        if actual_stone_loss > 0:
+            apply_spiritual_stone_delta(
+                active_session,
+                int(tg),
+                -actual_stone_loss,
+                action_text=f"诅咒物【{artifact.get('name') or '未知法宝'}】反噬",
+                enforce_currency_lock=False,
+                allow_dead=False,
+                apply_tribute=False,
+            )
+
+        before_poison = max(int(profile.dan_poison or 0), 0)
+        profile.dan_poison = min(before_poison + max(int(curse.get("dan_poison_gain") or 0), 0), CURSE_DAN_POISON_CAP)
+        actual_poison_gain = max(int(profile.dan_poison or 0) - before_poison, 0)
+        profile.updated_at = utcnow()
+
+        if actual_stone_loss <= 0 and actual_poison_gain <= 0:
+            if own_session:
+                active_session.rollback()
+            return None
+
+        if own_session:
+            active_session.commit()
+
+        action_label = CURSE_TRIGGER_ACTION_LABELS.get(action, action)
+        artifact_name = str(artifact.get("name") or "未知法宝").strip() or "未知法宝"
+        trigger_text = str(curse.get("trigger_text") or "").strip()
+        if not trigger_text:
+            trigger_text = f"诅咒物【{artifact_name}】在{action_label}后忽然噬主。"
+        effect_parts: list[str] = []
+        if actual_stone_loss > 0:
+            effect_parts.append(f"吞走 {actual_stone_loss} 灵石")
+        if actual_poison_gain > 0:
+            effect_parts.append(f"丹毒 +{actual_poison_gain}")
+        summary = "，".join(effect_parts)
+        if summary:
+            message = f"{trigger_text}{summary}。"
+        else:
+            message = trigger_text
+        return {
+            "artifact_id": int(artifact.get("id") or 0),
+            "artifact_name": artifact_name,
+            "label": str(curse.get("label") or "诅咒反噬").strip() or "诅咒反噬",
+            "action": action,
+            "action_label": action_label,
+            "trigger_chance_percent": int(curse.get("trigger_chance_percent") or 0),
+            "roll": int(triggered.get("roll") or 0),
+            "stone_loss": actual_stone_loss,
+            "dan_poison_gain": actual_poison_gain,
+            "message": message,
+        }
+    finally:
+        if own_session:
+            active_session.close()
+
+
+def _record_artifact_curse_event(tg: int, curse_event: dict[str, Any] | None) -> None:
+    if not curse_event:
+        return
+    create_journal(
+        int(tg),
+        "curse",
+        str(curse_event.get("label") or "诅咒反噬"),
+        str(curse_event.get("message") or "").strip() or None,
+    )
 
 
 def _root_quality_payload(name: str | None) -> dict[str, Any]:
@@ -5147,7 +5644,7 @@ def _current_technique_payload(profile_data: dict[str, Any]) -> dict[str, Any] |
     return technique
 
 
-SEED_DATA_VERSION = "2026-05-19-xiuxian-craft-farm-recycle-explore-recipes-v1"
+SEED_DATA_VERSION = "2026-05-27-xiuxian-top-tier-expansion-v2"
 DEFAULT_ARTIFACT_SET_SYNC_SETTING = "default_artifact_set_sync_version"
 DEFAULT_ARTIFACT_SET_SYNC_VERSION = "2026-05-12-expanded-artifact-set-links-v1"
 DEFAULT_BOSS_SYNC_SETTING = "default_boss_sync_version"
@@ -9828,6 +10325,54 @@ def create_official_shop_listing(
     )
 
 
+def _official_recycle_insufficient_message(item_kind: str) -> str:
+    normalized_kind = str(item_kind or "").strip()
+    return {
+        "artifact": "可归炉的法宝数量不足，已绑定或已装备的法宝无法归炉。",
+        "pill": "囊中药丹不足，难以引动归炉之火。",
+        "talisman": "可归炉的符箓数量不足，已绑定的符箓无法归炉。",
+        "material": "囊中灵材不足，难以引动归炉之火。",
+        "technique": "未掌握该功法，无法归炉。",
+        "recipe": "未掌握该配方，无法归炉。",
+    }.get(normalized_kind, "当前没有可归炉的该类物品。")
+
+
+def _validate_official_recycle_request(
+    *,
+    tg: int,
+    item_kind: str,
+    item_ref_id: int,
+    quantity: int,
+) -> dict[str, Any]:
+    normalized_kind = str(item_kind or "").strip()
+    requested_quantity = max(int(quantity or 0), 1)
+    quote = _find_official_recycle_quote_for_user(tg, normalized_kind, int(item_ref_id))
+    insufficient_message = _official_recycle_insufficient_message(normalized_kind)
+    if quote is None:
+        raise ValueError(insufficient_message)
+    if normalized_kind == "technique" and requested_quantity != 1:
+        raise ValueError("功法每次只能归炉一部。")
+    if normalized_kind == "recipe" and requested_quantity != 1:
+        raise ValueError("配方每次只能归炉一张。")
+    available_quantity = max(int(quote.get("available_quantity") or 0), 0)
+    if available_quantity < requested_quantity:
+        raise ValueError(insufficient_message)
+
+    unit_price = max(int(quote.get("unit_price_stone") or 0), 0)
+    total_price = unit_price * requested_quantity
+    if total_price <= 0:
+        raise ValueError("该物品当前无法归炉。")
+    return {
+        "normalized_kind": normalized_kind,
+        "requested_quantity": requested_quantity,
+        "available_quantity": available_quantity,
+        "quote": quote,
+        "unit_price": unit_price,
+        "total_price": total_price,
+        "insufficient_message": insufficient_message,
+    }
+
+
 def recycle_item_to_official_shop(
     *,
     tg: int,
@@ -9838,54 +10383,42 @@ def recycle_item_to_official_shop(
     profile = _require_alive_profile_obj(tg, OFFICIAL_RECYCLE_NAME)
     assert_currency_operation_allowed(tg, OFFICIAL_RECYCLE_NAME, profile=profile)
 
-    normalized_kind = str(item_kind or "").strip()
-    requested_quantity = max(int(quantity or 0), 1)
-    quote = _find_official_recycle_quote_for_user(tg, normalized_kind, int(item_ref_id))
-    insufficient_messages = {
-        "artifact": "可归炉的法宝数量不足，已绑定或已装备的法宝无法归炉。",
-        "pill": "囊中药丹不足，难以引动归炉之火。",
-        "talisman": "可归炉的符箓数量不足，已绑定的符箓无法归炉。",
-        "material": "囊中灵材不足，难以引动归炉之火。",
-        "technique": "未掌握该功法，无法归炉。",
-        "recipe": "未掌握该配方，无法归炉。",
-    }
-    if quote is None:
-        raise ValueError(insufficient_messages.get(normalized_kind, "当前没有可归炉的该类物品。"))
-    if normalized_kind == "technique" and requested_quantity != 1:
-        raise ValueError("功法每次只能归炉一部。")
-    if normalized_kind == "recipe" and requested_quantity != 1:
-        raise ValueError("配方每次只能归炉一张。")
-    available_quantity = max(int(quote.get("available_quantity") or 0), 0)
-    if available_quantity < requested_quantity:
-        raise ValueError(insufficient_messages.get(normalized_kind, "当前没有足够的可归炉物品。"))
-
-    unit_price = max(int(quote.get("unit_price_stone") or 0), 0)
-    total_price = unit_price * requested_quantity
-    if total_price <= 0:
-        raise ValueError("该物品当前无法归炉。")
+    validation = _validate_official_recycle_request(
+        tg=tg,
+        item_kind=item_kind,
+        item_ref_id=item_ref_id,
+        quantity=quantity,
+    )
+    normalized_kind = str(validation["normalized_kind"])
+    requested_quantity = int(validation["requested_quantity"])
+    available_quantity = int(validation["available_quantity"])
+    unit_price = int(validation["unit_price"])
+    total_price = int(validation["total_price"])
+    quote = dict(validation["quote"] or {})
+    insufficient_message = str(validation["insufficient_message"])
 
     if normalized_kind == "artifact":
         if not use_user_artifact_listing_stock(tg, item_ref_id, requested_quantity):
-            raise ValueError(insufficient_messages["artifact"])
+            raise ValueError(insufficient_message)
     elif normalized_kind == "pill":
         if not use_user_pill_listing_stock(tg, item_ref_id, requested_quantity):
-            raise ValueError(insufficient_messages["pill"])
+            raise ValueError(insufficient_message)
     elif normalized_kind == "talisman":
         if not use_user_talisman_listing_stock(tg, item_ref_id, requested_quantity):
-            raise ValueError(insufficient_messages["talisman"])
+            raise ValueError(insufficient_message)
     elif normalized_kind == "material":
         if not use_user_material_listing_stock(tg, item_ref_id, requested_quantity):
-            raise ValueError(insufficient_messages["material"])
+            raise ValueError(insufficient_message)
     elif normalized_kind == "technique":
         if requested_quantity != 1:
             raise ValueError("功法每次只能归炉一部。")
         if not revoke_technique_from_user(tg, item_ref_id):
-            raise ValueError(insufficient_messages["technique"])
+            raise ValueError(insufficient_message)
     elif normalized_kind == "recipe":
         if requested_quantity != 1:
             raise ValueError("配方每次只能归炉一张。")
         if not revoke_recipe_from_user(tg, item_ref_id):
-            raise ValueError(insufficient_messages["recipe"])
+            raise ValueError(insufficient_message)
     else:
         raise ValueError("当前物品类型暂不支持万宝归炉。")
 
@@ -9930,6 +10463,103 @@ def recycle_item_to_official_shop(
         "spiritual_stone_after": int(getattr(stone_result.get("profile"), "spiritual_stone", 0) or 0),
         "net_stone_gain": int(stone_result.get("net_delta") if stone_result.get("net_delta") is not None else total_price),
     }
+
+
+def recycle_items_to_official_shop(
+    *,
+    tg: int,
+    items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    profile = _require_alive_profile_obj(tg, OFFICIAL_RECYCLE_NAME)
+    assert_currency_operation_allowed(tg, OFFICIAL_RECYCLE_NAME, profile=profile)
+
+    normalized_items: list[dict[str, int | str]] = []
+    aggregate_index: dict[tuple[str, int], int] = {}
+    for raw in items or []:
+        if not isinstance(raw, dict):
+            continue
+        normalized_kind = str(raw.get("item_kind") or "").strip()
+        try:
+            item_ref_id = int(raw.get("item_ref_id") or 0)
+        except (TypeError, ValueError):
+            item_ref_id = 0
+        try:
+            requested_quantity = max(int(raw.get("quantity") or 0), 1)
+        except (TypeError, ValueError):
+            requested_quantity = 1
+        if not normalized_kind or item_ref_id <= 0:
+            continue
+        key = (normalized_kind, item_ref_id)
+        existing_index = aggregate_index.get(key)
+        if existing_index is None:
+            aggregate_index[key] = len(normalized_items)
+            normalized_items.append(
+                {
+                    "item_kind": normalized_kind,
+                    "item_ref_id": item_ref_id,
+                    "quantity": requested_quantity,
+                }
+            )
+        else:
+            normalized_items[existing_index]["quantity"] = int(normalized_items[existing_index]["quantity"]) + requested_quantity
+
+    if not normalized_items:
+        raise ValueError("请先勾选至少一项可归炉物品。")
+
+    for entry in normalized_items:
+        _validate_official_recycle_request(
+            tg=tg,
+            item_kind=str(entry["item_kind"]),
+            item_ref_id=int(entry["item_ref_id"]),
+            quantity=int(entry["quantity"]),
+        )
+
+    recycled_items: list[dict[str, Any]] = []
+    partial_error = ""
+    for entry in normalized_items:
+        try:
+            recycled_items.append(
+                recycle_item_to_official_shop(
+                    tg=tg,
+                    item_kind=str(entry["item_kind"]),
+                    item_ref_id=int(entry["item_ref_id"]),
+                    quantity=int(entry["quantity"]),
+                )
+            )
+        except Exception as exc:
+            partial_error = str(exc or "批量归炉中断。").strip() or "批量归炉中断。"
+            break
+
+    if not recycled_items and partial_error:
+        raise ValueError(partial_error)
+
+    total_quantity = sum(max(int(item.get("quantity") or 0), 0) for item in recycled_items)
+    total_price = sum(max(int(item.get("total_price_stone") or 0), 0) for item in recycled_items)
+    total_net_gain = sum(max(int(item.get("net_stone_gain") or item.get("total_price_stone") or 0), 0) for item in recycled_items)
+    preview_names = "、".join(
+        f"{item.get('item_name') or '未知物品'} x{max(int(item.get('quantity') or 0), 0)}"
+        for item in recycled_items[:4]
+    )
+    if len(recycled_items) > 4:
+        preview_names = f"{preview_names} 等 {len(recycled_items)} 项"
+    summary_text = f"已归炉 {len(recycled_items)} 项，共 {total_quantity} 件，到账 {total_net_gain} 灵石"
+    if preview_names:
+        summary_text = f"{summary_text}：{preview_names}"
+
+    result = {
+        "shop_name": OFFICIAL_RECYCLE_NAME,
+        "items": recycled_items,
+        "recycled_line_count": len(recycled_items),
+        "total_quantity": total_quantity,
+        "total_price_stone": total_price,
+        "net_stone_gain": total_net_gain,
+        "summary_text": summary_text,
+        "spiritual_stone_after": int(recycled_items[-1].get("spiritual_stone_after") or 0) if recycled_items else 0,
+    }
+    if partial_error:
+        result["partial_success"] = True
+        result["error_message"] = partial_error
+    return result
 
 
 def patch_shop_listing(item_id: int, **fields) -> dict[str, Any] | None:
@@ -12661,6 +13291,7 @@ def practice_for_user(tg: int) -> dict[str, Any]:
         "efficiency_percent": 100,
         "reduced": False,
     }
+    curse_event = None
     layer = int(profile.realm_layer or 1)
     cultivation = int(profile.cultivation or 0)
     upgraded_layers: list[int] = []
@@ -12687,10 +13318,18 @@ def practice_for_user(tg: int) -> dict[str, Any]:
         updated.realm_layer = layer
         updated.last_train_at = now
         activity_growth = _apply_activity_stat_growth_to_profile_row(updated, "practice", stats)
+        curse_event = _apply_artifact_curse_backlash(
+            tg,
+            "practice",
+            equipped_artifacts=equipped_artifacts,
+            session=session,
+            profile_row=updated,
+        )
         updated.updated_at = now
         session.commit()
     if active_talisman and any(float(value or 0) > 0 for value in talisman_active_effects.values()):
         set_active_talisman(tg, None)
+    _record_artifact_curse_event(tg, curse_event)
     _apply_profile_growth_floor(tg)
     return {
         "gain": gain,
@@ -12698,6 +13337,7 @@ def practice_for_user(tg: int) -> dict[str, Any]:
         "cultivation_efficiency_percent": int(cultivation_meta.get("efficiency_percent") or 100),
         "stone_gain": stone_gain,
         "attribute_growth": activity_growth.get("changes") or [],
+        "curse_event": curse_event,
         "upgraded_layers": upgraded_layers,
         "remaining": remaining,
         "profile": serialize_full_profile(tg),

@@ -447,6 +447,12 @@ def challenge_personal_boss(tg: int, boss_id: int) -> dict[str, Any]:
 
     if talisman_active_effects:
         legacy_service.set_active_talisman(tg, None)
+    curse_event = legacy_service._apply_artifact_curse_backlash(
+        tg,
+        "personal_boss",
+        equipped_artifacts=legacy_service.collect_equipped_artifacts(tg),
+    )
+    legacy_service._record_artifact_curse_event(tg, curse_event)
     updated_profile = serialize_profile(get_profile(tg, create=False))
 
     return {
@@ -459,6 +465,7 @@ def challenge_personal_boss(tg: int, boss_id: int) -> dict[str, Any]:
         "boss_hp_remaining": int(defender_actor.get("hp") or 0),
         "rewards": rewards,
         "active_talisman_effects": talisman_active_effects,
+        "curse_event": curse_event,
         "profile": updated_profile,
         "daily_attempts_used": daily_attempts_used,
         "daily_attempts_limit": daily_limit,
@@ -795,6 +802,12 @@ def attack_world_boss(tg: int) -> dict[str, Any]:
         settlement = _settle_world_boss_kill(int(instance["id"]))
     if talisman_active_effects:
         legacy_service.set_active_talisman(tg, None)
+    curse_event = legacy_service._apply_artifact_curse_backlash(
+        tg,
+        "world_boss",
+        equipped_artifacts=legacy_service.collect_equipped_artifacts(tg),
+    )
+    legacy_service._record_artifact_curse_event(tg, curse_event)
 
     # 记录世界 Boss 伤害成就
     record_boss_metrics(tg, world_damage=effective_damage)
@@ -808,6 +821,7 @@ def attack_world_boss(tg: int) -> dict[str, Any]:
         "player_total_damage": int((damage_record or {}).get("total_damage") or 0),
         "player_attack_count": int((damage_record or {}).get("attack_count") or 0),
         "active_talisman_effects": talisman_active_effects,
+        "curse_event": curse_event,
         "settlement": settlement,
     }
 

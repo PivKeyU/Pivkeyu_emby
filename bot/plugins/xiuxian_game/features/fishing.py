@@ -569,6 +569,14 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
             "灵河垂钓",
             f"在{spot['name']}守了半日，灵河无获——本次轮空。",
         )
+        curse_event = _legacy_service()._apply_artifact_curse_backlash(
+            tg,
+            "fishing",
+            equipped_artifacts=_legacy_service().collect_equipped_artifacts(tg),
+        )
+        _legacy_service()._record_artifact_curse_event(tg, curse_event)
+        if curse_event:
+            message += f" {curse_event.get('message') or ''}".rstrip()
         return {
             "spot_key": spot["key"],
             "spot_name": spot["name"],
@@ -584,6 +592,7 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
             "message": message,
             "empty_handed": True,
             "empty_chance_percent": round(empty_chance * 100.0, 2),
+            "curse_event": curse_event,
             "active_talisman": None if not active_talisman else {
                 "name": active_talisman.get("name"),
                 "effects": talisman_active_effects,
@@ -640,6 +649,14 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
         "灵河垂钓",
         f"在 {spot['name']} 钓起【{reward_name}】×{quantity}，品阶 {quality['label']}。",
     )
+    curse_event = _legacy_service()._apply_artifact_curse_backlash(
+        tg,
+        "fishing",
+        equipped_artifacts=_legacy_service().collect_equipped_artifacts(tg),
+    )
+    _legacy_service()._record_artifact_curse_event(tg, curse_event)
+    if curse_event:
+        message += f" {curse_event.get('message') or ''}".rstrip()
     return {
         "spot_key": spot["key"],
         "spot_name": spot["name"],
@@ -657,6 +674,7 @@ def cast_fishing_line_for_user(tg: int, spot_key: str) -> dict[str, Any]:
         "message": message,
         "empty_handed": False,
         "empty_chance_percent": round(empty_chance * 100.0, 2),
+        "curse_event": curse_event,
         "active_talisman": None if not active_talisman else {
             "name": active_talisman.get("name"),
             "effects": talisman_active_effects,

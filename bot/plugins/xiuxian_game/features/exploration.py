@@ -64,6 +64,16 @@ RARITY_LEVEL_MAP = {
     "天品": 5,
 }
 
+EXPLORATION_DROP_QUALITY_WEIGHT_MULTIPLIERS = {
+    1: 1.0,
+    2: 0.92,
+    3: 0.82,
+    4: 0.68,
+    5: 0.52,
+    6: 0.32,
+    7: 0.16,
+}
+
 
 class _ExplorationClaimSequenceRetry(RuntimeError):
     pass
@@ -345,13 +355,13 @@ def _scene_quality_level(
 def _base_drop_success_rate(quality_level: int) -> int:
     return {
         1: 50,
-        2: 43,
-        3: 35,
-        4: 28,
-        5: 21,
-        6: 17,
-        7: 13,
-    }.get(max(int(quality_level or 1), 1), 8)
+        2: 42,
+        3: 34,
+        4: 26,
+        5: 18,
+        6: 11,
+        7: 6,
+    }.get(max(int(quality_level or 1), 1), 5)
 
 
 def _drop_success_rate(
@@ -960,7 +970,21 @@ def start_exploration_for_user(tg: int, scene_id: int, minutes: int) -> dict[str
             )
         if _recipe_like_bonus_item(str(drop.get("reward_kind") or ""), int(drop.get("reward_ref_id") or 0)):
             extra_weight += max(karma - 10, 0) // 6
-        weighted.extend([drop] * max(int(drop.get("weight") or 1) + extra_weight, 1))
+        if reward_quality >= 7:
+            extra_weight = int(round(extra_weight * 0.45))
+        elif reward_quality >= 6:
+            extra_weight = int(round(extra_weight * 0.60))
+        elif reward_quality >= 5:
+            extra_weight = int(round(extra_weight * 0.80))
+        quality_weight = EXPLORATION_DROP_QUALITY_WEIGHT_MULTIPLIERS.get(
+            max(min(int(reward_quality or 1), 7), 1),
+            EXPLORATION_DROP_QUALITY_WEIGHT_MULTIPLIERS[1],
+        )
+        effective_weight = max(
+            int(round((max(int(drop.get("weight") or 1), 1) + extra_weight) * quality_weight)),
+            1,
+        )
+        weighted.extend([drop] * effective_weight)
     chosen = random.choice(weighted)
     duration_ratio = max(min(float(duration) / float(max(int(scene.get("max_minutes") or 60), 1)), 1.0), 0.05)
     base_quantity = random.randint(
@@ -1112,6 +1136,7 @@ def _claim_exploration_for_user_once(tg: int, exploration_id: int) -> dict[str, 
     death_reasons: list[str] = []
     activity_growth = {"triggered": False, "changes": [], "patch": {}, "chance": 0, "roll": None}
     updated_profile = None
+    curse_event = None
     legacy_service = _legacy_service()
     with Session() as session:
         exploration = (
@@ -1190,6 +1215,13 @@ def _claim_exploration_for_user_once(tg: int, exploration_id: int) -> dict[str, 
                 updated,
                 "exploration",
                 serialize_profile(updated),
+            )
+            curse_event = legacy_service._apply_artifact_curse_backlash(
+                tg,
+                "exploration",
+                equipped_artifacts=legacy_service.collect_equipped_artifacts(tg),
+                session=session,
+                profile_row=updated,
             )
             updated.updated_at = utcnow()
             updated_profile = serialize_profile(updated)
@@ -1314,6 +1346,7 @@ def _claim_exploration_for_user_once(tg: int, exploration_id: int) -> dict[str, 
             f"{' 另有一缕机缘傍身。' if bonus_reward else ''}"
         ),
     )
+    legacy_service._record_artifact_curse_event(tg, curse_event)
     return {
         "exploration": exploration_payload,
         "reward_item": reward_item,
@@ -1322,6 +1355,7 @@ def _claim_exploration_for_user_once(tg: int, exploration_id: int) -> dict[str, 
         "stone_loss": actual_stone_loss,
         "stone_delta": total_stone_delta,
         "attribute_growth": activity_growth.get("changes") or [],
+        "curse_event": curse_event,
         "profile": updated_profile,
         "achievement_unlocks": achievement_unlocks,
     }
