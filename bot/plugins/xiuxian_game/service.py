@@ -15120,10 +15120,21 @@ def _assert_arena_realm_match(profile: XiuxianProfile, arena_stage: str, *, acti
     return current_stage
 
 
+def _arena_effective_reward_cap(stage: str | None, arena: XiuxianArena | dict[str, Any] | None) -> int:
+    target_stage = normalize_realm_stage(stage or FIRST_REALM_STAGE)
+    if isinstance(arena, dict):
+        configured_reward = max(int(arena.get("reward_cultivation") or 0), 0)
+    else:
+        configured_reward = max(int(getattr(arena, "reward_cultivation", 0) or 0), 0)
+    legacy_default_reward = max(int(cultivation_threshold(target_stage, 1) or 0), 0)
+    default_reward = calculate_arena_cultivation_cap(target_stage)
+    if configured_reward <= 0 or configured_reward == legacy_default_reward:
+        return default_reward
+    return configured_reward
+
+
 def _arena_reward_values(profile: XiuxianProfile, arena: XiuxianArena) -> dict[str, int]:
-    reward_cultivation = max(int(getattr(arena, "reward_cultivation", 0) or 0), 0)
-    if reward_cultivation <= 0:
-        reward_cultivation = calculate_arena_cultivation_cap(getattr(arena, "realm_stage", None))
+    reward_cultivation = _arena_effective_reward_cap(getattr(arena, "realm_stage", None), arena)
     challenge_count = max(int(getattr(arena, "challenge_count", 0) or 0), 0)
     defense_count = max(int(getattr(arena, "defense_success_count", 0) or 0), 0)
     change_count = max(int(getattr(arena, "champion_change_count", 0) or 0), 0)
@@ -15142,14 +15153,7 @@ def _arena_reward_values(profile: XiuxianProfile, arena: XiuxianArena) -> dict[s
 
 
 def _arena_duel_reward_cap(stage: str, arena: XiuxianArena | dict[str, Any] | None) -> int:
-    if isinstance(arena, dict):
-        configured_reward = max(int(arena.get("reward_cultivation") or 0), 0)
-    else:
-        configured_reward = max(int(getattr(arena, "reward_cultivation", 0) or 0), 0)
-    legacy_default_reward = max(int(cultivation_threshold(stage, 1) or 0), 0)
-    if configured_reward == legacy_default_reward:
-        return calculate_arena_cultivation_cap(stage)
-    return configured_reward
+    return _arena_effective_reward_cap(stage, arena)
 
 
 def _arena_duel_cultivation_rewards(stage: str, arena: XiuxianArena | dict[str, Any], duel_result: dict[str, Any]) -> dict[str, int]:

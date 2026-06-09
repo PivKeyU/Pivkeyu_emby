@@ -45,8 +45,8 @@ def get_group_arena(arena_id: int) -> dict[str, Any] | None:
     return _legacy_service().get_group_arena(arena_id)
 
 
-def get_active_group_arena(group_chat_id: int) -> dict[str, Any] | None:
-    return _legacy_service().get_active_group_arena(group_chat_id)
+def get_active_group_arena(group_chat_id: int, realm_stage: str | None = None) -> dict[str, Any] | None:
+    return _legacy_service().get_active_group_arena(group_chat_id, realm_stage=realm_stage)
 
 
 def patch_group_arena(arena_id: int, **kwargs: Any) -> dict[str, Any] | None:
