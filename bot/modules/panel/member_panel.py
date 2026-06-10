@@ -26,7 +26,7 @@ from bot.func_helper.msg_utils import callAnswer, editMessage, callListen, sendM
 from bot.modules.commands import p_start
 from bot.modules.commands.partition_code import _redeem_partition_code
 from bot.modules.commands.exchange import rgs_code
-from bot.sql_helper.sql_code import sql_count_c_code
+from bot.sql_helper.sql_code import sql_count_c_code, sql_get_code, sql_get_code_redeem_history
 from bot.sql_helper.sql_emby import sql_get_emby, sql_update_emby, Emby
 from bot.sql_helper.sql_emby2 import sql_get_emby2, sql_delete_emby2
 
@@ -39,6 +39,53 @@ def _is_valid_security_code(value: str) -> bool:
 
 def _emby_expiry_display(lv, ex) -> str:
     return "无限期" if str(lv or "").strip() == "a" else str(ex or "未设置")
+
+
+def _mask_register_code(code_value: str) -> str:
+    code_value = str(code_value or "")
+    if len(code_value) <= 7:
+        return "░" * len(code_value)
+    return f"{code_value[:-7]}{'░' * 7}"
+
+
+def _latest_register_code_summary(user_id: int):
+    history = sql_get_code_redeem_history(user_id=user_id, limit=1)
+    if not history:
+        return None
+
+    redeem = history[0]
+    record = sql_get_code(redeem.code)
+    use_count = int(getattr(record, "use_count", None) or getattr(redeem, "use_index", 0) or 0)
+    use_limit = int(getattr(record, "use_limit", None) or 1)
+    days = int(getattr(redeem, "code_days", None) or getattr(record, "us", None) or 0)
+    return {
+        "code": _mask_register_code(redeem.code),
+        "usage": f"{use_count}/{max(use_limit, 1)}",
+        "days": days,
+    }
+
+
+async def _broadcast_register_create_success(status_message, user_id: int, username: str, expires_text: str):
+    code_summary = _latest_register_code_summary(user_id)
+    if code_summary:
+        source_text = (
+            f"🎫 注册码 - {code_summary['code']}\n"
+            f"📊 使用进度 - {code_summary['usage']}\n"
+            f"📅 注册天数 - {code_summary['days']} 天"
+        )
+    else:
+        source_text = "🎫 注册码 - 未找到最近兑换记录"
+
+    result = await sendMessage(
+        status_message,
+        f"✅ 注册成功 - [{user_id}](tg://user?id={user_id}) 创建了 `{username}`\n"
+        f"{source_text}\n"
+        f"⏰ 到期时间 - {expires_text}",
+        send=True,
+        chat_id=group,
+    )
+    if isinstance(result, str):
+        LOGGER.warning(f"【注册成功播报】发送失败 user={user_id} username={username}: {result}")
 
 
 # 创号函数
@@ -209,6 +256,7 @@ async def _perform_create_user(status_message, user_id: int, username: str, secu
     if open_register:
         LOGGER.info(f"【创建账户】[开注状态]：{user_id} - 建立了 {username} ")
     else:
+        await _broadcast_register_create_success(status_message, user_id, username, expires_text)
         LOGGER.info(f"【创建账户】：{user_id} - 建立了 {username} ")
 
 

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.exc import IntegrityError
 
-from bot import LOGGER, _open, bot, bot_photo, ranks
+from bot import LOGGER, _open, bot, bot_photo, ranks, group
 from bot.func_helper.emby import emby
 from bot.func_helper.fix_bottons import register_code_ikb
 from bot.func_helper.msg_utils import sendMessage, sendPhoto
@@ -205,6 +205,7 @@ async def rgs_code(_, msg, register_code):
                     f"📊 使用进度 - {_code_usage_text(record)}\n"
                     f"⏰ 实时到期 - {new_ex.strftime('%Y-%m-%d %H:%M:%S')}",
                     send=True,
+                    chat_id=group,
                 )
                 LOGGER.info(
                     f"【续期码】{msg.from_user.first_name}[{msg.chat.id}] 使用了 {register_code}，"
@@ -260,6 +261,7 @@ async def rgs_code(_, msg, register_code):
                 f"🎫 注册码使用 - [{msg.from_user.first_name}](tg://user?id={msg.chat.id}) [{msg.from_user.id}] 使用了 {masked_code}\n"
                 f"📊 使用进度 - {_code_usage_text(record)}",
                 send=True,
+                chat_id=group,
             )
             LOGGER.info(
                 f"【注册码】{msg.from_user.first_name}[{msg.chat.id}] 使用了 {register_code}，"

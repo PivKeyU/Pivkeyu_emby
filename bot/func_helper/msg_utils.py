@@ -40,6 +40,14 @@ def _schedule_delete_message(message, timer) -> None:
     _track_background_task(task)
 
 
+def _send_targets(chat_id=None):
+    if chat_id is None:
+        return [group[0]] if group else []
+    if isinstance(chat_id, (list, tuple, set)):
+        return list(chat_id)
+    return [chat_id]
+
+
 async def _delete_message_later(message, delay: float) -> None:
     if delay > 0:
         await asyncio.sleep(delay)
@@ -55,16 +63,37 @@ async def sendMessage(message, text: str, buttons=None, timer=None, send=False, 
     :param text: 实体
     :param buttons: 按钮
     :param timer: 定时删除
-    :param send: 非reply,发送到第一个主授权群组
+    :param send: 非reply,发送到授权群组
     :return:
     """
     if isinstance(message, CallbackQuery):
         message = message.message
     try:
         if send is True:
-            if chat_id is None:
-                chat_id = group[0]
-            return await bot.send_message(chat_id=chat_id, text=text, reply_markup=buttons, parse_mode=parse_mode)
+            targets = _send_targets(chat_id)
+            sent_messages = []
+            send_errors = []
+            for target in targets:
+                try:
+                    sent_messages.append(
+                        await bot.send_message(chat_id=target, text=text, reply_markup=buttons, parse_mode=parse_mode)
+                    )
+                except FloodWait as f:
+                    LOGGER.warning(str(f))
+                    await sleep(f.value * 1.2)
+                    try:
+                        sent_messages.append(
+                            await bot.send_message(chat_id=target, text=text, reply_markup=buttons, parse_mode=parse_mode)
+                        )
+                    except Exception as e:
+                        LOGGER.error(f"授权群消息发送失败 chat_id={target}: {e}")
+                        send_errors.append(f"{target}: {e}")
+                except Exception as e:
+                    LOGGER.error(f"授权群消息发送失败 chat_id={target}: {e}")
+                    send_errors.append(f"{target}: {e}")
+            if sent_messages:
+                return sent_messages if len(sent_messages) > 1 else sent_messages[0]
+            return "; ".join(send_errors) if send_errors else False
         # 禁用通知 disable_notification=True,
         send = await message.reply(text=text, quote=True, disable_web_page_preview=True, reply_markup=buttons)
         if timer is not None:
@@ -254,5 +283,4 @@ async def ask_return(update, text, timer: int = 120, button=None):
     except ListenerTimeout:
         await sendMessage(update, '💦 __没有获取到您的输入__ **会话状态自动取消！**', buttons=button)
         return None
-
 
