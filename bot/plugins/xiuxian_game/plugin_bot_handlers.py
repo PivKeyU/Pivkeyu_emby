@@ -5135,41 +5135,57 @@ def register_bot(bot_instance) -> None:
                         stake = max(int(numeric_args[0]), 0)
                         if len(numeric_args) > 1:
                             bet_seconds = max(min(int(numeric_args[1]), 3600), 10)
+                    if msg.reply_to_message is None or msg.reply_to_message.from_user is None:
+                        raise ValueError("请先回复一位目标道友，再发起斗法邀请。")
+                    defender_tg = int(msg.reply_to_message.from_user.id)
+                    if defender_tg == actor.id:
+                        raise ValueError("你不能自己和自己斗法。")
+                    duel = compute_duel_odds(actor.id, defender_tg, duel_mode=duel_mode)
+                    mode_context = duel.get("mode_context") or {}
+                    is_break_free_duel = bool(
+                        _normalize_duel_mode_arg(duel_mode) == "master"
+                        and int(mode_context.get("break_free_tg") or 0) == int(actor.id)
+                        and int(mode_context.get("owner_tg") or 0) == defender_tg
+                    )
+                    if is_break_free_duel:
+                        stake = 0
                     min_stake = int(bet_settings.get("min_amount") or 0)
                     max_stake = int(bet_settings.get("max_amount") or min_stake)
-                    if stake < min_stake:
+                    if not is_break_free_duel and stake < min_stake:
                         raise ValueError(f"斗法赌注至少需要 {min_stake} 灵石。")
                     if stake > max_stake:
                         raise ValueError(f"斗法赌注最多只能设置为 {max_stake} 灵石。")
-                    if msg.reply_to_message is None or msg.reply_to_message.from_user is None:
-                        raise ValueError("请先回复一位目标道友，再发起斗法邀请。")
-                    if msg.reply_to_message.from_user.id == actor.id:
-                        raise ValueError("你不能自己和自己斗法。")
-                    duel = compute_duel_odds(actor.id, msg.reply_to_message.from_user.id, duel_mode=duel_mode)
                     assert_duel_stake_affordable(duel["challenger"]["profile"], duel["defender"]["profile"], stake)
-                    preview = generate_duel_preview_text(duel, stake, duel_mode=duel_mode) + _format_duel_invite_footer(
-                        invite_timeout_seconds,
-                        {**bet_settings, "seconds": bet_seconds},
-                    )
-                    return preview, stake, bet_seconds, invite_timeout_seconds
+                    preview = generate_duel_preview_text(duel, stake, duel_mode=duel_mode)
+                    if is_break_free_duel:
+                        preview += "\n\n⛓️ 脱离挑战已强制发起，无需主人接受，本场将直接开战。"
+                    else:
+                        preview += _format_duel_invite_footer(
+                            invite_timeout_seconds,
+                            {**bet_settings, "seconds": bet_seconds},
+                        )
+                    return preview, stake, bet_seconds, invite_timeout_seconds, defender_tg, is_break_free_duel
 
-                preview, stake, bet_seconds, invite_timeout_seconds = await run_in_threadpool(_prepare_duel_preview)
+                preview, stake, bet_seconds, invite_timeout_seconds, defender_tg, is_break_free_duel = await run_in_threadpool(_prepare_duel_preview)
                 sent = await _reply_text(
                     msg,
                     preview,
-                    reply_markup=duel_keyboard(actor.id, msg.reply_to_message.from_user.id, stake, bet_seconds, duel_mode=duel_mode),
+                    reply_markup=None if is_break_free_duel else duel_keyboard(actor.id, defender_tg, stake, bet_seconds, duel_mode=duel_mode),
                     persistent=True,
                     parse_mode=RICH_TEXT_MODE,
                 )
-                _register_pending_duel_invite(
-                    sent,
-                    challenger_tg=actor.id,
-                    defender_tg=msg.reply_to_message.from_user.id,
-                    duel_mode=duel_mode,
-                    stake=stake,
-                    bet_seconds=bet_seconds,
-                    timeout_seconds=invite_timeout_seconds,
-                )
+                if is_break_free_duel:
+                    asyncio.create_task(finalize_duel_after_betting(None, actor.id, defender_tg, stake, duel_mode, sent, None))
+                else:
+                    _register_pending_duel_invite(
+                        sent,
+                        challenger_tg=actor.id,
+                        defender_tg=defender_tg,
+                        duel_mode=duel_mode,
+                        stake=stake,
+                        bet_seconds=bet_seconds,
+                        timeout_seconds=invite_timeout_seconds,
+                    )
             except Exception as exc:
                 await _reply_text(msg, str(exc), quote=True)
         finally:

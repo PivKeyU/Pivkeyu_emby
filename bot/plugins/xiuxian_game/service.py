@@ -11,7 +11,7 @@ import re
 import secrets
 import threading
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from math import ceil, exp
 from typing import Any
 
@@ -8176,6 +8176,7 @@ def harvest_furnace_for_user(tg: int, furnace_tg: int) -> dict[str, Any]:
         owner.realm_layer = owner_layer
         owner.cultivation = owner_cultivation
         owner.updated_at = now
+        _queue_servitude_cache_invalidation(session, actor_tg, target_tg)
         session.commit()
         owner_name = _profile_display_label(owner, "主人")
         furnace_realm_text = f"{normalize_realm_stage(furnace.realm_stage or FIRST_REALM_STAGE)}{max(int(furnace.realm_layer or 1), 1)}层"
@@ -13239,7 +13240,8 @@ def practice_for_user(tg: int) -> dict[str, Any]:
         raise ValueError("今日吐纳已毕，经脉已盈，再行运气恐伤道基。")
 
     profile_data = serialize_profile(profile)
-    artifact_effects = merge_artifact_effects(profile_data, collect_equipped_artifacts(tg))
+    equipped_artifacts = collect_equipped_artifacts(tg)
+    artifact_effects = merge_artifact_effects(profile_data, equipped_artifacts)
     active_talisman = serialize_talisman(get_talisman(profile.active_talisman_id)) if profile.active_talisman_id else None
     talisman_effects = resolve_talisman_effects(profile_data, active_talisman) if active_talisman else None
     talisman_active_effects = resolve_talisman_active_effects(profile_data, active_talisman) if active_talisman else {}
@@ -14143,6 +14145,8 @@ def _parse_optional_datetime(raw: str | None) -> datetime | None:
         parsed = datetime.fromisoformat(str(raw))
     except ValueError:
         return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
     return parsed
 
 
@@ -14558,7 +14562,15 @@ def compute_duel_odds(challenger_tg: int, defender_tg: int, duel_mode: str = "st
         raise ValueError("斗法双方都必须已经踏入仙途。")
     assert_profile_alive(challenger_profile, "发起斗法")
     assert_profile_alive(defender_profile, "应战斗法")
-    assert_social_action_allowed(challenger_profile, defender_profile, "斗法")
+    duel_mode_value = _normalize_duel_mode(duel_mode)
+    mode_context = _validate_duel_mode({"challenger": challenger, "defender": defender}, duel_mode_value)
+    is_break_free_duel = bool(
+        duel_mode_value == "master"
+        and int(mode_context.get("break_free_tg") or 0) > 0
+        and int(mode_context.get("owner_tg") or 0) > 0
+    )
+    if not is_break_free_duel:
+        assert_social_action_allowed(challenger_profile, defender_profile, "斗法")
 
     challenger_state = _battle_bundle(challenger, defender_profile)
     defender_state = _battle_bundle(defender, challenger_profile)
@@ -14583,7 +14595,7 @@ def compute_duel_odds(challenger_tg: int, defender_tg: int, duel_mode: str = "st
     duel_payload = {
         "challenger": challenger,
         "defender": defender,
-        "duel_mode": _normalize_duel_mode(duel_mode),
+        "duel_mode": duel_mode_value,
         "challenger_snapshot": challenger_snapshot,
         "defender_snapshot": defender_snapshot,
         "challenger_rate": round(rate, 4),
@@ -14608,8 +14620,8 @@ def compute_duel_odds(challenger_tg: int, defender_tg: int, duel_mode: str = "st
             "defender_true_yuan": round(defender_state["stats"]["true_yuan"]),
             "defender_body_movement": round(defender_state["stats"]["body_movement"]),
         },
+        "mode_context": mode_context,
     }
-    duel_payload["mode_context"] = _validate_duel_mode(duel_payload, duel_payload["duel_mode"])
     return duel_payload
 
 
@@ -14659,6 +14671,14 @@ def _clear_servitude_marks(row: XiuxianProfile) -> None:
     row.servitude_started_at = None
     row.servitude_challenge_available_at = None
     row.furnace_harvested_at = None
+
+
+def _queue_servitude_cache_invalidation(session: Session, *tgs: int) -> None:
+    affected = sorted({int(tg or 0) for tg in tgs if int(tg or 0) > 0})
+    if not affected:
+        return
+    _queue_profile_cache_invalidation(session, *affected)
+    _queue_user_view_cache_invalidation(session, *affected)
 
 
 def _reassign_slave_roster(session: Session, from_master_tg: int, to_master_tg: int) -> list[int]:
@@ -14855,9 +14875,11 @@ def _apply_master_duel_outcome(
         if int(winner_tg) == break_free_tg:
             _clear_servitude_marks(slave)
             slave.updated_at = now
+            _queue_servitude_cache_invalidation(session, break_free_tg, owner_tg)
             return {"kind": "break_free", "slave_tg": break_free_tg, "owner_tg": owner_tg}
         slave.servitude_challenge_available_at = cooldown_until
         slave.updated_at = now
+        _queue_servitude_cache_invalidation(session, break_free_tg, owner_tg)
         return {"kind": "master_defended", "slave_tg": break_free_tg, "owner_tg": owner_tg, "next_challenge_at": cooldown_until.isoformat()}
 
     loser.master_tg = int(winner_tg)
@@ -14866,6 +14888,7 @@ def _apply_master_duel_outcome(
     loser.furnace_harvested_at = None
     loser.updated_at = now
     inherited_slaves = _reassign_slave_roster(session, int(loser_tg), int(winner_tg))
+    _queue_servitude_cache_invalidation(session, int(winner_tg), int(loser_tg), *inherited_slaves)
     return {
         "kind": "subjugated",
         "master_tg": int(winner_tg),
@@ -14925,8 +14948,14 @@ def resolve_duel(
     challenger_profile = duel["challenger"]["profile"]
     defender_profile = duel["defender"]["profile"]
     duel_mode_value = _normalize_duel_mode(duel.get("duel_mode"))
+    mode_context = duel.get("mode_context") or {}
+    is_break_free_duel = bool(
+        duel_mode_value == "master"
+        and int(mode_context.get("break_free_tg") or 0) > 0
+        and int(mode_context.get("owner_tg") or 0) > 0
+    )
     settings = get_xiuxian_settings()
-    stake_amount = _resolve_duel_stake_amount(stake, settings=settings, allow_zero=allow_zero_stake)
+    stake_amount = _resolve_duel_stake_amount(stake, settings=settings, allow_zero=allow_zero_stake or is_break_free_duel)
     plunder_percent = max(
         min(int(settings.get("duel_winner_steal_percent", DEFAULT_SETTINGS["duel_winner_steal_percent"]) or 0), 100),
         0,
