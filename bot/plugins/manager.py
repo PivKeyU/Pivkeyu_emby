@@ -51,6 +51,19 @@ _DISCOVERED: dict[str, "PluginRecord"] = {}
 _LOADED = False
 _MIGRATION_SUMMARY_CACHE: dict[str, dict[str, Any]] = {}
 _MIGRATION_SUMMARY_LOCK = RLock()
+_MIGRATION_CHECKSUM_PREFIX = "sha256-lf:"
+_LEGACY_MIGRATION_CHECKSUM_ALIASES: dict[tuple[str, str, str], frozenset[str]] = {
+    (
+        "doupo-game",
+        "001_init_tables.py",
+        "eab0e036cf086774d8e7e2f16e22c42b5164cb147919a5081d314e36462a57f6",
+    ): frozenset(
+        {
+            # Published by the previous image from a mixed-EOL Windows worktree.
+            "448110a703cea1f5d513feee63798c6664a1f061fbb7832f1a5c1ebbb912c9ce",
+        }
+    ),
+}
 
 
 class PluginImportError(ValueError):
@@ -59,6 +72,30 @@ class PluginImportError(ValueError):
 
 class PluginMigrationError(RuntimeError):
     pass
+
+
+def _migration_checksum_values(content: bytes) -> tuple[str, str, set[str]]:
+    normalized = content.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    normalized_digest = hashlib.sha256(normalized).hexdigest()
+    raw_digest = hashlib.sha256(content).hexdigest()
+    crlf_digest = hashlib.sha256(normalized.replace(b"\n", b"\r\n")).hexdigest()
+    canonical = f"{_MIGRATION_CHECKSUM_PREFIX}{normalized_digest}"
+    return raw_digest, canonical, {raw_digest, normalized_digest, crlf_digest, canonical}
+
+
+def _migration_checksum_matches(
+    plugin_id: str,
+    migration_name: str,
+    applied_checksum: str,
+    content: bytes,
+) -> tuple[bool, str]:
+    _raw_digest, canonical, candidates = _migration_checksum_values(content)
+    applied = str(applied_checksum or "").strip()
+    if applied in candidates:
+        return True, canonical
+    normalized_digest = canonical.removeprefix(_MIGRATION_CHECKSUM_PREFIX)
+    aliases = _LEGACY_MIGRATION_CHECKSUM_ALIASES.get((plugin_id, migration_name, normalized_digest), frozenset())
+    return applied in aliases, canonical
 
 
 @dataclass(frozen=True)
@@ -574,20 +611,34 @@ def _apply_plugin_migrations(record: PluginRecord) -> dict[str, Any]:
         return {"applied": [], "pending": [], "supported": False}
 
     from bot.sql_helper import Session
-    from bot.sql_helper.sql_plugin import PluginMigrationRecord, list_applied_plugin_migrations
+    from bot.sql_helper.sql_plugin import (
+        PluginMigrationRecord,
+        list_applied_plugin_migrations,
+        update_plugin_migration_checksum,
+    )
 
     applied_checksums = list_applied_plugin_migrations(record.plugin_id)
     migration_files = sorted(migration_dir.glob("*.py"))
     applied_now: list[str] = []
 
     for migration_file in migration_files:
-        checksum = hashlib.sha256(migration_file.read_bytes()).hexdigest()
+        migration_content = migration_file.read_bytes()
+        checksum = _migration_checksum_values(migration_content)[1]
         applied_checksum = applied_checksums.get(migration_file.name)
         if applied_checksum:
-            if applied_checksum != checksum:
+            matches, canonical_checksum = _migration_checksum_matches(
+                record.plugin_id,
+                migration_file.name,
+                applied_checksum,
+                migration_content,
+            )
+            if not matches:
                 raise PluginMigrationError(
                     f"插件 {record.plugin_id} 的迁移 {migration_file.name} 已执行过，但文件内容已变化，请改用新迁移文件。"
                 )
+            if applied_checksum != canonical_checksum:
+                update_plugin_migration_checksum(record.plugin_id, migration_file.name, canonical_checksum)
+                applied_checksums[migration_file.name] = canonical_checksum
             continue
 
         module_name = f"_plugin_migrations_{record.plugin_id}_{migration_file.stem}"

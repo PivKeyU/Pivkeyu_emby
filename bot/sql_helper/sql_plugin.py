@@ -120,3 +120,21 @@ def list_applied_plugin_migrations(plugin_id: str) -> dict[str, str]:
             .all()
         )
         return {row.migration_name: row.checksum for row in rows}
+
+
+def update_plugin_migration_checksum(plugin_id: str, migration_name: str, checksum: str) -> bool:
+    with Session() as session:
+        row = (
+            session.query(PluginMigrationRecord)
+            .filter(
+                PluginMigrationRecord.plugin_id == str(plugin_id),
+                PluginMigrationRecord.migration_name == str(migration_name),
+            )
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            return False
+        row.checksum = str(checksum)
+        session.commit()
+        return True
