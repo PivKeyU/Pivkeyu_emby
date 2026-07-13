@@ -6,6 +6,8 @@ from typing import Any
 from sqlalchemy import JSON, BigInteger, Boolean, Column, DateTime, ForeignKey, Integer, String, Text
 
 from bot import pivkeyu
+from bot.func_helper import redis_cache
+from bot.plugins.sdk.memory_cache import get_memory_cache
 from bot.sql_helper import Base, Session
 from bot.sql_helper.sql_emby import Emby
 
@@ -19,9 +21,47 @@ DEFAULT_SHOP_SETTINGS = {
     "allow_user_listing": False,
     # 商店默认沿用全局配置中的货币名称。
     "currency_name": pivkeyu,
-    "shop_title": "仙舟小铺",
+    "shop_title": "Emby 光影商店",
     "shop_notice": "欢迎使用 Emby 货币购买数字商品。",
 }
+
+SHOP_CACHE_TTL = 120
+_SHOP_MEMORY_CACHE = get_memory_cache()
+
+
+def _shop_version_key(scope: str) -> str:
+    return redis_cache.build_key("shop", "version", scope)
+
+
+def _bump_shop_cache(*scopes: str) -> None:
+    bumped = False
+    for scope in scopes:
+        if scope:
+            redis_cache.increment(_shop_version_key(scope))
+            bumped = True
+    if bumped:
+        _SHOP_MEMORY_CACHE.delete_prefix("shop:")
+
+
+def _load_shop_cached(cache_key: str, version_scope: str, loader):
+    version = str(max(redis_cache.get_int(_shop_version_key(version_scope), 1), 1))
+    memory_key = f"shop:{cache_key}:v{version}"
+    cached = _SHOP_MEMORY_CACHE.get(memory_key)
+    if cached is not None:
+        return cached
+
+    redis_key = redis_cache.build_key("shop", "cache", memory_key)
+    if redis_cache.redis_enabled():
+        hit, payload = redis_cache.get_json(redis_key)
+        if hit:
+            _SHOP_MEMORY_CACHE.set(memory_key, payload, SHOP_CACHE_TTL)
+            return payload
+
+    payload = loader()
+    _SHOP_MEMORY_CACHE.set(memory_key, payload, SHOP_CACHE_TTL)
+    if redis_cache.redis_enabled():
+        redis_cache.set_json(redis_key, payload, SHOP_CACHE_TTL)
+    return payload
 
 SHOP_ITEM_TYPE_DIGITAL = "digital"
 SHOP_ITEM_TYPE_GROUP_INVITE = "group_invite_credit"
@@ -160,16 +200,22 @@ def serialize_shop_order(order: ShopOrder | None) -> dict[str, Any] | None:
 
 
 def get_shop_settings() -> dict[str, Any]:
-    with Session() as session:
-        rows = session.query(ShopSetting).all()
-        data = {row.setting_key: row.setting_value for row in rows}
-    merged = dict(DEFAULT_SHOP_SETTINGS)
-    merged.update(data)
-    merged["allow_user_listing"] = bool(merged.get("allow_user_listing", False))
-    merged["currency_name"] = str(merged.get("currency_name") or pivkeyu)
-    merged["shop_title"] = str(merged.get("shop_title") or DEFAULT_SHOP_SETTINGS["shop_title"])
-    merged["shop_notice"] = str(merged.get("shop_notice") or DEFAULT_SHOP_SETTINGS["shop_notice"])
-    return merged
+    def _load() -> dict[str, Any]:
+        with Session() as session:
+            rows = session.query(ShopSetting).all()
+            data = {row.setting_key: row.setting_value for row in rows}
+        merged = dict(DEFAULT_SHOP_SETTINGS)
+        merged.update(data)
+        merged["allow_user_listing"] = bool(merged.get("allow_user_listing", False))
+        merged["currency_name"] = str(merged.get("currency_name") or pivkeyu)
+        shop_title = str(merged.get("shop_title") or DEFAULT_SHOP_SETTINGS["shop_title"])
+        if shop_title == "仙舟小铺":
+            shop_title = DEFAULT_SHOP_SETTINGS["shop_title"]
+        merged["shop_title"] = shop_title
+        merged["shop_notice"] = str(merged.get("shop_notice") or DEFAULT_SHOP_SETTINGS["shop_notice"])
+        return merged
+
+    return _load_shop_cached("settings", "settings", _load)
 
 
 def set_shop_settings(patch: dict[str, Any]) -> dict[str, Any]:
@@ -192,24 +238,41 @@ def set_shop_settings(patch: dict[str, Any]) -> dict[str, Any]:
             else:
                 row.setting_value = value
         session.commit()
+    _bump_shop_cache("settings")
     return get_shop_settings()
 
 
 def list_shop_items(*, enabled_only: bool = True, owner_tg: int | None = None) -> list[dict[str, Any]]:
-    with Session() as session:
-        query = session.query(ShopItem)
-        if enabled_only:
-            query = query.filter(ShopItem.enabled.is_(True))
-        if owner_tg is not None:
-            query = query.filter(ShopItem.owner_tg == int(owner_tg))
-        rows = query.order_by(ShopItem.official.desc(), ShopItem.id.desc()).all()
-        return [serialize_shop_item(row) for row in rows]
+    scope = f"items:{'enabled' if enabled_only else 'all'}:{owner_tg if owner_tg is not None else 'all'}"
+
+    def _load() -> list[dict[str, Any]]:
+        with Session() as session:
+            query = session.query(ShopItem)
+            if enabled_only:
+                query = query.filter(ShopItem.enabled.is_(True))
+            if owner_tg is not None:
+                query = query.filter(ShopItem.owner_tg == int(owner_tg))
+            rows = query.order_by(ShopItem.official.desc(), ShopItem.id.desc()).all()
+            return [serialize_shop_item(row) for row in rows]
+
+    return _load_shop_cached(scope, "items", _load)
 
 
 def list_shop_orders(*, limit: int = 50) -> list[dict[str, Any]]:
-    with Session() as session:
-        rows = session.query(ShopOrder).order_by(ShopOrder.id.desc()).limit(max(int(limit or 50), 1)).all()
-        return [serialize_shop_order(row) for row in rows]
+    normalized_limit = max(int(limit or 50), 1)
+    scope = f"orders:{normalized_limit}"
+
+    def _load() -> list[dict[str, Any]]:
+        with Session() as session:
+            rows = (
+                session.query(ShopOrder)
+                .order_by(ShopOrder.id.desc())
+                .limit(normalized_limit)
+                .all()
+            )
+            return [serialize_shop_order(row) for row in rows]
+
+    return _load_shop_cached(scope, "orders", _load)
 
 
 def get_shop_item(item_id: int) -> dict[str, Any] | None:
@@ -275,6 +338,7 @@ def create_shop_item(
         session.add(item)
         session.commit()
         session.refresh(item)
+        _bump_shop_cache("items")
         return serialize_shop_item(item)
 
 
@@ -323,6 +387,7 @@ def update_shop_item(item_id: int, **fields) -> dict[str, Any] | None:
             item.invite_credit_quantity = 0
         session.commit()
         session.refresh(item)
+        _bump_shop_cache("items")
         return serialize_shop_item(item)
 
 
@@ -333,6 +398,7 @@ def delete_shop_item(item_id: int) -> bool:
             return False
         session.delete(item)
         session.commit()
+        _bump_shop_cache("items")
         return True
 
 
@@ -391,6 +457,7 @@ def purchase_shop_item(*, buyer_tg: int, item_id: int, quantity: int = 1) -> dic
         session.refresh(buyer)
         if seller is not None:
             session.refresh(seller)
+        _bump_shop_cache("items", "orders")
         return {
             "order": serialize_shop_order(order),
             "item": serialize_shop_item(item),

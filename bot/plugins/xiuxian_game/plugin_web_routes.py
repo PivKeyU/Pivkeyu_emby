@@ -121,6 +121,11 @@ from bot.plugins.xiuxian_game.api_models import (
     TitlePayload,
     UploadPermissionPayload,
     UserTaskPayload,
+    WebAuthBindTelegramPayload,
+    AdminGameAccountStatePayload,
+    WebAuthLoginPayload,
+    WebAuthRegisterPayload,
+    WebAuthSessionPayload,
 )
 from bot.plugins.xiuxian_game.features.admin_ops import (
     admin_clear_all_xiuxian_data,
@@ -227,6 +232,7 @@ from bot.plugins.xiuxian_game.features.marriage import (
     respond_marriage_request_for_user,
     set_gender_for_user,
 )
+from bot.plugins.xiuxian_game.features.bundle_cache import bootstrap_cache_generation
 from bot.plugins.xiuxian_game.features.miniapp_bundle import (
     build_craft_action_bundle_patch,
     build_fishing_cast_bundle_patch,
@@ -383,11 +389,31 @@ from bot.sql_helper.sql_xiuxian import (
     serialize_profile,
     set_xiuxian_settings,
     sync_title_by_name,
+    authenticate_xiuxian_web_session,
+    bind_xiuxian_web_account_to_telegram,
+    login_xiuxian_web_account,
+    logout_xiuxian_web_session,
+    list_xiuxian_web_accounts,
+    register_xiuxian_web_account,
+    revoke_xiuxian_web_account_sessions,
+    set_xiuxian_web_account_enabled,
+    unbind_xiuxian_web_account,
 )
 from bot.plugins.xiuxian_game.achievement_service import (
     ACHIEVEMENT_METRIC_PRESETS,
     format_reward_summary,
     record_achievement_progress,
+)
+from bot.plugins.xiuxian_game.shared.request_helpers import (
+    actor_from_request as _actor_from_request,
+    can_user_upload_images as _can_user_upload_images,
+    extract_init_data_from_body_bytes as _extract_init_data_from_body_bytes,
+    public_url_root_from as _public_url_root,
+    resolve_group_image_source as _resolve_group_image_source,
+    sanitize_upload_folder as _sanitize_upload_folder,
+    save_uploaded_image as _save_uploaded_image,
+    verify_admin_from_credential as _verify_admin_credential,
+    verify_user_from_init_data as _verify_user_from_init_data,
 )
 from bot.web.api.miniapp import is_admin_user_id, verify_init_data
 
@@ -451,17 +477,19 @@ def _env_int(name: str, default: int, minimum: int = 1, maximum: int | None = No
         return default
 
 
-XIUXIAN_API_MAX_CONCURRENCY = _env_int("PIVKEYU_XIUXIAN_API_MAX_CONCURRENCY", 32, minimum=1, maximum=512)
-XIUXIAN_HEAVY_API_MAX_CONCURRENCY = _env_int("PIVKEYU_XIUXIAN_HEAVY_API_MAX_CONCURRENCY", 8, minimum=1, maximum=128)
-XIUXIAN_VIEW_API_MAX_CONCURRENCY = _env_int("PIVKEYU_XIUXIAN_VIEW_API_MAX_CONCURRENCY", XIUXIAN_HEAVY_API_MAX_CONCURRENCY, minimum=1, maximum=128)
-XIUXIAN_ACTION_API_MAX_CONCURRENCY = _env_int("PIVKEYU_XIUXIAN_ACTION_API_MAX_CONCURRENCY", 24, minimum=1, maximum=256)
-XIUXIAN_API_ACQUIRE_TIMEOUT = _env_int("PIVKEYU_XIUXIAN_API_ACQUIRE_TIMEOUT", 2, minimum=1, maximum=30)
+XIUXIAN_API_MAX_CONCURRENCY = _env_int("PIVKEYU_XIUXIAN_API_MAX_CONCURRENCY", 48, minimum=1, maximum=512)
+XIUXIAN_HEAVY_API_MAX_CONCURRENCY = _env_int("PIVKEYU_XIUXIAN_HEAVY_API_MAX_CONCURRENCY", 16, minimum=1, maximum=128)
+XIUXIAN_VIEW_API_MAX_CONCURRENCY = _env_int("PIVKEYU_XIUXIAN_VIEW_API_MAX_CONCURRENCY", 32, minimum=1, maximum=128)
+XIUXIAN_ACTION_API_MAX_CONCURRENCY = _env_int("PIVKEYU_XIUXIAN_ACTION_API_MAX_CONCURRENCY", 32, minimum=1, maximum=256)
+XIUXIAN_API_ACQUIRE_TIMEOUT = _env_int("PIVKEYU_XIUXIAN_API_ACQUIRE_TIMEOUT", 5, minimum=1, maximum=30)
 XIUXIAN_ACTION_API_ACQUIRE_TIMEOUT = _env_int("PIVKEYU_XIUXIAN_ACTION_API_ACQUIRE_TIMEOUT", 10, minimum=1, maximum=60)
 _XIUXIAN_API_SEMAPHORE = asyncio.Semaphore(XIUXIAN_API_MAX_CONCURRENCY)
 _XIUXIAN_VIEW_API_SEMAPHORE = asyncio.Semaphore(XIUXIAN_VIEW_API_MAX_CONCURRENCY)
 _XIUXIAN_ACTION_API_SEMAPHORE = asyncio.Semaphore(XIUXIAN_ACTION_API_MAX_CONCURRENCY)
 _XIUXIAN_VIEW_API_PREFIXES = (
     "/plugins/xiuxian/api/bootstrap",
+    "/plugins/xiuxian/api/bootstrap/deferred",
+    "/plugins/xiuxian/api/bootstrap/section/",
     "/plugins/xiuxian/api/wiki",
     "/plugins/xiuxian/api/boss/list",
     "/plugins/xiuxian/api/boss/world/status",
@@ -485,6 +513,22 @@ _XIUXIAN_USER_ACTION_LOCK = Lock()
 _XIUXIAN_USER_ACTION_KEYS: set[tuple[str, int]] = set()
 _XIUXIAN_WIKI_BUILD_TASK: asyncio.Task | None = None
 _XIUXIAN_WIKI_BUILD_LOCK = asyncio.Lock()
+_ADMIN_SEED_SYNC_LOCK = Lock()
+_ADMIN_SEED_SYNC_AT = 0.0
+_ADMIN_SEED_SYNC_INTERVAL = max(int(os.getenv("PIVKEYU_XIUXIAN_ADMIN_SEED_SYNC_INTERVAL", "300") or 300), 60)
+
+
+def _ensure_seed_data_throttled(*, force: bool = False) -> None:
+    global _ADMIN_SEED_SYNC_AT
+    now = time.monotonic()
+    if not force and now - _ADMIN_SEED_SYNC_AT < _ADMIN_SEED_SYNC_INTERVAL:
+        return
+    with _ADMIN_SEED_SYNC_LOCK:
+        now = time.monotonic()
+        if not force and now - _ADMIN_SEED_SYNC_AT < _ADMIN_SEED_SYNC_INTERVAL:
+            return
+        ensure_seed_data()
+        _ADMIN_SEED_SYNC_AT = now
 
 
 def _is_xiuxian_api_path(path: str) -> bool:
@@ -671,19 +715,8 @@ XIUXIAN_RANK_KIND_ALIASES = {
 
 
 
-# Import shared helpers from plugin_bot_handlers
-from .plugin_bot_handlers import (  # noqa: F401
-    _verify_user_from_init_data,
-    _verify_admin_credential,
-    _operation_name_from_request,
-    _extract_init_data_from_body_bytes,
-    _actor_from_request,
-    _record_request_error,
-    _can_user_upload_images,
-    _sanitize_upload_folder,
-    _public_url_root,
-    _resolve_group_image_source,
-    _save_uploaded_image,
+# Import runtime contract shared by bot/web entries.
+from .shared.runtime_contract import (  # noqa: F401
     _format_profile_text,
     _md_escape,
     _message_jump_url,
@@ -882,6 +915,11 @@ from .plugin_bot_handlers import (  # noqa: F401
     LOGGER,
 )
 
+from .shared.error_reporting import (
+    operation_name_from_request as _operation_name_from_request,
+    record_request_error as _record_request_error,
+)
+
 def register_web(app) -> None:
     user_router = APIRouter(prefix="/plugins/xiuxian", tags=["xiuxian-user"])
     admin_router = APIRouter(prefix="/plugins/xiuxian/admin-api", tags=["xiuxian-admin"])
@@ -1013,18 +1051,105 @@ def register_web(app) -> None:
     def xiuxian_admin_page():
         return render_versioned_static_page("admin.html")
 
+    def _web_session_token_from_payload(payload: WebAuthSessionPayload | InitDataPayload | None) -> str:
+        token = str(getattr(payload, "session_token", "") or "").strip()
+        if token:
+            return token
+        init_data = str(getattr(payload, "init_data", "") or "").strip()
+        if init_data.startswith("web_session:"):
+            return init_data.removeprefix("web_session:").strip()
+        return ""
+
+    def _verify_telegram_bind_user(init_data: str) -> dict[str, Any]:
+        raw = str(init_data or "").strip()
+        if not raw:
+            raise HTTPException(status_code=400, detail="缺少 Telegram 绑定凭证")
+        if raw.startswith("web_session:"):
+            raise HTTPException(status_code=400, detail="绑定 Telegram 需要从 Telegram 内打开一次")
+        return verify_init_data(raw)["user"]
+
+    def _auto_bind_web_auth_result(result: dict[str, Any], telegram_user: dict[str, Any] | None) -> dict[str, Any]:
+        if not telegram_user:
+            return result
+        account = bind_xiuxian_web_account_to_telegram(str(result.get("session_token") or ""), telegram_user)
+        patched = dict(result)
+        patched["account"] = account
+        patched["telegram_user"] = telegram_user
+        return patched
+
+    @user_router.post("/api/auth/register")
+    async def xiuxian_web_auth_register(payload: WebAuthRegisterPayload):
+        def _run():
+            telegram_user = _verify_telegram_bind_user(payload.init_data) if str(payload.init_data or "").strip() else None
+            result = register_xiuxian_web_account(
+                payload.username,
+                payload.password,
+                display_name=payload.display_name,
+            )
+            return _auto_bind_web_auth_result(result, telegram_user)
+
+        try:
+            data = await run_in_threadpool(_run)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"code": 200, "data": data}
+
+    @user_router.post("/api/auth/login")
+    async def xiuxian_web_auth_login(payload: WebAuthLoginPayload):
+        def _run():
+            telegram_user = _verify_telegram_bind_user(payload.init_data) if str(payload.init_data or "").strip() else None
+            result = login_xiuxian_web_account(payload.username, payload.password)
+            return _auto_bind_web_auth_result(result, telegram_user)
+
+        try:
+            data = await run_in_threadpool(_run)
+        except ValueError as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+        return {"code": 200, "data": data}
+
+    @user_router.post("/api/auth/me")
+    async def xiuxian_web_auth_me(payload: WebAuthSessionPayload):
+        token = _web_session_token_from_payload(payload)
+        if not token:
+            return {"code": 200, "data": {"account": None}}
+        try:
+            account = await run_in_threadpool(authenticate_xiuxian_web_session, token)
+        except ValueError as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+        return {"code": 200, "data": {"account": account}}
+
+    @user_router.post("/api/auth/bind-telegram")
+    async def xiuxian_web_auth_bind_telegram(payload: WebAuthBindTelegramPayload):
+        token = _web_session_token_from_payload(payload)
+        if not token:
+            raise HTTPException(status_code=401, detail="请先登录网页账号")
+        try:
+            telegram_user = await run_in_threadpool(_verify_telegram_bind_user, payload.init_data)
+            account = await run_in_threadpool(bind_xiuxian_web_account_to_telegram, token, telegram_user)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"code": 200, "data": {"account": account, "telegram_user": telegram_user}}
+
+    @user_router.post("/api/auth/logout")
+    async def xiuxian_web_auth_logout(payload: WebAuthSessionPayload):
+        token = _web_session_token_from_payload(payload)
+        ok = await run_in_threadpool(logout_xiuxian_web_session, token)
+        return {"code": 200, "data": {"ok": ok}}
+
     @user_router.post("/api/bootstrap")
     async def xiuxian_bootstrap(payload: InitDataPayload):
         telegram_user = await run_in_threadpool(_verify_user_from_init_data, payload.init_data)
-        profile, bottom_nav = await asyncio.gather(
+        profile, bottom_nav, cache_generation = await asyncio.gather(
             run_in_threadpool(_bootstrap_core_bundle, telegram_user["id"]),
             run_in_threadpool(_build_bottom_nav),
+            run_in_threadpool(bootstrap_cache_generation, telegram_user["id"]),
         )
         return {
             "code": 200,
             "data": {
                 "telegram_user": telegram_user,
                 "profile_bundle": profile,
+                "cache_generation": cache_generation,
                 "app_url": build_plugin_url("/plugins/xiuxian/app"),
                 "admin_panel_url": _admin_panel_url() if is_admin_user_id(telegram_user["id"]) else None,
                 "home_url": build_plugin_url("/miniapp"),
@@ -1076,17 +1201,23 @@ def register_web(app) -> None:
         return {"code": 200, "data": result}
 
     @user_router.post("/api/enter")
-    def xiuxian_enter(payload: InitDataPayload):
-        telegram_user = _verify_user_from_init_data(payload.init_data)
-        init_path_for_user(telegram_user["id"])
-        create_foundation_pill_for_user_if_missing(telegram_user["id"])
-        return {"code": 200, "data": _full_bundle(telegram_user["id"])}
+    async def xiuxian_enter(payload: InitDataPayload):
+        def _run():
+            telegram_user = _verify_user_from_init_data(payload.init_data)
+            init_path_for_user(telegram_user["id"])
+            create_foundation_pill_for_user_if_missing(telegram_user["id"])
+            return _bootstrap_core_bundle(telegram_user["id"])
+
+        return {"code": 200, "data": await run_in_threadpool(_run)}
 
     @user_router.post("/api/train")
-    def xiuxian_train_api(payload: InitDataPayload):
-        telegram_user = _verify_user_from_init_data(payload.init_data)
-        result = practice_for_user(telegram_user["id"])
-        return {"code": 200, "data": _with_core_bundle(telegram_user["id"], result)}
+    async def xiuxian_train_api(payload: InitDataPayload):
+        def _run():
+            telegram_user = _verify_user_from_init_data(payload.init_data)
+            result = practice_for_user(telegram_user["id"])
+            return _with_core_bundle(telegram_user["id"], result)
+
+        return {"code": 200, "data": await run_in_threadpool(_run)}
 
     @user_router.post("/api/commission/claim")
     def xiuxian_commission_claim_api(payload: CommissionClaimPayload):
@@ -1823,8 +1954,7 @@ def register_web(app) -> None:
     async def xiuxian_admin_bootstrap(payload: AdminBootstrapPayload):
         def _admin_bootstrap_core():
             admin_user = _verify_admin_credential(payload.token, payload.init_data)
-            # 管理页启动时先同步一次默认种子，确保拉新镜像后能立即看到最新配置。
-            ensure_seed_data()
+            _ensure_seed_data_throttled()
             return {
                 "admin_user": admin_user,
                 "settings": update_xiuxian_settings({}),
@@ -1847,6 +1977,76 @@ def register_web(app) -> None:
             "code": 200,
             "data": data,
         }
+
+    @admin_router.get("/accounts")
+    async def xiuxian_admin_accounts(
+        request: Request,
+        q: str = "",
+        bound: str = "",
+        enabled: str = "",
+        page: int = 1,
+        page_size: int = 20,
+    ):
+        await run_in_threadpool(
+            _verify_admin_credential,
+            request.headers.get("x-admin-token"),
+            request.headers.get("x-telegram-init-data"),
+        )
+
+        def _parse_filter(value: str) -> bool | None:
+            normalized = str(value or "").strip().lower()
+            if not normalized:
+                return None
+            return normalized in {"1", "true", "yes", "on", "bound", "enabled"}
+
+        data = await run_in_threadpool(
+            list_xiuxian_web_accounts,
+            q,
+            bound=_parse_filter(bound),
+            enabled=_parse_filter(enabled),
+            page=page,
+            page_size=page_size,
+        )
+        return {"code": 200, "data": data}
+
+    @admin_router.post("/accounts/{account_id}/state")
+    async def xiuxian_admin_account_state(account_id: int, payload: AdminGameAccountStatePayload, request: Request):
+        await run_in_threadpool(
+            _verify_admin_credential,
+            request.headers.get("x-admin-token"),
+            request.headers.get("x-telegram-init-data"),
+        )
+        try:
+            account = await run_in_threadpool(set_xiuxian_web_account_enabled, account_id, payload.enabled)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {"code": 200, "data": {"account": account}}
+
+    @admin_router.post("/accounts/{account_id}/unbind")
+    async def xiuxian_admin_account_unbind(account_id: int, request: Request):
+        await run_in_threadpool(
+            _verify_admin_credential,
+            request.headers.get("x-admin-token"),
+            request.headers.get("x-telegram-init-data"),
+        )
+        try:
+            account = await run_in_threadpool(unbind_xiuxian_web_account, account_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {"code": 200, "data": {"account": account}}
+
+    @admin_router.post("/accounts/{account_id}/sessions/revoke")
+    async def xiuxian_admin_account_revoke_sessions(account_id: int, request: Request):
+        await run_in_threadpool(
+            _verify_admin_credential,
+            request.headers.get("x-admin-token"),
+            request.headers.get("x-telegram-init-data"),
+        )
+        try:
+            count = await run_in_threadpool(revoke_xiuxian_web_account_sessions, account_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {"code": 200, "data": {"revoked_sessions": count}}
 
     @admin_router.post("/settings")
     async def xiuxian_settings_api(payload: AdminSettingPayload, request: Request):

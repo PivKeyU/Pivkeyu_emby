@@ -19,7 +19,7 @@ from starlette.middleware.cors import CORSMiddleware
 from bot import LOGGER, api as config_api
 from bot.func_helper.redis_cache import get_status as get_redis_status
 from bot.func_helper.telegram_webapp import configure_chat_menu_button
-from bot.plugins import load_plugins, register_web_plugins
+from bot.plugins import has_loaded_plugins, load_plugins, register_web_plugins
 
 from .api import admin_api_route, auth_api_route, emby_api_route, miniapp_api_route, user_api_route
 
@@ -41,7 +41,7 @@ class Web:
         self.start_api = None
 
     async def _configure_runtime_limits(self) -> None:
-        tokens = _env_int("PIVKEYU_WEB_THREADPOOL_TOKENS", 64, minimum=24, maximum=512)
+        tokens = _env_int("PIVKEYU_WEB_THREADPOOL_TOKENS", 96, minimum=24, maximum=512)
         try:
             import anyio
 
@@ -122,7 +122,16 @@ class Web:
 
         await self._configure_runtime_limits()
         self.init_api()
-        load_plugins()
+        redis_status = get_redis_status()
+        if redis_status.get("enabled"):
+            if redis_status.get("available"):
+                LOGGER.info("【API服务】Redis 缓存已连接")
+            else:
+                LOGGER.warning("【API服务】Redis 已启用但未连接，热数据将回退进程内缓存/数据库直连")
+        # Bot 侧插件在 main.py 启动时已加载；此处仅注册 Web 路由。
+        if not has_loaded_plugins():
+            LOGGER.warning("【API服务】未检测到已加载插件，补执行 load_plugins()")
+            load_plugins()
         register_web_plugins(self.app)
         self.web_api = uvicorn.Server(
             config=uvicorn.Config(
@@ -165,4 +174,5 @@ check = Web()
 
 loop = asyncio.get_event_loop()
 loop.create_task(check.start())
-loop.create_task(configure_chat_menu_button())
+if str(os.getenv("PIVKEYU_WEB_ONLY", "")).strip().lower() not in {"1", "true", "yes", "on"}:
+    loop.create_task(configure_chat_menu_button())

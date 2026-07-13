@@ -6,7 +6,33 @@ from pydantic import BaseModel, Field
 
 
 class InitDataPayload(BaseModel):
+    init_data: str = ""
+
+
+class WebAuthRegisterPayload(BaseModel):
+    username: str
+    password: str
+    display_name: str | None = None
+    init_data: str = ""
+
+
+class WebAuthLoginPayload(BaseModel):
+    username: str
+    password: str
+    init_data: str = ""
+
+
+class WebAuthSessionPayload(BaseModel):
+    session_token: str = ""
+    init_data: str = ""
+
+
+class WebAuthBindTelegramPayload(WebAuthSessionPayload):
     init_data: str
+
+
+class AdminGameAccountStatePayload(BaseModel):
+    enabled: bool
 
 
 class BreakthroughPayload(InitDataPayload):

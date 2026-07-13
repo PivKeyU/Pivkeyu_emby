@@ -1434,3 +1434,91 @@
   installAdvancedUi();
   bootstrapAdmin().catch(() => {});
 })();
+
+(() => {
+  function accountMetric(label, value) {
+    return `<article><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></article>`;
+  }
+
+  function renderGameAccountSummary(summary = {}) {
+    const root = $("game-account-summary");
+    if (!root) return;
+    root.innerHTML = [
+      accountMetric("账号总数", Number(summary.total || 0)),
+      accountMetric("已绑定 TG", Number(summary.bound || 0)),
+      accountMetric("待绑定", Number(summary.unbound || 0)),
+      accountMetric("已停用", Number(summary.disabled || 0)),
+    ].join("");
+  }
+
+  function renderGameAccounts(data = {}) {
+    renderGameAccountSummary(data.summary || {});
+    const root = $("game-account-list");
+    if (!root) return;
+    const rows = Array.isArray(data.items) ? data.items : [];
+    root.innerHTML = rows.map((account) => `
+      <article class="stack-item game-account-item ${account.enabled === false ? "is-disabled" : ""}">
+        <div class="stack-item-head">
+          <div>
+            <strong>${escapeHtml(account.display_name || account.username)}</strong>
+            <p>账号 ${escapeHtml(account.username)} · ${escapeHtml(account.telegram_label || "未绑定 Telegram")}${account.tg ? ` · TG ${escapeHtml(account.tg)}` : ""}</p>
+          </div>
+          <span class="tag">${account.enabled === false ? "已停用" : account.bound ? "已绑定" : "待绑定"}</span>
+        </div>
+        <div class="inline-action-buttons">
+          <button type="button" class="secondary" data-game-account-action="state" data-account-id="${account.id}" data-enabled="${account.enabled === false ? "true" : "false"}">${account.enabled === false ? "启用账号" : "停用账号"}</button>
+          <button type="button" class="secondary" data-game-account-action="revoke" data-account-id="${account.id}">强制下线</button>
+          ${account.bound ? `<button type="button" class="secondary danger-account-action" data-game-account-action="unbind" data-account-id="${account.id}">解绑 TG</button>` : ""}
+        </div>
+      </article>
+    `).join("") || `<article class="stack-item"><strong>没有符合条件的游戏账号</strong></article>`;
+    root.querySelectorAll("[data-game-account-action]").forEach((button) => {
+      button.addEventListener("click", () => handleGameAccountAction(button));
+    });
+  }
+
+  async function loadGameAccounts() {
+    const params = new URLSearchParams({
+      q: $("game-account-search-q")?.value || "",
+      bound: $("game-account-bound-filter")?.value || "",
+      enabled: $("game-account-enabled-filter")?.value || "",
+      page: "1",
+      page_size: "30",
+    });
+    const data = await request("GET", `/plugins/xiuxian/admin-api/accounts?${params}`);
+    renderGameAccounts(data);
+    return data;
+  }
+
+  async function handleGameAccountAction(button) {
+    const accountId = Number(button?.dataset.accountId || 0);
+    const action = String(button?.dataset.gameAccountAction || "");
+    if (!accountId || !action) return;
+    try {
+      if (action === "state") {
+        const enabled = button.dataset.enabled === "true";
+        if (!window.confirm(`确认${enabled ? "启用" : "停用"}这个统一游戏账号？`)) return;
+        await request("POST", `/plugins/xiuxian/admin-api/accounts/${accountId}/state`, { enabled });
+      } else if (action === "unbind") {
+        if (!window.confirm("确认解绑 Telegram？账号会被强制下线，重新绑定后才能进入游戏。")) return;
+        await request("POST", `/plugins/xiuxian/admin-api/accounts/${accountId}/unbind`, {});
+      } else if (action === "revoke") {
+        if (!window.confirm("确认让该账号的所有网页登录会话立即失效？")) return;
+        await request("POST", `/plugins/xiuxian/admin-api/accounts/${accountId}/sessions/revoke`, {});
+      }
+      await loadGameAccounts();
+      await popup("账号操作完成", "统一游戏账号状态已更新。", "success");
+    } catch (error) {
+      await popup("账号操作失败", String(error.message || error), "error");
+    }
+  }
+
+  $("game-account-search-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    loadGameAccounts().catch((error) => popup("查询失败", String(error.message || error), "error"));
+  });
+  $("token-form")?.addEventListener("submit", () => {
+    window.setTimeout(() => loadGameAccounts().catch(() => {}), 500);
+  });
+  loadGameAccounts().catch(() => {});
+})();

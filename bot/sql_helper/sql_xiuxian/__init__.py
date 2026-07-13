@@ -15,6 +15,7 @@ from .shop import *  # noqa: F401 F403
 from .social import *  # noqa: F401 F403
 from .activities import *  # noqa: F401 F403
 from .combat import *  # noqa: F401 F403
+from .web_auth import *  # noqa: F401 F403
 
 
 def cultivation_threshold(stage: str, layer: int) -> int:

@@ -181,7 +181,7 @@ function applyBundle(bundle) {
   const settings = bundle.settings || {};
   const permissions = bundle.permissions || {};
   const account = bundle.account || {};
-  refs.title.textContent = settings.shop_title || "仙舟小铺";
+  refs.title.textContent = settings.shop_title || "Emby 光影商店";
   refs.notice.textContent = settings.shop_notice || "欢迎使用积分购买数字商品。";
   refs.balance.textContent = `${account.iv ?? 0} ${settings.currency_name || ""}`.trim();
   refs.itemCount.textContent = String((bundle.items || []).length);

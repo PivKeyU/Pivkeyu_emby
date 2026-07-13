@@ -3,15 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>积分商店</title>
+  <meta name="theme-color" content="#080b14">
+  <title>Emby 光影商店</title>
   <link rel="stylesheet" href="/plugins/shop/static/shop.css">
 </head>
-<body>
+<body class="shop-app">
   <main class="shop-shell">
     <section class="hero">
       <div>
-        <p class="eyebrow">积分商店</p>
-        <h1 id="shop-title">仙舟小铺</h1>
+        <p class="eyebrow">Emby Media Store</p>
+        <h1 id="shop-title">Emby 光影商店</h1>
         <p id="shop-notice" class="muted">正在同步商品与余额信息...</p>
         <div class="hero-actions">
           <span id="user-role" class="tag">加载中</span>
@@ -42,8 +43,8 @@
     <section class="card section">
       <div class="card-head">
         <div>
-          <p class="eyebrow">商品列表</p>
-          <h2>可购买商品</h2>
+          <p class="eyebrow">Now Showing</p>
+          <h2>本期上架</h2>
         </div>
         <button id="refresh-button" type="button" class="secondary">刷新</button>
       </div>
@@ -54,8 +55,8 @@
     <section id="listing-section" class="card section hidden">
       <div class="card-head">
         <div>
-          <p class="eyebrow">我要上架</p>
-          <h2>发布商品</h2>
+          <p class="eyebrow">Creator Shelf</p>
+          <h2>发布到用户货架</h2>
         </div>
       </div>
       <form id="listing-form" class="grid-form">
@@ -100,8 +101,8 @@
     <section class="card section">
       <div class="card-head">
         <div>
-          <p class="eyebrow">我的商品</p>
-          <h2>我发布的商品</h2>
+          <p class="eyebrow">My Collection</p>
+          <h2>我的上架内容</h2>
         </div>
       </div>
       <div id="my-product-list" class="list-grid"></div>

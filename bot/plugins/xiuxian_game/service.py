@@ -7570,10 +7570,9 @@ def ensure_not_in_retreat(tg: int) -> None:
 
 
 def build_plugin_url(path: str) -> str | None:
-    public_url = (api_config.public_url or "").rstrip("/")
-    if not public_url:
-        return None
-    return f"{public_url}{path}"
+    from bot.plugins.sdk import build_plugin_url as sdk_build_plugin_url
+
+    return sdk_build_plugin_url(path)
 
 
 def xiuxian_entry_button() -> InlineKeyboard:

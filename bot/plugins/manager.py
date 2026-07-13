@@ -7,14 +7,17 @@ import importlib.metadata
 import json
 import keyword
 import inspect
+import os
 import shutil
 import stat
 import sys
 import tempfile
+import time
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from types import ModuleType
+from threading import RLock
 from typing import Any
 
 
@@ -46,6 +49,8 @@ KNOWN_PLUGIN_PERMISSIONS = {
 }
 _DISCOVERED: dict[str, "PluginRecord"] = {}
 _LOADED = False
+_MIGRATION_SUMMARY_CACHE: dict[str, dict[str, Any]] = {}
+_MIGRATION_SUMMARY_LOCK = RLock()
 
 
 class PluginImportError(ValueError):
@@ -396,6 +401,9 @@ def _discover_plugins(force_refresh: bool = False) -> dict[str, PluginRecord]:
     global _DISCOVERED
 
     if force_refresh or not _DISCOVERED:
+        if force_refresh:
+            with _MIGRATION_SUMMARY_LOCK:
+                _MIGRATION_SUMMARY_CACHE.clear()
         _DISCOVERED = _scan_plugins(_DISCOVERED)
         return _DISCOVERED
 
@@ -512,16 +520,24 @@ def _plugin_context(record: PluginRecord) -> PluginContext:
 
 
 def _describe_plugin_migrations(record: PluginRecord) -> dict[str, Any]:
+    with _MIGRATION_SUMMARY_LOCK:
+        cached = _MIGRATION_SUMMARY_CACHE.get(record.plugin_id)
+    if cached is not None:
+        return {**cached, "pending_files": list(cached.get("pending_files") or [])}
+
     migration_dir = _resolve_plugin_migration_dir(record)
     if migration_dir is None:
-        return {"supported": False, "dir": None, "total": 0, "applied": 0, "pending": 0, "pending_files": []}
+        summary = {"supported": False, "dir": None, "total": 0, "applied": 0, "pending": 0, "pending_files": []}
+        with _MIGRATION_SUMMARY_LOCK:
+            _MIGRATION_SUMMARY_CACHE[record.plugin_id] = summary
+        return dict(summary)
 
     from bot.sql_helper.sql_plugin import list_applied_plugin_migrations
 
     files = sorted(migration_dir.glob("*.py"))
     applied = list_applied_plugin_migrations(record.plugin_id)
     pending_files = [file.name for file in files if file.name not in applied]
-    return {
+    summary = {
         "supported": True,
         "dir": str(migration_dir),
         "total": len(files),
@@ -529,6 +545,9 @@ def _describe_plugin_migrations(record: PluginRecord) -> dict[str, Any]:
         "pending": len(pending_files),
         "pending_files": pending_files,
     }
+    with _MIGRATION_SUMMARY_LOCK:
+        _MIGRATION_SUMMARY_CACHE[record.plugin_id] = summary
+    return {**summary, "pending_files": list(pending_files)}
 
 
 def _resolve_plugin_migration_dir(record: PluginRecord) -> Path | None:
@@ -543,6 +562,15 @@ def _resolve_plugin_migration_dir(record: PluginRecord) -> Path | None:
 def _apply_plugin_migrations(record: PluginRecord) -> dict[str, Any]:
     migration_dir = _resolve_plugin_migration_dir(record)
     if migration_dir is None:
+        with _MIGRATION_SUMMARY_LOCK:
+            _MIGRATION_SUMMARY_CACHE[record.plugin_id] = {
+                "supported": False,
+                "dir": None,
+                "total": 0,
+                "applied": 0,
+                "pending": 0,
+                "pending_files": [],
+            }
         return {"applied": [], "pending": [], "supported": False}
 
     from bot.sql_helper import Session
@@ -587,10 +615,20 @@ def _apply_plugin_migrations(record: PluginRecord) -> dict[str, Any]:
         applied_now.append(migration_file.name)
         applied_checksums[migration_file.name] = checksum
 
+    pending_files = [file.name for file in migration_files if file.name not in applied_checksums]
+    with _MIGRATION_SUMMARY_LOCK:
+        _MIGRATION_SUMMARY_CACHE[record.plugin_id] = {
+            "supported": True,
+            "dir": str(migration_dir),
+            "total": len(migration_files),
+            "applied": len(migration_files) - len(pending_files),
+            "pending": len(pending_files),
+            "pending_files": list(pending_files),
+        }
     return {
         "supported": True,
         "applied": applied_now,
-        "pending": [file.name for file in migration_files if file.name not in applied_checksums],
+        "pending": pending_files,
     }
 
 
@@ -853,12 +891,12 @@ def _load_plugin(record: PluginRecord) -> None:
     record.module = module
 
     register_bot = getattr(module, "register_bot", None)
-    if callable(register_bot):
+    web_only = str(os.getenv("PIVKEYU_WEB_ONLY", "")).strip().lower() in {"1", "true", "yes", "on"}
+    if callable(register_bot) and not web_only:
         _invoke_plugin_hook(register_bot, bot, record)
 
     record.loaded = True
     record.error = None
-    _persist_plugin_installation(record)
     try:
         from bot.sql_helper.sql_plugin import mark_plugin_loaded
 
@@ -887,32 +925,33 @@ def _register_web(record: PluginRecord, app: Any) -> None:
 def load_plugins() -> list[dict[str, Any]]:
     global _LOADED
 
+    started_at = time.perf_counter()
     records = _discover_plugins()
     from bot import LOGGER
 
     for record in records.values():
-        _persist_plugin_installation(record)
+        if not record.loaded:
+            _persist_plugin_installation(record)
         if not record.enabled or record.loaded:
             continue
 
         try:
+            plugin_started_at = time.perf_counter()
             _load_plugin(record)
+            elapsed_ms = int((time.perf_counter() - plugin_started_at) * 1000)
+            LOGGER.info(f"Plugin startup timing: {record.plugin_id} {elapsed_ms}ms")
         except Exception as exc:
             record.error = str(exc)
             _persist_plugin_installation(record, error=record.error)
-            try:
-                from bot.sql_helper.sql_plugin import mark_plugin_error
-
-                mark_plugin_error(record.plugin_id, record.error)
-            except Exception:
-                pass
             LOGGER.error(f"Failed to load plugin {record.plugin_id}: {exc}")
 
     _LOADED = True
+    LOGGER.info(f"Plugin startup complete: {int((time.perf_counter() - started_at) * 1000)}ms")
     return [record.to_dict() for record in records.values()]
 
 
 def register_web_plugins(app: Any) -> None:
+    started_at = time.perf_counter()
     for record in _discover_plugins().values():
         if not record.enabled or not record.loaded:
             continue
@@ -925,6 +964,13 @@ def register_web_plugins(app: Any) -> None:
             record.error = str(exc)
             _persist_plugin_installation(record, error=record.error)
             LOGGER.error(f"Failed to register web routes for plugin {record.plugin_id}: {exc}")
+    from bot import LOGGER
+
+    LOGGER.info(f"Plugin web route registration complete: {int((time.perf_counter() - started_at) * 1000)}ms")
+
+
+def has_loaded_plugins() -> bool:
+    return any(record.enabled and record.loaded for record in _discover_plugins().values())
 
 
 def sync_plugin_runtime_state(plugin_id: str, app: Any | None = None) -> dict[str, Any]:

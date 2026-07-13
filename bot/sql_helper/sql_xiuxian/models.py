@@ -51,6 +51,41 @@ class XiuxianImageUploadPermission(Base):
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
 
+class XiuxianWebAccount(Base):
+    __tablename__ = "xiuxian_web_accounts"
+    __table_args__ = (
+        UniqueConstraint("username", name="uq_xiuxian_web_accounts_username"),
+        UniqueConstraint("tg", name="uq_xiuxian_web_accounts_tg"),
+        Index("ix_xiuxian_web_accounts_username", "username"),
+        Index("ix_xiuxian_web_accounts_tg", "tg"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String(64), nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    tg = Column(BigInteger, nullable=True)
+    display_name = Column(String(128), nullable=True)
+    telegram_username = Column(String(64), nullable=True)
+    telegram_display_name = Column(String(128), nullable=True)
+    enabled = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+    last_login_at = Column(DateTime, nullable=True)
+
+
+class XiuxianWebSession(Base):
+    __tablename__ = "xiuxian_web_sessions"
+    __table_args__ = (
+        Index("ix_xiuxian_web_sessions_account_id", "account_id"),
+        Index("ix_xiuxian_web_sessions_expires_at", "expires_at"),
+    )
+
+    token_hash = Column(String(64), primary_key=True)
+    account_id = Column(Integer, ForeignKey("xiuxian_web_accounts.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+
+
 class XiuxianProfile(Base):
     __tablename__ = "xiuxian_profiles"
     __table_args__ = (

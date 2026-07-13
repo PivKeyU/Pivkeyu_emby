@@ -430,7 +430,7 @@ class Config(BaseModel):
     def load_config(cls):
         config_path = cls.resolve_config_path()
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, "r", encoding="utf-8-sig") as f:
                 config = cls.apply_runtime_defaults(json.load(f))
                 return cls(**config)
         except json.JSONDecodeError as exc:

@@ -73,7 +73,8 @@ def register_web(app, context=None) -> None:
 约定：
 
 - 运行时插件会安装到 `data/runtime_plugins/`，Docker 重建后仍然保留
-- `enabled: true` 时，`main.py` 会在 bot 启动前自动装载插件
+- `enabled: true` 时，程序会在 **Bot 启动阶段**（`main.py`）自动装载插件的 TG 指令与回调
+- 若同时启用了 Web API（`api.status = true`），还会在 FastAPI 启动时注册插件 Web 路由
 - `register_bot(bot, context)` 用于注册 bot 指令、回调或事件；第二个参数 `context` 可选
 - `register_web(app, context)` 用于暴露 FastAPI 路由；第二个参数 `context` 可选
 - 已加载和未启用的插件都会出现在 `/admin` 面板的插件区

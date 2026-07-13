@@ -202,7 +202,8 @@ def sync_postgresql_sequences(*, table_names: set[str] | None = None, log_result
         return {"applied": False, "tables": []}
 
     metadata = MetaData()
-    metadata.reflect(bind=engine)
+    reflect_kwargs = {"only": sorted(table_names)} if table_names else {}
+    metadata.reflect(bind=engine, **reflect_kwargs)
     repaired_tables: list[dict[str, object]] = []
 
     with engine.begin() as connection:
@@ -319,11 +320,13 @@ def run_migrations():
         Config = getattr(alembic_config, "Config")
         config = Config(str(alembic_ini))
         config.set_main_option("sqlalchemy.url", DATABASE_URL)
+        started_at = time.perf_counter()
         _run_with_db_retry(
             lambda: alembic_command.upgrade(config, "head"),
             "数据库自动迁移",
         )
-        LOGGER.info("数据库迁移完成，当前已升级到最新版本")
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        LOGGER.info(f"数据库迁移完成，当前已升级到最新版本，耗时 {elapsed_ms}ms")
     except Exception as e:
         LOGGER.error(f"数据库自动迁移失败: {e}")
         raise
@@ -357,4 +360,5 @@ Session = sql_start()
 
 
 run_migrations()
-sync_postgresql_sequences(log_result=True)
+if _env_bool("PIVKEYU_DB_SYNC_SEQUENCES_ON_STARTUP", False):
+    sync_postgresql_sequences(log_result=True)

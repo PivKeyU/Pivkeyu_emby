@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import json
+import os
 from datetime import datetime, timedelta
 from hashlib import sha256
 from time import time
@@ -238,7 +239,45 @@ def is_admin_user_id(user_id: int) -> bool:
         return False
 
 
+def _local_test_telegram_user(init_data: str) -> dict | None:
+    if str(os.getenv("PIVKEYU_LOCAL_TEST_AUTH", "")).strip().lower() not in {"1", "true", "yes", "on"}:
+        return None
+
+    raw = str(init_data or "").strip()
+    if not raw.startswith("local_test:"):
+        return None
+
+    parts = raw.split(":", 3)
+    try:
+        user_id = int(parts[1])
+    except (IndexError, TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="本地测试用户格式无效") from None
+
+    if user_id <= 0:
+        raise HTTPException(status_code=401, detail="本地测试用户 ID 无效")
+
+    username = str(parts[2] if len(parts) > 2 else "local_test").strip().lstrip("@") or "local_test"
+    first_name = str(parts[3] if len(parts) > 3 else "本地测试用户").strip() or "本地测试用户"
+    return {
+        "id": user_id,
+        "username": username[:64],
+        "first_name": first_name[:80],
+        "last_name": "",
+        "auth": "local_test",
+    }
+
+
 def verify_init_data(init_data: str) -> dict:
+    local_test_user = _local_test_telegram_user(init_data)
+    if local_test_user is not None:
+        matched_block = find_bot_access_block(
+            tg=local_test_user.get("id"),
+            username=local_test_user.get("username"),
+        )
+        if matched_block is not None:
+            raise HTTPException(status_code=404, detail="Not Found")
+        return {"user": local_test_user, "auth": "local_test"}
+
     parsed = dict(parse_qsl(init_data, keep_blank_values=True))
     their_hash = parsed.pop("hash", None)
 

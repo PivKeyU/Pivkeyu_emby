@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from bot.plugins.sdk import build_plugin_url as sdk_build_plugin_url
+
 
 def _legacy_service():
     from bot.plugins.xiuxian_game import service as legacy_service
@@ -8,7 +10,7 @@ def _legacy_service():
 
 
 def build_plugin_url(path: str) -> str | None:
-    return _legacy_service().build_plugin_url(path)
+    return sdk_build_plugin_url(path)
 
 
 def xiuxian_confirm_keyboard():

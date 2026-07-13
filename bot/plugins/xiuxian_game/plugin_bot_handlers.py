@@ -31,7 +31,13 @@ from bot.func_helper.moderation import (
     set_chat_member_title,
 )
 from bot.func_helper.msg_utils import callAnswer
-from bot.plugins import list_miniapp_plugins
+from bot.plugins.sdk import (
+    build_bottom_nav,
+    public_url_root,
+    verify_admin_credential,
+    verify_telegram_user,
+)
+from bot.web.api.miniapp import is_admin_user_id
 from bot.sql_helper import Session
 from bot.plugins.xiuxian_game.api_models import (
     AchievementPayload,
@@ -386,7 +392,6 @@ from bot.plugins.xiuxian_game.achievement_service import (
     format_reward_summary,
     record_achievement_progress,
 )
-from bot.web.api.miniapp import is_admin_user_id, verify_init_data
 
 
 PLAIN_TEXT_MODE = enums.ParseMode.DISABLED
@@ -699,9 +704,7 @@ async def _admin_player_search_payload(
     return result
 
 
-def _verify_user_from_init_data(init_data: str) -> dict[str, Any]:
-    verified = verify_init_data(init_data)
-    user = verified["user"]
+def _upsert_xiuxian_profile_identity(user: dict[str, Any]) -> None:
     display_name = " ".join(part for part in [user.get("first_name"), user.get("last_name")] if part).strip()
     upsert_fields = {}
     if display_name:
@@ -712,22 +715,14 @@ def _verify_user_from_init_data(init_data: str) -> dict[str, Any]:
         from bot.sql_helper.sql_xiuxian import upsert_profile
 
         upsert_profile(int(user["id"]), **upsert_fields)
-    return user
+
+
+def _verify_user_from_init_data(init_data: str) -> dict[str, Any]:
+    return verify_telegram_user(init_data, on_verified=_upsert_xiuxian_profile_identity)
 
 
 def _verify_admin_credential(token: str | None, init_data: str | None) -> dict[str, Any]:
-    expected_token = api_config.admin_token or ""
-    if token and token == expected_token:
-        return {"id": owner, "auth": "token"}
-
-    if init_data:
-        telegram_user = _verify_user_from_init_data(init_data)
-        if is_admin_user_id(telegram_user["id"]):
-            telegram_user["auth"] = "telegram"
-            return telegram_user
-        raise HTTPException(status_code=403, detail="当前 Telegram 账号没有后台权限")
-
-    raise HTTPException(status_code=401, detail="缺少后台登录凭证")
+    return verify_admin_credential(token, init_data)
 
 
 def _operation_name_from_request(request: Request) -> str:
@@ -769,14 +764,14 @@ def _actor_from_request(request: Request) -> dict[str, Any]:
     if not init_data:
         return {"scope": scope}
     try:
-        actor = verify_init_data(init_data)
+        user = verify_telegram_user(init_data)
     except Exception:
         return {"scope": scope}
     return {
         "scope": scope,
-        "tg": int(actor.get("id") or 0) or None,
-        "username": str(actor.get("username") or "").strip() or None,
-        "display_name": str(actor.get("first_name") or actor.get("last_name") or "").strip() or None,
+        "tg": int(user.get("id") or 0) or None,
+        "username": str(user.get("username") or "").strip() or None,
+        "display_name": str(user.get("first_name") or user.get("last_name") or "").strip() or None,
     }
 
 
@@ -826,9 +821,7 @@ def _sanitize_upload_folder(folder: str | None) -> str:
 
 
 def _public_url_root(base_url: str | None = None) -> str:
-    if api_config.public_url:
-        return str(api_config.public_url).rstrip("/")
-    return str(base_url or "").rstrip("/")
+    return public_url_root(base_url)
 
 
 def _resolve_group_image_source(image_url: str | None) -> str | Path | None:
@@ -1021,32 +1014,7 @@ def _format_group_profile_showcase(payload: dict[str, Any], fallback_name: str |
 
 
 def _build_bottom_nav() -> list[dict[str, str]]:
-    items = [
-        {
-            "id": "home",
-            "label": "主页",
-            "path": "/miniapp",
-            "icon": "🏠",
-        }
-    ]
-
-    for plugin in list_miniapp_plugins():
-        if not plugin.get("enabled") or not plugin.get("loaded") or not plugin.get("web_registered"):
-            continue
-        plugin_visible = bool(config.plugin_nav.get(plugin["id"], plugin.get("bottom_nav_default", False)))
-        if not plugin.get("miniapp_path") or not plugin_visible:
-            continue
-
-        items.append(
-            {
-                "id": plugin["id"],
-                "label": plugin.get("miniapp_label") or plugin["name"],
-                "path": plugin["miniapp_path"],
-                "icon": plugin.get("miniapp_icon") or "◇",
-            }
-        )
-
-    return items
+    return build_bottom_nav()
 
 
 def _configured_group_chat_ids() -> list[int]:
@@ -1613,27 +1581,26 @@ def _bundle_runtime_flags(tg: int) -> dict[str, Any]:
     }
 
 
+def _xiuxian_user_version_groups(tg: int, *, include_catalog: bool = True) -> tuple[tuple[Any, ...], ...]:
+    from bot.plugins.xiuxian_game.cache import catalog_version_groups
+
+    groups: list[tuple[Any, ...]] = [("profile", tg), ("user-view", tg)]
+    groups.extend(catalog_version_groups(include_all_catalog=include_catalog))
+    return tuple(groups)
+
+
+def _bootstrap_version_groups(tg: int) -> tuple[tuple[Any, ...], ...]:
+    from bot.plugins.xiuxian_game.features.bundle_cache import bootstrap_version_groups
+
+    return bootstrap_version_groups(tg)
+
+
 def _full_bundle(tg: int) -> dict[str, Any]:
     from bot.plugins.xiuxian_game.cache import USER_VIEW_TTL, load_multi_versioned_json
 
     flags = _bundle_runtime_flags(tg)
     return load_multi_versioned_json(
-        version_part_groups=(
-            ("profile", tg),
-            ("user-view", tg),
-            ("settings",),
-            ("catalog", "artifact-sets"),
-            ("catalog", "artifacts"),
-            ("catalog", "materials"),
-            ("catalog", "pills"),
-            ("catalog", "recipes"),
-            ("catalog", "scenes"),
-            ("catalog", "sects"),
-            ("catalog", "shop-items"),
-            ("catalog", "talismans"),
-            ("catalog", "techniques"),
-            ("catalog", "titles"),
-        ),
+        version_part_groups=_xiuxian_user_version_groups(tg),
         cache_parts=(
             "full-bundle",
             tg,
@@ -1649,19 +1616,9 @@ def _full_bundle(tg: int) -> dict[str, Any]:
 
 
 def _bootstrap_core_bundle(tg: int) -> dict[str, Any]:
-    from bot.plugins.xiuxian_game.cache import load_multi_versioned_json, USER_VIEW_TTL
-    return load_multi_versioned_json(
-        version_part_groups=(
-            ("profile", tg),
-            ("user-view", tg),
-            ("settings",),
-            ("catalog", "artifact-sets"),
-            ("catalog", "artifacts"),
-        ),
-        cache_parts=("bootstrap", tg),
-        ttl=min(USER_VIEW_TTL, 10),
-        loader=lambda: build_bootstrap_core_bundle(tg, **_bundle_runtime_flags(tg)),
-    )
+    from bot.plugins.xiuxian_game.features.bundle_cache import load_cached_bootstrap_core_bundle
+
+    return load_cached_bootstrap_core_bundle(tg, **_bundle_runtime_flags(tg))
 
 
 def _deferred_bundle_sections(tg: int) -> dict[str, Any]:
@@ -1669,22 +1626,7 @@ def _deferred_bundle_sections(tg: int) -> dict[str, Any]:
 
     flags = _bundle_runtime_flags(tg)
     return load_multi_versioned_json(
-        version_part_groups=(
-            ("profile", tg),
-            ("user-view", tg),
-            ("settings",),
-            ("catalog", "artifact-sets"),
-            ("catalog", "artifacts"),
-            ("catalog", "materials"),
-            ("catalog", "pills"),
-            ("catalog", "recipes"),
-            ("catalog", "scenes"),
-            ("catalog", "sects"),
-            ("catalog", "shop-items"),
-            ("catalog", "talismans"),
-            ("catalog", "techniques"),
-            ("catalog", "titles"),
-        ),
+        version_part_groups=_xiuxian_user_version_groups(tg),
         cache_parts=(
             "deferred-bundle",
             tg,
@@ -1705,24 +1647,7 @@ def _deferred_bundle_section(tg: int, section: str) -> dict[str, Any]:
     normalized = str(section or "").strip().replace("-", "_")
     flags = _bundle_runtime_flags(tg)
     return load_multi_versioned_json(
-        version_part_groups=(
-            ("profile", tg),
-            ("user-view", tg),
-            ("settings",),
-            ("catalog", "achievements"),
-            ("catalog", "artifact-sets"),
-            ("catalog", "artifacts"),
-            ("catalog", "materials"),
-            ("catalog", "pills"),
-            ("catalog", "recipes"),
-            ("catalog", "scenes"),
-            ("catalog", "sects"),
-            ("catalog", "shop-items"),
-            ("catalog", "talismans"),
-            ("catalog", "tasks"),
-            ("catalog", "techniques"),
-            ("catalog", "titles"),
-        ),
+        version_part_groups=_xiuxian_user_version_groups(tg),
         cache_parts=(
             "deferred-section",
             normalized,
@@ -4315,11 +4240,20 @@ def register_bot(bot_instance) -> None:
     global EVENT_SUMMARY_LOOP_TASK, ENCOUNTER_AUTO_DISPATCH_LOOP_TASK, ENCOUNTER_AUTO_DISPATCH_LOCK
     _ensure_xiuxian_bot_commands()
     _schedule_command_refresh(bot_instance)
-    _schedule_active_auction_finalize_tasks()
-    _schedule_active_arena_finalize_tasks()
-    if EVENT_SUMMARY_LOOP_TASK is None or EVENT_SUMMARY_LOOP_TASK.done():
-        loop = asyncio.get_event_loop()
 
+    async def _delayed_startup_tasks() -> None:
+        await asyncio.sleep(20)
+        try:
+            _schedule_active_auction_finalize_tasks()
+            _schedule_active_arena_finalize_tasks()
+            _queue_event_summary_refresh(delay_seconds=0, force_create=True)
+        except Exception as exc:
+            LOGGER.warning(f"xiuxian delayed startup tasks failed: {exc}")
+
+    loop = asyncio.get_event_loop()
+    loop.create_task(_delayed_startup_tasks())
+
+    if EVENT_SUMMARY_LOOP_TASK is None or EVENT_SUMMARY_LOOP_TASK.done():
         async def refresh_event_summary_loop() -> None:
             while True:
                 try:
@@ -4336,7 +4270,6 @@ def register_bot(bot_instance) -> None:
                     await asyncio.sleep(60)
 
         EVENT_SUMMARY_LOOP_TASK = loop.create_task(refresh_event_summary_loop())
-    _queue_event_summary_refresh(delay_seconds=0.2, force_create=True)
 
     if ENCOUNTER_AUTO_DISPATCH_LOCK is None:
         ENCOUNTER_AUTO_DISPATCH_LOCK = asyncio.Lock()

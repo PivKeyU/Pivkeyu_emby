@@ -152,6 +152,112 @@ video {
   display: none;
 }
 
+.auth-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.auth-head {
+  display: grid;
+  gap: 8px;
+}
+
+.auth-tabs,
+.auth-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.auth-tabs > button.is-active {
+  color: var(--tg-button-text, #fff);
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--accent-strong), var(--warm));
+}
+
+.auth-form {
+  grid-template-columns: 1fr;
+}
+
+.auth-bind-panel {
+  display: grid;
+  gap: 10px;
+}
+
+body.auth-locked .app-shell > :not(#auth-card) {
+  display: none !important;
+}
+
+body.auth-locked .app-shell {
+  min-height: 100dvh;
+  align-content: center;
+}
+
+body.auth-locked .auth-card {
+  width: min(100%, 720px);
+  margin-inline: auto;
+}
+
+.auth-steps {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.auth-tabs {
+  grid-column: 1 / -1;
+}
+
+.auth-steps li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-strong);
+}
+
+.auth-steps li > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: var(--tg-button-text, #fff);
+  background: var(--accent-strong);
+  font-weight: 800;
+}
+
+.auth-steps strong,
+.auth-steps small {
+  display: block;
+}
+
+.auth-steps small {
+  margin-top: 4px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.account-center-button {
+  width: 100%;
+}
+
+@media (max-width: 640px) {
+  .auth-steps {
+    grid-template-columns: 1fr;
+  }
+}
+
 .hero-main,
 .hero-side,
 .hero-admin,
@@ -1754,6 +1860,25 @@ button.is-blocked:not(:disabled) {
     align-items: start;
   }
 
+  .auth-card {
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 0.42fr);
+    align-items: start;
+  }
+
+  .auth-head,
+  .auth-form,
+  .auth-bind-panel {
+    grid-column: 1 / -1;
+  }
+
+  .auth-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .auth-form button {
+    grid-column: 1 / -1;
+  }
+
   .fold-toolbar {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
@@ -2429,5 +2554,226 @@ button.is-blocked:not(:disabled) {
     max-height: calc(100dvh - 16px);
     padding: 14px;
     border-radius: 18px;
+  }
+}
+
+/* World theme: ink, jade and cloud-sea cultivation realm. */
+body.xiuxian-app {
+  --bg-top: #071a18;
+  --bg-bottom: #020b0b;
+  --surface: rgba(10, 31, 28, 0.94);
+  --surface-strong: rgba(19, 51, 44, 0.9);
+  --surface-soft: rgba(5, 21, 18, 0.9);
+  --surface-translucent: rgba(7, 27, 24, 0.94);
+  --modal-surface: rgba(4, 19, 17, 0.98);
+  --ink: #edf6ed;
+  --muted: #a7c1b5;
+  --line: rgba(143, 203, 176, 0.2);
+  --line-strong: rgba(201, 167, 101, 0.42);
+  --accent: #8fcbb0;
+  --accent-strong: #4a9d79;
+  --accent-soft: rgba(143, 203, 176, 0.13);
+  --accent-soft-strong: rgba(143, 203, 176, 0.22);
+  --warm: #c9a765;
+  --warm-soft: rgba(201, 167, 101, 0.15);
+  --success: #78c99d;
+  --warning: #d8b56f;
+  --danger: #df796f;
+  --shadow: 0 12px 34px rgba(0, 8, 7, 0.42);
+  --shadow-strong: 0 16px 44px rgba(74, 157, 121, 0.18);
+  position: relative;
+  isolation: isolate;
+  color-scheme: dark;
+  font-family: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", serif;
+  background:
+    radial-gradient(ellipse at 14% 5%, rgba(121, 181, 158, 0.18), transparent 30%),
+    radial-gradient(ellipse at 86% 20%, rgba(201, 167, 101, 0.11), transparent 26%),
+    linear-gradient(180deg, #0b2421 0%, #061512 52%, #020b0b 100%);
+}
+
+body.xiuxian-app::before,
+body.xiuxian-app::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+body.xiuxian-app::before {
+  opacity: 0.58;
+  background:
+    radial-gradient(ellipse at 8% 24%, transparent 0 19%, rgba(197, 220, 208, 0.08) 20% 21%, transparent 22%),
+    radial-gradient(ellipse at 42% 12%, transparent 0 24%, rgba(197, 220, 208, 0.06) 25% 26%, transparent 27%),
+    radial-gradient(ellipse at 82% 33%, transparent 0 18%, rgba(197, 220, 208, 0.06) 19% 20%, transparent 21%),
+    repeating-linear-gradient(118deg, transparent 0 46px, rgba(143, 203, 176, 0.025) 47px 48px);
+}
+
+body.xiuxian-app::after {
+  inset: auto 0 0;
+  height: 36vh;
+  opacity: 0.18;
+  background:
+    linear-gradient(145deg, transparent 0 27%, #6b9b86 27.4% 29%, transparent 29.4%),
+    linear-gradient(35deg, transparent 0 58%, #84aa96 58.4% 60%, transparent 60.4%),
+    linear-gradient(155deg, transparent 0 67%, #477967 67.4% 70%, transparent 70.4%);
+  mask-image: linear-gradient(180deg, transparent, #000 55%);
+}
+
+.xiuxian-app .card {
+  border-color: rgba(143, 203, 176, 0.22);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.025), transparent 32%),
+    var(--surface);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(225, 244, 233, 0.035);
+}
+
+.xiuxian-app .hero-panel {
+  min-height: 190px;
+  align-items: center;
+  border-color: rgba(201, 167, 101, 0.38);
+  background:
+    radial-gradient(circle at 78% 25%, rgba(143, 203, 176, 0.2), transparent 25%),
+    linear-gradient(118deg, rgba(15, 58, 49, 0.98), rgba(5, 25, 22, 0.96) 62%, rgba(51, 43, 24, 0.78));
+}
+
+.xiuxian-app .hero-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 75% 90%, transparent 0 23%, rgba(218, 231, 222, 0.11) 24% 25%, transparent 26%),
+    radial-gradient(ellipse at 92% 72%, transparent 0 20%, rgba(218, 231, 222, 0.08) 21% 22%, transparent 23%);
+}
+
+.xiuxian-app .hero-panel::after {
+  content: "道";
+  display: block;
+  position: absolute;
+  right: clamp(18px, 7vw, 82px);
+  top: 50%;
+  color: rgba(225, 238, 229, 0.075);
+  font-family: "KaiTi", "STKaiti", serif;
+  font-size: clamp(86px, 16vw, 170px);
+  line-height: 1;
+  transform: translateY(-52%) rotate(-7deg);
+  pointer-events: none;
+}
+
+.xiuxian-app .hero-panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+.xiuxian-app h1,
+.xiuxian-app h2,
+.xiuxian-app h3 {
+  font-family: "FZKai-Z03", "KaiTi", "STKaiti", "Noto Serif SC", serif;
+  letter-spacing: 0.035em;
+}
+
+.xiuxian-app h1 {
+  color: #f0f5e8;
+  text-shadow: 0 3px 18px rgba(143, 203, 176, 0.18);
+}
+
+.xiuxian-app .eyebrow {
+  color: #b7d9c5;
+  letter-spacing: 0.26em;
+}
+
+.xiuxian-app button:not(.ghost) {
+  color: #f7fbf7;
+  border-color: rgba(229, 218, 176, 0.16);
+  background: linear-gradient(135deg, #2f795d, #8a713e);
+  box-shadow: 0 9px 24px rgba(15, 73, 56, 0.24);
+}
+
+.xiuxian-app button.ghost {
+  border-color: rgba(143, 203, 176, 0.25);
+  background: rgba(7, 31, 27, 0.74);
+}
+
+.xiuxian-app input,
+.xiuxian-app select,
+.xiuxian-app textarea {
+  border-color: rgba(143, 203, 176, 0.24);
+  background: rgba(2, 17, 15, 0.82);
+}
+
+.xiuxian-app .fold-toolbar {
+  border-color: rgba(201, 167, 101, 0.32);
+  background: rgba(5, 28, 24, 0.92);
+}
+
+.xiuxian-app .fold-summary {
+  background:
+    linear-gradient(90deg, rgba(83, 149, 119, 0.16), transparent 46%),
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.012) 0 1px, transparent 1px 9px);
+}
+
+.xiuxian-app .fold-card[open] > .fold-summary {
+  border-bottom-color: rgba(143, 203, 176, 0.14);
+}
+
+.xiuxian-app .fold-summary::after,
+.xiuxian-app .mini-fold-summary::after {
+  color: #c9b77f;
+}
+
+.xiuxian-app .profile-item,
+.xiuxian-app .stack-item,
+.xiuxian-app .mini-fold {
+  background:
+    linear-gradient(145deg, rgba(143, 203, 176, 0.07), transparent 44%),
+    rgba(8, 35, 29, 0.84);
+}
+
+.xiuxian-app .profile-item strong,
+.xiuxian-app .stack-item strong {
+  color: #edf5e9;
+}
+
+.xiuxian-app .hero-pill,
+.xiuxian-app .badge,
+.xiuxian-app .tag {
+  border-color: rgba(201, 167, 101, 0.34);
+  background: rgba(18, 55, 46, 0.8);
+}
+
+.xiuxian-app .bottom-nav {
+  border-color: rgba(201, 167, 101, 0.34);
+  background: rgba(3, 23, 20, 0.94);
+}
+
+.xiuxian-app .bottom-nav a.is-active,
+.xiuxian-app .fold-shortcut.is-active,
+.xiuxian-app .rank-tab.is-active {
+  color: #fff;
+  background: linear-gradient(135deg, #2f795d, #927642);
+}
+
+.xiuxian-app .auth-card {
+  border-color: rgba(201, 167, 101, 0.44);
+  background:
+    radial-gradient(circle at top right, rgba(143, 203, 176, 0.16), transparent 30%),
+    rgba(5, 27, 24, 0.97);
+}
+
+.xiuxian-app .auth-steps li > span {
+  background: linear-gradient(135deg, #377d63, #9d824c);
+}
+
+@media (max-width: 640px) {
+  .xiuxian-app .hero-panel {
+    min-height: 0;
+  }
+
+  .xiuxian-app .hero-panel::after {
+    right: 12px;
+    top: 56px;
+    font-size: 84px;
+    opacity: 0.7;
   }
 }

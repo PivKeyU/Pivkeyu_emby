@@ -1553,3 +1553,119 @@ button span {
     grid-template-columns: 1fr;
   }
 }
+
+/* Plugin split: show-stage for players, quieter control room for admins. */
+body.slot-app .top-band {
+  border-color: rgba(250, 204, 21, 0.34);
+  background:
+    radial-gradient(circle at 72% 32%, rgba(251, 113, 133, 0.16), transparent 24%),
+    linear-gradient(120deg, rgba(31, 41, 68, 0.95), rgba(15, 21, 39, 0.96) 56%, rgba(54, 25, 51, 0.94));
+}
+
+body.slot-app .machine-band {
+  border-color: rgba(250, 204, 21, 0.42);
+  background:
+    radial-gradient(circle at 50% 0%, rgba(250, 204, 21, 0.14), transparent 30%),
+    linear-gradient(180deg, rgba(31, 39, 60, 0.96), rgba(13, 18, 32, 0.97));
+  box-shadow: 0 28px 82px rgba(0, 0, 0, 0.5), 0 0 42px rgba(250, 204, 21, 0.07);
+}
+
+body.slot-app .panel {
+  border-color: rgba(167, 139, 250, 0.2);
+}
+
+body.slot-app .status-pill {
+  border-color: rgba(250, 204, 21, 0.26);
+  background: rgba(10, 14, 27, 0.6);
+}
+
+body.slot-admin {
+  --bg-a: #0a0d17;
+  --bg-b: #111522;
+  --bg-c: #181124;
+  --surface: rgba(17, 21, 35, 0.94);
+  --surface-strong: rgba(24, 29, 46, 0.97);
+  --surface-soft: rgba(255, 255, 255, 0.045);
+  --line: rgba(178, 189, 211, 0.16);
+  padding-bottom: 32px;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(56, 189, 248, 0.09), transparent 28%),
+    radial-gradient(circle at 88% 9%, rgba(167, 139, 250, 0.12), transparent 27%),
+    linear-gradient(180deg, var(--bg-a), var(--bg-b) 50%, var(--bg-c));
+  animation: none;
+}
+
+body.slot-admin::before {
+  opacity: 0.4;
+  animation: none;
+}
+
+body.slot-admin::after {
+  opacity: 0.35;
+  background: linear-gradient(180deg, rgba(2, 6, 23, 0.12), rgba(2, 6, 23, 0.5));
+  animation: none;
+}
+
+.slot-admin .hero-lights span,
+.slot-admin .hero-jackpot,
+.slot-admin .top-band::before,
+.slot-admin .top-band::after,
+.slot-admin .panel::before {
+  animation: none !important;
+}
+
+.slot-admin .top-band {
+  border-color: rgba(167, 139, 250, 0.28);
+  background:
+    linear-gradient(120deg, rgba(25, 31, 51, 0.98), rgba(14, 18, 31, 0.98) 58%, rgba(36, 25, 54, 0.96));
+  box-shadow: 0 18px 54px rgba(0, 0, 0, 0.38);
+}
+
+.slot-admin .top-band::after {
+  opacity: 0.35;
+}
+
+.slot-admin .panel {
+  border-color: rgba(167, 139, 250, 0.16);
+  background:
+    linear-gradient(145deg, rgba(167, 139, 250, 0.035), transparent 42%),
+    rgba(17, 21, 35, 0.96);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.28);
+}
+
+.slot-admin .section-panel {
+  border-left: 3px solid rgba(167, 139, 250, 0.32);
+}
+
+.slot-admin .grid-form label {
+  padding: 10px;
+  border: 1px solid rgba(178, 189, 211, 0.1);
+  border-radius: var(--radius-md);
+  background: rgba(5, 8, 18, 0.22);
+}
+
+.slot-admin input,
+.slot-admin select,
+.slot-admin textarea {
+  background: rgba(4, 7, 16, 0.66);
+}
+
+.slot-admin .admin-prize {
+  border-color: rgba(56, 189, 248, 0.16);
+  background: rgba(9, 13, 25, 0.5);
+}
+
+.slot-admin .status-pill {
+  border-color: rgba(167, 139, 250, 0.24);
+  background: rgba(13, 17, 31, 0.8);
+}
+
+@media (max-width: 760px) {
+  body.slot-admin {
+    padding-bottom: 20px;
+  }
+
+  .slot-admin .grid-form label {
+    padding: 8px;
+  }
+}

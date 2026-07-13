@@ -2,6 +2,8 @@ const tg = window.Telegram?.WebApp;
 
 const state = {
   initData: tg?.initData || "",
+  webSessionToken: "",
+  authAccount: null,
   profileBundle: null,
   pendingBundleCandidate: null,
   bundleRefreshPromise: null,
@@ -42,8 +44,11 @@ const state = {
 };
 
 const WIKI_BUNDLE_CACHE_KEY = "xiuxian_wiki_bundle_v3";
-const BOOTSTRAP_CACHE_KEY_PREFIX = "xiuxian_bootstrap_core_v1";
+const BOOTSTRAP_CACHE_KEY_PREFIX = "xiuxian_bootstrap_core_v2";
+const BOOTSTRAP_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const FOLD_STATE_CACHE_KEY_PREFIX = "xiuxian_fold_states_v1";
+const WEB_AUTH_TOKEN_KEY = "xiuxian_web_session_token_v1";
+const WEB_AUTH_ACCOUNT_KEY = "xiuxian_web_account_v1";
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
 const DEFERRED_SECTION_REQUEST_TIMEOUT_MS = 18000;
 const WIKI_REQUEST_TIMEOUT_MS = 20000;
@@ -312,7 +317,7 @@ async function postJsonLegacy(path, body = {}) {
   const response = await fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ init_data: state.initData, ...body })
+    body: JSON.stringify({ init_data: authInitData(), ...body })
   });
   const payload = await response.json();
   if (!response.ok || payload.code !== 200) {
@@ -326,12 +331,14 @@ async function uploadImageLegacy(path, file, folder) {
     throw new Error("请先选择一张图片");
   }
   const formData = new FormData();
-  formData.append("init_data", state.initData);
+  formData.append("init_data", authInitData());
   formData.append("folder", folder);
   formData.append("file", file);
+  const headers = state.webSessionToken ? { Authorization: `Bearer ${state.webSessionToken}` } : undefined;
   const response = await fetch(path, {
     method: "POST",
-    body: formData
+    body: formData,
+    headers,
   });
   const payload = await response.json();
   if (!response.ok || payload.code !== 200) {
@@ -431,12 +438,18 @@ async function readResponsePayload(response) {
 async function postJson(path, body = {}, options = {}) {
   const timeoutMs = Number(options.timeoutMs || DEFAULT_REQUEST_TIMEOUT_MS);
   const { signal, cleanup } = timeoutSignal(timeoutMs);
+  const includeAuth = options.includeAuth !== false;
+  const headers = { "Content-Type": "application/json" };
+  if (includeAuth && state.webSessionToken) {
+    headers.Authorization = `Bearer ${state.webSessionToken}`;
+  }
+  const requestBody = includeAuth ? { init_data: authInitData(), ...body } : { ...body };
   let response;
   try {
     response = await fetch(path, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ init_data: state.initData, ...body }),
+      headers,
+      body: JSON.stringify(requestBody),
       signal,
     });
   } catch (error) {
@@ -461,7 +474,11 @@ async function postJson(path, body = {}, options = {}) {
     if (response.status === 429) {
       throw new Error("当前修仙请求较多，请稍后再试。");
     }
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = response.status;
+    error.code = payload.code;
+    error.payload = payload;
+    throw error;
   }
   rememberBundleCandidate(payload.data);
   return payload.data;
@@ -488,18 +505,249 @@ async function uploadImage(path, file, folder) {
     throw new Error("请先选择一张图片");
   }
   const formData = new FormData();
-  formData.append("init_data", state.initData);
+  formData.append("init_data", authInitData());
   formData.append("folder", folder);
   formData.append("file", file);
+  const headers = state.webSessionToken ? { Authorization: `Bearer ${state.webSessionToken}` } : undefined;
   const response = await fetch(path, {
     method: "POST",
-    body: formData
+    body: formData,
+    headers,
   });
   const payload = await readResponsePayload(response);
   if (!response.ok || payload.code !== 200) {
     throw new Error(payload.detail || payload.message || "上传失败");
   }
   return payload.data;
+}
+
+function authPanelElements() {
+  return {
+    card: document.querySelector("#auth-card"),
+    status: document.querySelector("#auth-status"),
+    loginForm: document.querySelector("#auth-login-form"),
+    registerForm: document.querySelector("#auth-register-form"),
+    bindPanel: document.querySelector("#auth-bind-panel"),
+    tabs: document.querySelector(".auth-tabs"),
+    loginTab: document.querySelector("[data-auth-mode='login']"),
+    registerTab: document.querySelector("[data-auth-mode='register']"),
+    bindButton: document.querySelector("#auth-bind-telegram"),
+    logoutButton: document.querySelector("#auth-logout"),
+    closeButton: document.querySelector("#auth-close"),
+    accountName: document.querySelector("#auth-account-name"),
+    bindHint: document.querySelector("#auth-bind-hint"),
+    bindState: document.querySelector("#auth-bind-state"),
+  };
+}
+
+function authStatusText() {
+  if (state.authAccount?.bound) {
+    const label = state.authAccount.display_name || state.authAccount.username || "网页账号";
+    return `${label} 已绑定 TG ${state.authAccount.tg}`;
+  }
+  if (state.webSessionToken) {
+    return "账号已登录，完成 Telegram 绑定后即可进入修仙。";
+  }
+  if (hasTelegramInitData()) {
+    return "当前在 Telegram 内，可直接绑定新账号。";
+  }
+  return "登录后可在浏览器打开修仙面板。";
+}
+
+function renderAuthPanel(mode = "") {
+  const elements = authPanelElements();
+  if (!elements.card) return;
+  const hasSession = Boolean(state.webSessionToken);
+  const isBound = Boolean(state.authAccount?.bound);
+  const shouldShow = Boolean(mode) || !hasSession || !isBound;
+  let activeMode = mode || state.authMode || "login";
+  if (hasSession && !isBound) activeMode = "bind";
+  if (hasSession && isBound && activeMode === "bind") activeMode = "account";
+  if (!hasSession && ["bind", "account"].includes(activeMode)) activeMode = "login";
+  state.authMode = activeMode;
+
+  elements.card.classList.toggle("hidden", !shouldShow);
+  elements.loginForm?.classList.toggle("hidden", activeMode !== "login");
+  elements.registerForm?.classList.toggle("hidden", activeMode !== "register");
+  elements.bindPanel?.classList.toggle("hidden", !["bind", "account"].includes(activeMode));
+  elements.tabs?.classList.toggle("hidden", hasSession);
+  elements.loginTab?.classList.toggle("is-active", activeMode === "login");
+  elements.registerTab?.classList.toggle("is-active", activeMode === "register");
+  if (elements.status) elements.status.textContent = authStatusText();
+  if (elements.accountName) {
+    elements.accountName.textContent = state.authAccount?.display_name || state.authAccount?.username || "未登录";
+  }
+  if (elements.bindHint) {
+    elements.bindHint.textContent = isBound
+      ? `${state.authAccount?.telegram_label || `TG ${state.authAccount?.tg || ""}`} 已绑定，可在修仙与斗破中使用。`
+      : hasTelegramInitData()
+        ? "点击绑定后会使用当前 Telegram 身份完成验证。"
+        : "请从 Telegram Mini App 打开此页完成绑定。";
+  }
+  if (elements.bindButton) {
+    elements.bindButton.disabled = !hasTelegramInitData();
+    elements.bindButton.classList.toggle("hidden", isBound);
+  }
+  elements.closeButton?.classList.toggle("hidden", !(isBound && activeMode === "account"));
+  if (elements.bindState) {
+    elements.bindState.textContent = isBound ? "已绑定" : "待绑定";
+    elements.bindState.classList.toggle("badge--normal", isBound);
+  }
+}
+
+function setGameLocked(locked) {
+  document.body.classList.toggle("auth-locked", Boolean(locked));
+}
+
+function resetAuthenticatedView() {
+  setGameLocked(true);
+  state.profileBundle = null;
+  state.pendingBundleCandidate = null;
+  state.deferredBundleLoaded = false;
+  state.deferredBundlePromise = null;
+  clearDeferredSectionState();
+  document.querySelectorAll(".fold-card, #fold-toolbar").forEach((element) => {
+    element.classList.add("hidden");
+    if ("open" in element) element.open = false;
+  });
+  renderBottomNav([]);
+}
+
+function isBindRequiredError(error) {
+  return Number(error?.status || 0) === 403 && String(error?.message || "").includes("绑定");
+}
+
+function isWebSessionError(error) {
+  return Boolean(state.webSessionToken) && Number(error?.status || 0) === 401;
+}
+
+async function resumeAfterAuth() {
+  renderAuthPanel();
+  if (state.authAccount?.bound) {
+    await bootstrap();
+  }
+}
+
+function handleAuthResult(payload) {
+  const sessionToken = String(payload?.session_token || state.webSessionToken || "").trim();
+  const account = normalizeAuthAccount(payload?.account);
+  storeWebAuth(sessionToken, account);
+  if (payload?.telegram_user) {
+    rememberTelegramIdentity(payload.telegram_user);
+  }
+  renderAuthPanel(account?.bound ? "" : "bind");
+  return account;
+}
+
+function setupAuthPanel() {
+  const elements = authPanelElements();
+  if (!elements.card || elements.card.dataset.authBound) return;
+  elements.card.dataset.authBound = "1";
+  elements.loginTab?.addEventListener("click", () => renderAuthPanel("login"));
+  elements.registerTab?.addEventListener("click", () => renderAuthPanel("register"));
+
+  elements.loginForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = event.currentTarget.querySelector("button[type='submit']");
+    try {
+      const account = await runButtonAction(button, "登录中…", async () => {
+        const data = await postJson(
+          "/plugins/xiuxian/api/auth/login",
+          {
+            username: document.querySelector("#auth-login-username")?.value || "",
+            password: document.querySelector("#auth-login-password")?.value || "",
+            init_data: state.initData,
+          },
+          { includeAuth: false, timeoutMs: 20000 },
+        );
+        return handleAuthResult(data);
+      });
+      setStatus(account?.bound ? "登录成功，正在同步修仙状态。" : "登录成功，请完成 Telegram 绑定。", account?.bound ? "success" : "warning");
+      await resumeAfterAuth();
+    } catch (error) {
+      const message = normalizeError(error, "登录失败。");
+      setStatus(message, "error");
+      await popup("登录失败", message, "error");
+    }
+  });
+
+  elements.registerForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const password = String(document.querySelector("#auth-register-password")?.value || "");
+    const confirm = String(document.querySelector("#auth-register-confirm")?.value || "");
+    if (password !== confirm) {
+      setStatus("两次输入的密码不一致。", "error");
+      return;
+    }
+    const button = event.currentTarget.querySelector("button[type='submit']");
+    try {
+      const account = await runButtonAction(button, "注册中…", async () => {
+        const data = await postJson(
+          "/plugins/xiuxian/api/auth/register",
+          {
+            username: document.querySelector("#auth-register-username")?.value || "",
+            display_name: document.querySelector("#auth-register-display")?.value || "",
+            password,
+            init_data: state.initData,
+          },
+          { includeAuth: false, timeoutMs: 25000 },
+        );
+        return handleAuthResult(data);
+      });
+      setStatus(account?.bound ? "注册成功，正在同步修仙状态。" : "注册成功，请完成 Telegram 绑定。", account?.bound ? "success" : "warning");
+      await resumeAfterAuth();
+    } catch (error) {
+      const message = normalizeError(error, "注册失败。");
+      setStatus(message, "error");
+      await popup("注册失败", message, "error");
+    }
+  });
+
+  elements.bindButton?.addEventListener("click", async (event) => {
+    if (!hasTelegramInitData()) {
+      setStatus("请从 Telegram Mini App 打开此页完成绑定。", "warning");
+      return;
+    }
+    const button = event.currentTarget;
+    try {
+      const account = await runButtonAction(button, "绑定中…", async () => {
+        const data = await postJson(
+          "/plugins/xiuxian/api/auth/bind-telegram",
+          {
+            session_token: state.webSessionToken,
+            init_data: state.initData,
+          },
+          { includeAuth: false, timeoutMs: 20000 },
+        );
+        storeWebAuth(state.webSessionToken, data.account);
+        rememberTelegramIdentity(data.telegram_user);
+        renderAuthPanel();
+        return normalizeAuthAccount(data.account);
+      });
+      setStatus(`已绑定 TG ${account?.tg || ""}，正在同步修仙状态。`, "success");
+      await resumeAfterAuth();
+    } catch (error) {
+      const message = normalizeError(error, "绑定失败。");
+      setStatus(message, "error");
+      await popup("绑定失败", message, "error");
+    }
+  });
+
+  elements.logoutButton?.addEventListener("click", async () => {
+    const token = state.webSessionToken;
+    if (token) {
+      await postJson("/plugins/xiuxian/api/auth/logout", { session_token: token }, { includeAuth: false }).catch(() => null);
+    }
+    clearWebAuth();
+    resetAuthenticatedView();
+    renderAuthPanel("login");
+    setStatus("已退出网页账号。", "warning");
+  });
+  elements.closeButton?.addEventListener("click", () => renderAuthPanel(""));
+  document.querySelector("#open-account-center")?.addEventListener("click", () => {
+    renderAuthPanel("account");
+    document.querySelector("#auth-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 }
 
 async function runButtonAction(button, pendingText, handler, { lockKey = "" } = {}) {
@@ -819,14 +1067,88 @@ function writeLocalStorage(key, value) {
   }
 }
 
+function normalizeAuthAccount(account) {
+  if (!account || typeof account !== "object") return null;
+  const id = Number(account.id || 0);
+  const tgId = Number(account.tg || 0);
+  const username = String(account.username || "").trim();
+  return {
+    id: id > 0 ? id : null,
+    username,
+    display_name: String(account.display_name || username || "").trim(),
+    tg: tgId > 0 ? tgId : null,
+    bound: tgId > 0 || Boolean(account.bound),
+    telegram_username: String(account.telegram_username || "").trim(),
+    telegram_display_name: String(account.telegram_display_name || "").trim(),
+    telegram_label: String(account.telegram_label || "").trim(),
+    enabled: account.enabled !== false,
+  };
+}
+
+function loadStoredWebAuth() {
+  state.webSessionToken = String(readLocalStorage(WEB_AUTH_TOKEN_KEY) || "").trim();
+  try {
+    state.authAccount = normalizeAuthAccount(JSON.parse(readLocalStorage(WEB_AUTH_ACCOUNT_KEY) || "null"));
+  } catch (error) {
+    state.authAccount = null;
+    writeLocalStorage(WEB_AUTH_ACCOUNT_KEY, null);
+  }
+}
+
+function storeWebAuth(sessionToken, account) {
+  const token = String(sessionToken || state.webSessionToken || "").trim();
+  const normalizedAccount = normalizeAuthAccount(account);
+  state.webSessionToken = token;
+  state.authAccount = normalizedAccount;
+  writeLocalStorage(WEB_AUTH_TOKEN_KEY, token || null);
+  writeLocalStorage(WEB_AUTH_ACCOUNT_KEY, normalizedAccount ? JSON.stringify(normalizedAccount) : null);
+}
+
+function clearWebAuth() {
+  state.webSessionToken = "";
+  state.authAccount = null;
+  writeLocalStorage(WEB_AUTH_TOKEN_KEY, null);
+  writeLocalStorage(WEB_AUTH_ACCOUNT_KEY, null);
+}
+
+function hasTelegramInitData() {
+  return Boolean(String(state.initData || "").trim());
+}
+
+function authInitData() {
+  if (state.webSessionToken) return `web_session:${state.webSessionToken}`;
+  if (hasTelegramInitData()) return String(state.initData || "").trim();
+  return "";
+}
+
+function authIdentityKey() {
+  const telegramUserId = Number(tg?.initDataUnsafe?.user?.id || 0);
+  if (telegramUserId > 0) return String(telegramUserId);
+  const accountTg = Number(state.authAccount?.tg || 0);
+  if (accountTg > 0) return String(accountTg);
+  if (state.webSessionToken) return `web:${state.webSessionToken.slice(0, 12)}`;
+  return "anon";
+}
+
+function rememberTelegramIdentity(telegramUser) {
+  const tgId = Number(telegramUser?.id || 0);
+  if (tgId <= 0 || !state.webSessionToken) return;
+  const displayName = [telegramUser?.first_name, telegramUser?.last_name].filter(Boolean).join(" ").trim();
+  storeWebAuth(state.webSessionToken, {
+    ...(state.authAccount || {}),
+    username: state.authAccount?.username || String(telegramUser?.username || "").trim(),
+    display_name: state.authAccount?.display_name || displayName,
+    tg: tgId,
+    bound: true,
+  });
+}
+
 function bootstrapCacheKey() {
-  const userId = Number(tg?.initDataUnsafe?.user?.id || 0);
-  return `${BOOTSTRAP_CACHE_KEY_PREFIX}:${userId > 0 ? userId : "anon"}`;
+  return `${BOOTSTRAP_CACHE_KEY_PREFIX}:${authIdentityKey()}`;
 }
 
 function foldStateCacheKey() {
-  const userId = Number(tg?.initDataUnsafe?.user?.id || 0);
-  return `${FOLD_STATE_CACHE_KEY_PREFIX}:${userId > 0 ? userId : "anon"}`;
+  return `${FOLD_STATE_CACHE_KEY_PREFIX}:${authIdentityKey()}`;
 }
 
 function hydrateFoldStates() {
@@ -903,6 +1225,11 @@ function hydrateBootstrapCache() {
       writeLocalStorage(bootstrapCacheKey(), null);
       return null;
     }
+    const savedAt = Number(parsed.saved_at || 0);
+    if (savedAt > 0 && Date.now() - savedAt > BOOTSTRAP_CACHE_MAX_AGE_MS) {
+      writeLocalStorage(bootstrapCacheKey(), null);
+      return null;
+    }
     return parsed;
   } catch (error) {
     writeLocalStorage(bootstrapCacheKey(), null);
@@ -917,7 +1244,30 @@ function storeBootstrapCache(payload) {
   writeLocalStorage(bootstrapCacheKey(), JSON.stringify({
     profile_bundle: payload.profile_bundle,
     bottom_nav: Array.isArray(payload.bottom_nav) ? payload.bottom_nav : [],
+    cache_generation: String(payload.cache_generation || "").trim(),
+    saved_at: Date.now(),
   }));
+}
+
+function bootstrapCacheGeneration(payload) {
+  return String(payload?.cache_generation || "").trim();
+}
+
+function applyBootstrapPayload(payload, { skipIfSameGeneration = false, cachedGeneration = "" } = {}) {
+  rememberTelegramIdentity(payload?.telegram_user);
+  const generation = bootstrapCacheGeneration(payload);
+  const sameGeneration = Boolean(
+    skipIfSameGeneration
+    && generation
+    && cachedGeneration
+    && generation === cachedGeneration
+  );
+  storeBootstrapCache(payload);
+  if (!sameGeneration) {
+    renderBottomNav(payload.bottom_nav || []);
+    applyProfileBundle(payload.profile_bundle);
+  }
+  return sameGeneration;
 }
 
 function hydrateWikiBundleFromCache() {
@@ -1972,8 +2322,6 @@ function renderOpenLazyFoldCards() {
 function queueOpenLazyFoldCards() {
   deferUiWork(renderOpenLazyFoldCards);
 }
-
-function warmDeferredBundleForInteraction() {}
 
 function keepShortcutVisible(shortcuts, button) {
   if (!shortcuts || !button) return;
@@ -4497,7 +4845,21 @@ async function loadDeferredBundle({ silent = false } = {}) {
 }
 
 function scheduleDeferredBootstrapWork() {
-  return;
+  const prefetchSections = ["inventory", "explore", "official_shop", "sect", "task"];
+  const runner = () => {
+    prefetchSections.forEach((section) => {
+      loadDeferredSection(section, { silent: true }).catch(() => null);
+    });
+  };
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(runner, { timeout: 2500 });
+  } else {
+    window.setTimeout(runner, 600);
+  }
+}
+
+function warmDeferredBundleForInteraction() {
+  scheduleDeferredBootstrapWork();
 }
 
 async function refreshBundle({ background = false } = {}) {
@@ -4517,9 +4879,7 @@ async function refreshBundle({ background = false } = {}) {
       state.deferredBundlePromise = null;
       clearDeferredSectionState();
       const payload = await postJson("/plugins/xiuxian/api/bootstrap", {}, { timeoutMs: 20000 });
-      storeBootstrapCache(payload);
-      renderBottomNav(payload.bottom_nav || []);
-      applyProfileBundle(payload.profile_bundle);
+      applyBootstrapPayload(payload);
       return state.profileBundle;
     }
     state.deferredBundleLoaded = false;
@@ -4528,8 +4888,7 @@ async function refreshBundle({ background = false } = {}) {
     const payload = await postJson("/plugins/xiuxian/api/bootstrap", {}, { timeoutMs: 20000 });
     storeBootstrapCache(payload);
     renderBottomNav(payload.bottom_nav || []);
-    const mergedBundle = mergeBundleData(state.profileBundle, payload.profile_bundle);
-    applyProfileBundle(mergedBundle);
+    applyProfileBundle(mergeBundleData(state.profileBundle, payload.profile_bundle));
     return state.profileBundle;
   };
   state.bundleRefreshPromise = runner().finally(() => {
@@ -4590,34 +4949,58 @@ async function refreshLeaderboard(kind = state.leaderboard.kind, page = state.le
 }
 
 async function bootstrap() {
-  if (!tg) {
-    setStatus("这个页面需要从 Telegram Mini App 中打开。", "error");
-    return;
+  if (tg) {
+    tg.ready();
+    tg.expand();
+    tg.setHeaderColor("#eef4ff");
+    tg.setBackgroundColor("#eef4ff");
   }
 
-  tg.ready();
-  tg.expand();
-  tg.setHeaderColor("#eef4ff");
-  tg.setBackgroundColor("#eef4ff");
+  renderAuthPanel();
+  if (!state.webSessionToken) {
+    resetAuthenticatedView();
+    renderAuthPanel("login");
+    setStatus("请先登录统一游戏账号，并绑定 Telegram。", "warning");
+    return;
+  }
 
   renderWikiArea();
   state.deferredBundleLoaded = false;
   state.deferredBundlePromise = null;
   clearDeferredSectionState();
   const cachedPayload = hydrateBootstrapCache();
+  const cachedGeneration = bootstrapCacheGeneration(cachedPayload);
   if (cachedPayload?.profile_bundle) {
     renderBottomNav(cachedPayload.bottom_nav || []);
     applyProfileBundle(cachedPayload.profile_bundle);
   }
   try {
     const payload = await postJson("/plugins/xiuxian/api/bootstrap", {}, { timeoutMs: 20000 });
-    storeBootstrapCache(payload);
-    renderBottomNav(payload.bottom_nav || []);
-    applyProfileBundle(payload.profile_bundle);
+    setGameLocked(false);
+    rememberTelegramIdentity(payload?.telegram_user);
+    renderAuthPanel();
+    applyBootstrapPayload(payload, {
+      skipIfSameGeneration: true,
+      cachedGeneration,
+    });
     if (payload.initial_leaderboard) {
       renderLeaderboard(payload.initial_leaderboard);
     }
+    scheduleDeferredBootstrapWork();
   } catch (error) {
+    if (isWebSessionError(error)) {
+      clearWebAuth();
+      resetAuthenticatedView();
+      renderAuthPanel("login");
+      setStatus("登录已失效，请重新登录。", "warning");
+      return;
+    }
+    if (isBindRequiredError(error)) {
+      resetAuthenticatedView();
+      renderAuthPanel("bind");
+      setStatus("完成 Telegram 绑定后即可进入修仙。", "warning");
+      return;
+    }
     if (!cachedPayload?.profile_bundle) {
       throw error;
     }
@@ -9756,6 +10139,8 @@ document.querySelector("#wiki-result-list")?.addEventListener("click", async (ev
   await openWikiEntry(button.dataset.wikiEntry || "");
 });
 
+loadStoredWebAuth();
+setupAuthPanel();
 setupFoldToolbar();
 setupMobileInteractionPolish();
 setupBottomNavLayout();

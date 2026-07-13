@@ -13,8 +13,15 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy.exc import DataError
 
-from bot import LOGGER, api as api_config, bot, config, group, owner
-from bot.plugins import list_miniapp_plugins
+from bot import LOGGER, bot, group
+from bot.plugins.sdk import (
+    AdminBootstrapPayload,
+    InitDataPayload,
+    build_bottom_nav,
+    public_url_root,
+    verify_admin_credential,
+    verify_telegram_user,
+)
 from bot.sql_helper.sql_emby import sql_get_emby
 from bot.sql_helper.sql_invite import (
     INVITE_CREDIT_TYPE_ACCOUNT_OPEN,
@@ -32,7 +39,7 @@ from bot.sql_helper.sql_shop import (
     _normalize_shop_price,
     update_shop_item,
 )
-from bot.web.api.miniapp import is_admin_user_id, verify_init_data
+from bot.web.api.miniapp import is_admin_user_id
 from bot.web.presenters import serialize_emby_user
 
 
@@ -44,15 +51,6 @@ PLUGIN_MANIFEST = json.loads((PLUGIN_ROOT / "plugin.json").read_text(encoding="u
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 ALLOWED_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
-
-
-class InitDataPayload(BaseModel):
-    init_data: str
-
-
-class AdminBootstrapPayload(BaseModel):
-    token: str | None = None
-    init_data: str | None = None
 
 
 class ShopSettingsPayload(BaseModel):
@@ -134,12 +132,6 @@ def _invite_credit_purchase_disabled_message(invite_credit_type: str | None) -> 
     return "该邀请资格暂不支持购买"
 
 
-def _public_url_root(base_url: str | None = None) -> str:
-    if api_config.public_url:
-        return str(api_config.public_url).rstrip("/")
-    return str(base_url or "").rstrip("/")
-
-
 def _sanitize_upload_folder(folder: str | None) -> str:
     raw = (folder or "misc").strip().replace("\\", "/")
     parts = []
@@ -167,7 +159,7 @@ def _resolve_group_image_source(image_url: str | None) -> str | Path | None:
         local_path = UPLOAD_DIR.joinpath(*[part for part in relative_path.split("/") if part])
         if local_path.exists():
             return str(local_path)
-        public_root = _public_url_root()
+        public_root = public_url_root()
         if public_root:
             return f"{public_root}{upload_path}"
     return image_url
@@ -199,31 +191,13 @@ async def _save_uploaded_image(file: UploadFile, folder: str, base_url: str | No
     target = target_dir / filename
     target.write_bytes(payload)
     relative_url = f"/plugins/shop/uploads/{subdir}/{filename}"
-    public_root = _public_url_root(base_url)
+    public_root = public_url_root(base_url)
     return {
         "name": filename,
         "size": len(payload),
         "relative_url": relative_url,
         "url": f"{public_root}{relative_url}" if public_root else relative_url,
     }
-
-
-def _verify_user_from_init_data(init_data: str) -> dict[str, Any]:
-    verified = verify_init_data(init_data)
-    return verified["user"]
-
-
-def _verify_admin_credential(token: str | None, init_data: str | None) -> dict[str, Any]:
-    expected_token = api_config.admin_token or ""
-    if token and token == expected_token:
-        return {"id": owner, "auth": "token"}
-    if init_data:
-        user = _verify_user_from_init_data(init_data)
-        if is_admin_user_id(user["id"]):
-            user["auth"] = "telegram"
-            return user
-        raise HTTPException(status_code=403, detail="当前 Telegram 账号没有后台权限")
-    raise HTTPException(status_code=401, detail="缺少后台登录凭证")
 
 
 def _can_user_publish(user_id: int) -> bool:
@@ -332,7 +306,7 @@ def _serialize_shop_bundle(user_id: int | None = None, *, include_orders: bool =
         "meta": {
             "plugin_name": PLUGIN_MANIFEST.get("name"),
             "version": PLUGIN_MANIFEST.get("version"),
-            "bottom_nav": _build_bottom_nav(),
+            "bottom_nav": build_bottom_nav(),
         },
         "settings": get_shop_settings(),
         "items": list_shop_items(enabled_only=not include_orders),
@@ -346,34 +320,6 @@ def _serialize_shop_bundle(user_id: int | None = None, *, include_orders: bool =
         },
     }
     return payload
-
-
-def _build_bottom_nav() -> list[dict[str, str]]:
-    items = [
-        {
-            "id": "home",
-            "label": "主页",
-            "path": "/miniapp",
-            "icon": "🏠",
-        }
-    ]
-
-    for plugin in list_miniapp_plugins():
-        if not plugin.get("enabled") or not plugin.get("loaded") or not plugin.get("web_registered"):
-            continue
-        plugin_visible = bool(config.plugin_nav.get(plugin["id"], plugin.get("bottom_nav_default", False)))
-        if not plugin.get("miniapp_path") or not plugin_visible:
-            continue
-        items.append(
-            {
-                "id": plugin["id"],
-                "label": plugin.get("miniapp_label") or plugin["name"],
-                "path": plugin["miniapp_path"],
-                "icon": plugin.get("miniapp_icon") or "◇",
-            }
-        )
-
-    return items
 
 
 def register_web(app) -> None:
@@ -395,14 +341,14 @@ def register_web(app) -> None:
 
     @user_router.post("/api/bootstrap")
     async def shop_bootstrap(payload: InitDataPayload):
-        user = await run_in_threadpool(_verify_user_from_init_data, payload.init_data)
+        user = await run_in_threadpool(verify_telegram_user, payload.init_data)
         bundle = await run_in_threadpool(_serialize_shop_bundle, int(user["id"]))
         return {"code": 200, "data": bundle}
 
     @user_router.post("/api/listing")
     async def shop_create_listing(payload: UserListingPayload):
         def _create_listing():
-            user = _verify_user_from_init_data(payload.init_data)
+            user = verify_telegram_user(payload.init_data)
             if not _can_user_publish(int(user["id"])):
                 raise HTTPException(status_code=403, detail="当前未开放普通用户上架商品")
             display_name = " ".join(part for part in [user.get("first_name"), user.get("last_name")] if part).strip()
@@ -435,7 +381,7 @@ def register_web(app) -> None:
     @user_router.post("/api/purchase")
     async def shop_purchase(payload: ShopPurchasePayload):
         def _purchase_item():
-            user = _verify_user_from_init_data(payload.init_data)
+            user = verify_telegram_user(payload.init_data)
             item = get_shop_item(payload.item_id)
             if item is None:
                 raise HTTPException(status_code=404, detail="商品不存在")
@@ -474,7 +420,7 @@ def register_web(app) -> None:
     ):
         init_data = request.headers.get("x-telegram-init-data")
         def _verify_upload_permission():
-            user = _verify_user_from_init_data(init_data or "")
+            user = verify_telegram_user(init_data or "")
             if not _can_user_publish(int(user["id"])):
                 raise HTTPException(status_code=403, detail="当前未开放普通用户上架商品")
 
@@ -483,7 +429,7 @@ def register_web(app) -> None:
 
     @admin_router.post("/bootstrap")
     async def shop_admin_bootstrap(payload: AdminBootstrapPayload):
-        admin_user = await run_in_threadpool(_verify_admin_credential, payload.token, payload.init_data)
+        admin_user = await run_in_threadpool(verify_admin_credential, payload.token, payload.init_data)
         bundle = await run_in_threadpool(lambda: _serialize_shop_bundle(admin_user.get("id"), include_orders=True))
         return {
             "code": 200,
@@ -497,7 +443,7 @@ def register_web(app) -> None:
     def shop_settings_api(payload: ShopSettingsPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        _verify_admin_credential(token, init_data)
+        verify_admin_credential(token, init_data)
         settings = set_shop_settings(payload.model_dump(exclude_unset=True))
         return {"code": 200, "data": settings}
 
@@ -507,7 +453,7 @@ def register_web(app) -> None:
         init_data = request.headers.get("x-telegram-init-data")
 
         def _create_admin_item():
-            admin_user = _verify_admin_credential(token, init_data)
+            admin_user = verify_admin_credential(token, init_data)
             item = create_shop_item(
                 owner_tg=int(admin_user.get("id")) if admin_user.get("id") is not None else None,
                 owner_display_name=admin_user.get("first_name") or "官方",
@@ -537,7 +483,7 @@ def register_web(app) -> None:
     def shop_item_patch_api(item_id: int, payload: ShopItemPatchPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        _verify_admin_credential(token, init_data)
+        verify_admin_credential(token, init_data)
         fields = payload.model_dump(exclude_unset=True)
         if "price_iv" in fields:
             fields["price_iv"] = _normalize_shop_price(fields.get("price_iv"))
@@ -553,7 +499,7 @@ def register_web(app) -> None:
     def shop_item_delete_api(item_id: int, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        _verify_admin_credential(token, init_data)
+        verify_admin_credential(token, init_data)
         deleted = delete_shop_item(item_id)
         if not deleted:
             raise HTTPException(status_code=404, detail="商品不存在")
@@ -567,7 +513,7 @@ def register_web(app) -> None:
     ):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        await run_in_threadpool(_verify_admin_credential, token, init_data)
+        await run_in_threadpool(verify_admin_credential, token, init_data)
         return {"code": 200, "data": await _save_uploaded_image(file, folder, str(request.base_url))}
 
     app.include_router(user_router)

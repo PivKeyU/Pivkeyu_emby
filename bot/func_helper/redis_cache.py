@@ -165,6 +165,30 @@ def get_int(key: str, default: int = 0) -> int:
         return int(default)
 
 
+def mget_int(keys: list[str], *, default: int = 1) -> list[int]:
+    client = get_client()
+    normalized = [str(key).strip() for key in keys if key and str(key).strip()]
+    if client is None or not normalized:
+        return [int(default)] * len(normalized)
+
+    try:
+        values = client.mget(normalized)
+    except RedisError as exc:
+        LOGGER.warning(f"Redis 批量读取整数失败 keys={normalized}: {exc}")
+        return [int(default)] * len(normalized)
+
+    resolved: list[int] = []
+    for raw in values:
+        if raw is None:
+            resolved.append(int(default))
+            continue
+        try:
+            resolved.append(max(int(raw), 1))
+        except (TypeError, ValueError):
+            resolved.append(int(default))
+    return resolved
+
+
 def increment(key: str, amount: int = 1) -> int:
     client = get_client()
     if client is None:

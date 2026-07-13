@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 from bot.func_helper.emby_currency import get_emby_balance, get_exchange_settings
@@ -27,6 +28,7 @@ from bot.sql_helper.sql_xiuxian import (
     serialize_profile,
 )
 from bot.plugins.xiuxian_game.achievement_service import ACHIEVEMENT_METRIC_LABELS, build_user_achievement_overview
+from bot.plugins.xiuxian_game.features.bundle_cache import load_cached_bootstrap_core_bundle
 from bot.plugins.xiuxian_game.features.exploration import _scene_requirement_state
 from bot.plugins.xiuxian_game.features.farm import build_farm_bundle
 from bot.plugins.xiuxian_game.features.fishing import build_fishing_bundle
@@ -37,61 +39,61 @@ from bot.plugins.xiuxian_game.features.crafting import (
 )
 from bot.plugins.xiuxian_game.features.growth import build_spirit_stone_commissions
 from bot.plugins.xiuxian_game.features.shop import attach_official_recycle_quotes
-from bot.plugins.xiuxian_game.service import (
+from bot.plugins.xiuxian_game.features.runtime_facade import (
     _apply_profile_growth_floor,
+    _artifact_set_index,
     _battle_bundle,
     _breakthrough_requirement,
+    _build_user_technique_rows,
     _current_technique_payload,
+    _decorate_artifact_with_set,
+    _decorate_furnace_profile_for_owner,
     _gender_lock_reason,
+    _get_active_exploration,
+    _get_item_payload,
     _is_retreating,
     _normalized_root_quality,
+    _pill_batch_use_max,
+    _pill_batch_use_note,
+    _pill_supports_batch_use,
+    _pill_usage_reason,
     _profile_name_with_title,
     _rebirth_cooldown_state,
     _repair_profile_realm_state,
-    _root_quality_payload,
-    _settle_retreat_progress,
-    _self_profile_snapshot,
-    _build_user_technique_rows,
-    _artifact_set_index,
-    _decorate_artifact_with_set,
     _resolve_active_artifact_sets,
-    _pill_batch_use_note,
-    _pill_batch_use_max,
-    _pill_supports_batch_use,
-    _pill_usage_reason,
-    build_user_artifact_rows,
-    is_same_china_day,
-    build_mentorship_overview,
+    _root_quality_payload,
+    _scene_exploration_counts,
+    _self_profile_snapshot,
+    _settle_retreat_progress,
+    _user_task_daily_limit,
+    _user_task_publish_count_today,
+    active_talisman_effect_summary,
     build_marriage_overview,
+    build_mentorship_overview,
     build_progress,
+    build_user_artifact_rows,
     format_realm_requirement,
     format_root,
+    get_active_duel_lock,
+    get_current_sect_bundle,
     get_current_title,
     get_profile,
-    get_active_duel_lock,
+    get_talisman,
     get_xiuxian_settings,
+    is_same_china_day,
+    list_sects_for_user,
+    list_tasks_for_user,
     list_user_techniques,
     profile_social_mode,
     realm_requirement_met,
     resolve_pill_effects,
+    resolve_talisman_active_effects,
     resolve_talisman_effects,
     resolve_title_effects,
     seclusion_cultivation_efficiency_percent,
-    serialize_talisman,
-    active_talisman_effect_summary,
     serialize_full_profile,
-    get_talisman,
-    resolve_talisman_active_effects,
-)
-from bot.plugins.xiuxian_game.world_service import (
-    _get_active_exploration,
-    _get_item_payload,
-    _scene_exploration_counts,
-    _user_task_daily_limit,
-    _user_task_publish_count_today,
-    get_current_sect_bundle,
-    list_sects_for_user,
-    list_tasks_for_user,
+    serialize_talisman,
+    utcnow,
 )
 
 
@@ -179,14 +181,20 @@ def build_deferred_profile_sections(
     is_admin: bool = False,
     admin_panel_url: str | None = None,
 ) -> dict[str, Any]:
-    return build_full_profile_bundle(
+    bundle = copy.deepcopy(load_cached_bootstrap_core_bundle(
         tg,
         can_upload_images=can_upload_images,
         upload_image_reason=upload_image_reason,
         allow_non_admin_image_upload=allow_non_admin_image_upload,
         is_admin=is_admin,
         admin_panel_url=admin_panel_url,
-    )
+    ))
+    bundle["sects"] = list_sects_for_user(tg)
+    bundle["tasks"] = list_tasks_for_user(tg)
+    bundle["achievements"] = build_user_achievement_overview(tg)
+    bundle["journal"] = list_recent_journals(tg)
+    bundle["bundle_mode"] = "deferred"
+    return bundle
 
 
 def build_profile_section_bundle(
@@ -203,14 +211,14 @@ def build_profile_section_bundle(
     if normalized not in VALID_PROFILE_SECTIONS:
         raise ValueError("未知的延迟加载模块")
 
-    bundle = build_bootstrap_core_bundle(
+    bundle = copy.deepcopy(load_cached_bootstrap_core_bundle(
         tg,
         can_upload_images=can_upload_images,
         upload_image_reason=upload_image_reason,
         allow_non_admin_image_upload=allow_non_admin_image_upload,
         is_admin=is_admin,
         admin_panel_url=admin_panel_url,
-    )
+    ))
     if normalized in {"inventory", "gift", "official_recycle", "market", "auction", "task", "craft"}:
         _attach_inventory_section(bundle, tg)
 
@@ -734,8 +742,6 @@ def _build_title_section(tg: int, bundle: dict[str, Any]) -> dict[str, Any]:
 
 
 def _build_furnace_section(tg: int, bundle: dict[str, Any]) -> dict[str, Any]:
-    from bot.plugins.xiuxian_game.service import _decorate_furnace_profile_for_owner
-
     profile = bundle.get("profile") or {}
     profile_obj = get_profile(tg, create=False)
     master_profile = serialize_profile(get_profile(int(profile.get("master_tg") or 0), create=False)) if profile.get("master_tg") else None
@@ -803,8 +809,6 @@ def _build_attribute_effects(profile: dict[str, Any], effective_stats: dict[str,
 
 
 def utcnow_placeholder():
-    from bot.plugins.xiuxian_game.service import utcnow
-
     return utcnow()
 
 

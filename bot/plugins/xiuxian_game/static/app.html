@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#071a18">
   <title>修仙面板</title>
   <link rel="preconnect" href="https://telegram.org" crossorigin>
   <link rel="preload" href="https://telegram.org/js/telegram-web-app.js" as="script" crossorigin>
@@ -10,7 +11,7 @@
   <link rel="preload" href="/plugins/xiuxian/static/app.js" as="script">
   <link rel="stylesheet" href="/plugins/xiuxian/static/app.css">
 </head>
-<body>
+<body class="xiuxian-app auth-locked">
   <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
 
   <div id="modal-layer" class="modal-layer hidden" aria-hidden="true">
@@ -29,6 +30,69 @@
   </div>
 
   <main class="app-shell">
+    <section id="auth-card" class="auth-card card hidden">
+      <div class="auth-head">
+        <div>
+          <p class="eyebrow">统一游戏账号</p>
+          <h2>登录并绑定 Telegram</h2>
+        </div>
+        <p id="auth-status" class="section-copy">修仙与斗破共用账号，完成 TG 绑定后才可进入游戏。</p>
+      </div>
+      <ol class="auth-steps" aria-label="进入游戏步骤">
+        <li><span>1</span><div><strong>登录或注册</strong><small>修仙与斗破共用同一个游戏账号</small></div></li>
+        <li><span>2</span><div><strong>绑定 Telegram</strong><small>一个账号只能绑定一个 TG 身份</small></div></li>
+        <li><span>3</span><div><strong>进入游戏</strong><small>网页与 Telegram Mini App 进度同步</small></div></li>
+      </ol>
+      <div class="auth-tabs" role="tablist" aria-label="账号操作">
+        <button type="button" class="ghost is-active" data-auth-mode="login">登录</button>
+        <button type="button" class="ghost" data-auth-mode="register">注册</button>
+      </div>
+      <form id="auth-login-form" class="mini-form auth-form">
+        <label>
+          账号
+          <input id="auth-login-username" type="text" autocomplete="username" maxlength="64" required>
+        </label>
+        <label>
+          密码
+          <input id="auth-login-password" type="password" autocomplete="current-password" maxlength="128" required>
+        </label>
+        <button type="submit">登录</button>
+      </form>
+      <form id="auth-register-form" class="mini-form auth-form hidden">
+        <label>
+          账号
+          <input id="auth-register-username" type="text" autocomplete="username" maxlength="64" required>
+        </label>
+        <label>
+          昵称
+          <input id="auth-register-display" type="text" autocomplete="nickname" maxlength="80">
+        </label>
+        <label>
+          密码
+          <input id="auth-register-password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>
+        </label>
+        <label>
+          确认密码
+          <input id="auth-register-confirm" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>
+        </label>
+        <button type="submit">注册并登录</button>
+      </form>
+      <div id="auth-bind-panel" class="auth-bind-panel hidden">
+        <article class="stack-item">
+          <div class="stack-item-head">
+            <strong id="auth-account-name">未登录</strong>
+            <span id="auth-bind-state" class="tag">待绑定</span>
+          </div>
+          <p id="auth-bind-hint">请从 Telegram Mini App 打开此页完成绑定。</p>
+        </article>
+        <div class="auth-actions">
+          <button id="auth-bind-telegram" type="button">绑定当前 Telegram</button>
+          <button id="auth-close" type="button" class="ghost hidden">返回游戏</button>
+          <button id="auth-logout" type="button" class="ghost">退出账号</button>
+        </div>
+      </div>
+    </section>
+
     <section class="hero-panel card">
       <div class="hero-main">
         <p class="eyebrow">修仙界</p>
@@ -50,6 +114,7 @@
           </div>
           <button id="open-admin-panel" type="button" class="ghost">打开后台</button>
         </div>
+        <button id="open-account-center" type="button" class="ghost account-center-button">账号中心</button>
       </div>
     </section>
 

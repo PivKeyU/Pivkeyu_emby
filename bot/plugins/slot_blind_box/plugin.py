@@ -20,12 +20,18 @@ from pydantic import BaseModel
 from pyrogram import enums
 from sqlalchemy import or_
 
-from bot import LOGGER, api as api_config, bot, config, group, owner, pivkeyu
-from bot.plugins import list_miniapp_plugins
+from bot import LOGGER, api as api_config, bot, config, group, pivkeyu
+from bot.plugins.sdk import (
+    AdminBootstrapPayload,
+    InitDataPayload,
+    build_bottom_nav,
+    verify_admin_credential,
+    verify_telegram_user,
+)
 from bot.sql_helper import Session
 from bot.sql_helper.sql_emby import Emby, _invalidate_emby_payload, _serialize_emby_row, sql_get_emby, sql_invalidate_emby_cache
 from bot.sql_helper.sql_invite import grant_slot_group_invite_credit, normalize_invite_days
-from bot.web.api.miniapp import is_admin_user_id, verify_init_data
+from bot.web.api.miniapp import is_admin_user_id
 from bot.web.presenters import get_level_meta, serialize_emby_user
 
 
@@ -69,6 +75,7 @@ BACKPACK_ITEM_META = {
 STATE_LOCK = RLock()
 RNG = random.SystemRandom()
 STATE_PATH = PROJECT_ROOT / "data" / "plugin_state" / "slot-blind-box" / "state.json"
+STATE_MEMORY_CACHE: dict[str, Any] = {"mtime": 0.0, "payload": None}
 TELEGRAM_IDENTITY_CACHE_TTL = 300.0
 TELEGRAM_IDENTITY_CACHE: dict[int, tuple[float, dict[str, str]]] = {}
 
@@ -193,10 +200,6 @@ DEFAULT_PRIZES = [
 ]
 
 
-class InitDataPayload(BaseModel):
-    init_data: str
-
-
 class RedeemCodePayload(InitDataPayload):
     code: str
 
@@ -227,11 +230,6 @@ class ListingPurchasePayload(InitDataPayload):
 
 class ListingCancelPayload(InitDataPayload):
     listing_id: str
-
-
-class AdminBootstrapPayload(BaseModel):
-    token: str | None = None
-    init_data: str | None = None
 
 
 class AdminUserSearchPayload(BaseModel):
@@ -720,9 +718,16 @@ def _load_state_unlocked() -> dict[str, Any]:
         state = _fresh_state()
         _save_state_unlocked(state)
         return state
+    mtime = STATE_PATH.stat().st_mtime
+    cached = STATE_MEMORY_CACHE
+    if cached["payload"] is not None and cached["mtime"] == mtime:
+        return deepcopy(cached["payload"])
     with STATE_PATH.open("r", encoding="utf-8") as state_file:
         state = json.load(state_file)
-    return _normalize_state(state)
+    state = _normalize_state(state)
+    cached["mtime"] = mtime
+    cached["payload"] = deepcopy(state)
+    return state
 
 
 def _save_state_unlocked(state: dict[str, Any]) -> None:
@@ -731,29 +736,12 @@ def _save_state_unlocked(state: dict[str, Any]) -> None:
     temp_path = STATE_PATH.with_suffix(".tmp")
     temp_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(temp_path, STATE_PATH)
+    STATE_MEMORY_CACHE["mtime"] = STATE_PATH.stat().st_mtime
+    STATE_MEMORY_CACHE["payload"] = deepcopy(state)
 
 
 def _verify_user_from_init_data(init_data: str) -> dict[str, Any]:
-    verified = verify_init_data(init_data)
-    user = verified["user"]
-    try:
-        _store_telegram_identity(int(user["id"]), _telegram_identity_payload(user))
-    except Exception:
-        pass
-    return user
-
-
-def _verify_admin_credential(token: str | None, init_data: str | None) -> dict[str, Any]:
-    expected_token = api_config.admin_token or ""
-    if token and expected_token and token == expected_token:
-        return {"id": owner, "auth": "token"}
-    if init_data:
-        user = _verify_user_from_init_data(init_data)
-        if is_admin_user_id(int(user["id"])):
-            user["auth"] = "telegram"
-            return user
-        raise HTTPException(status_code=403, detail="当前 Telegram 账号没有后台权限")
-    raise HTTPException(status_code=401, detail="缺少后台登录凭证")
+    return verify_telegram_user(init_data, on_verified=_remember_telegram_identity)
 
 
 def _telegram_user_label(user: dict[str, Any]) -> str:
@@ -1586,26 +1574,6 @@ def _public_slot_user(
     }
 
 
-def _build_bottom_nav() -> list[dict[str, str]]:
-    items = [{"id": "home", "label": "主页", "path": "/miniapp", "icon": "🏠"}]
-    plugin_nav = getattr(config, "plugin_nav", {}) or {}
-    for plugin in list_miniapp_plugins():
-        if not plugin.get("enabled") or not plugin.get("loaded") or not plugin.get("web_registered"):
-            continue
-        visible = bool(plugin_nav.get(plugin["id"], plugin.get("bottom_nav_default", False)))
-        if not plugin.get("miniapp_path") or not visible:
-            continue
-        items.append(
-            {
-                "id": plugin["id"],
-                "label": plugin.get("miniapp_label") or plugin["name"],
-                "path": plugin["miniapp_path"],
-                "icon": plugin.get("miniapp_icon") or "◇",
-            }
-        )
-    return items
-
-
 def _serialize_bundle(
     state: dict[str, Any],
     *,
@@ -1621,7 +1589,7 @@ def _serialize_bundle(
             "plugin_name": PLUGIN_MANIFEST.get("name"),
             "version": PLUGIN_MANIFEST.get("version"),
             "symbols": _symbol_pool(state),
-            "bottom_nav": _build_bottom_nav(),
+            "bottom_nav": build_bottom_nav(),
         },
         "settings": settings,
         "probabilities": probabilities,
@@ -2431,7 +2399,7 @@ def register_web(app, context=None) -> None:
 
     @admin_router.post("/bootstrap")
     async def slot_admin_bootstrap(payload: AdminBootstrapPayload):
-        admin_user = await run_in_threadpool(_verify_admin_credential, payload.token, payload.init_data)
+        admin_user = await run_in_threadpool(verify_admin_credential, payload.token, payload.init_data)
         bundle = await run_in_threadpool(_bootstrap_admin_bundle)
         return {"code": 200, "data": {"admin_user": admin_user, **bundle}}
 
@@ -2439,7 +2407,7 @@ def register_web(app, context=None) -> None:
     async def slot_settings_api(payload: SettingsPatchPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        await run_in_threadpool(_verify_admin_credential, token, init_data)
+        await run_in_threadpool(verify_admin_credential, token, init_data)
         try:
             bundle = await run_in_threadpool(_update_settings, payload.model_dump(exclude_unset=True))
         except Exception as exc:
@@ -2450,7 +2418,7 @@ def register_web(app, context=None) -> None:
     async def slot_admin_user_search_api(payload: AdminUserSearchPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        await run_in_threadpool(_verify_admin_credential, token, init_data)
+        await run_in_threadpool(verify_admin_credential, token, init_data)
         try:
             bundle = await run_in_threadpool(_admin_search_users, payload.query, payload.limit)
         except Exception as exc:
@@ -2461,7 +2429,7 @@ def register_web(app, context=None) -> None:
     async def slot_admin_user_stats_api(user_id: int, payload: AdminUserStatsPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        await run_in_threadpool(_verify_admin_credential, token, init_data)
+        await run_in_threadpool(verify_admin_credential, token, init_data)
         try:
             bundle = await run_in_threadpool(
                 _admin_set_user_stats,
@@ -2477,7 +2445,7 @@ def register_web(app, context=None) -> None:
     async def slot_admin_user_reset_all_api(payload: AdminResetAllStatsPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        await run_in_threadpool(_verify_admin_credential, token, init_data)
+        await run_in_threadpool(verify_admin_credential, token, init_data)
         try:
             bundle = await run_in_threadpool(
                 _admin_reset_all_user_stats,
@@ -2491,7 +2459,7 @@ def register_web(app, context=None) -> None:
     async def slot_prize_api(payload: PrizePayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        await run_in_threadpool(_verify_admin_credential, token, init_data)
+        await run_in_threadpool(verify_admin_credential, token, init_data)
         try:
             bundle = await run_in_threadpool(_create_prize, payload.model_dump())
         except Exception as exc:
@@ -2502,7 +2470,7 @@ def register_web(app, context=None) -> None:
     async def slot_prize_patch_api(prize_id: str, payload: PrizePatchPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        await run_in_threadpool(_verify_admin_credential, token, init_data)
+        await run_in_threadpool(verify_admin_credential, token, init_data)
         try:
             bundle = await run_in_threadpool(_patch_prize, prize_id, payload.model_dump(exclude_unset=True))
         except Exception as exc:
@@ -2513,7 +2481,7 @@ def register_web(app, context=None) -> None:
     async def slot_prize_delete_api(prize_id: str, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        await run_in_threadpool(_verify_admin_credential, token, init_data)
+        await run_in_threadpool(verify_admin_credential, token, init_data)
         try:
             bundle = await run_in_threadpool(_delete_prize, prize_id)
         except Exception as exc:
@@ -2524,7 +2492,7 @@ def register_web(app, context=None) -> None:
     async def slot_redeem_code_create_api(payload: RedeemCodeAdminPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        await run_in_threadpool(_verify_admin_credential, token, init_data)
+        await run_in_threadpool(verify_admin_credential, token, init_data)
         try:
             bundle = await run_in_threadpool(_create_redeem_code, payload.model_dump())
         except Exception as exc:
@@ -2535,7 +2503,7 @@ def register_web(app, context=None) -> None:
     async def slot_redeem_code_patch_api(code_value: str, payload: RedeemCodeAdminPatchPayload, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        await run_in_threadpool(_verify_admin_credential, token, init_data)
+        await run_in_threadpool(verify_admin_credential, token, init_data)
         try:
             bundle = await run_in_threadpool(_patch_redeem_code, code_value, payload.model_dump(exclude_unset=True))
         except Exception as exc:
@@ -2546,7 +2514,7 @@ def register_web(app, context=None) -> None:
     async def slot_redeem_code_delete_api(code_value: str, request: Request):
         token = request.headers.get("x-admin-token")
         init_data = request.headers.get("x-telegram-init-data")
-        await run_in_threadpool(_verify_admin_credential, token, init_data)
+        await run_in_threadpool(verify_admin_credential, token, init_data)
         try:
             bundle = await run_in_threadpool(_delete_redeem_code, code_value)
         except Exception as exc:

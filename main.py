@@ -11,7 +11,15 @@ from bot.modules.commands import *
 # 其他
 from bot.modules.extra import *
 from bot.modules.callback import *
+from bot.plugins import load_plugins
 from bot.web import *
+
+from bot import LOGGER
+
+try:
+    load_plugins()
+except Exception as exc:
+    LOGGER.error(f"插件加载失败: {exc}")
 
 schedule_bot_watchdog(bot, bot_token)
 bot.run()
