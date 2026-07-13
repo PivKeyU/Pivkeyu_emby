@@ -4,7 +4,7 @@ from typing import Any
 
 from bot.func_helper.emby_currency import get_emby_balance
 from bot.plugins.doupo_game.core import ACTION_TYPE_LABELS, GAMEPLAY_MODULES
-from bot.plugins.sdk import build_bottom_nav
+from bot.plugins.sdk import build_bottom_nav, build_plugin_url
 from bot.sql_helper.sql_doupo import (
     build_feature_overview,
     build_growth_snapshot,
@@ -18,6 +18,17 @@ from bot.sql_helper.sql_doupo import (
     list_player_actions,
     list_recent_journals,
 )
+from bot.web.api.miniapp import is_admin_user_id
+
+
+def _build_user_capabilities(tg: int) -> dict[str, Any]:
+    is_admin = is_admin_user_id(int(tg))
+    return {
+        "is_admin": is_admin,
+        "admin_panel_url": (
+            build_plugin_url("/plugins/doupo/admin") or "/plugins/doupo/admin"
+        ) if is_admin else None,
+    }
 
 
 def _decorate_actions(actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -48,6 +59,7 @@ def build_user_bootstrap_bundle(tg: int) -> dict[str, Any]:
         "journals": list_recent_journals(actor_tg, limit=20),
         "bottom_nav": build_bottom_nav(),
         "playbook": GAMEPLAY_MODULES,
+        "capabilities": _build_user_capabilities(actor_tg),
     }
 
 
@@ -68,7 +80,9 @@ def build_action_result_bundle(tg: int, result: dict[str, Any]) -> dict[str, Any
         "sects": list_sect_options(),
         "actions": _decorate_actions(list_player_actions(actor_tg, enabled_only=True)),
         "journals": list_recent_journals(actor_tg, limit=20),
+        "bottom_nav": build_bottom_nav(),
         "playbook": GAMEPLAY_MODULES,
+        "capabilities": _build_user_capabilities(actor_tg),
     }
 
 

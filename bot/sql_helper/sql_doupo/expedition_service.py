@@ -6,7 +6,6 @@ from typing import Any
 from bot.plugins.doupo_game.core import (
     EXPEDITION_EVENTS,
     EXPEDITION_REGIONS,
-    ITEM_CATALOG,
     expedition_region,
     realm_rank,
 )
@@ -17,6 +16,7 @@ from bot.sql_helper.sql_doupo.service import (
     _apply_douqi_delta_with_balance,
     _apply_realm_progress,
     _battle_power,
+    _catalog_item,
     _check_daily_action_limit,
     _check_daily_action_points,
     _economy_day_key,
@@ -116,7 +116,7 @@ def _loot_payload(raw: Any) -> dict[str, Any]:
 def _item_rows(items: dict[str, int]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for key, quantity in items.items():
-        catalog = dict(ITEM_CATALOG.get(key) or {})
+        catalog = _catalog_item(key)
         rows.append({
             "item_key": key,
             "name": str(catalog.get("name") or key),
@@ -338,7 +338,7 @@ def _settle_expedition(
     status_label = {"completed": "完成游历", "retreated": "安全撤离", "failed": "重伤撤回"}[status]
     detail = f"{status_label}，带回斗气 {douqi_actual}、金币 {gold_actual}"
     if granted_items:
-        detail += "、" + "、".join(f"{(ITEM_CATALOG.get(key) or {}).get('name', key)} x{qty}" for key, qty in granted_items.items())
+        detail += "、" + "、".join(f"{_catalog_item(key).get('name', key)} x{qty}" for key, qty in granted_items.items())
     if result["gold_capped_delta"]:
         detail += f"；另有 {result['gold_capped_delta']} 金币触及今日上限"
     if result["douqi_capped_delta"]:
@@ -383,6 +383,8 @@ def choose_expedition_event(tg: int, choice_key: str, focus_score: int = 50) -> 
         dropped: list[dict[str, Any]] = []
         if success:
             for key, drop_chance in dict(effect.get("drops") or {}).items():
+                if not bool(_catalog_item(str(key)).get("enabled", True)):
+                    continue
                 if random.randint(1, 100) <= max(min(int(drop_chance or 0), 100), 0):
                     loot["items"][str(key)] = int(loot["items"].get(str(key)) or 0) + 1
                     dropped.extend(_item_rows({str(key): 1}))

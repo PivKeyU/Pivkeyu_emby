@@ -53,20 +53,95 @@ const ITEM_LABELS = {
   low_grade_storage_ring: "低阶纳戒",
   mitel_auction_token: "米特尔拍卖牌",
   inner_academy_badge: "内院火能牌",
+  sea_heart_flame_trace: "海心焰线索",
+  bone_spirit_cold_fire_trace: "骨灵冷火线索",
+  three_thousand_flame_trace: "三千焱炎火残图",
+  fallen_heart_flame_seed: "陨落心炎",
+  bone_spirit_cold_fire_seed: "骨灵冷火",
+  three_thousand_flame_seed: "三千焱炎火",
+  buddha_lotus_scroll: "佛怒火莲残卷",
+  burning_method_fragment: "焚诀残篇",
+  fire_energy_crystal: "火能晶",
+  black_corner_black_card: "黑角域黑卡",
+  danta_exam_token: "丹塔考核令",
+  yunlan_token: "云岚令",
+  snake_people_token: "蛇人族信物",
+  starfall_token: "星陨令",
+  soul_palace_token: "魂殿密令",
+  alchemist_badge_1: "一品炼药师徽章",
+  alchemist_badge_2: "二品炼药师徽章",
+  alchemist_badge_3: "三品炼药师徽章",
+  alchemist_badge_4: "四品炼药师徽章",
+  alchemist_badge_5: "五品炼药师徽章",
+  alchemist_badge_6: "六品炼药师徽章",
+  alchemist_badge_7: "七品炼药师徽章",
+  alchemist_badge_8: "八品炼药师徽章",
+  alchemist_badge_9: "九品炼药师徽章",
+  star_mist_grass: "星雾草",
+  dragon_blood_branch: "龙血枝",
+  void_spirit_leaf: "虚灵叶",
+  bodhi_seed: "菩提子",
+  amethyst_lion_cub: "小紫晶翼狮",
+  phoenix_plume: "天妖凰翎",
+  taixu_dragon_scale: "太虚古龙鳞",
+  clotting_grass: "凝血草",
+  bone_growth_flower: "生骨花",
+  purple_blue_leaf: "紫蓝叶",
+  fire_spirit_root: "火灵根",
+  cold_marrow_grass: "寒髓草",
+  jade_bone_fruit: "玉骨果",
+  earth_core_body_milk: "地心淬体乳",
+  emperor_flow_serum: "帝流浆",
+  nine_leaf_reincarnation_grass: "九叶轮回草",
+  ancient_dragon_saliva: "古龙涎",
+  green_rock_ore: "青岩矿",
+  cold_iron_ore: "寒铁矿",
+  meteorite_iron: "陨星铁",
+  thunder_pattern_ore: "雷纹矿",
+  space_stone: "空间石",
+  beast_bone_shard: "魔兽骨片",
+  beast_hide: "魔兽皮革",
+  flame_crystal_core: "火晶核",
+  spirit_pattern_wood: "灵纹木",
+  ice_crystal_marrow: "冰晶髓",
+  hemostasis_powder: "凝血散",
+  bone_growth_pill: "生骨丹",
+  qi_boost_pill: "增气丹",
+  ice_heart_pill: "冰心丹",
+  marrow_cleansing_pill: "洗髓丹",
+  purple_heart_barrier_pill: "紫心破障丹",
+  emperor_extreme_pill: "皇极丹",
+  bodhi_pill: "菩提丹",
+  soul_restoring_pill: "复魂丹",
+  yin_yang_life_soul_pill: "阴阳命魂丹",
+  bronze_cauldron: "青铜药鼎",
+  black_demon_cauldron_replica: "黑魔鼎仿品",
+  mercenary_leather_armor: "佣兵皮甲",
+  cold_iron_blade: "寒铁刀",
+  fire_spirit_talisman: "火灵护符",
+  mid_grade_storage_ring: "中阶纳戒",
+  thunder_pattern_boots: "雷纹靴",
+  alchemist_robe: "炼药师袍",
+  meteorite_heavy_ruler: "陨星重尺",
+  spirit_wood_heart_mirror: "灵木护心镜",
 };
 
-const ACTION_ORDER = ["all", "train", "adventure", "alchemy", "pill", "fire", "sect", "technique", "tower", "auction", "boss", "breakthrough"];
+const ACTION_ORDER = ["all", "train", "adventure", "alchemy", "craft", "pill", "fire", "sect", "technique", "tower", "auction", "faction", "pet", "black_corner", "boss", "breakthrough"];
 const ACTION_LABELS = {
   all: "全部",
   train: "修炼",
   adventure: "历练",
   alchemy: "炼药",
+  craft: "炼器",
   pill: "丹药",
   fire: "异火",
   sect: "宗门",
   technique: "斗技",
   tower: "塔修",
   auction: "拍卖",
+  faction: "阵营",
+  pet: "伙伴",
+  black_corner: "黑角域",
   boss: "Boss",
   breakthrough: "突破",
 };
@@ -75,6 +150,7 @@ const ACTION_GROUPS = [
   { key: "train", types: ["train"] },
   { key: "adventure", types: ["adventure"] },
   { key: "growth", types: ["alchemy", "pill", "breakthrough"] },
+  { key: "craft", types: ["craft"] },
   { key: "sect", types: ["sect", "technique"] },
   { key: "fire", types: ["fire", "tower"] },
   { key: "market", types: ["auction", "boss"] },
@@ -104,6 +180,30 @@ function qsa(selector) {
 function setText(selector, value) {
   const node = qs(selector);
   if (node) node.textContent = value ?? "-";
+}
+
+function currentRelativePath() {
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
+}
+
+function toSameOriginPath(path, fallback = "") {
+  if (!path) return fallback;
+  try {
+    const url = new URL(path, window.location.origin);
+    if (url.origin !== window.location.origin) return fallback;
+    return `${url.pathname}${url.search}${url.hash}` || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function withReturnTo(path, returnTo = currentRelativePath()) {
+  const safePath = toSameOriginPath(path, "");
+  if (!safePath) return "";
+  const url = new URL(safePath, window.location.origin);
+  const safeReturnTo = toSameOriginPath(returnTo, "");
+  if (safeReturnTo) url.searchParams.set("return_to", safeReturnTo);
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 function localTestInitData() {
@@ -178,6 +278,25 @@ function itemLabel(item = {}) {
   if (!quantity) return name;
   return `${name} ${quantity > 0 ? "+" : ""}${quantity}`;
 }
+
+function itemIconHtml(icon, name = "物品") {
+  const value = String(icon || "").trim();
+  if (!value) return "";
+  if (/^https:\/\//i.test(value)) {
+    return `<img class="item-icon" src="${escapeHtml(value)}" alt="" title="${escapeHtml(name)}" loading="lazy" referrerpolicy="no-referrer" />`;
+  }
+  return `<span class="item-icon-text" aria-hidden="true">${escapeHtml(value)}</span>`;
+}
+
+document.addEventListener("error", (event) => {
+  const image = event.target;
+  if (!(image instanceof HTMLImageElement) || !image.classList.contains("item-icon")) return;
+  const fallback = document.createElement("span");
+  fallback.className = "item-icon-text";
+  fallback.setAttribute("aria-hidden", "true");
+  fallback.textContent = "物";
+  image.replaceWith(fallback);
+}, true);
 
 function percent(current, total) {
   const c = number(current);
@@ -470,11 +589,36 @@ function renderProfile(bundle = {}) {
 }
 
 function renderInventory(bundle = {}) {
+  const equipmentRoot = qs("#equipment-summary");
   const summary = qs("#inventory-summary");
   const root = qs("#inventory-groups");
   if (!root) return;
   const inventory = bundle.inventory || {};
   const categories = Array.isArray(inventory.categories) ? inventory.categories : [];
+  const equipment = inventory.equipment || bundle.profile?.equipment || {};
+  const equipmentStats = equipment.stats || {};
+  if (equipmentRoot) {
+    const slots = equipment.slots || {};
+    const labels = equipment.slot_labels || {};
+    equipmentRoot.innerHTML = `
+      <div class="equipment-head">
+        <div><p class="eyebrow">当前装备</p><h3>六槽装备栏</h3></div>
+        <span class="tag">战力 +${number(equipment.battle_power_bonus)}</span>
+      </div>
+      <div class="equipment-slots">
+        ${Object.entries(labels).map(([slot, label]) => {
+          const item = slots[slot];
+          return `<article class="equipment-slot ${item ? "is-filled" : ""}">
+            <span>${escapeHtml(label)}</span>
+            <strong>${item ? `${itemIconHtml(item.icon, item.name)} ${escapeHtml(item.name)}` : "未装备"}</strong>
+            ${item ? `<button type="button" class="ghost mini" data-unequip-item="${escapeHtml(item.item_key)}">卸下</button>` : ""}
+          </article>`;
+        }).join("")}
+      </div>
+      <div class="equipment-stats">
+        ${[["攻击", "attack"], ["防御", "defense"], ["身法", "agility"], ["异火", "fire_bonus"], ["炼药", "alchemy_bonus"]].map(([label, key]) => `<span>${label} <strong>${number(equipmentStats[key])}</strong></span>`).join("")}
+      </div>`;
+  }
   if (summary) {
     summary.innerHTML = `
       <article class="inventory-stat">
@@ -493,15 +637,24 @@ function renderInventory(bundle = {}) {
   }
   root.innerHTML = categories.map((category) => {
     const items = Array.isArray(category.items) ? category.items : [];
-    const itemHtml = items.map((item) => `
+    const itemHtml = items.map((item) => {
+      const stats = item.equipment || {};
+      const statText = [["攻", "attack"], ["防", "defense"], ["身法", "agility"], ["异火", "fire_bonus"], ["炼药", "alchemy_bonus"]]
+        .filter(([, key]) => number(stats[key]) > 0)
+        .map(([label, key]) => `${label} +${number(stats[key])}`)
+        .join(" · ");
+      return `
       <article class="inventory-item">
         <div>
-          <strong>${escapeHtml(item.name || ITEM_LABELS[item.item_key] || item.item_key)}</strong>
-          <span>${escapeHtml(item.rarity || "凡品")}</span>
+          <strong>${itemIconHtml(item.icon, item.name)} ${escapeHtml(item.name || ITEM_LABELS[item.item_key] || item.item_key)}</strong>
+          <span>${escapeHtml(item.rarity || "凡品")}${statText ? ` · ${escapeHtml(statText)}` : ""}</span>
         </div>
-        <b>x${number(item.quantity)}</b>
+        <div class="inventory-item-actions">
+          <b>x${number(item.quantity)}</b>
+          ${item.equipment?.slot ? `<button type="button" class="ghost mini" data-${item.equipped ? "unequip" : "equip"}-item="${escapeHtml(item.item_key)}">${item.equipped ? "卸下" : "穿戴"}</button>` : ""}
+        </div>
       </article>
-    `).join("");
+    `; }).join("");
     return `
       <section class="inventory-category ${items.length ? "" : "is-empty"}">
         <div class="inventory-category-head">
@@ -517,6 +670,26 @@ function renderInventory(bundle = {}) {
       </section>
     `;
   }).join("");
+  root.querySelectorAll("[data-equip-item]").forEach((button) => button.addEventListener("click", () => changeEquipment("equip", button.dataset.equipItem, button)));
+  document.querySelectorAll("[data-unequip-item]").forEach((button) => button.addEventListener("click", () => changeEquipment("unequip", button.dataset.unequipItem, button)));
+}
+
+async function changeEquipment(operation, itemKey, button) {
+  if (!itemKey) return;
+  setButtonBusy(button, true, operation === "equip" ? "穿戴中..." : "卸下中...");
+  try {
+    const result = await postJson(`/plugins/doupo/api/inventory/${operation}`, { item_key: itemKey });
+    state.data = result;
+    renderAll(result);
+    setStatus(result.detail || (operation === "equip" ? "装备已穿戴" : "装备已卸下"));
+    showToast(result.detail || "装备状态已更新");
+  } catch (error) {
+    const message = String(error.message || error);
+    setStatus(message, "error");
+    showToast(message, "error");
+  } finally {
+    setButtonBusy(button, false);
+  }
 }
 
 function featureProgress(current, target) {
@@ -654,11 +827,16 @@ function renderActionTabs(actions) {
 }
 
 function renderActions(bundle = {}) {
-  const actions = Array.isArray(bundle.actions) ? bundle.actions : [];
+  const allActions = Array.isArray(bundle.actions) ? bundle.actions : [];
+  renderActionTabs(allActions);
+  const actions = state.actionFilter === "all"
+    ? allActions
+    : allActions.filter((action) => action.action_type === state.actionFilter);
   const usage = bundle.daily_usage?.items || {};
   const actionCard = (action) => {
     const delta = describeDelta(action);
-    const recipe = action.action_type === "alchemy" ? describeAlchemyRecipe(action) : "";
+    const isCraftRecipe = ["alchemy", "craft"].includes(action.action_type);
+    const recipe = isCraftRecipe ? describeAlchemyRecipe(action) : "";
     const lockRemaining = actionLockRemaining(action.action_key);
     const serverDisabled = action.available === false;
     const disabledReason = lockRemaining > 0
@@ -678,7 +856,7 @@ function renderActions(bundle = {}) {
         </div>
         <p class="action-copy">${escapeHtml(action.description || "")}</p>
         <div class="meta-line">行动力 ${number(action.action_point_cost)} · 冷却 ${number(action.cooldown_seconds)} 秒 · ${escapeHtml(limitText)} · 门槛 ${escapeHtml(action.requirement_summary || describeRequirement(action))}</div>
-        ${recipe ? `<div class="meta-line action-recipe">丹方 ${escapeHtml(recipe)}</div>` : ""}
+        ${recipe ? `<div class="meta-line action-recipe">${action.action_type === "craft" ? "器方" : "丹方"} ${escapeHtml(recipe)}</div>` : ""}
         <div class="meta-line ${delta.includes("消耗") ? "action-cost" : "action-reward"}">${escapeHtml(delta || "无固定收益")}</div>
         ${disabledReason ? `<div class="meta-line action-disabled-reason">${escapeHtml(disabledReason)}</div>` : ""}
         <button data-action-key="${escapeHtml(action.action_key)}" data-cooldown="${number(action.cooldown_seconds)}" type="button" ${disabled ? "disabled" : ""}>${escapeHtml(buttonText)}</button>
@@ -1141,13 +1319,17 @@ function renderAuthPanel(mode = "") {
   const account = state.authAccount;
   const hasSession = Boolean(state.sessionToken && account);
   const isBound = Boolean(account?.bound);
-  let activeMode = mode || state.authMode || "login";
+  const requestedMode = String(mode || "").trim();
+  let activeMode = requestedMode || state.authMode || "login";
   if (hasSession && !isBound) activeMode = "bind";
   if (hasSession && isBound && activeMode === "bind") activeMode = "account";
   if (!hasSession && ["bind", "account"].includes(activeMode)) activeMode = "login";
+  if (hasSession && isBound && !requestedMode) activeMode = "account";
   state.authMode = activeMode;
-  const shouldShow = Boolean(mode) || !hasSession || !isBound;
+  const shouldShow = Boolean(requestedMode) || !hasSession || !isBound;
   card.classList.toggle("hidden", !shouldShow);
+  card.setAttribute("aria-hidden", shouldShow ? "false" : "true");
+  card.inert = !shouldShow;
   qs("#auth-login-form")?.classList.toggle("hidden", activeMode !== "login");
   qs("#auth-register-form")?.classList.toggle("hidden", activeMode !== "register");
   qs("#auth-bind-panel")?.classList.toggle("hidden", !["bind", "account"].includes(activeMode));
@@ -1181,6 +1363,30 @@ function renderAuthPanel(mode = "") {
 
 function setGameLocked(locked) {
   document.body.classList.toggle("auth-locked", Boolean(locked));
+}
+
+function syncAdminEntry(bundle = state.data || {}) {
+  const capabilities = bundle?.capabilities || {};
+  const adminUrl = capabilities.admin_panel_url;
+  const visible = Boolean(capabilities.is_admin && adminUrl);
+  const root = qs("#hero-admin-entry");
+  const button = qs("#open-admin-panel");
+  const fab = qs("#fab-admin");
+  root?.classList.toggle("hidden", !visible);
+  fab?.classList.toggle("hidden", !visible);
+  if (button) {
+    button.disabled = !visible;
+    button.dataset.adminUrl = visible ? adminUrl : "";
+  }
+  if (fab) fab.dataset.adminUrl = visible ? adminUrl : "";
+}
+
+function openAdminPanel() {
+  const adminUrl = qs("#open-admin-panel")?.dataset.adminUrl
+    || qs("#fab-admin")?.dataset.adminUrl
+    || state.data?.capabilities?.admin_panel_url;
+  if (!adminUrl) return;
+  window.location.href = withReturnTo(adminUrl) || adminUrl;
 }
 
 async function restoreWebSession() {
@@ -1224,6 +1430,7 @@ function renderAll(bundle = {}) {
   renderSectChoice(bundle);
   renderPlaybook(bundle);
   renderBottomNav(bundle.bottom_nav || []);
+  syncAdminEntry(bundle);
   syncFoldToolbar();
 }
 
@@ -1238,6 +1445,8 @@ async function bootstrap() {
   }
   const authenticated = await restoreWebSession();
   if (!authenticated) return;
+  setGameLocked(false);
+  renderAuthPanel("");
   const bundle = await postJson("/plugins/doupo/api/bootstrap");
   state.data = bundle;
   setGameLocked(false);
@@ -1373,6 +1582,8 @@ function setupPage() {
     renderAuthPanel("account");
     qs("#auth-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
+  qs("#open-admin-panel")?.addEventListener("click", openAdminPanel);
+  qs("#fab-admin")?.addEventListener("click", openAdminPanel);
   qs("#auth-close")?.addEventListener("click", () => renderAuthPanel(""));
   qs("#coin-to-gold-btn")?.addEventListener("click", () => runExchange("coin_to_gold"));
   qs("#gold-to-coin-btn")?.addEventListener("click", () => runExchange("gold_to_coin"));
@@ -1398,6 +1609,7 @@ function setupPage() {
 }
 
 setupPage();
+if (!state.sessionToken) renderAuthPanel("login");
 bootstrap().catch((error) => {
   const message = String(error.message || error);
   setStatus(message, "error");

@@ -559,14 +559,18 @@ function renderAuthPanel(mode = "") {
   if (!elements.card) return;
   const hasSession = Boolean(state.webSessionToken);
   const isBound = Boolean(state.authAccount?.bound);
-  const shouldShow = Boolean(mode) || !hasSession || !isBound;
-  let activeMode = mode || state.authMode || "login";
+  const requestedMode = String(mode || "").trim();
+  const shouldShow = Boolean(requestedMode) || !hasSession || !isBound;
+  let activeMode = requestedMode || state.authMode || "login";
   if (hasSession && !isBound) activeMode = "bind";
   if (hasSession && isBound && activeMode === "bind") activeMode = "account";
   if (!hasSession && ["bind", "account"].includes(activeMode)) activeMode = "login";
+  if (hasSession && isBound && !requestedMode) activeMode = "account";
   state.authMode = activeMode;
 
   elements.card.classList.toggle("hidden", !shouldShow);
+  elements.card.setAttribute("aria-hidden", shouldShow ? "false" : "true");
+  elements.card.inert = !shouldShow;
   elements.loginForm?.classList.toggle("hidden", activeMode !== "login");
   elements.registerForm?.classList.toggle("hidden", activeMode !== "register");
   elements.bindPanel?.classList.toggle("hidden", !["bind", "account"].includes(activeMode));
@@ -4963,6 +4967,9 @@ async function bootstrap() {
     setStatus("请先登录统一游戏账号，并绑定 Telegram。", "warning");
     return;
   }
+
+  setGameLocked(false);
+  renderAuthPanel();
 
   renderWikiArea();
   state.deferredBundleLoaded = false;

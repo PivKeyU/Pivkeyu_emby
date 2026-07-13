@@ -4,11 +4,12 @@ import json
 from typing import Any
 from urllib.parse import parse_qs
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 
 from bot.plugins.sdk import verify_admin_credential, verify_telegram_user
 from bot.sql_helper.sql_doupo import upsert_profile_identity
 from bot.sql_helper.sql_xiuxian.web_auth import authenticate_xiuxian_web_session
+from bot.web.api.miniapp import is_admin_user_id
 
 
 def _upsert_doupo_profile_identity(user: dict[str, Any]) -> None:
@@ -68,7 +69,38 @@ def verify_user_from_auth(init_data: str = "", session_token: str = "") -> dict[
 
 
 def verify_admin_from_credential(token: str | None, init_data: str | None) -> dict[str, Any]:
-    return verify_admin_credential(token, init_data)
+    raw_init_data = str(init_data or "").strip()
+    if not raw_init_data.startswith("web_session:"):
+        return verify_admin_credential(token, init_data)
+
+    if token:
+        try:
+            return verify_admin_credential(token, None)
+        except HTTPException:
+            pass
+
+    session_token = raw_init_data.removeprefix("web_session:").strip()
+    try:
+        account = authenticate_xiuxian_web_session(session_token)
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    tg = int(account.get("tg") or 0)
+    if tg <= 0:
+        raise HTTPException(status_code=403, detail="游戏账号尚未绑定 Telegram")
+    if not is_admin_user_id(tg):
+        raise HTTPException(status_code=403, detail="当前绑定的 Telegram 账号没有后台权限")
+    return {
+        "id": tg,
+        "username": str(account.get("telegram_username") or "").strip().lstrip("@"),
+        "first_name": str(
+            account.get("telegram_display_name")
+            or account.get("display_name")
+            or account.get("username")
+            or "管理员"
+        ).strip(),
+        "last_name": "",
+        "auth": "web_session",
+    }
 
 
 def extract_init_data_from_body_bytes(content_type: str, body: bytes) -> str | None:

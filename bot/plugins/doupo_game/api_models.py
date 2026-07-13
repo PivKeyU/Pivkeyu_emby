@@ -42,6 +42,10 @@ class ActionRunPayload(InitDataPayload):
     params: dict = Field(default_factory=dict)
 
 
+class InventoryEquipmentPayload(InitDataPayload):
+    item_key: str
+
+
 class ExpeditionStartPayload(InitDataPayload):
     region_key: str
 
@@ -109,6 +113,36 @@ class PlayerResourceGrantPayload(BaseModel):
     amount: int = 1
 
 
+class AdminItemDefinitionPayload(BaseModel):
+    item_key: str
+    name: str
+    category: Literal["pill", "herb", "ore", "core", "fire", "technique", "method", "gear", "token"]
+    rarity: str = "凡品"
+    description: str = ""
+    icon: str = ""
+    tradable: bool = False
+    stack_limit: int = Field(default=9999, ge=1, le=2_000_000_000)
+    equipment_slot: Literal["weapon", "armor", "boots", "accessory", "ring", "cauldron"] | None = None
+    attack: int = Field(default=0, ge=0, le=2_000_000_000)
+    defense: int = Field(default=0, ge=0, le=2_000_000_000)
+    agility: int = Field(default=0, ge=0, le=2_000_000_000)
+    fire_bonus: int = Field(default=0, ge=0, le=2_000_000_000)
+    alchemy_bonus: int = Field(default=0, ge=0, le=2_000_000_000)
+    recipe_config: dict = Field(default_factory=dict)
+    drop_sources: list[dict] = Field(default_factory=list)
+    enabled: bool = True
+    change_note: str = ""
+
+
+class AdminItemRollbackPayload(BaseModel):
+    version: int = Field(ge=1)
+
+
+class AdminItemGrantPayload(BaseModel):
+    item_key: str
+    quantity: int = Field(default=1, ge=1, le=2_000_000_000)
+
+
 class AdminActionPayload(BaseModel):
     action_key: str
     name: str
@@ -117,6 +151,7 @@ class AdminActionPayload(BaseModel):
         "train",
         "adventure",
         "alchemy",
+        "craft",
         "fire",
         "sect",
         "auction",

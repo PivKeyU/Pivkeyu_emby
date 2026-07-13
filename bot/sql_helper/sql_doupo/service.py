@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import os
 import random
+import re
 import threading
 import time
 from datetime import datetime, timedelta
@@ -17,6 +19,8 @@ from bot.plugins.doupo_game.core import (
     DEFAULT_ACTIONS,
     DEFAULT_DAILY_ACTION_LIMITS,
     DEFAULT_SETTINGS,
+    EXPEDITION_EVENTS,
+    EXPEDITION_REGIONS,
     HEAVENLY_FIRES,
     INVENTORY_CATEGORIES,
     ITEM_CATALOG,
@@ -34,6 +38,8 @@ from bot.sql_helper.sql_doupo.models import (
     DoupoEconomyLedger,
     DoupoExpedition,
     DoupoInventoryItem,
+    DoupoItemDefinition,
+    DoupoItemDefinitionVersion,
     DoupoJournal,
     DoupoProfile,
     DoupoSetting,
@@ -53,10 +59,16 @@ _RARITY_WEIGHT = {
     "凡品": 1,
     "一品": 2,
     "二品": 3,
+    "三品": 4,
     "玄阶": 4,
     "四品": 5,
+    "五品": 6,
     "地阶": 6,
     "六品": 7,
+    "七品": 8,
+    "八品": 9,
+    "九品": 10,
+    "天阶": 8,
     "异火": 9,
 }
 _SETTINGS_CACHE_LOCK = threading.RLock()
@@ -66,6 +78,32 @@ _DEFAULT_ACTIONS_LOCK = threading.Lock()
 _DEFAULT_ACTIONS_READY = False
 _ACTION_POINTS_COUNTER_KEY = "__action_points__"
 _DOUQI_INCOME_COUNTER_KEY = "__douqi_income__"
+ITEM_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
+EQUIPMENT_SLOTS: dict[str, str] = {
+    "weapon": "武器",
+    "armor": "护甲",
+    "boots": "靴履",
+    "accessory": "饰品",
+    "ring": "纳戒",
+    "cauldron": "药鼎",
+}
+EQUIPMENT_STAT_LABELS: dict[str, str] = {
+    "attack": "攻击",
+    "defense": "防御",
+    "agility": "身法",
+    "fire_bonus": "异火",
+    "alchemy_bonus": "炼药",
+}
+EQUIPMENT_STAT_WEIGHTS: dict[str, int] = {
+    "attack": 12,
+    "defense": 10,
+    "agility": 8,
+    "fire_bonus": 15,
+    "alchemy_bonus": 6,
+}
+_ITEM_DEFINITION_CACHE_LOCK = threading.RLock()
+_ITEM_DEFINITION_CACHE_TTL = max(float(os.getenv("PIVKEYU_DOUPO_ITEM_CACHE_TTL", "15") or 15), 1.0)
+_ITEM_DEFINITION_CACHE: tuple[float, dict[str, dict[str, Any]]] | None = None
 
 
 def _coerce_int(value: Any, default: int) -> int:
@@ -237,8 +275,13 @@ def get_or_create_profile(tg: int) -> dict[str, Any]:
         return serialize_profile(row)
 
 
-def _battle_power(row: DoupoProfile, settings: dict[str, Any] | None = None) -> int:
+def _battle_power(
+    row: DoupoProfile,
+    settings: dict[str, Any] | None = None,
+    equipment_summary: dict[str, Any] | None = None,
+) -> int:
     thresholds = (settings or get_settings()).get("realm_thresholds") or []
+    equipment = equipment_summary if equipment_summary is not None else get_equipment_summary(int(row.tg))
     return (
         realm_rank(row.realm_stage, thresholds) * 10000
         + max(int(row.realm_stars or 1), 1) * 850
@@ -253,6 +296,7 @@ def _battle_power(row: DoupoProfile, settings: dict[str, Any] | None = None) -> 
         + max(int(getattr(row, "pet_level", 0) or 0), 0) * 520
         + max(int(row.boss_score or 0), 0) * 12
         + max(int(row.tower_floor or 0), 0) * 320
+        + max(int(equipment.get("battle_power_bonus") or 0), 0)
     )
 
 
@@ -294,8 +338,13 @@ def _heavenly_fire_payload(progress: int, fire_name: str | None = None) -> dict[
     }
 
 
-def serialize_profile(row: DoupoProfile, settings: dict[str, Any] | None = None) -> dict[str, Any]:
+def serialize_profile(
+    row: DoupoProfile,
+    settings: dict[str, Any] | None = None,
+    equipment_summary: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     settings = settings or get_settings()
+    equipment = equipment_summary if equipment_summary is not None else get_equipment_summary(int(row.tg))
     alchemy_rank = _rank_by_threshold(int(row.alchemy_exp or 0), ALCHEMY_RANKS, "exp")
     sect_rank = _rank_by_threshold(int(row.sect_contribution or 0), SECT_RANKS, "contribution")
     technique = _technique_payload(int(row.technique_level or 0), row.technique_key)
@@ -335,7 +384,8 @@ def serialize_profile(row: DoupoProfile, settings: dict[str, Any] | None = None)
         "alchemy_rank": alchemy_rank.get("name"),
         "heavenly_fire": heavenly_fire,
         "technique": technique,
-        "battle_power": _battle_power(row, settings),
+        "battle_power": _battle_power(row, settings, equipment),
+        "equipment": equipment,
         "last_train_at": row.last_train_at.isoformat() if row.last_train_at else None,
         "last_breakthrough_at": row.last_breakthrough_at.isoformat() if row.last_breakthrough_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
@@ -389,35 +439,553 @@ def _economy_day_key(now: datetime | None = None) -> str:
     return (source + timedelta(hours=8)).date().isoformat()
 
 
+def _normalize_item_definition_payload(item_key: str, source: dict[str, Any] | None = None) -> dict[str, Any]:
+    key = str(item_key or "").strip()
+    item = dict(source or {})
+    category = str(item.get("category") or "token")
+    equipment = dict(item.get("equipment") or {})
+    equipment_slot = str(item.get("equipment_slot") or equipment.get("slot") or "").strip() or None
+    if equipment_slot not in EQUIPMENT_SLOTS:
+        equipment_slot = None
+    stats = {
+        stat: max(_coerce_int(item.get(stat, equipment.get(stat)), 0), 0)
+        for stat in EQUIPMENT_STAT_LABELS
+    }
+    stack_default = 1 if category == "gear" else 9999
+    return {
+        "key": key,
+        "item_key": key,
+        "name": str(item.get("name") or key or "未知物品"),
+        "category": category,
+        "category_name": str((_CATEGORY_LOOKUP.get(category) or {}).get("name") or category),
+        "rarity": str(item.get("rarity") or "凡品"),
+        "description": str(item.get("description") or ""),
+        "icon": str(item.get("icon") or ""),
+        "tradable": bool(item.get("tradable", False)),
+        "stack_limit": max(_coerce_int(item.get("stack_limit"), stack_default), 1),
+        "equipment_slot": equipment_slot,
+        "equipment_slot_name": EQUIPMENT_SLOTS.get(str(equipment_slot or "")),
+        "equipment": {"slot": equipment_slot, **stats},
+        **stats,
+        "recipe_config": dict(item.get("recipe_config") or {}),
+        "drop_sources": list(item.get("drop_sources") or []),
+        "version": max(_coerce_int(item.get("version"), 1), 1),
+        "enabled": bool(item.get("enabled", True)),
+        "is_builtin": bool(item.get("is_builtin", key in ITEM_CATALOG)),
+        "is_custom": not bool(item.get("is_builtin", key in ITEM_CATALOG)),
+        "defined": bool(item.get("defined", key in ITEM_CATALOG or bool(source))),
+    }
+
+
+def _serialize_item_definition_row(row: DoupoItemDefinition) -> dict[str, Any]:
+    return _normalize_item_definition_payload(
+        str(row.item_key),
+        {
+            "name": row.name,
+            "category": row.category,
+            "rarity": row.rarity,
+            "description": row.description,
+            "icon": row.icon,
+            "tradable": row.tradable,
+            "stack_limit": row.stack_limit,
+            "equipment_slot": row.equipment_slot,
+            "attack": row.attack,
+            "defense": row.defense,
+            "agility": row.agility,
+            "fire_bonus": row.fire_bonus,
+            "alchemy_bonus": row.alchemy_bonus,
+            "recipe_config": row.recipe_config,
+            "drop_sources": row.drop_sources,
+            "version": row.version,
+            "enabled": row.enabled,
+            "is_builtin": row.is_builtin,
+        },
+    )
+
+
+def _invalidate_item_definition_cache() -> None:
+    global _ITEM_DEFINITION_CACHE
+    with _ITEM_DEFINITION_CACHE_LOCK:
+        _ITEM_DEFINITION_CACHE = None
+
+
+def _item_definition_overrides(*, force: bool = False) -> dict[str, dict[str, Any]]:
+    global _ITEM_DEFINITION_CACHE
+    now = time.monotonic()
+    with _ITEM_DEFINITION_CACHE_LOCK:
+        if not force and _ITEM_DEFINITION_CACHE is not None and _ITEM_DEFINITION_CACHE[0] > now:
+            return copy.deepcopy(_ITEM_DEFINITION_CACHE[1])
+        try:
+            with Session() as session:
+                rows = session.query(DoupoItemDefinition).all()
+                resolved = {str(row.item_key): _serialize_item_definition_row(row) for row in rows}
+        except Exception:
+            # Plugin imports can occur before its migrations are applied. Retry on the next cache window.
+            resolved = {}
+        _ITEM_DEFINITION_CACHE = (now + _ITEM_DEFINITION_CACHE_TTL, resolved)
+        return copy.deepcopy(resolved)
+
+
 def _catalog_item(item_key: str) -> dict[str, Any]:
     key = str(item_key or "").strip()
-    item = dict(ITEM_CATALOG.get(key) or {})
-    if not item:
-        item = {
-            "name": key or "未知物品",
-            "category": "token",
-            "rarity": "凡品",
-            "description": "",
+    builtin = _normalize_item_definition_payload(
+        key,
+        {**dict(ITEM_CATALOG.get(key) or {}), "is_builtin": key in ITEM_CATALOG, "defined": key in ITEM_CATALOG},
+    )
+    override = _item_definition_overrides().get(key)
+    if not override:
+        return builtin
+    merged = {**builtin, **override}
+    merged["equipment"] = dict(override.get("equipment") or builtin.get("equipment") or {})
+    return _normalize_item_definition_payload(key, merged)
+
+
+def list_item_definitions(*, include_disabled: bool = True) -> list[dict[str, Any]]:
+    overrides = _item_definition_overrides()
+    keys = list(ITEM_CATALOG)
+    keys.extend(key for key in overrides if key not in ITEM_CATALOG)
+    items = [_catalog_item(key) for key in keys]
+    if not include_disabled:
+        items = [item for item in items if item.get("enabled", True)]
+    return sorted(items, key=lambda item: (str(item.get("category") or ""), str(item.get("name") or ""), str(item.get("key") or "")))
+
+
+def get_item_definition(item_key: str) -> dict[str, Any]:
+    key = str(item_key or "").strip()
+    if key not in ITEM_CATALOG and key not in _item_definition_overrides():
+        raise ValueError("物品不存在")
+    return _catalog_item(key)
+
+
+def _item_definition_snapshot(row: DoupoItemDefinition) -> dict[str, Any]:
+    payload = _serialize_item_definition_row(row)
+    return {
+        key: payload[key]
+        for key in (
+            "item_key",
+            "name",
+            "category",
+            "rarity",
+            "description",
+            "icon",
+            "tradable",
+            "stack_limit",
+            "equipment_slot",
+            "attack",
+            "defense",
+            "agility",
+            "fire_bonus",
+            "alchemy_bonus",
+            "recipe_config",
+            "drop_sources",
+            "version",
+            "enabled",
+            "is_builtin",
+        )
+    }
+
+
+def _normalize_recipe_config(value: dict[str, Any] | None, item: dict[str, Any]) -> dict[str, Any]:
+    source = dict(value or {})
+    if not source or not bool(source.get("enabled", True)):
+        return {}
+    action_type = str(source.get("action_type") or ("craft" if item.get("category") == "gear" else "alchemy"))
+    if action_type not in {"alchemy", "craft"}:
+        raise ValueError("物品配方仅支持炼药或炼器类型")
+    costs = {key: quantity for key, quantity in _normalize_item_costs(source.get("item_costs"))}
+    if not costs:
+        raise ValueError("启用配方时至少需要一种物品材料")
+    for cost_key in costs:
+        if not _catalog_item(cost_key).get("defined"):
+            raise ValueError(f"配方材料未定义：{cost_key}")
+    generated_key = f"custom_{action_type}_{item['item_key']}"
+    if len(generated_key) > 64:
+        digest = hashlib.sha1(str(item["item_key"]).encode("utf-8")).hexdigest()[:16]
+        generated_key = f"custom_{action_type}_{digest}"
+    action_key = str(source.get("action_key") or generated_key).strip()
+    if not ITEM_KEY_PATTERN.fullmatch(action_key):
+        raise ValueError("配方行动 key 只能使用小写字母、数字和下划线")
+    return {
+        "enabled": True,
+        "action_key": action_key,
+        "name": str(source.get("name") or f"制作{item['name']}")[:64],
+        "description": str(source.get("description") or f"使用指定材料制作{item['name']}。")[:255],
+        "action_type": action_type,
+        "cooldown_seconds": max(_coerce_int(source.get("cooldown_seconds"), 60), 0),
+        "gold_cost": max(_coerce_int(source.get("gold_cost"), 0), 0),
+        "output_quantity": max(_coerce_int(source.get("output_quantity"), 1), 1),
+        "item_costs": costs,
+        "requirement_config": dict(source.get("requirement_config") or {}),
+        "enabled_action": bool(source.get("enabled_action", True)),
+        "sort_order": _coerce_int(source.get("sort_order"), 75),
+    }
+
+
+def _normalize_drop_sources(value: list[dict[str, Any]] | None, item_key: str) -> list[dict[str, Any]]:
+    resolved: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in list(value or []):
+        if not isinstance(raw, dict):
+            continue
+        action_key = str(raw.get("action_key") or "").strip()
+        if not action_key or action_key in seen:
+            continue
+        if not ITEM_KEY_PATTERN.fullmatch(action_key):
+            raise ValueError(f"掉落行动 key 格式错误：{action_key}")
+        minimum = max(_coerce_int(raw.get("min"), 1), 1)
+        maximum = max(_coerce_int(raw.get("max"), minimum), minimum)
+        resolved.append(
+            {
+                "action_key": action_key,
+                "chance": min(max(_coerce_int(raw.get("chance"), 10), 0), 100),
+                "min": minimum,
+                "max": maximum,
+                "item_key": item_key,
+            }
+        )
+        seen.add(action_key)
+    return resolved
+
+
+def _remove_managed_item_drop(reward: dict[str, Any], item_key: str) -> dict[str, Any]:
+    patched = dict(reward or {})
+    patched["item_drops"] = [
+        dict(item)
+        for item in list(patched.get("item_drops") or [])
+        if str((item or {}).get("item_key") or (item or {}).get("key") or "") != item_key
+    ]
+    return patched
+
+
+def _sync_item_content_session(
+    session,
+    item_key: str,
+    previous_recipe: dict[str, Any] | None,
+    previous_sources: list[dict[str, Any]] | None,
+    recipe: dict[str, Any],
+    drop_sources: list[dict[str, Any]],
+) -> None:
+    previous_action_keys = {
+        str(item.get("action_key") or "")
+        for item in list(previous_sources or [])
+        if isinstance(item, dict)
+    }
+    previous_recipe_key = str((previous_recipe or {}).get("action_key") or "")
+    if previous_recipe_key:
+        previous_action_keys.add(previous_recipe_key)
+    next_action_keys = {str(item.get("action_key") or "") for item in drop_sources}
+    if recipe:
+        next_action_keys.add(str(recipe.get("action_key") or ""))
+    touched_keys = {key for key in previous_action_keys | next_action_keys if key}
+    rows = {
+        str(row.action_key): row
+        for row in session.query(DoupoAction).filter(DoupoAction.action_key.in_(touched_keys)).with_for_update().all()
+    } if touched_keys else {}
+
+    for action_key in previous_action_keys:
+        row = rows.get(action_key)
+        if row is None:
+            continue
+        row.reward_config = _remove_managed_item_drop(dict(row.reward_config or {}), item_key)
+        if action_key == previous_recipe_key and action_key != str(recipe.get("action_key") or ""):
+            row.enabled = False
+        row.updated_at = utcnow()
+
+    if recipe:
+        action_key = str(recipe["action_key"])
+        row = rows.get(action_key)
+        if row is not None:
+            managed_item_key = str((row.reward_config or {}).get("managed_item_key") or "")
+            if managed_item_key != item_key:
+                raise ValueError(f"配方行动 key 已被其他行动占用：{action_key}")
+        if row is None:
+            row = DoupoAction(action_key=action_key, created_at=utcnow())
+            session.add(row)
+            rows[action_key] = row
+        row.name = str(recipe["name"])
+        row.description = str(recipe["description"])
+        row.action_type = str(recipe["action_type"])
+        row.cooldown_seconds = int(recipe["cooldown_seconds"])
+        row.reward_config = {
+            "recipe_version": max(_coerce_int((row.reward_config or {}).get("recipe_version"), 0) + 1, 1),
+            "managed_item_key": item_key,
+            "gold_cost": int(recipe["gold_cost"]),
+            "item_costs": dict(recipe["item_costs"]),
+            "item_drops": [{"item_key": item_key, "min": int(recipe["output_quantity"]), "max": int(recipe["output_quantity"]), "chance": 100}],
         }
-    item["key"] = key
-    item["category"] = str(item.get("category") or "token")
-    item["name"] = str(item.get("name") or key or "未知物品")
-    item["rarity"] = str(item.get("rarity") or "凡品")
-    return item
+        row.requirement_config = dict(recipe["requirement_config"])
+        row.enabled = bool(recipe["enabled_action"])
+        row.sort_order = int(recipe["sort_order"])
+        row.updated_at = utcnow()
+
+    for source in drop_sources:
+        action_key = str(source["action_key"])
+        row = rows.get(action_key)
+        if row is None:
+            raise ValueError(f"掉落来源行动不存在：{action_key}")
+        reward = _remove_managed_item_drop(dict(row.reward_config or {}), item_key)
+        drops = list(reward.get("item_drops") or [])
+        drops.append(
+            {
+                "item_key": item_key,
+                "min": int(source["min"]),
+                "max": int(source["max"]),
+                "chance": int(source["chance"]),
+            }
+        )
+        reward["item_drops"] = drops
+        reward["drop_table_version"] = max(_coerce_int(reward.get("drop_table_version"), 0) + 1, 1)
+        row.reward_config = reward
+        row.updated_at = utcnow()
+
+
+def admin_upsert_item_definition(
+    item_key: str,
+    *,
+    name: str,
+    category: str,
+    rarity: str,
+    description: str = "",
+    icon: str = "",
+    tradable: bool = False,
+    stack_limit: int = 9999,
+    equipment_slot: str | None = None,
+    attack: int = 0,
+    defense: int = 0,
+    agility: int = 0,
+    fire_bonus: int = 0,
+    alchemy_bonus: int = 0,
+    recipe_config: dict[str, Any] | None = None,
+    drop_sources: list[dict[str, Any]] | None = None,
+    enabled: bool = True,
+    change_note: str = "",
+    created_by: int | None = None,
+) -> dict[str, Any]:
+    key = str(item_key or "").strip()
+    if not ITEM_KEY_PATTERN.fullmatch(key):
+        raise ValueError("物品 key 必须以小写字母开头，只能包含小写字母、数字和下划线，长度 2-64")
+    category_keys = {str(item.get("key") or "") for item in INVENTORY_CATEGORIES}
+    if category not in category_keys:
+        raise ValueError("不支持的物品分类")
+    slot = str(equipment_slot or "").strip() or None
+    if category == "gear" and slot not in EQUIPMENT_SLOTS:
+        raise ValueError("装备必须选择有效槽位")
+    if category != "gear":
+        slot = None
+        attack = defense = agility = fire_bonus = alchemy_bonus = 0
+    icon_value = str(icon or "").strip()[:512]
+    if "://" in icon_value and not icon_value.lower().startswith("https://"):
+        raise ValueError("图片图标仅支持 HTTPS 地址")
+    max_integer = 2_000_000_000
+    base = {
+        "item_key": key,
+        "name": str(name or key).strip()[:128],
+        "category": category,
+        "rarity": str(rarity or "凡品").strip()[:32],
+        "description": str(description or "").strip()[:4000],
+        "icon": icon_value,
+        "tradable": bool(tradable),
+        "stack_limit": min(max(int(stack_limit or 1), 1), max_integer),
+        "equipment_slot": slot,
+        "attack": min(max(int(attack or 0), 0), max_integer),
+        "defense": min(max(int(defense or 0), 0), max_integer),
+        "agility": min(max(int(agility or 0), 0), max_integer),
+        "fire_bonus": min(max(int(fire_bonus or 0), 0), max_integer),
+        "alchemy_bonus": min(max(int(alchemy_bonus or 0), 0), max_integer),
+        "enabled": bool(enabled),
+        "is_builtin": key in ITEM_CATALOG,
+    }
+    normalized = _normalize_item_definition_payload(key, base)
+    normalized_recipe = _normalize_recipe_config(recipe_config, normalized)
+    normalized_sources = _normalize_drop_sources(drop_sources, key)
+    with Session() as session:
+        row = session.query(DoupoItemDefinition).filter(DoupoItemDefinition.item_key == key).with_for_update().first()
+        previous_recipe = dict(row.recipe_config or {}) if row is not None else {}
+        previous_sources = list(row.drop_sources or []) if row is not None else []
+        version = max(int(row.version or 0), 0) + 1 if row is not None else 1
+        if row is None:
+            row = DoupoItemDefinition(item_key=key, created_at=utcnow())
+            session.add(row)
+        for field in ("name", "category", "rarity", "description", "icon", "tradable", "stack_limit", "equipment_slot", "attack", "defense", "agility", "fire_bonus", "alchemy_bonus", "enabled", "is_builtin"):
+            setattr(row, field, base[field])
+        row.recipe_config = normalized_recipe
+        row.drop_sources = normalized_sources
+        row.version = version
+        row.updated_at = utcnow()
+        _sync_item_content_session(session, key, previous_recipe, previous_sources, normalized_recipe, normalized_sources)
+        session.flush()
+        snapshot = _item_definition_snapshot(row)
+        session.add(
+            DoupoItemDefinitionVersion(
+                item_key=key,
+                version=version,
+                snapshot=snapshot,
+                change_note=str(change_note or "保存物品定义")[:255],
+                created_by=int(created_by) if created_by else None,
+                created_at=utcnow(),
+            )
+        )
+        session.query(DoupoInventoryItem).filter(DoupoInventoryItem.item_key == key).update(
+            {
+                DoupoInventoryItem.category: base["category"],
+                DoupoInventoryItem.name: base["name"],
+                DoupoInventoryItem.rarity: base["rarity"],
+            },
+            synchronize_session=False,
+        )
+        inventory_query = session.query(DoupoInventoryItem).filter(DoupoInventoryItem.item_key == key)
+        if not slot or not enabled:
+            inventory_query.update({DoupoInventoryItem.equipped_slot: None}, synchronize_session=False)
+        else:
+            equipped_rows = inventory_query.filter(DoupoInventoryItem.equipped_slot.isnot(None)).all()
+            for inventory_row in equipped_rows:
+                session.query(DoupoInventoryItem).filter(
+                    DoupoInventoryItem.tg == int(inventory_row.tg),
+                    DoupoInventoryItem.equipped_slot == slot,
+                    DoupoInventoryItem.id != int(inventory_row.id),
+                ).update({DoupoInventoryItem.equipped_slot: None}, synchronize_session=False)
+                inventory_row.equipped_slot = slot
+                inventory_row.updated_at = utcnow()
+        session.commit()
+    _invalidate_item_definition_cache()
+    return get_item_definition(key)
+
+
+def list_item_definition_versions(item_key: str) -> list[dict[str, Any]]:
+    key = str(item_key or "").strip()
+    with Session() as session:
+        rows = (
+            session.query(DoupoItemDefinitionVersion)
+            .filter(DoupoItemDefinitionVersion.item_key == key)
+            .order_by(DoupoItemDefinitionVersion.version.desc())
+            .limit(100)
+            .all()
+        )
+    return [
+        {
+            "id": int(row.id),
+            "item_key": row.item_key,
+            "version": int(row.version),
+            "snapshot": dict(row.snapshot or {}),
+            "change_note": row.change_note,
+            "created_by": int(row.created_by) if row.created_by else None,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in rows
+    ]
+
+
+def admin_rollback_item_definition(item_key: str, version: int, *, created_by: int | None = None) -> dict[str, Any]:
+    key = str(item_key or "").strip()
+    with Session() as session:
+        history = (
+            session.query(DoupoItemDefinitionVersion)
+            .filter(DoupoItemDefinitionVersion.item_key == key, DoupoItemDefinitionVersion.version == int(version))
+            .first()
+        )
+        if history is None:
+            raise ValueError("指定物品版本不存在")
+        snapshot = dict(history.snapshot or {})
+    return admin_upsert_item_definition(
+        key,
+        name=str(snapshot.get("name") or key),
+        category=str(snapshot.get("category") or "token"),
+        rarity=str(snapshot.get("rarity") or "凡品"),
+        description=str(snapshot.get("description") or ""),
+        icon=str(snapshot.get("icon") or ""),
+        tradable=bool(snapshot.get("tradable", False)),
+        stack_limit=max(_coerce_int(snapshot.get("stack_limit"), 9999), 1),
+        equipment_slot=snapshot.get("equipment_slot"),
+        attack=_coerce_int(snapshot.get("attack"), 0),
+        defense=_coerce_int(snapshot.get("defense"), 0),
+        agility=_coerce_int(snapshot.get("agility"), 0),
+        fire_bonus=_coerce_int(snapshot.get("fire_bonus"), 0),
+        alchemy_bonus=_coerce_int(snapshot.get("alchemy_bonus"), 0),
+        recipe_config=dict(snapshot.get("recipe_config") or {}),
+        drop_sources=list(snapshot.get("drop_sources") or []),
+        enabled=bool(snapshot.get("enabled", True)),
+        change_note=f"回滚到版本 v{int(version)}",
+        created_by=created_by,
+    )
+
+
+def admin_archive_item_definition(item_key: str, *, created_by: int | None = None) -> dict[str, Any]:
+    item = get_item_definition(item_key)
+    return admin_upsert_item_definition(
+        str(item["item_key"]),
+        name=str(item["name"]),
+        category=str(item["category"]),
+        rarity=str(item["rarity"]),
+        description=str(item.get("description") or ""),
+        icon=str(item.get("icon") or ""),
+        tradable=bool(item.get("tradable", False)),
+        stack_limit=max(_coerce_int(item.get("stack_limit"), 9999), 1),
+        equipment_slot=item.get("equipment_slot"),
+        attack=_coerce_int(item.get("attack"), 0),
+        defense=_coerce_int(item.get("defense"), 0),
+        agility=_coerce_int(item.get("agility"), 0),
+        fire_bonus=_coerce_int(item.get("fire_bonus"), 0),
+        alchemy_bonus=_coerce_int(item.get("alchemy_bonus"), 0),
+        recipe_config={},
+        drop_sources=[],
+        enabled=False,
+        change_note="停用物品定义",
+        created_by=created_by,
+    )
+
+
+def admin_grant_item(tg: int, item_key: str, quantity: int, *, created_by: int | None = None) -> dict[str, Any]:
+    actor_tg = int(tg)
+    amount = max(int(quantity or 0), 0)
+    if amount <= 0:
+        raise ValueError("发放数量必须大于 0")
+    with Session() as session:
+        profile = session.query(DoupoProfile).filter(DoupoProfile.tg == actor_tg).with_for_update().first()
+        if profile is None:
+            raise ValueError("玩家尚未初始化斗破角色")
+        granted = _grant_inventory_item_session(
+            session,
+            actor_tg,
+            item_key,
+            amount,
+            item_meta={"last_granted_by": int(created_by) if created_by else None},
+            strict_stack_limit=True,
+        )
+        session.add(
+            DoupoJournal(
+                tg=actor_tg,
+                action_type="admin",
+                title="后台发放物品",
+                detail=f"{granted['name']} x{amount}",
+            )
+        )
+        session.commit()
+    return admin_get_player_bundle(actor_tg)
 
 
 def _serialize_inventory_row(row: DoupoInventoryItem) -> dict[str, Any]:
-    category = _CATEGORY_LOOKUP.get(str(row.category or "token")) or _CATEGORY_LOOKUP.get("token") or {}
+    catalog = _catalog_item(str(row.item_key))
+    category_key = str(catalog.get("category") or row.category or "token")
+    category = _CATEGORY_LOOKUP.get(category_key) or _CATEGORY_LOOKUP.get("token") or {}
     return {
         "id": int(row.id),
         "tg": int(row.tg),
         "item_key": str(row.item_key),
-        "category": str(row.category or "token"),
-        "category_name": str(category.get("name") or row.category or "其他"),
-        "name": str(row.name or row.item_key),
-        "rarity": str(row.rarity or "凡品"),
+        "category": category_key,
+        "category_name": str(category.get("name") or category_key or "其他"),
+        "name": str(catalog.get("name") or row.name or row.item_key),
+        "rarity": str(catalog.get("rarity") or row.rarity or "凡品"),
         "quantity": int(row.quantity or 0),
-        "description": str((_catalog_item(str(row.item_key)).get("description") or "")),
+        "description": str(catalog.get("description") or ""),
+        "icon": str(catalog.get("icon") or ""),
+        "tradable": bool(catalog.get("tradable", False)),
+        "stack_limit": max(_coerce_int(catalog.get("stack_limit"), 9999), 1),
+        "equipment": dict(catalog.get("equipment") or {}),
+        "equipped": bool(row.equipped_slot),
+        "equipped_slot": str(row.equipped_slot or "") or None,
+        "equipped_slot_name": EQUIPMENT_SLOTS.get(str(row.equipped_slot or "")),
+        "item_version": max(_coerce_int(catalog.get("version"), 1), 1),
+        "enabled": bool(catalog.get("enabled", True)),
         "meta": dict(row.item_meta or {}),
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
@@ -430,11 +998,18 @@ def _grant_inventory_item_session(
     quantity: int,
     *,
     item_meta: dict[str, Any] | None = None,
+    strict_stack_limit: bool = False,
 ) -> dict[str, Any] | None:
     qty = max(int(quantity or 0), 0)
     if qty <= 0:
         return None
     catalog = _catalog_item(item_key)
+    if not bool(catalog.get("defined")):
+        raise ValueError(f"未定义物品：{catalog['key']}")
+    if not bool(catalog.get("enabled", True)):
+        if strict_stack_limit:
+            raise ValueError(f"{catalog['name']}当前已停用，无法继续发放")
+        return None
     row = (
         session.query(DoupoInventoryItem)
         .filter(DoupoInventoryItem.tg == int(tg), DoupoInventoryItem.item_key == catalog["key"])
@@ -459,7 +1034,15 @@ def _grant_inventory_item_session(
     row.category = catalog["category"]
     row.name = catalog["name"]
     row.rarity = catalog["rarity"]
-    row.quantity = max(int(row.quantity or 0), 0) + qty
+    current_quantity = max(int(row.quantity or 0), 0)
+    stack_limit = max(_coerce_int(catalog.get("stack_limit"), 9999), 1)
+    if current_quantity + qty > stack_limit:
+        if strict_stack_limit:
+            raise ValueError(f"{catalog['name']}堆叠上限为 {stack_limit}，当前已有 {current_quantity}")
+        qty = max(stack_limit - current_quantity, 0)
+        if qty <= 0:
+            return None
+    row.quantity = current_quantity + qty
     if item_meta:
         merged = dict(row.item_meta or {})
         merged.update(item_meta)
@@ -490,6 +1073,8 @@ def _consume_inventory_item_session(session, tg: int, item_key: str, quantity: i
         current = 0 if row is None else int(row.quantity or 0)
         raise ValueError(f"{catalog['name']}不足，需要 {qty}，当前 {current}")
     row.quantity = int(row.quantity or 0) - qty
+    if int(row.quantity or 0) <= 0:
+        row.equipped_slot = None
     row.updated_at = utcnow()
     return {
         "item_key": catalog["key"],
@@ -533,6 +1118,7 @@ def list_player_inventory_grouped(tg: int) -> dict[str, Any]:
             .order_by(DoupoInventoryItem.category.asc(), DoupoInventoryItem.updated_at.desc())
             .all()
         )
+    equipment = _equipment_summary_from_rows(rows)
     grouped: dict[str, dict[str, Any]] = {}
     for category in INVENTORY_CATEGORIES:
         key = str(category.get("key") or "")
@@ -562,7 +1148,126 @@ def list_player_inventory_grouped(tg: int) -> dict[str, Any]:
         "categories": categories,
         "total_unique": sum(len(category["items"]) for category in categories),
         "total_quantity": sum(int(category["total_quantity"] or 0) for category in categories),
+        "equipped_count": int(equipment.get("equipped_count") or 0),
+        "equipment": equipment,
     }
+
+
+def _equipment_summary_from_rows(rows: list[DoupoInventoryItem]) -> dict[str, Any]:
+    equipped_rows = [row for row in rows if str(getattr(row, "equipped_slot", "") or "")]
+    stats = {key: 0 for key in EQUIPMENT_STAT_LABELS}
+    slots: dict[str, dict[str, Any] | None] = {key: None for key in EQUIPMENT_SLOTS}
+    items: list[dict[str, Any]] = []
+    for row in equipped_rows:
+        slot = str(row.equipped_slot or "")
+        catalog = _catalog_item(str(row.item_key))
+        if slot not in EQUIPMENT_SLOTS or catalog.get("equipment_slot") != slot or int(row.quantity or 0) <= 0:
+            continue
+        item = _serialize_inventory_row(row)
+        items.append(item)
+        slots[slot] = item
+        equipment = dict(catalog.get("equipment") or {})
+        for key in stats:
+            stats[key] += max(_coerce_int(equipment.get(key), 0), 0)
+    battle_power_bonus = sum(int(stats[key]) * int(EQUIPMENT_STAT_WEIGHTS[key]) for key in stats)
+    return {
+        "slots": slots,
+        "slot_labels": dict(EQUIPMENT_SLOTS),
+        "items": items,
+        "equipped_count": len(items),
+        "stats": stats,
+        "stat_labels": dict(EQUIPMENT_STAT_LABELS),
+        "battle_power_bonus": battle_power_bonus,
+    }
+
+
+def get_equipment_summary(tg: int) -> dict[str, Any]:
+    try:
+        with Session() as session:
+            rows = (
+                session.query(DoupoInventoryItem)
+                .filter(DoupoInventoryItem.tg == int(tg), DoupoInventoryItem.equipped_slot.isnot(None))
+                .order_by(DoupoInventoryItem.equipped_slot.asc())
+                .all()
+            )
+    except Exception:
+        rows = []
+    return _equipment_summary_from_rows(rows)
+
+
+def equip_inventory_item(tg: int, item_key: str) -> dict[str, Any]:
+    actor_tg = int(tg)
+    key = str(item_key or "").strip()
+    catalog = get_item_definition(key)
+    if not bool(catalog.get("enabled", True)):
+        raise ValueError("该物品已停用，无法穿戴")
+    slot = str(catalog.get("equipment_slot") or "")
+    if str(catalog.get("category") or "") != "gear" or slot not in EQUIPMENT_SLOTS:
+        raise ValueError("该物品不是可穿戴装备")
+    with Session() as session:
+        profile = session.query(DoupoProfile).filter(DoupoProfile.tg == actor_tg).with_for_update().first()
+        if profile is None:
+            raise ValueError("请先初始化斗破角色")
+        row = (
+            session.query(DoupoInventoryItem)
+            .filter(DoupoInventoryItem.tg == actor_tg, DoupoInventoryItem.item_key == key)
+            .with_for_update()
+            .first()
+        )
+        if row is None or int(row.quantity or 0) <= 0:
+            raise ValueError(f"背包中没有{catalog['name']}")
+        session.query(DoupoInventoryItem).filter(
+            DoupoInventoryItem.tg == actor_tg,
+            DoupoInventoryItem.equipped_slot == slot,
+            DoupoInventoryItem.id != int(row.id),
+        ).update({DoupoInventoryItem.equipped_slot: None}, synchronize_session=False)
+        row.equipped_slot = slot
+        row.updated_at = utcnow()
+        session.add(
+            DoupoJournal(
+                tg=actor_tg,
+                action_type="equipment",
+                title="穿戴装备",
+                detail=f"{EQUIPMENT_SLOTS[slot]}：{catalog['name']}，战力加成 {_equipment_power_for_catalog(catalog)}",
+            )
+        )
+        session.commit()
+    profile = get_or_create_profile(actor_tg)
+    return {
+        "profile": profile,
+        "inventory": list_player_inventory_grouped(actor_tg),
+        "detail": f"已穿戴{catalog['name']}。",
+    }
+
+
+def unequip_inventory_item(tg: int, item_key: str) -> dict[str, Any]:
+    actor_tg = int(tg)
+    key = str(item_key or "").strip()
+    with Session() as session:
+        row = (
+            session.query(DoupoInventoryItem)
+            .filter(DoupoInventoryItem.tg == actor_tg, DoupoInventoryItem.item_key == key)
+            .with_for_update()
+            .first()
+        )
+        if row is None or not row.equipped_slot:
+            raise ValueError("该物品当前未穿戴")
+        catalog = _catalog_item(key)
+        row.equipped_slot = None
+        row.updated_at = utcnow()
+        session.add(DoupoJournal(tg=actor_tg, action_type="equipment", title="卸下装备", detail=f"卸下{catalog['name']}"))
+        session.commit()
+    profile = get_or_create_profile(actor_tg)
+    return {
+        "profile": profile,
+        "inventory": list_player_inventory_grouped(actor_tg),
+        "detail": f"已卸下{catalog['name']}。",
+    }
+
+
+def _equipment_power_for_catalog(catalog: dict[str, Any]) -> int:
+    equipment = dict(catalog.get("equipment") or {})
+    return sum(max(_coerce_int(equipment.get(key), 0), 0) * weight for key, weight in EQUIPMENT_STAT_WEIGHTS.items())
 
 
 def _get_or_create_economy_ledger_session(session, tg: int, day_key: str) -> DoupoEconomyLedger:
@@ -868,6 +1573,8 @@ def ensure_default_actions() -> None:
                     _coerce_int(current_reward.get("drop_table_version"), 0),
                     _coerce_int(current_reward.get("balance_version"), 0),
                 )
+                if current_reward.get("managed_item_key"):
+                    continue
                 if default_version > 0 and current_version < default_version:
                     row.name = item["name"]
                     row.description = item.get("description") or ""
@@ -992,6 +1699,12 @@ def list_player_actions(tg: int, *, enabled_only: bool = True) -> list[dict[str,
             for row in rows
             for item_key, _quantity in _normalize_item_costs(dict(row.reward_config or {}).get("item_costs"))
         }
+        cost_keys.update(
+            item_key
+            for row in rows
+            if str(row.action_type or "") in {"alchemy", "craft"}
+            for item_key in _guaranteed_item_outputs(dict(row.reward_config or {}))
+        )
         cost_keys.update(
             item_key
             for item_key, _quantity in _normalize_item_costs(_breakthrough_rule(profile, settings).get("item_costs"))
@@ -1176,6 +1889,25 @@ def _check_action_requirement(
         if action_type == "alchemy":
             return False, f"丹方材料不足：{catalog['name']} {current}/{quantity}。请先外出历练获取材料。"
         return False, f"{catalog['name']}不足，需要 {quantity}，当前 {current}"
+    if action_type in {"alchemy", "craft"}:
+        item_costs: dict[str, int] = {}
+        for cost_key, cost_quantity in _normalize_item_costs(reward.get("item_costs")):
+            item_costs[cost_key] = item_costs.get(cost_key, 0) + cost_quantity
+        for item_key, quantity in _guaranteed_item_outputs(reward).items():
+            catalog = _catalog_item(item_key)
+            if not bool(catalog.get("defined")):
+                return False, f"制作产物未定义：{item_key}"
+            if not bool(catalog.get("enabled", True)):
+                return False, f"制作产物 {catalog['name']} 已停用"
+            if inventory_quantities is None:
+                current = _inventory_item_quantity_session(session, int(profile.tg), item_key)
+            else:
+                current = max(int(inventory_quantities.get(item_key, 0) or 0), 0)
+            quantity_after_cost = max(current - max(int(item_costs.get(item_key, 0)), 0), 0)
+            stack_limit = max(_coerce_int(catalog.get("stack_limit"), 9999), 1)
+            if quantity_after_cost + quantity > stack_limit:
+                available = max(stack_limit - quantity_after_cost, 0)
+                return False, f"{catalog['name']}空间不足，最多还能制作 {available} 个"
     return True, ""
 
 
@@ -1282,6 +2014,25 @@ def _normalize_item_costs(value: Any) -> list[tuple[str, int]]:
     return rows
 
 
+def _guaranteed_item_outputs(reward: dict[str, Any]) -> dict[str, int]:
+    outputs: dict[str, int] = {}
+    drops = reward.get("item_drops")
+    if not isinstance(drops, list):
+        return outputs
+    for drop in drops:
+        if not isinstance(drop, dict):
+            continue
+        item_key = str(drop.get("item_key") or drop.get("key") or "").strip()
+        chance = min(max(_coerce_int(drop.get("chance"), 100), 0), 100)
+        if not item_key or chance < 100:
+            continue
+        minimum = max(_coerce_int(drop.get("min", drop.get("quantity_min", 1)), 1), 0)
+        maximum = max(_coerce_int(drop.get("max", drop.get("quantity_max", minimum)), minimum), minimum)
+        if maximum > 0:
+            outputs[item_key] = outputs.get(item_key, 0) + maximum
+    return outputs
+
+
 def _spend_inventory_costs(session, profile: DoupoProfile, reward: dict[str, Any], result: dict[str, Any]) -> None:
     for item_key, quantity in _normalize_item_costs(reward.get("item_costs")):
         consumed = _consume_inventory_item_session(session, int(profile.tg), item_key, quantity)
@@ -1382,7 +2133,9 @@ def _douqi_training_bonus(profile: DoupoProfile, action_type: str, base: int) ->
     method_level = max(int(getattr(profile, "method_level", 0) or 0), 0)
     fire_rank = max(int(getattr(profile, "fire_rank", 0) or 0), 0)
     fire_seed = max(int(profile.fire_seed or 0), 0)
-    bonus_percent = min(method_level * 4 + fire_rank * 6 + fire_seed // 160, 80)
+    equipment = get_equipment_summary(int(profile.tg)).get("stats") or {}
+    fire_equipment_bonus = max(_coerce_int(equipment.get("fire_bonus"), 0), 0)
+    bonus_percent = min(method_level * 4 + fire_rank * 6 + fire_seed // 160 + fire_equipment_bonus, 100)
     return amount + (amount * bonus_percent // 100)
 
 
@@ -1521,12 +2274,14 @@ def _apply_action_rewards(
         _spend_action_costs(session, profile, reward, result, ledger, settings)
         costs_spent = True
         base_success = min(max(_coerce_int(reward.get("success_percent"), 82), 1), 100)
+        equipment = get_equipment_summary(int(profile.tg)).get("stats") or {}
         success_percent = min(
             base_success
             + int(profile.alchemy_exp or 0) // 90
             + int(profile.fire_seed or 0) // 180
             + int(getattr(profile, "fire_rank", 0) or 0) * 3
-            + int(getattr(profile, "method_level", 0) or 0) * 2,
+            + int(getattr(profile, "method_level", 0) or 0) * 2
+            + max(_coerce_int(equipment.get("alchemy_bonus"), 0), 0),
             98,
         )
         roll = random.randint(1, 100)
@@ -2189,6 +2944,135 @@ def resolve_doupo_duel(challenger_tg: int, defender_tg: int, stake: int = 0) -> 
     }
 
 
+def _admin_content_catalog(actions: list[dict[str, Any]]) -> dict[str, Any]:
+    definitions = list_item_definitions(include_disabled=True)
+    source_lookup: dict[str, set[str]] = {str(item["item_key"]): set() for item in definitions}
+    recipes: list[dict[str, Any]] = []
+
+    for action in actions:
+        reward = dict(action.get("reward_config") or {})
+        drops = reward.get("item_drops") if isinstance(reward.get("item_drops"), list) else []
+        for drop in drops:
+            if not isinstance(drop, dict):
+                continue
+            item_key = str(drop.get("item_key") or drop.get("key") or "").strip()
+            if item_key in source_lookup:
+                source_lookup[item_key].add(f"行动 · {action.get('name') or action.get('action_key')}")
+
+        costs = _normalize_item_costs(reward.get("item_costs"))
+        if not costs or not drops:
+            continue
+        recipe_outputs = []
+        for drop in drops:
+            if not isinstance(drop, dict):
+                continue
+            item_key = str(drop.get("item_key") or drop.get("key") or "").strip()
+            catalog = _catalog_item(item_key)
+            minimum = max(_coerce_int(drop.get("min", drop.get("quantity_min", 1)), 1), 0)
+            maximum = max(_coerce_int(drop.get("max", drop.get("quantity_max", minimum)), minimum), minimum)
+            recipe_outputs.append(
+                {
+                    "item_key": item_key,
+                    "name": catalog["name"],
+                    "min": minimum,
+                    "max": maximum,
+                    "chance": min(max(_coerce_int(drop.get("chance"), 100), 0), 100),
+                }
+            )
+        if recipe_outputs:
+            recipes.append(
+                {
+                    "action_key": str(action.get("action_key") or ""),
+                    "name": str(action.get("name") or action.get("action_key") or ""),
+                    "action_type": str(action.get("action_type") or ""),
+                    "action_type_label": str(action.get("action_type_label") or action.get("action_type") or ""),
+                    "enabled": bool(action.get("enabled", True)),
+                    "gold_cost": max(_coerce_int(reward.get("gold_cost"), 0), 0),
+                    "inputs": [
+                        {
+                            "item_key": item_key,
+                            "name": _catalog_item(item_key)["name"],
+                            "quantity": quantity,
+                        }
+                        for item_key, quantity in costs
+                    ],
+                    "outputs": recipe_outputs,
+                    "requirement_config": dict(action.get("requirement_config") or {}),
+                }
+            )
+
+    region_rows: list[dict[str, Any]] = []
+    for region in EXPEDITION_REGIONS:
+        region_name = str(region.get("name") or region.get("key") or "游历区域")
+        event_names: list[str] = []
+        completion = dict(region.get("completion_bonus") or {})
+        for item_key in dict(completion.get("items") or {}):
+            if str(item_key) in source_lookup:
+                source_lookup[str(item_key)].add(f"游历 · {region_name}结算")
+        for event_key in list(region.get("event_keys") or []):
+            event = dict(EXPEDITION_EVENTS.get(str(event_key)) or {})
+            event_name = str(event.get("title") or event_key)
+            event_names.append(event_name)
+            for choice in list(event.get("choices") or []):
+                for outcome_key in ("success", "failure"):
+                    outcome = choice.get(outcome_key) if isinstance(choice, dict) else None
+                    for item_key in dict((outcome or {}).get("drops") or {}):
+                        if str(item_key) in source_lookup:
+                            source_lookup[str(item_key)].add(f"游历 · {region_name} / {event_name}")
+        region_rows.append(
+            {
+                "key": str(region.get("key") or ""),
+                "name": region_name,
+                "description": str(region.get("description") or ""),
+                "realm_stage_min": str(region.get("realm_stage_min") or "斗之气"),
+                "recommended_power": max(_coerce_int(region.get("recommended_power"), 0), 0),
+                "entry_gold": max(_coerce_int(region.get("entry_gold"), 0), 0),
+                "max_steps": max(_coerce_int(region.get("max_steps"), 0), 0),
+                "events": event_names,
+            }
+        )
+
+    items = [
+        {
+            **dict(item),
+            "key": str(item["item_key"]),
+            "sources": sorted(source_lookup.get(str(item["item_key"])) or []),
+        }
+        for item in definitions
+    ]
+    for item in items:
+        configured_sources = [
+            f"行动 · {source.get('action_key')}（{int(source.get('chance') or 0)}%）"
+            for source in list(item.get("drop_sources") or [])
+            if isinstance(source, dict) and source.get("action_key")
+        ]
+        item["sources"] = sorted(set(item.get("sources") or []) | set(configured_sources))
+    category_rows = []
+    for category in INVENTORY_CATEGORIES:
+        key = str(category.get("key") or "")
+        category_rows.append(
+            {
+                **dict(category),
+                "item_count": sum(1 for item in items if item["category"] == key),
+            }
+        )
+    return {
+        "summary": {
+            "items": len(items),
+            "materials": sum(1 for item in items if item["category"] in {"herb", "ore", "core"}),
+            "pills": sum(1 for item in items if item["category"] == "pill"),
+            "gear": sum(1 for item in items if item["category"] == "gear"),
+            "recipes": len(recipes),
+            "regions": len(region_rows),
+            "events": len(EXPEDITION_EVENTS),
+        },
+        "categories": category_rows,
+        "items": items,
+        "recipes": recipes,
+        "regions": region_rows,
+    }
+
+
 def admin_bootstrap_payload(player_query: str | None = None, page: int = 1, page_size: int = 10) -> dict[str, Any]:
     page = max(int(page or 1), 1)
     page_size = max(min(int(page_size or 10), 100), 1)
@@ -2209,10 +3093,12 @@ def admin_bootstrap_payload(player_query: str | None = None, page: int = 1, page
             .all()
         )
         players = [serialize_profile(row) for row in rows]
+    actions = list_actions(enabled_only=False)
     return {
         "settings": get_settings(),
-        "actions": list_actions(enabled_only=False),
+        "actions": actions,
         "action_type_labels": ACTION_TYPE_LABELS,
+        "content_catalog": _admin_content_catalog(actions),
         "player_search": {
             "query": str(player_query or ""),
             "page": page,

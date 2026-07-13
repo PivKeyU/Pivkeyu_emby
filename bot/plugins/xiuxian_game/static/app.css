@@ -194,7 +194,7 @@ body.auth-locked .app-shell {
   align-content: center;
 }
 
-body.auth-locked .auth-card {
+body.auth-locked .auth-card:not(.hidden) {
   width: min(100%, 720px);
   margin-inline: auto;
 }

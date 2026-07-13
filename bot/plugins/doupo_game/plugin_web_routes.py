@@ -15,11 +15,15 @@ from bot.plugins.doupo_game.api_models import (
     AdminActionPayload,
     AdminBootstrapPayload,
     AdminGameAccountStatePayload,
+    AdminItemDefinitionPayload,
+    AdminItemGrantPayload,
+    AdminItemRollbackPayload,
     AdminSettingsPayload,
     ExchangePayload,
     ExpeditionChoicePayload,
     ExpeditionStartPayload,
     InitDataPayload,
+    InventoryEquipmentPayload,
     PlayerResourceGrantPayload,
     SectJoinPayload,
     WebAuthBindTelegramPayload,
@@ -41,16 +45,23 @@ from bot.plugins.doupo_game.features.miniapp_bundle import (
 from bot.sql_helper.sql_doupo import (
     admin_bootstrap_payload,
     admin_get_player_bundle,
+    admin_archive_item_definition,
+    admin_grant_item,
     admin_grant_resource,
+    admin_rollback_item_definition,
     admin_reset_all_player_data,
     admin_upsert_action,
+    admin_upsert_item_definition,
     exchange_currency,
+    equip_inventory_item,
     choose_expedition_event,
     join_sect,
+    list_item_definition_versions,
     retreat_expedition,
     run_action,
     set_settings,
     start_expedition,
+    unequip_inventory_item,
 )
 from bot.sql_helper.sql_xiuxian.web_auth import (
     authenticate_xiuxian_web_session,
@@ -244,6 +255,24 @@ def register_web(app) -> None:
             "data": bundle,
         }
 
+    @user_router.post("/api/inventory/equip")
+    async def doupo_inventory_equip(payload: InventoryEquipmentPayload):
+        telegram_user = await run_in_threadpool(_verify_user_from_auth, payload.init_data, payload.session_token)
+        try:
+            result = await run_in_threadpool(equip_inventory_item, int(telegram_user["id"]), payload.item_key)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"code": 200, "data": await run_in_threadpool(build_action_result_bundle, int(telegram_user["id"]), result)}
+
+    @user_router.post("/api/inventory/unequip")
+    async def doupo_inventory_unequip(payload: InventoryEquipmentPayload):
+        telegram_user = await run_in_threadpool(_verify_user_from_auth, payload.init_data, payload.session_token)
+        try:
+            result = await run_in_threadpool(unequip_inventory_item, int(telegram_user["id"]), payload.item_key)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"code": 200, "data": await run_in_threadpool(build_action_result_bundle, int(telegram_user["id"]), result)}
+
     @user_router.post("/api/exchange")
     async def doupo_exchange(payload: ExchangePayload):
         telegram_user = await run_in_threadpool(_verify_user_from_auth, payload.init_data, payload.session_token)
@@ -412,6 +441,84 @@ def register_web(app) -> None:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"code": 200, "data": data}
 
+    @admin_router.post("/items")
+    async def doupo_admin_upsert_item(payload: AdminItemDefinitionPayload, request: Request):
+        admin = await run_in_threadpool(
+            _verify_admin_credential,
+            request.headers.get("x-admin-token"),
+            request.headers.get("x-telegram-init-data"),
+        )
+        try:
+            data = await run_in_threadpool(
+                admin_upsert_item_definition,
+                payload.item_key,
+                name=payload.name,
+                category=payload.category,
+                rarity=payload.rarity,
+                description=payload.description,
+                icon=payload.icon,
+                tradable=payload.tradable,
+                stack_limit=payload.stack_limit,
+                equipment_slot=payload.equipment_slot,
+                attack=payload.attack,
+                defense=payload.defense,
+                agility=payload.agility,
+                fire_bonus=payload.fire_bonus,
+                alchemy_bonus=payload.alchemy_bonus,
+                recipe_config=payload.recipe_config,
+                drop_sources=payload.drop_sources,
+                enabled=payload.enabled,
+                change_note=payload.change_note,
+                created_by=int(admin.get("id") or 0) or None,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"code": 200, "data": data}
+
+    @admin_router.get("/items/{item_key}/versions")
+    async def doupo_admin_item_versions(item_key: str, request: Request):
+        await run_in_threadpool(
+            _verify_admin_credential,
+            request.headers.get("x-admin-token"),
+            request.headers.get("x-telegram-init-data"),
+        )
+        return {"code": 200, "data": {"items": await run_in_threadpool(list_item_definition_versions, item_key)}}
+
+    @admin_router.post("/items/{item_key}/rollback")
+    async def doupo_admin_item_rollback(item_key: str, payload: AdminItemRollbackPayload, request: Request):
+        admin = await run_in_threadpool(
+            _verify_admin_credential,
+            request.headers.get("x-admin-token"),
+            request.headers.get("x-telegram-init-data"),
+        )
+        try:
+            data = await run_in_threadpool(
+                admin_rollback_item_definition,
+                item_key,
+                payload.version,
+                created_by=int(admin.get("id") or 0) or None,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"code": 200, "data": data}
+
+    @admin_router.post("/items/{item_key}/archive")
+    async def doupo_admin_item_archive(item_key: str, request: Request):
+        admin = await run_in_threadpool(
+            _verify_admin_credential,
+            request.headers.get("x-admin-token"),
+            request.headers.get("x-telegram-init-data"),
+        )
+        try:
+            data = await run_in_threadpool(
+                admin_archive_item_definition,
+                item_key,
+                created_by=int(admin.get("id") or 0) or None,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"code": 200, "data": data}
+
     @admin_router.get("/players/{tg}")
     async def doupo_admin_player_detail(tg: int, request: Request):
         await run_in_threadpool(
@@ -430,6 +537,25 @@ def register_web(app) -> None:
         )
         try:
             data = await run_in_threadpool(admin_grant_resource, tg, payload.resource, payload.amount)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"code": 200, "data": data}
+
+    @admin_router.post("/players/{tg}/items/grant")
+    async def doupo_admin_grant_player_item(tg: int, payload: AdminItemGrantPayload, request: Request):
+        admin = await run_in_threadpool(
+            _verify_admin_credential,
+            request.headers.get("x-admin-token"),
+            request.headers.get("x-telegram-init-data"),
+        )
+        try:
+            data = await run_in_threadpool(
+                admin_grant_item,
+                tg,
+                payload.item_key,
+                payload.quantity,
+                created_by=int(admin.get("id") or 0) or None,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"code": 200, "data": data}

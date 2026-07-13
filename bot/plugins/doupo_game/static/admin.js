@@ -1,9 +1,35 @@
 const tg = window.Telegram?.WebApp;
+const webSessionToken = localStorage.getItem("doupo_web_session_token") || "";
 const state = {
   token: localStorage.getItem("doupo_admin_token") || "",
-  initData: tg?.initData || "",
+  initData: tg?.initData || (webSessionToken ? `web_session:${webSessionToken}` : ""),
   bootstrap: null,
 };
+
+function toSameOriginPath(path, fallback = "") {
+  if (!path) return fallback;
+  try {
+    const url = new URL(path, window.location.origin);
+    if (url.origin !== window.location.origin) return fallback;
+    return `${url.pathname}${url.search}${url.hash}` || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function setupBackNavigation() {
+  const fallbackPath = "/plugins/doupo/app";
+  const returnTo = toSameOriginPath(new URLSearchParams(window.location.search).get("return_to"), "");
+  const target = returnTo || fallbackPath;
+  const link = document.querySelector("#page-back-link");
+  if (link) link.href = target;
+  if (tg?.BackButton) {
+    const goBack = () => { window.location.href = target; };
+    tg.BackButton.offClick?.(goBack);
+    tg.BackButton.onClick(goBack);
+    tg.BackButton.show();
+  }
+}
 
 function setStatus(text) {
   const node = document.querySelector("#admin-status");
@@ -48,6 +74,25 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 }
+
+function itemIconHtml(icon, name = "物品") {
+  const value = String(icon || "").trim();
+  if (!value) return "";
+  if (/^https:\/\//i.test(value)) {
+    return `<img class="item-icon" src="${escapeHtml(value)}" alt="" title="${escapeHtml(name)}" loading="lazy" referrerpolicy="no-referrer" />`;
+  }
+  return `<span class="item-icon-text" aria-hidden="true">${escapeHtml(value)}</span>`;
+}
+
+document.addEventListener("error", (event) => {
+  const image = event.target;
+  if (!(image instanceof HTMLImageElement) || !image.classList.contains("item-icon")) return;
+  const fallback = document.createElement("span");
+  fallback.className = "item-icon-text";
+  fallback.setAttribute("aria-hidden", "true");
+  fallback.textContent = "物";
+  image.replaceWith(fallback);
+}, true);
 
 function fillActionForm(item = {}) {
   document.querySelector("#action-key").value = item.action_key || "";
@@ -102,7 +147,7 @@ function renderActionList(data = {}) {
       req.tower_floor_min ? `塔层 ${Number(req.tower_floor_min)}` : "",
       req.auction_credit_min ? `拍卖 ${Number(req.auction_credit_min)}` : "",
     ].filter(Boolean).join(" / ") || "无门槛";
-    const recipe = item.action_type === "alchemy" ? itemCostSummary(item.reward_config || {}) : "";
+    const recipe = ["alchemy", "craft"].includes(item.action_type) ? itemCostSummary(item.reward_config || {}) : "";
     return `
       <li>
         <span>${escapeHtml(item.action_key)} - ${escapeHtml(item.name)} (${escapeHtml(item.action_type_label || item.action_type)}) · ${escapeHtml(requirement)}${recipe ? ` · 配方 ${escapeHtml(recipe)}` : ""}</span>
@@ -134,6 +179,305 @@ function renderAdminMetrics(data = {}) {
       metricItem("可用行动", (data.actions || []).filter((item) => item.enabled).length, `共 ${(data.actions || []).length} 项`),
       metricItem("账号异常", Number(accountSummary.disabled || 0), `${Number(accountSummary.unbound || 0)} 个待绑定`),
     ].join("");
+  }
+}
+
+function requirementSummary(requirement = {}) {
+  return [
+    requirement.realm_stage_min ? `境界 ${requirement.realm_stage_min}` : "",
+    requirement.gold_min ? `金币 ${Number(requirement.gold_min)}` : "",
+    requirement.alchemy_min ? `炼药经验 ${Number(requirement.alchemy_min)}` : "",
+    requirement.fire_min ? `火候 ${Number(requirement.fire_min)}` : "",
+    requirement.auction_credit_min ? `拍卖声望 ${Number(requirement.auction_credit_min)}` : "",
+  ].filter(Boolean).join(" · ") || "无额外门槛";
+}
+
+function emptyItemDefinition() {
+  return {
+    item_key: "", name: "", category: "token", rarity: "凡品", description: "", icon: "",
+    tradable: false, stack_limit: 9999, equipment_slot: "", attack: 0, defense: 0, agility: 0,
+    fire_bonus: 0, alchemy_bonus: 0, recipe_config: {}, drop_sources: [], enabled: true, version: 0,
+  };
+}
+
+function builderItemOptions(selected = "") {
+  const rows = state.bootstrap?.content_catalog?.items || [];
+  return `<option value="">选择材料</option>${rows.filter((item) => item.enabled !== false).map((item) => `<option value="${escapeHtml(item.key)}" ${item.key === selected ? "selected" : ""}>${escapeHtml(item.name)} · ${escapeHtml(item.key)}</option>`).join("")}`;
+}
+
+function builderActionOptions(selected = "") {
+  const rows = state.bootstrap?.actions || [];
+  return `<option value="">选择行动</option>${rows.map((action) => `<option value="${escapeHtml(action.action_key)}" ${action.action_key === selected ? "selected" : ""}>${escapeHtml(action.name)} · ${escapeHtml(action.action_key)}</option>`).join("")}`;
+}
+
+function addRecipeMaterialRow(itemKey = "", quantity = 1) {
+  const root = document.querySelector("#item-recipe-materials");
+  root.insertAdjacentHTML("beforeend", `<div class="builder-row" data-recipe-material>
+    <select data-builder-item-key>${builderItemOptions(itemKey)}</select>
+    <input data-builder-quantity type="number" min="1" value="${Number(quantity || 1)}" aria-label="材料数量" />
+    <button type="button" class="ghost mini" data-remove-builder-row>移除</button>
+  </div>`);
+  root.lastElementChild.querySelector("[data-remove-builder-row]").addEventListener("click", (event) => event.currentTarget.closest(".builder-row")?.remove());
+}
+
+function addDropSourceRow(source = {}) {
+  const root = document.querySelector("#item-drop-sources");
+  root.insertAdjacentHTML("beforeend", `<div class="builder-row builder-row--drop" data-drop-source>
+    <select data-source-action>${builderActionOptions(source.action_key || "")}</select>
+    <label><span>概率%</span><input data-source-chance type="number" min="0" max="100" value="${Number(source.chance ?? 10)}" /></label>
+    <label><span>最少</span><input data-source-min type="number" min="1" value="${Number(source.min || 1)}" /></label>
+    <label><span>最多</span><input data-source-max type="number" min="1" value="${Number(source.max || source.min || 1)}" /></label>
+    <button type="button" class="ghost mini" data-remove-builder-row>移除</button>
+  </div>`);
+  root.lastElementChild.querySelector("[data-remove-builder-row]").addEventListener("click", (event) => event.currentTarget.closest(".builder-row")?.remove());
+}
+
+function fillItemEditor(item = {}) {
+  const value = { ...emptyItemDefinition(), ...item };
+  document.querySelector("#item-key").value = value.item_key || value.key || "";
+  document.querySelector("#item-key").readOnly = Boolean(value.version);
+  document.querySelector("#item-name").value = value.name || "";
+  document.querySelector("#item-category").value = value.category || "token";
+  document.querySelector("#item-rarity").value = value.rarity || "凡品";
+  document.querySelector("#item-description").value = value.description || "";
+  document.querySelector("#item-icon").value = value.icon || "";
+  document.querySelector("#item-tradable").checked = Boolean(value.tradable);
+  document.querySelector("#item-stack-limit").value = Number(value.stack_limit || 1);
+  document.querySelector("#item-equipment-slot").value = value.equipment_slot || "";
+  ["attack", "defense", "agility", "fire_bonus", "alchemy_bonus"].forEach((key) => {
+    document.querySelector(`#item-${key.replaceAll("_", "-")}`).value = Number(value[key] || value.equipment?.[key] || 0);
+  });
+  const recipe = value.recipe_config || {};
+  document.querySelector("#item-recipe-enabled").checked = Boolean(recipe.enabled);
+  document.querySelector("#item-recipe-type").value = recipe.action_type || (value.category === "gear" ? "craft" : "alchemy");
+  document.querySelector("#item-recipe-action-key").value = recipe.action_key || "";
+  document.querySelector("#item-recipe-name").value = recipe.name || "";
+  document.querySelector("#item-recipe-cooldown").value = Number(recipe.cooldown_seconds || 60);
+  document.querySelector("#item-recipe-gold").value = Number(recipe.gold_cost || 0);
+  document.querySelector("#item-recipe-output").value = Number(recipe.output_quantity || 1);
+  document.querySelector("#item-recipe-sort").value = Number(recipe.sort_order || 75);
+  document.querySelector("#item-recipe-requirements").value = JSON.stringify(recipe.requirement_config || {}, null, 2);
+  document.querySelector("#item-recipe-materials").innerHTML = "";
+  Object.entries(recipe.item_costs || {}).forEach(([key, quantity]) => addRecipeMaterialRow(key, quantity));
+  document.querySelector("#item-drop-sources").innerHTML = "";
+  (value.drop_sources || []).forEach(addDropSourceRow);
+  document.querySelector("#item-enabled").checked = Boolean(value.enabled ?? true);
+  document.querySelector("#item-change-note").value = "";
+  document.querySelector("#item-editor-title").textContent = value.version ? `编辑：${value.name}` : "新建物品";
+  document.querySelector("#item-version-badge").textContent = value.version ? `v${Number(value.version)}` : "未保存";
+  document.querySelector("#item-version-list").classList.add("hidden");
+  document.querySelector("#equipment-editor-fold").open = value.category === "gear";
+  syncEquipmentEditor();
+  document.querySelector("#item-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function syncEquipmentEditor() {
+  const isGear = document.querySelector("#item-category")?.value === "gear";
+  document.querySelector("#equipment-editor-fold")?.classList.toggle("is-disabled", !isGear);
+  document.querySelectorAll("#equipment-editor-fold select, #equipment-editor-fold input").forEach((input) => { input.disabled = !isGear; });
+  if (!isGear) document.querySelector("#item-equipment-slot").value = "";
+}
+
+function itemEditorPayload() {
+  const category = document.querySelector("#item-category").value;
+  const itemCosts = {};
+  document.querySelectorAll("[data-recipe-material]").forEach((row) => {
+    const key = row.querySelector("[data-builder-item-key]").value;
+    const quantity = Number(row.querySelector("[data-builder-quantity]").value || 0);
+    if (key && quantity > 0) itemCosts[key] = quantity;
+  });
+  const recipeEnabled = document.querySelector("#item-recipe-enabled").checked;
+  const dropSources = [...document.querySelectorAll("[data-drop-source]")].map((row) => ({
+    action_key: row.querySelector("[data-source-action]").value,
+    chance: Number(row.querySelector("[data-source-chance]").value || 0),
+    min: Number(row.querySelector("[data-source-min]").value || 1),
+    max: Number(row.querySelector("[data-source-max]").value || 1),
+  })).filter((source) => source.action_key);
+  return {
+    item_key: document.querySelector("#item-key").value.trim(),
+    name: document.querySelector("#item-name").value.trim(),
+    category,
+    rarity: document.querySelector("#item-rarity").value.trim() || "凡品",
+    description: document.querySelector("#item-description").value.trim(),
+    icon: document.querySelector("#item-icon").value.trim(),
+    tradable: document.querySelector("#item-tradable").checked,
+    stack_limit: Number(document.querySelector("#item-stack-limit").value || 1),
+    equipment_slot: category === "gear" ? (document.querySelector("#item-equipment-slot").value || null) : null,
+    attack: category === "gear" ? Number(document.querySelector("#item-attack").value || 0) : 0,
+    defense: category === "gear" ? Number(document.querySelector("#item-defense").value || 0) : 0,
+    agility: category === "gear" ? Number(document.querySelector("#item-agility").value || 0) : 0,
+    fire_bonus: category === "gear" ? Number(document.querySelector("#item-fire-bonus").value || 0) : 0,
+    alchemy_bonus: category === "gear" ? Number(document.querySelector("#item-alchemy-bonus").value || 0) : 0,
+    recipe_config: recipeEnabled ? {
+      enabled: true,
+      action_type: document.querySelector("#item-recipe-type").value,
+      action_key: document.querySelector("#item-recipe-action-key").value.trim(),
+      name: document.querySelector("#item-recipe-name").value.trim(),
+      cooldown_seconds: Number(document.querySelector("#item-recipe-cooldown").value || 0),
+      gold_cost: Number(document.querySelector("#item-recipe-gold").value || 0),
+      output_quantity: Number(document.querySelector("#item-recipe-output").value || 1),
+      sort_order: Number(document.querySelector("#item-recipe-sort").value || 75),
+      item_costs: itemCosts,
+      requirement_config: safeJson(document.querySelector("#item-recipe-requirements").value, {}),
+      enabled_action: true,
+    } : {},
+    drop_sources: dropSources,
+    enabled: document.querySelector("#item-enabled").checked,
+    change_note: document.querySelector("#item-change-note").value.trim(),
+  };
+}
+
+async function saveItemDefinition() {
+  const payload = itemEditorPayload();
+  if (!payload.item_key || !payload.name) throw new Error("物品 key 和名称不能为空");
+  const item = await request("POST", "/plugins/doupo/admin-api/items", payload);
+  await bootstrapAdmin();
+  fillItemEditor(item);
+  setStatus(`物品已保存为 v${Number(item.version || 1)}`);
+}
+
+async function loadItemVersions() {
+  const key = document.querySelector("#item-key").value.trim();
+  if (!key) throw new Error("请先选择已保存物品");
+  const data = await request("GET", `/plugins/doupo/admin-api/items/${encodeURIComponent(key)}/versions`);
+  const root = document.querySelector("#item-version-list");
+  root.classList.remove("hidden");
+  root.innerHTML = (data.items || []).map((version) => `
+    <article class="version-item">
+      <div><strong>v${Number(version.version)}</strong><p>${escapeHtml(version.change_note || "未填写说明")}</p><small>${escapeHtml(version.created_at || "")}</small></div>
+      <button type="button" class="ghost mini" data-item-rollback="${Number(version.version)}">回滚到此版本</button>
+    </article>
+  `).join("") || `<article class="admin-empty">暂无版本历史</article>`;
+  root.querySelectorAll("[data-item-rollback]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const version = Number(button.dataset.itemRollback || 0);
+      if (!window.confirm(`确认以 v${version} 内容创建一个新的回滚版本？`)) return;
+      const item = await request("POST", `/plugins/doupo/admin-api/items/${encodeURIComponent(key)}/rollback`, { version });
+      await bootstrapAdmin();
+      fillItemEditor(item);
+      setStatus(`已回滚并生成 v${Number(item.version)}`);
+    });
+  });
+}
+
+async function archiveItemDefinition() {
+  const key = document.querySelector("#item-key").value.trim();
+  if (!key) throw new Error("请先选择已保存物品");
+  if (!window.confirm("停用后不能继续掉落、制作、发放或穿戴，已拥有物品仍会保留。确认继续？")) return;
+  const item = await request("POST", `/plugins/doupo/admin-api/items/${encodeURIComponent(key)}/archive`, {});
+  await bootstrapAdmin();
+  fillItemEditor(item);
+  setStatus("物品已停用并生成新版本");
+}
+
+function renderContentCatalog(data = {}) {
+  const catalog = data.content_catalog || {};
+  const summary = catalog.summary || {};
+  const summaryRoot = document.querySelector("#content-summary");
+  if (summaryRoot) {
+    summaryRoot.innerHTML = [
+      metricItem("收录物品", Number(summary.items || 0), `${Number(summary.materials || 0)} 种采集材料`),
+      metricItem("制作配方", Number(summary.recipes || 0), `${Number(summary.pills || 0)} 种丹药 · ${Number(summary.gear || 0)} 种装备`),
+      metricItem("游历区域", Number(summary.regions || 0), `${Number(summary.events || 0)} 类随机事件`),
+      metricItem("管理方式", "行动编辑器", "配方、门槛、掉率与冷却均可调整"),
+    ].join("");
+  }
+
+  const categorySelect = document.querySelector("#content-category");
+  const currentCategory = categorySelect?.value || "";
+  if (categorySelect) {
+    categorySelect.innerHTML = `<option value="">全部分类</option>${(catalog.categories || []).map((category) => `
+      <option value="${escapeHtml(category.key)}">${escapeHtml(category.name)}（${Number(category.item_count || 0)}）</option>
+    `).join("")}`;
+    categorySelect.value = currentCategory;
+  }
+
+  const keyword = String(document.querySelector("#content-search")?.value || "").trim().toLowerCase();
+  const category = categorySelect?.value || "";
+  const items = (catalog.items || []).filter((item) => {
+    if (category && item.category !== category) return false;
+    if (!keyword) return true;
+    return [item.key, item.name, item.rarity, item.description, ...(item.sources || [])]
+      .join(" ")
+      .toLowerCase()
+      .includes(keyword);
+  });
+  const itemRoot = document.querySelector("#content-catalog");
+  if (itemRoot) {
+    itemRoot.innerHTML = items.map((item) => {
+      const sources = Array.isArray(item.sources) ? item.sources : [];
+      const sourceText = sources.length
+        ? `${sources.slice(0, 3).join("；")}${sources.length > 3 ? `；另 ${sources.length - 3} 处` : ""}`
+        : "当前仅由后台发放或预留玩法产出";
+      return `
+        <article class="content-item ${item.enabled === false ? "is-disabled" : ""}">
+          <div class="admin-item-title">
+            <strong>${itemIconHtml(item.icon, item.name)} ${escapeHtml(item.name)}</strong>
+            <span class="tag">${item.enabled === false ? "已停用" : escapeHtml(item.rarity || "凡品")}</span>
+          </div>
+          <code>${escapeHtml(item.key)}</code>
+          <p>${escapeHtml(item.description || "暂无描述")}</p>
+          ${item.equipment_slot ? `<small>${escapeHtml(item.equipment_slot_name || item.equipment_slot)} · 攻 ${Number(item.attack || 0)} / 防 ${Number(item.defense || 0)} / 身法 ${Number(item.agility || 0)} / 异火 ${Number(item.fire_bonus || 0)} / 炼药 ${Number(item.alchemy_bonus || 0)}</small>` : ""}
+          <small>来源：${escapeHtml(sourceText)}</small>
+          <button type="button" class="ghost mini" data-edit-item="${escapeHtml(item.key)}">编辑物品</button>
+        </article>
+      `;
+    }).join("") || `<article class="admin-empty">没有符合筛选条件的物品</article>`;
+    itemRoot.querySelectorAll("[data-edit-item]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const item = (catalog.items || []).find((entry) => entry.key === button.dataset.editItem);
+        if (item) fillItemEditor(item);
+      });
+    });
+  }
+
+  const grantSelect = document.querySelector("#grant-item-key");
+  if (grantSelect) {
+    const selected = grantSelect.value || "";
+    grantSelect.innerHTML = `<option value="">选择要发放的物品</option>${(catalog.items || []).filter((item) => item.enabled !== false).map((item) => `<option value="${escapeHtml(item.key)}">${escapeHtml(item.name)} · ${escapeHtml(item.rarity)}</option>`).join("")}`;
+    grantSelect.value = selected;
+  }
+
+  const recipeRoot = document.querySelector("#recipe-catalog");
+  if (recipeRoot) {
+    recipeRoot.innerHTML = (catalog.recipes || []).map((recipe) => {
+      const inputs = (recipe.inputs || []).map((item) => `${item.name} x${Number(item.quantity || 0)}`);
+      if (Number(recipe.gold_cost || 0) > 0) inputs.push(`金币 x${Number(recipe.gold_cost)}`);
+      const outputs = (recipe.outputs || []).map((item) => {
+        const range = Number(item.min || 0) === Number(item.max || 0) ? Number(item.min || 0) : `${Number(item.min || 0)}-${Number(item.max || 0)}`;
+        return `${item.name} x${range}${Number(item.chance ?? 100) < 100 ? ` / ${Number(item.chance)}%` : ""}`;
+      });
+      return `
+        <article class="recipe-item ${recipe.enabled === false ? "is-disabled" : ""}">
+          <div>
+            <div class="admin-item-title"><strong>${escapeHtml(recipe.name)}</strong><span class="tag">${escapeHtml(recipe.action_type_label || recipe.action_type)}</span></div>
+            <p>${escapeHtml(inputs.join(" + ") || "无材料")} → ${escapeHtml(outputs.join("、") || "未配置产物")}</p>
+            <small>${escapeHtml(requirementSummary(recipe.requirement_config || {}))}</small>
+          </div>
+          <button type="button" class="ghost mini" data-catalog-edit-action="${escapeHtml(recipe.action_key)}">编辑配方</button>
+        </article>
+      `;
+    }).join("") || `<article class="admin-empty">暂无制作配方</article>`;
+    recipeRoot.querySelectorAll("[data-catalog-edit-action]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const action = (data.actions || []).find((item) => item.action_key === button.dataset.catalogEditAction);
+        if (!action) return;
+        fillActionForm(action);
+        document.querySelector("#actions")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+  }
+
+  const regionRoot = document.querySelector("#region-catalog");
+  if (regionRoot) {
+    regionRoot.innerHTML = (catalog.regions || []).map((region) => `
+      <article class="region-item">
+        <div class="admin-item-title"><strong>${escapeHtml(region.name)}</strong><span class="tag">${escapeHtml(region.realm_stage_min)}起</span></div>
+        <p>${escapeHtml(region.description || "")}</p>
+        <small>推荐战力 ${Number(region.recommended_power || 0)} · 入场 ${Number(region.entry_gold || 0)} 金币 · ${Number(region.max_steps || 0)} 步</small>
+        <small>事件：${escapeHtml((region.events || []).join("、"))}</small>
+      </article>
+    `).join("") || `<article class="admin-empty">暂无游历区域</article>`;
   }
 }
 
@@ -229,6 +573,7 @@ async function handleAccountAction(button) {
 }
 
 async function bootstrapAdmin(forceToken = false) {
+  const previousItemKey = document.querySelector("#item-key")?.value || "";
   const payload = {
     player_query: document.querySelector("#player-search-q")?.value || "",
     player_page: 1,
@@ -263,8 +608,13 @@ async function bootstrapAdmin(forceToken = false) {
   document.querySelector("#setting-broadcast-enabled").checked = Boolean(data.settings?.broadcast_enabled ?? true);
   renderActionList(data);
   renderAdminMetrics(data);
+  renderContentCatalog(data);
   renderPlayerSearch(data);
   renderAccounts(data.game_accounts || {});
+  if (previousItemKey) {
+    const currentItem = data.content_catalog?.items?.find((item) => item.key === previousItemKey);
+    if (currentItem) fillItemEditor(currentItem);
+  }
   setStatus("后台数据已加载");
 }
 
@@ -324,6 +674,8 @@ async function loadPlayer() {
   const profile = detail.profile || {};
   const actionPoints = detail.daily_usage?.action_points || {};
   const douqiIncome = detail.daily_usage?.douqi_income || {};
+  const equipment = detail.inventory?.equipment || profile.equipment || {};
+  const equipmentStats = equipment.stats || {};
   document.querySelector("#player-detail").innerHTML = `
     <div class="admin-detail-grid">
       ${metricItem("玩家", profile.display_name || `TG ${profile.tg || tg}`)}
@@ -334,7 +686,9 @@ async function loadPlayer() {
       ${metricItem("宗门", profile.sect_name || "未加入")}
       ${metricItem("今日行动力", `${Number(actionPoints.used || 0)} / ${Number(actionPoints.limit || 0) || "不限"}`)}
       ${metricItem("今日成长斗气", `${Number(douqiIncome.earned || 0)} / ${Number(douqiIncome.hard_cap || 0) || "不限"}`, `软上限 ${Number(douqiIncome.soft_cap || 0)}`)}
-    </div>`;
+      ${metricItem("已穿戴装备", Number(equipment.equipped_count || 0), `装备战力 +${Number(equipment.battle_power_bonus || 0)}`)}
+    </div>
+    <div class="admin-equipment-line">攻击 ${Number(equipmentStats.attack || 0)} · 防御 ${Number(equipmentStats.defense || 0)} · 身法 ${Number(equipmentStats.agility || 0)} · 异火 ${Number(equipmentStats.fire_bonus || 0)} · 炼药 ${Number(equipmentStats.alchemy_bonus || 0)}</div>`;
 }
 
 async function grantResource() {
@@ -346,6 +700,17 @@ async function grantResource() {
   await request("POST", `/plugins/doupo/admin-api/players/${tg}/resource/grant`, payload);
   await loadPlayer();
   setStatus("资源调整完成");
+}
+
+async function grantItem() {
+  const tg = Number(document.querySelector("#player-tg").value || 0);
+  const itemKey = document.querySelector("#grant-item-key").value;
+  const quantity = Number(document.querySelector("#grant-item-amount").value || 0);
+  if (tg <= 0) throw new Error("请先选择玩家");
+  if (!itemKey || quantity <= 0) throw new Error("请选择物品并填写正确数量");
+  await request("POST", `/plugins/doupo/admin-api/players/${tg}/items/grant`, { item_key: itemKey, quantity });
+  await loadPlayer();
+  setStatus("物品发放完成");
 }
 
 async function resetAll() {
@@ -364,6 +729,14 @@ document.querySelector("#save-settings-btn")?.addEventListener("click", () => sa
 document.querySelector("#save-action-btn")?.addEventListener("click", () => saveAction().catch((e) => setStatus(e.message || String(e))));
 document.querySelector("#load-player-btn")?.addEventListener("click", () => loadPlayer().catch((e) => setStatus(e.message || String(e))));
 document.querySelector("#grant-btn")?.addEventListener("click", () => grantResource().catch((e) => setStatus(e.message || String(e))));
+document.querySelector("#grant-item-btn")?.addEventListener("click", () => grantItem().catch((e) => setStatus(e.message || String(e))));
+document.querySelector("#new-item-btn")?.addEventListener("click", () => fillItemEditor());
+document.querySelector("#save-item-btn")?.addEventListener("click", () => saveItemDefinition().catch((e) => setStatus(e.message || String(e))));
+document.querySelector("#item-versions-btn")?.addEventListener("click", () => loadItemVersions().catch((e) => setStatus(e.message || String(e))));
+document.querySelector("#archive-item-btn")?.addEventListener("click", () => archiveItemDefinition().catch((e) => setStatus(e.message || String(e))));
+document.querySelector("#item-category")?.addEventListener("change", syncEquipmentEditor);
+document.querySelector("#add-recipe-material-btn")?.addEventListener("click", () => addRecipeMaterialRow());
+document.querySelector("#add-drop-source-btn")?.addEventListener("click", () => addDropSourceRow());
 document.querySelector("#reset-all-btn")?.addEventListener("click", () => resetAll().catch((e) => setStatus(e.message || String(e))));
 document.querySelector("#player-search-form")?.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -373,6 +746,8 @@ document.querySelector("#account-search-form")?.addEventListener("submit", (even
   event.preventDefault();
   loadAccounts().catch((error) => setStatus(error.message || String(error)));
 });
+document.querySelector("#content-search")?.addEventListener("input", () => renderContentCatalog(state.bootstrap || {}));
+document.querySelector("#content-category")?.addEventListener("change", () => renderContentCatalog(state.bootstrap || {}));
 document.querySelectorAll(".admin-nav a").forEach((link) => {
   link.addEventListener("click", (event) => {
     const target = document.querySelector(link.getAttribute("href") || "");
@@ -386,4 +761,5 @@ if (tg) {
   tg.ready();
   tg.expand();
 }
+setupBackNavigation();
 bootstrapAdmin().catch((e) => setStatus(e.message || String(e)));

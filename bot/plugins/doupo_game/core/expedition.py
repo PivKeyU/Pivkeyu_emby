@@ -51,6 +51,51 @@ EXPEDITION_REGIONS: list[dict[str, Any]] = [
             "items": {"monster_core_mid": 1, "mitel_auction_token": 1},
         },
     },
+    {
+        "key": "canaan_inner_academy",
+        "name": "迦南学院内院",
+        "description": "火能森林、天焚炼气塔和寒潭矿洞交错，适合中阶修士采集炼器材料。",
+        "realm_stage_min": "大斗师",
+        "recommended_power": 52000,
+        "entry_gold": 90,
+        "max_steps": 6,
+        "event_keys": ["fire_energy_forest", "tower_magma_tunnel", "inner_courtyard_market", "thunder_cliff"],
+        "completion_bonus": {
+            "douqi": 250,
+            "gold": 90,
+            "items": {"fire_energy_crystal": 1, "cold_iron_ore": 1},
+        },
+    },
+    {
+        "key": "central_plains_dan_domain",
+        "name": "中州丹域",
+        "description": "丹塔势力辐射的繁盛区域，药田、兽火谷与空间驿站中藏有高阶资源。",
+        "realm_stage_min": "斗王",
+        "recommended_power": 98000,
+        "entry_gold": 180,
+        "max_steps": 6,
+        "event_keys": ["dan_domain_herb_field", "space_wormhole", "beast_flame_valley", "danta_ruins"],
+        "completion_bonus": {
+            "douqi": 360,
+            "gold": 150,
+            "items": {"danta_exam_token": 1, "earth_core_body_milk": 1},
+        },
+    },
+    {
+        "key": "ancient_starfall_ruins",
+        "name": "星陨阁远古遗迹",
+        "description": "空间裂缝后的远古药园与龙池残迹，稀有资源丰厚，危险也远超寻常区域。",
+        "realm_stage_min": "斗宗",
+        "recommended_power": 185000,
+        "entry_gold": 320,
+        "max_steps": 7,
+        "event_keys": ["starfall_forest", "ancient_dragon_pool", "void_stone_chamber", "reincarnation_garden"],
+        "completion_bonus": {
+            "douqi": 520,
+            "gold": 240,
+            "items": {"starfall_token": 1, "meteorite_iron": 1, "space_stone": 1},
+        },
+    },
 ]
 
 
@@ -65,7 +110,7 @@ EXPEDITION_EVENTS: dict[str, dict[str, Any]] = {
                 "description": "避开正面冲突，沿林缘搜集药材。",
                 "risk": "稳妥",
                 "base_chance": 100,
-                "success": {"damage": [0, 3], "douqi": [8, 16], "gold": [2, 7], "danger": -1, "drops": {"ice_spirit_flame_grass": 45}},
+                "success": {"damage": [0, 3], "douqi": [8, 16], "gold": [2, 7], "danger": -1, "drops": {"ice_spirit_flame_grass": 45, "clotting_grass": 75, "purple_blue_leaf": 55}},
             },
             {
                 "key": "hunt",
@@ -73,7 +118,7 @@ EXPEDITION_EVENTS: dict[str, dict[str, Any]] = {
                 "description": "判断行进路线后设伏，正面争夺魔核。",
                 "risk": "均衡",
                 "base_chance": 74,
-                "success": {"damage": [4, 10], "douqi": [25, 48], "gold": [8, 18], "danger": 1, "drops": {"monster_core_low": 78}},
+                "success": {"damage": [4, 10], "douqi": [25, 48], "gold": [8, 18], "danger": 1, "drops": {"monster_core_low": 78, "beast_bone_shard": 68, "beast_hide": 52}},
                 "failure": {"damage": [17, 28], "douqi": [4, 10], "gold": [0, 3], "danger": 2},
             },
             {
@@ -82,7 +127,7 @@ EXPEDITION_EVENTS: dict[str, dict[str, Any]] = {
                 "description": "追踪到巢穴深处，赌一次稀有收获。",
                 "risk": "凶险",
                 "base_chance": 56,
-                "success": {"damage": [8, 15], "douqi": [40, 72], "gold": [14, 28], "danger": 2, "drops": {"monster_core_low": 100, "monster_core_mid": 24}},
+                "success": {"damage": [8, 15], "douqi": [40, 72], "gold": [14, 28], "danger": 2, "drops": {"monster_core_low": 100, "monster_core_mid": 24, "beast_bone_shard": 100, "beast_hide": 72}},
                 "failure": {"damage": [24, 38], "douqi": [5, 14], "gold": [0, 4], "danger": 3},
             },
         ],
@@ -91,7 +136,7 @@ EXPEDITION_EVENTS: dict[str, dict[str, Any]] = {
         "title": "幽谷药香",
         "story": "山风送来浓郁药香，谷底灵草成片，岩壁上却盘踞着守药魔兽。",
         "choices": [
-            {"key": "edge", "label": "谷口采药", "description": "只取外围成熟药草。", "risk": "稳妥", "base_chance": 100, "success": {"damage": [0, 2], "douqi": [6, 13], "gold": [1, 5], "danger": -1, "drops": {"ice_spirit_flame_grass": 80, "snake_shed_grass": 38}}},
+            {"key": "edge", "label": "谷口采药", "description": "只取外围成熟药草。", "risk": "稳妥", "base_chance": 100, "success": {"damage": [0, 2], "douqi": [6, 13], "gold": [1, 5], "danger": -1, "drops": {"ice_spirit_flame_grass": 80, "snake_shed_grass": 38, "clotting_grass": 85, "bone_growth_flower": 65, "purple_blue_leaf": 72}}},
             {"key": "lure", "label": "引兽离谷", "description": "制造声响引开魔兽，再进入谷底。", "risk": "均衡", "base_chance": 70, "success": {"damage": [3, 8], "douqi": [18, 35], "gold": [5, 12], "danger": 1, "drops": {"blood_lotus_essence": 70, "seven_leaf_lotus": 18}}, "failure": {"damage": [14, 24], "douqi": [3, 8], "danger": 2}},
             {"key": "challenge", "label": "强夺灵药", "description": "击败守药魔兽，搜尽谷底。", "risk": "凶险", "base_chance": 54, "success": {"damage": [8, 14], "douqi": [35, 62], "gold": [10, 20], "danger": 2, "drops": {"blood_lotus_essence": 100, "seven_leaf_lotus": 42}}, "failure": {"damage": [23, 36], "douqi": [4, 10], "danger": 3}},
         ],
@@ -101,7 +146,7 @@ EXPEDITION_EVENTS: dict[str, dict[str, Any]] = {
         "story": "藤蔓后露出半扇石门，门内斗气流转，禁制尚未完全消散。",
         "choices": [
             {"key": "meditate", "label": "门外感悟", "description": "不触碰禁制，只借残余斗气修炼。", "risk": "稳妥", "base_chance": 100, "success": {"damage": [0, 2], "douqi": [20, 34], "gold": [0, 3], "danger": -1}},
-            {"key": "probe", "label": "破解禁制", "description": "寻找禁制薄弱处进入外室。", "risk": "均衡", "base_chance": 68, "success": {"damage": [3, 9], "douqi": [26, 48], "gold": [12, 24], "danger": 1, "drops": {"black_iron_ore": 65, "flame_method_fragment": 12}}, "failure": {"damage": [16, 27], "douqi": [5, 10], "danger": 2}},
+            {"key": "probe", "label": "破解禁制", "description": "寻找禁制薄弱处进入外室。", "risk": "均衡", "base_chance": 68, "success": {"damage": [3, 9], "douqi": [26, 48], "gold": [12, 24], "danger": 1, "drops": {"black_iron_ore": 65, "green_rock_ore": 78, "spirit_pattern_wood": 32, "flame_method_fragment": 12}}, "failure": {"damage": [16, 27], "douqi": [5, 10], "danger": 2}},
             {"key": "break", "label": "强破石门", "description": "以斗技撼动整座禁制。", "risk": "凶险", "base_chance": 50, "success": {"damage": [9, 16], "douqi": [45, 78], "gold": [20, 38], "danger": 2, "drops": {"flame_method_fragment": 40, "baji_beng_scroll": 10}}, "failure": {"damage": [27, 42], "douqi": [4, 12], "danger": 3}},
         ],
     },
@@ -111,7 +156,7 @@ EXPEDITION_EVENTS: dict[str, dict[str, Any]] = {
         "choices": [
             {"key": "guide", "label": "指明归路", "description": "提供方向后继续上路。", "risk": "稳妥", "base_chance": 100, "success": {"damage": [0, 1], "douqi": [8, 15], "gold": [5, 10], "danger": -1}},
             {"key": "escort", "label": "护送离山", "description": "护送佣兵穿过魔兽活动区。", "risk": "均衡", "base_chance": 76, "success": {"damage": [3, 8], "douqi": [18, 32], "gold": [16, 28], "danger": 0, "drops": {"healing_powder": 35}}, "failure": {"damage": [12, 22], "douqi": [3, 8], "danger": 2}},
-            {"key": "recover_pack", "label": "夺回包裹", "description": "循着痕迹追击劫匪。", "risk": "凶险", "base_chance": 58, "success": {"damage": [7, 14], "douqi": [32, 58], "gold": [25, 44], "danger": 2, "drops": {"monster_core_low": 55}}, "failure": {"damage": [22, 34], "douqi": [4, 10], "danger": 3}},
+            {"key": "recover_pack", "label": "夺回包裹", "description": "循着痕迹追击劫匪。", "risk": "凶险", "base_chance": 58, "success": {"damage": [7, 14], "douqi": [32, 58], "gold": [25, 44], "danger": 2, "drops": {"monster_core_low": 55, "beast_hide": 65, "beast_bone_shard": 72}}, "failure": {"damage": [22, 34], "douqi": [4, 10], "danger": 3}},
         ],
     },
     "desert_storm": {
@@ -120,7 +165,7 @@ EXPEDITION_EVENTS: dict[str, dict[str, Any]] = {
         "choices": [
             {"key": "shelter", "label": "寻找背风处", "description": "保存体力，等待风暴减弱。", "risk": "稳妥", "base_chance": 100, "success": {"damage": [2, 6], "douqi": [10, 18], "gold": [0, 4], "danger": -2}},
             {"key": "cross", "label": "斗气护体", "description": "以斗气护住经脉，穿越沙墙。", "risk": "均衡", "base_chance": 70, "success": {"damage": [6, 12], "douqi": [30, 52], "gold": [8, 16], "danger": 1, "drops": {"snake_shed_grass": 62}}, "failure": {"damage": [20, 32], "douqi": [6, 12], "danger": 2}},
-            {"key": "center", "label": "追逐火流", "description": "深入风暴中心吸收火属性能量。", "risk": "凶险", "base_chance": 52, "success": {"damage": [10, 18], "douqi": [48, 82], "gold": [12, 24], "danger": 3, "drops": {"earth_core_fire_mushroom": 70, "qinglian_fire_map": 18}}, "failure": {"damage": [28, 44], "douqi": [5, 13], "danger": 4}},
+            {"key": "center", "label": "追逐火流", "description": "深入风暴中心吸收火属性能量。", "risk": "凶险", "base_chance": 52, "success": {"damage": [10, 18], "douqi": [48, 82], "gold": [12, 24], "danger": 3, "drops": {"earth_core_fire_mushroom": 70, "fire_spirit_root": 58, "flame_crystal_core": 36, "qinglian_fire_map": 18}}, "failure": {"damage": [28, 44], "douqi": [5, 13], "danger": 4}},
         ],
     },
     "snake_patrol": {
@@ -129,7 +174,7 @@ EXPEDITION_EVENTS: dict[str, dict[str, Any]] = {
         "choices": [
             {"key": "wait", "label": "隐匿等待", "description": "收敛气息，等巡队离开。", "risk": "稳妥", "base_chance": 100, "success": {"damage": [1, 4], "douqi": [9, 16], "gold": [2, 6], "danger": -1}},
             {"key": "trail", "label": "潜行小径", "description": "借沙丘遮蔽绕过封锁。", "risk": "均衡", "base_chance": 72, "success": {"damage": [4, 9], "douqi": [24, 43], "gold": [10, 20], "danger": 1, "drops": {"snake_shed_grass": 75, "blood_lotus_essence": 35}}, "failure": {"damage": [17, 28], "douqi": [4, 9], "danger": 3}},
-            {"key": "breakthrough", "label": "正面突围", "description": "击溃巡队，夺取补给。", "risk": "凶险", "base_chance": 55, "success": {"damage": [9, 16], "douqi": [42, 70], "gold": [18, 34], "danger": 3, "drops": {"snake_reputation_token": 45, "scale_guard_armor": 8}}, "failure": {"damage": [26, 40], "douqi": [5, 12], "danger": 4}},
+            {"key": "breakthrough", "label": "正面突围", "description": "击溃巡队，夺取补给。", "risk": "凶险", "base_chance": 55, "success": {"damage": [9, 16], "douqi": [42, 70], "gold": [18, 34], "danger": 3, "drops": {"snake_people_token": 45, "scale_guard_armor": 8}}, "failure": {"damage": [26, 40], "douqi": [5, 12], "danger": 4}},
         ],
     },
     "fire_vein": {
@@ -138,7 +183,7 @@ EXPEDITION_EVENTS: dict[str, dict[str, Any]] = {
         "choices": [
             {"key": "observe", "label": "记录火脉", "description": "观察流向并记录安全路线。", "risk": "稳妥", "base_chance": 100, "success": {"damage": [1, 5], "douqi": [14, 24], "gold": [2, 7], "danger": -1, "drops": {"earth_core_fire_mushroom": 35}}},
             {"key": "temper", "label": "引火淬体", "description": "引导地火淬炼经脉。", "risk": "均衡", "base_chance": 67, "success": {"damage": [7, 13], "douqi": [36, 64], "gold": [7, 14], "danger": 2, "drops": {"earth_core_fire_mushroom": 72}}, "failure": {"damage": [22, 35], "douqi": [8, 16], "danger": 3}},
-            {"key": "descend", "label": "深入裂隙", "description": "向异火气息最浓处深入。", "risk": "凶险", "base_chance": 48, "success": {"damage": [12, 20], "douqi": [58, 96], "gold": [15, 30], "danger": 4, "drops": {"qinglian_fire_map": 52, "fallen_heart_flame_trace": 14}}, "failure": {"damage": [32, 48], "douqi": [7, 18], "danger": 5}},
+            {"key": "descend", "label": "深入裂隙", "description": "向异火气息最浓处深入。", "risk": "凶险", "base_chance": 48, "success": {"damage": [12, 20], "douqi": [58, 96], "gold": [15, 30], "danger": 4, "drops": {"qinglian_fire_map": 52, "fallen_heart_flame_trace": 14, "fire_spirit_root": 64, "flame_crystal_core": 42}}, "failure": {"damage": [32, 48], "douqi": [7, 18], "danger": 5}},
         ],
     },
     "desert_caravan": {
@@ -173,8 +218,116 @@ EXPEDITION_EVENTS: dict[str, dict[str, Any]] = {
         "story": "破败石殿沉在峡谷尽头，墙上残留着高阶斗技运转痕迹。",
         "choices": [
             {"key": "rubbing", "label": "临摹石壁", "description": "只记录可辨认的斗气路线。", "risk": "稳妥", "base_chance": 100, "success": {"damage": [1, 4], "douqi": [24, 40], "gold": [3, 9], "danger": -1}},
-            {"key": "outer_hall", "label": "搜寻外殿", "description": "避开主阵，搜索坍塌偏殿。", "risk": "均衡", "base_chance": 62, "success": {"damage": [7, 14], "douqi": [45, 76], "gold": [30, 54], "danger": 2, "drops": {"flame_method_fragment": 55, "thunder_steps_scroll": 16}}, "failure": {"damage": [25, 39], "douqi": [7, 15], "danger": 4}},
+            {"key": "outer_hall", "label": "搜寻外殿", "description": "避开主阵，搜索坍塌偏殿。", "risk": "均衡", "base_chance": 62, "success": {"damage": [7, 14], "douqi": [45, 76], "gold": [30, 54], "danger": 2, "drops": {"flame_method_fragment": 55, "thunder_steps_scroll": 16, "meteorite_iron": 32, "space_stone": 10}}, "failure": {"damage": [25, 39], "douqi": [7, 15], "danger": 4}},
             {"key": "main_hall", "label": "闯入主殿", "description": "硬抗残阵，争夺核心传承。", "risk": "凶险", "base_chance": 43, "success": {"damage": [15, 25], "douqi": [75, 120], "gold": [55, 90], "danger": 5, "drops": {"flame_divide_scroll": 34, "thunder_steps_scroll": 30}}, "failure": {"damage": [42, 62], "douqi": [9, 20], "danger": 6}},
+        ],
+    },
+    "fire_energy_forest": {
+        "title": "火能森林",
+        "story": "古木间漂浮着细碎火能，寒潭与兽径把森林分成数条路线。",
+        "choices": [
+            {"key": "forest_edge", "label": "沿林缘采集", "description": "避开火能浓郁区，搜集寒髓草与灵纹木。", "risk": "稳妥", "base_chance": 100, "success": {"damage": [1, 4], "douqi": [18, 30], "gold": [3, 9], "danger": -1, "drops": {"cold_marrow_grass": 72, "spirit_pattern_wood": 58}}},
+            {"key": "hunt_fire_beast", "label": "追猎火兽", "description": "循着焦黑兽印猎取火晶核和火能晶。", "risk": "均衡", "base_chance": 69, "success": {"damage": [6, 12], "douqi": [42, 72], "gold": [14, 28], "danger": 2, "drops": {"flame_crystal_core": 76, "fire_energy_crystal": 46, "beast_hide": 42}}, "failure": {"damage": [21, 34], "douqi": [7, 14], "danger": 3}},
+            {"key": "deep_spring", "label": "潜入地脉泉眼", "description": "穿过兽群争夺地脉凝乳和玉骨果。", "risk": "凶险", "base_chance": 49, "success": {"damage": [12, 20], "douqi": [68, 108], "gold": [24, 42], "danger": 4, "drops": {"jade_bone_fruit": 48, "earth_core_body_milk": 22, "monster_core_mid": 55}}, "failure": {"damage": [34, 50], "douqi": [9, 18], "danger": 5}},
+        ],
+    },
+    "tower_magma_tunnel": {
+        "title": "炼气塔岩浆支脉",
+        "story": "塔底旧通道被岩浆照得通红，冷热矿层在火流两侧交替裸露。",
+        "choices": [
+            {"key": "mark_route", "label": "测绘安全路线", "description": "记录岩浆涨落，只取通道口的火灵根。", "risk": "稳妥", "base_chance": 100, "success": {"damage": [2, 6], "douqi": [22, 38], "gold": [4, 10], "danger": -1, "drops": {"fire_spirit_root": 62, "cold_iron_ore": 35}}},
+            {"key": "temper_crystal", "label": "引火炼晶", "description": "借地火提纯火晶核与冰晶髓。", "risk": "均衡", "base_chance": 65, "success": {"damage": [8, 14], "douqi": [48, 80], "gold": [12, 24], "danger": 2, "drops": {"flame_crystal_core": 80, "ice_crystal_marrow": 58, "fallen_heart_flame_trace": 18}}, "failure": {"damage": [24, 38], "douqi": [8, 16], "danger": 4}},
+            {"key": "magma_floor", "label": "下探岩浆底层", "description": "直入火流最深处寻找地心淬体乳和陨星铁。", "risk": "凶险", "base_chance": 46, "success": {"damage": [14, 23], "douqi": [78, 122], "gold": [25, 46], "danger": 5, "drops": {"earth_core_body_milk": 42, "meteorite_iron": 22, "fallen_heart_flame_trace": 38}}, "failure": {"damage": [40, 58], "douqi": [10, 20], "danger": 6}},
+        ],
+    },
+    "inner_courtyard_market": {
+        "title": "内院火能集市",
+        "story": "学员把试炼所得摆上石台，火能牌、矿石和药材在这里快速流转。",
+        "choices": [
+            {"key": "run_errand", "label": "接取跑腿委托", "description": "帮摊主运送货物，换取少量火能和材料。", "risk": "稳妥", "base_chance": 100, "success": {"damage": [0, 2], "douqi": [16, 28], "gold": [12, 20], "danger": -1, "drops": {"fire_energy_crystal": 58, "spirit_pattern_wood": 46}}},
+            {"key": "bargain_ore", "label": "与强榜学员议价", "description": "用眼力换取寒铁、冰晶和雷纹矿。", "risk": "均衡", "base_chance": 72, "success": {"damage": [2, 7], "douqi": [34, 58], "gold": [20, 36], "danger": 1, "drops": {"cold_iron_ore": 78, "ice_crystal_marrow": 62, "thunder_pattern_ore": 24}}, "failure": {"damage": [15, 25], "douqi": [5, 11], "danger": 2}},
+            {"key": "sealed_lot", "label": "竞拍封印纳戒", "description": "赌一批来路不明的遗迹残材。", "risk": "凶险", "base_chance": 50, "success": {"damage": [7, 14], "douqi": [56, 92], "gold": [38, 68], "danger": 3, "drops": {"space_stone": 20, "meteorite_iron": 32, "bronze_cauldron": 7}}, "failure": {"damage": [28, 42], "douqi": [7, 16], "gold": [0, 4], "danger": 5}},
+        ],
+    },
+    "thunder_cliff": {
+        "title": "雷鸣崖",
+        "story": "乌云常年压在崖顶，银色雷弧沿矿脉游走，空气中满是焦灼气味。",
+        "choices": [
+            {"key": "after_rain", "label": "雷雨后拾矿", "description": "等雷势稍缓，从崖脚回收被震落的矿石。", "risk": "稳妥", "base_chance": 100, "success": {"damage": [2, 5], "douqi": [20, 34], "gold": [5, 12], "danger": -1, "drops": {"cold_iron_ore": 68, "green_rock_ore": 82}}},
+            {"key": "mine_thunder", "label": "斗气包裹采矿", "description": "以斗气隔绝雷弧，切取完整雷纹矿。", "risk": "均衡", "base_chance": 63, "success": {"damage": [8, 15], "douqi": [46, 76], "gold": [14, 26], "danger": 2, "drops": {"thunder_pattern_ore": 74, "cold_iron_ore": 52}}, "failure": {"damage": [26, 40], "douqi": [8, 17], "danger": 4}},
+            {"key": "face_lightning", "label": "引雷淬体", "description": "迎向雷瀑淬炼身法，并争夺最深处矿芯。", "risk": "凶险", "base_chance": 44, "success": {"damage": [15, 25], "douqi": [82, 128], "gold": [26, 48], "danger": 5, "drops": {"thunder_pattern_ore": 100, "fire_energy_crystal": 48, "thunder_pattern_boots": 8}}, "failure": {"damage": [43, 62], "douqi": [11, 22], "danger": 6}},
+        ],
+    },
+    "dan_domain_herb_field": {
+        "title": "丹域万药田",
+        "story": "连绵药田被阵法分隔，每片药圃都有丹塔弟子与傀儡轮值看守。",
+        "choices": [
+            {"key": "public_field", "label": "照料公用药圃", "description": "完成除草与灌灵，领取成熟药材。", "risk": "稳妥", "base_chance": 100, "success": {"damage": [0, 3], "douqi": [28, 44], "gold": [10, 18], "danger": -1, "drops": {"fire_spirit_root": 76, "star_mist_grass": 42}}},
+            {"key": "night_harvest", "label": "夜巡成熟药田", "description": "协助赶走偷药魔兽，按战果分取灵药。", "risk": "均衡", "base_chance": 67, "success": {"damage": [7, 13], "douqi": [58, 92], "gold": [24, 42], "danger": 2, "drops": {"earth_core_body_milk": 52, "jade_bone_fruit": 48, "monster_core_mid": 58}}, "failure": {"damage": [24, 36], "douqi": [9, 18], "danger": 4}},
+            {"key": "sealed_garden", "label": "闯封禁古药园", "description": "破解旧阵争夺帝流浆与轮回草。", "risk": "凶险", "base_chance": 45, "success": {"damage": [14, 23], "douqi": [92, 142], "gold": [42, 72], "danger": 5, "drops": {"emperor_flow_serum": 38, "nine_leaf_reincarnation_grass": 18, "void_spirit_leaf": 22}}, "failure": {"damage": [41, 60], "douqi": [12, 24], "danger": 6}},
+        ],
+    },
+    "space_wormhole": {
+        "title": "空间虫洞驿站",
+        "story": "银色空间之力在巨大通道中旋转，不时有碎石和旧物从裂缝中坠出。",
+        "choices": [
+            {"key": "collect_fragments", "label": "收集通道碎石", "description": "只在阵法边缘回收稳定残材。", "risk": "稳妥", "base_chance": 100, "success": {"damage": [2, 6], "douqi": [30, 48], "gold": [12, 22], "danger": -1, "drops": {"meteorite_iron": 46, "green_rock_ore": 72}}},
+            {"key": "stabilize_node", "label": "协助稳定节点", "description": "向阵眼灌注斗气，换取空间晶石。", "risk": "均衡", "base_chance": 64, "success": {"damage": [8, 15], "douqi": [64, 100], "gold": [28, 50], "danger": 2, "drops": {"space_stone": 58, "meteorite_iron": 62}}, "failure": {"damage": [28, 42], "douqi": [10, 19], "danger": 4}},
+            {"key": "cross_rift", "label": "穿越临时裂隙", "description": "进入未标记的空间夹层搜寻虚灵叶。", "risk": "凶险", "base_chance": 42, "success": {"damage": [16, 26], "douqi": [102, 158], "gold": [50, 86], "danger": 6, "drops": {"space_stone": 100, "void_spirit_leaf": 38, "mid_grade_storage_ring": 6}}, "failure": {"damage": [46, 66], "douqi": [13, 26], "danger": 7}},
+        ],
+    },
+    "beast_flame_valley": {
+        "title": "兽火谷",
+        "story": "众多火属性魔兽在谷中争夺兽火，赤红晶核散发出灼热波动。",
+        "choices": [
+            {"key": "gather_ashes", "label": "收集余烬", "description": "待兽群离开后，从战场边缘筛选火晶。", "risk": "稳妥", "base_chance": 100, "success": {"damage": [3, 7], "douqi": [32, 50], "gold": [8, 16], "danger": -1, "drops": {"flame_crystal_core": 72, "fire_spirit_root": 48}}},
+            {"key": "isolate_beast", "label": "诱离火兽", "description": "引出落单魔兽，夺取完整兽火晶核。", "risk": "均衡", "base_chance": 61, "success": {"damage": [10, 17], "douqi": [70, 108], "gold": [26, 48], "danger": 3, "drops": {"flame_crystal_core": 100, "monster_core_mid": 76, "beast_hide": 48}}, "failure": {"damage": [31, 46], "douqi": [11, 21], "danger": 5}},
+            {"key": "valley_lord", "label": "挑战谷主", "description": "强夺谷地深处的高阶魔核与兽火。", "risk": "凶险", "base_chance": 40, "success": {"damage": [18, 29], "douqi": [112, 172], "gold": [52, 90], "danger": 6, "drops": {"monster_core_high": 62, "flame_crystal_core": 100, "emperor_flow_serum": 14}}, "failure": {"damage": [50, 70], "douqi": [14, 28], "danger": 7}},
+        ],
+    },
+    "danta_ruins": {
+        "title": "丹塔旧试场",
+        "story": "废弃试场里仍残留着丹雷痕迹，封闭丹室偶尔会飘出药香。",
+        "choices": [
+            {"key": "read_marks", "label": "临摹炼药刻痕", "description": "不触动丹室，只记录前人火候心得。", "risk": "稳妥", "base_chance": 100, "success": {"damage": [1, 5], "douqi": [38, 58], "gold": [8, 16], "danger": -1, "drops": {"danta_exam_token": 42, "star_mist_grass": 34}}},
+            {"key": "open_lab", "label": "开启外层丹室", "description": "修复机关后搜寻遗留药材和药鼎碎片。", "risk": "均衡", "base_chance": 60, "success": {"damage": [9, 16], "douqi": [76, 116], "gold": [34, 58], "danger": 3, "drops": {"earth_core_body_milk": 62, "meteorite_iron": 48, "danta_exam_token": 70}}, "failure": {"damage": [30, 45], "douqi": [11, 22], "danger": 5}},
+            {"key": "sealed_pill_room", "label": "强开封印丹室", "description": "硬抗丹雷，争夺最高层封存的奇药与冷火残息。", "risk": "凶险", "base_chance": 39, "success": {"damage": [19, 30], "douqi": [118, 180], "gold": [58, 96], "danger": 6, "drops": {"emperor_flow_serum": 48, "nine_leaf_reincarnation_grass": 24, "bone_spirit_cold_fire_trace": 14}}, "failure": {"damage": [52, 72], "douqi": [15, 30], "danger": 8}},
+        ],
+    },
+    "starfall_forest": {
+        "title": "星陨古林",
+        "story": "古树叶面映着星光，林间灵气比外界浓郁数倍，却也藏着高阶魔兽。",
+        "choices": [
+            {"key": "follow_starlight", "label": "循星光采药", "description": "只沿阁中标记路线收集星雾草和灵木。", "risk": "稳妥", "base_chance": 100, "success": {"damage": [3, 7], "douqi": [44, 66], "gold": [12, 22], "danger": -1, "drops": {"star_mist_grass": 82, "spirit_pattern_wood": 68}}},
+            {"key": "guard_herb", "label": "挑战守药魔兽", "description": "争夺古林深处的高阶灵药。", "risk": "均衡", "base_chance": 58, "success": {"damage": [11, 19], "douqi": [88, 132], "gold": [36, 62], "danger": 3, "drops": {"emperor_flow_serum": 38, "monster_core_high": 58, "starfall_token": 42}}, "failure": {"damage": [36, 52], "douqi": [13, 25], "danger": 5}},
+            {"key": "ancient_pavilion", "label": "探查林中古阁", "description": "穿过残阵搜寻星陨阁旧藏。", "risk": "凶险", "base_chance": 38, "success": {"damage": [20, 32], "douqi": [132, 198], "gold": [66, 110], "danger": 6, "drops": {"starfall_token": 100, "meteorite_iron": 62, "flame_divide_scroll": 20}}, "failure": {"damage": [54, 76], "douqi": [16, 32], "danger": 8}},
+        ],
+    },
+    "ancient_dragon_pool": {
+        "title": "古龙涎池",
+        "story": "石池上方盘旋着淡淡龙威，池底沉积着金色灵液与碎鳞。",
+        "choices": [
+            {"key": "collect_mist", "label": "收集池边灵雾", "description": "不触碰龙威，只凝取外围稀薄药液。", "risk": "稳妥", "base_chance": 100, "success": {"damage": [4, 8], "douqi": [48, 72], "gold": [10, 20], "danger": -1, "drops": {"ancient_dragon_saliva": 28, "dragon_blood_branch": 12}}},
+            {"key": "dive_shallow", "label": "潜入浅池", "description": "以斗气抵抗龙威，采集较完整的古龙涎。", "risk": "均衡", "base_chance": 55, "success": {"damage": [13, 21], "douqi": [94, 142], "gold": [38, 68], "danger": 4, "drops": {"ancient_dragon_saliva": 74, "dragon_blood_branch": 36, "taixu_dragon_scale": 12}}, "failure": {"damage": [39, 56], "douqi": [14, 28], "danger": 6}},
+            {"key": "dragon_bone", "label": "探查池底龙骨", "description": "直面残存龙威，争取古龙鳞与高阶奇药。", "risk": "凶险", "base_chance": 36, "success": {"damage": [22, 35], "douqi": [142, 214], "gold": [72, 118], "danger": 7, "drops": {"ancient_dragon_saliva": 100, "taixu_dragon_scale": 38, "nine_leaf_reincarnation_grass": 18}}, "failure": {"damage": [58, 80], "douqi": [18, 36], "danger": 9}},
+        ],
+    },
+    "void_stone_chamber": {
+        "title": "虚空石室",
+        "story": "石室悬在空间乱流之间，墙体由陨星铁与空间晶石共同支撑。",
+        "choices": [
+            {"key": "outer_wall", "label": "剥离外墙残材", "description": "保持退路，回收松动的陨铁碎片。", "risk": "稳妥", "base_chance": 100, "success": {"damage": [4, 9], "douqi": [50, 76], "gold": [14, 26], "danger": -1, "drops": {"meteorite_iron": 78, "space_stone": 24}}},
+            {"key": "repair_array", "label": "修复空间阵纹", "description": "修复一处阵眼，换取完整空间石。", "risk": "均衡", "base_chance": 53, "success": {"damage": [14, 23], "douqi": [100, 150], "gold": [42, 74], "danger": 4, "drops": {"space_stone": 82, "meteorite_iron": 68, "void_spirit_leaf": 24}}, "failure": {"damage": [42, 60], "douqi": [15, 30], "danger": 7}},
+            {"key": "void_core", "label": "闯入虚空核心", "description": "穿越乱流争夺石室阵心中的空间宝物。", "risk": "凶险", "base_chance": 34, "success": {"damage": [24, 38], "douqi": [152, 228], "gold": [78, 128], "danger": 8, "drops": {"space_stone": 100, "void_spirit_leaf": 52, "black_demon_cauldron_replica": 3}}, "failure": {"damage": [62, 84], "douqi": [20, 40], "danger": 10}},
+        ],
+    },
+    "reincarnation_garden": {
+        "title": "轮回古药园",
+        "story": "九片颜色各异的药圃围绕古泉生长，灵魂感知在这里被不断拉扯。",
+        "choices": [
+            {"key": "outer_leaves", "label": "采集外围药叶", "description": "不靠近古泉，只采成熟的温魂药材。", "risk": "稳妥", "base_chance": 100, "success": {"damage": [3, 8], "douqi": [54, 82], "gold": [12, 24], "danger": -1, "drops": {"soul_warming_lotus": 62, "star_mist_grass": 70}}},
+            {"key": "break_puppet", "label": "破解守园药傀", "description": "击败药傀，进入中层药圃采摘轮回草。", "risk": "均衡", "base_chance": 51, "success": {"damage": [15, 24], "douqi": [106, 160], "gold": [46, 80], "danger": 5, "drops": {"nine_leaf_reincarnation_grass": 66, "emperor_flow_serum": 44, "soul_warming_lotus": 72}}, "failure": {"damage": [45, 64], "douqi": [16, 32], "danger": 7}},
+            {"key": "ancient_spring", "label": "汲取轮回古泉", "description": "顶住灵魂冲击，争夺药园最珍贵的成熟奇药。", "risk": "凶险", "base_chance": 32, "success": {"damage": [25, 40], "douqi": [162, 242], "gold": [82, 136], "danger": 9, "drops": {"nine_leaf_reincarnation_grass": 100, "emperor_flow_serum": 72, "bodhi_seed": 32, "ancient_dragon_saliva": 28}}, "failure": {"damage": [66, 88], "douqi": [22, 44], "danger": 11}},
         ],
     },
 }

@@ -65,6 +65,7 @@ class DoupoInventoryItem(Base):
     __table_args__ = (
         UniqueConstraint("tg", "item_key", name="uq_doupo_inventory_tg_item"),
         Index("ix_doupo_inventory_tg_category", "tg", "category"),
+        Index("ix_doupo_inventory_tg_equipped", "tg", "equipped_slot"),
         Index("ix_doupo_inventory_updated", "updated_at"),
     )
 
@@ -75,9 +76,56 @@ class DoupoInventoryItem(Base):
     name = Column(String(128), nullable=False)
     rarity = Column(String(32), nullable=True)
     quantity = Column(Integer, default=0, nullable=False)
+    equipped_slot = Column(String(32), nullable=True)
     item_meta = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class DoupoItemDefinition(Base):
+    __tablename__ = "doupo_item_definitions"
+    __table_args__ = (
+        Index("ix_doupo_item_definitions_category", "category", "enabled"),
+        Index("ix_doupo_item_definitions_updated", "updated_at"),
+    )
+
+    item_key = Column(String(64), primary_key=True)
+    name = Column(String(128), nullable=False)
+    category = Column(String(32), nullable=False)
+    rarity = Column(String(32), nullable=False)
+    description = Column(Text, nullable=True)
+    icon = Column(String(512), nullable=True)
+    tradable = Column(Boolean, default=False, nullable=False)
+    stack_limit = Column(Integer, default=9999, nullable=False)
+    equipment_slot = Column(String(32), nullable=True)
+    attack = Column(Integer, default=0, nullable=False)
+    defense = Column(Integer, default=0, nullable=False)
+    agility = Column(Integer, default=0, nullable=False)
+    fire_bonus = Column(Integer, default=0, nullable=False)
+    alchemy_bonus = Column(Integer, default=0, nullable=False)
+    recipe_config = Column(JSON, nullable=True)
+    drop_sources = Column(JSON, nullable=True)
+    version = Column(Integer, default=1, nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
+    is_builtin = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class DoupoItemDefinitionVersion(Base):
+    __tablename__ = "doupo_item_definition_versions"
+    __table_args__ = (
+        UniqueConstraint("item_key", "version", name="uq_doupo_item_version"),
+        Index("ix_doupo_item_versions_key_created", "item_key", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    item_key = Column(String(64), nullable=False)
+    version = Column(Integer, nullable=False)
+    snapshot = Column(JSON, nullable=False)
+    change_note = Column(String(255), nullable=True)
+    created_by = Column(BigInteger, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
 
 
 class DoupoEconomyLedger(Base):

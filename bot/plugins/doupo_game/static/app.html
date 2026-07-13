@@ -72,6 +72,13 @@
 
       <div class="hero-side">
         <div id="feedback-chip" class="feedback-chip hidden"></div>
+        <div id="hero-admin-entry" class="hero-admin hidden">
+          <div class="hero-admin-copy">
+            <span class="hero-admin-label">大陆执事入口</span>
+            <p>管理员默认停留在游戏页，需要调整玩家、行动和全局参数时再进入后台。</p>
+          </div>
+          <button id="open-admin-panel" type="button" class="ghost">打开斗破后台</button>
+        </div>
         <div class="hero-metrics">
           <article>
             <span>斗气</span>
@@ -153,6 +160,7 @@
           <span class="summary-tip">丹药、药材、魔核、异火、斗技、功法与装备</span>
         </summary>
         <div class="fold-body">
+          <div id="equipment-summary" class="equipment-summary"></div>
           <div id="inventory-summary" class="inventory-summary"></div>
           <div id="inventory-groups" class="inventory-groups"></div>
         </div>
@@ -227,12 +235,25 @@
         <summary class="fold-summary">
           <div>
             <p class="eyebrow">进阶</p>
-            <h2>炼药突破</h2>
+            <h2>炼药与突破</h2>
           </div>
           <span class="summary-tip">炼药、服丹与冲击瓶颈</span>
         </summary>
         <div class="fold-body">
           <div id="actions-growth" class="action-section-grid"></div>
+        </div>
+      </details>
+
+      <details id="action-card-craft" class="card fold-card">
+        <summary class="fold-summary">
+          <div>
+            <p class="eyebrow">炼器</p>
+            <h2>炼器工坊</h2>
+          </div>
+          <span class="summary-tip">矿材、皮骨与金币打造长期收藏</span>
+        </summary>
+        <div class="fold-body">
+          <div id="actions-craft" class="action-section-grid"></div>
         </div>
       </details>
 
@@ -338,6 +359,12 @@
       </details>
     </div>
   </main>
+
+  <div class="fab-container">
+    <button id="fab-admin" class="fab admin-fab hidden" type="button" title="斗破管理后台" aria-label="打开斗破管理后台">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14,12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7.1 7.1 0 0 0-1.62-.94l-.36-2.54A.49.49 0 0 0 13.89,2h-3.84a.49.49 0 0 0-.49.41L9.2,4.95c-.59.24-1.13.56-1.62.94l-2.39-.96a.49.49 0 0 0-.61.22L2.66,8.47a.5.5 0 0 0 .12.64l2.03,1.58c-.05.3-.09.65-.09.97s.03.64.08.94l-2.03,1.58a.5.5 0 0 0-.12.64l1.92,3.32c.12.22.38.29.61.22l2.39-.96c.49.38 1.03.7 1.62.94l.36,2.54c.05.24.25.41.49.41h3.84c.24 0 .45-.17.49-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.23.08.49 0 .61-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.02-1.58ZM12,15.5A3.5,3.5 0 1,1 12,8a3.5,3.5 0 0,1 0,7.5Z"/></svg>
+    </button>
+  </div>
 
   <nav id="bottom-nav" class="bottom-nav"></nav>
 
